@@ -2,9 +2,11 @@ package com.diving.pungdong.repo.lecture;
 
 import com.diving.pungdong.domain.account.Account;
 import com.diving.pungdong.domain.lecture.Lecture;
+import com.diving.pungdong.dto.lecture.list.search.FilterSearchCondition;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -12,7 +14,12 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
-public interface LectureJpaRepo extends JpaRepository<Lecture, Long>, LectureJpaRepoCustom {
+public interface LectureJpaRepo extends JpaRepository<Lecture, Long>, JpaSpecificationExecutor<Lecture> {
+
+    default Page<Lecture> searchListByCondition(FilterSearchCondition condition, Pageable pageable) {
+        return findAll(LectureSpecifications.matching(condition), pageable);
+    }
+
     Page<Lecture> findByRegion(String region, Pageable pageable);
 
     Page<Lecture> findByInstructor(Account instructor, Pageable pageable);
