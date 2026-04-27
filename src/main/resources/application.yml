@@ -46,14 +46,6 @@ logging:
 
 
 
-eureka:
-  instance:
-    prefer-ip-address: true
-    ip-address: 3.35.148.71
-  client:
-    service-url:
-      defaultZone: http://13.209.209.29:8761/eureka/
-
 cloud.aws.s3.bucket: pungdong
 cloud.aws.region.static: ap-northeast-2
 cloud.aws.stack.auto: false
