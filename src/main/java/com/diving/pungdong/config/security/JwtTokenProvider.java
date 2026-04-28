@@ -35,6 +35,10 @@ public class JwtTokenProvider {
         secretKey = Base64.getEncoder().encodeToString(secretKey.getBytes());
     }
 
+    public int getAccessTokenValiditySeconds() {
+        return (int) (tokenValidMilisecond / 1000);
+    }
+
     public String createAccessToken(String userPk, Set<Role> roles) {
 //        Claims claims = Jwts.claims().setSubject(userPk);
         Claims claims = Jwts.claims();
