@@ -7,7 +7,6 @@ import com.diving.pungdong.domain.account.Role;
 import com.diving.pungdong.dto.account.update.ForgotPasswordInfo;
 import com.diving.pungdong.repo.AccountJpaRepo;
 import com.diving.pungdong.service.account.AccountService;
-import com.diving.pungdong.service.kafka.AccountKafkaProducer;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -51,9 +50,6 @@ class AccountServiceTest {
 
     @Mock
     private PasswordEncoder passwordEncoder;
-
-    @Mock
-    private AccountKafkaProducer accountKafkaProducer;
 
     @Mock
     private EmailService emailService;

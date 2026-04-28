@@ -2,7 +2,7 @@
 
 프리 다이빙 강사와 수강생을 온라인으로 매칭시켜주는 서비스의 백엔드 API. 강사가 강의/스케줄을 개설하고, 수강생이 예약, 후기까지 한 곳에서.
 
-> **2026-04월부터 진행 중인 단순화 작업.** 외부 OAuth 서버 / Eureka / QueryDSL / Spring Cloud Hoxton 모두 제거됨. Kafka는 곧 제거 예정 (Phase 2-C). 단계별 진행 현황과 의도는 [CLAUDE.md](CLAUDE.md) 참고.
+> **2026-04월부터 진행 중인 단순화 작업.** 외부 OAuth 서버 / Eureka / QueryDSL / Spring Cloud Hoxton / Kafka 모두 제거됨. 알림은 in-process Spring Events + DB outbox + 워커 + FCM 으로 직결. 단계별 진행 현황과 의도는 [CLAUDE.md](CLAUDE.md) 참고.
 
 ## 아키텍처 (현재 상태)
 
@@ -79,7 +79,7 @@ JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew test
 ```
 ✅ Phase 0  Boot 2.3 → 2.7, JDK 11 → 17, Gradle 6 → 7, QueryDSL/Eureka 제거
 ✅ Phase 1  외부 Auth Server 흡수, SecurityFilterChain, 시크릿 외부화
-🔄 Phase 2  Kafka → Spring Events + Outbox + FCM (현재 진행)
+🔄 Phase 2  Kafka → Spring Events + Outbox + FCM (2-A/B/C 완료, 2-D outbox cleanup 남음)
    Phase 3  Elasticsearch 제거 결정 (트래픽 측정 후)
    Phase 4  배포 재설계 (Docker / ECS / WIF 등)
    Phase 5  CI/CD 재설계 (staging/prod 분리)
