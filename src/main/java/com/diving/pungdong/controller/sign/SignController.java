@@ -19,8 +19,8 @@ import com.diving.pungdong.dto.account.signUp.SignUpResult;
 import com.diving.pungdong.dto.auth.AuthToken;
 import com.diving.pungdong.model.SuccessResult;
 import com.diving.pungdong.service.account.AccountService;
+import com.diving.pungdong.service.account.FirebaseTokenService;
 import com.diving.pungdong.service.InstructorCertificateService;
-import com.diving.pungdong.service.kafka.AccountKafkaProducer;
 import lombok.*;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -55,7 +55,7 @@ public class SignController {
     private final JwtTokenProvider jwtTokenProvider;
     private final RedisTemplate<String, String> redisTemplate;
     private final InstructorCertificateService instructorCertificateService;
-    private final AccountKafkaProducer accountKafkaProducer;
+    private final FirebaseTokenService firebaseTokenService;
 
     @PostMapping("/check/email")
     public ResponseEntity<?> checkEmailExistence(@RequestBody EmailInfo emailInfo) {
@@ -118,7 +118,7 @@ public class SignController {
             throw new BadRequestException();
         }
 
-        accountKafkaProducer.sendFirebaseTokenInfo(String.valueOf(account.getId()), firebaseTokenDto.getToken());
+        firebaseTokenService.register(account, firebaseTokenDto.getToken(), null);
 
         return ResponseEntity.noContent().build();
     }
