@@ -3,6 +3,7 @@ package com.diving.pungdong.controller.sign;
 import com.diving.pungdong.advice.exception.BadRequestException;
 import com.diving.pungdong.advice.exception.SignInInputException;
 import com.diving.pungdong.config.security.CurrentUser;
+import com.diving.pungdong.config.security.JwtTokenProvider;
 import com.diving.pungdong.domain.account.Account;
 import com.diving.pungdong.dto.account.emailCheck.EmailInfo;
 import com.diving.pungdong.dto.account.emailCheck.EmailResult;
@@ -18,7 +19,6 @@ import com.diving.pungdong.dto.account.signUp.SignUpResult;
 import com.diving.pungdong.dto.auth.AuthToken;
 import com.diving.pungdong.model.SuccessResult;
 import com.diving.pungdong.service.account.AccountService;
-import com.diving.pungdong.service.AuthService;
 import com.diving.pungdong.service.InstructorCertificateService;
 import com.diving.pungdong.service.kafka.AccountKafkaProducer;
 import lombok.*;
@@ -40,6 +40,7 @@ import javax.validation.Valid;
 import javax.validation.constraints.NotEmpty;
 import java.io.IOException;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.linkTo;
@@ -51,7 +52,7 @@ import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
 @RequestMapping(value = "/sign", produces = MediaTypes.HAL_JSON_VALUE)
 public class SignController {
     private final AccountService accountService;
-    private final AuthService authService;
+    private final JwtTokenProvider jwtTokenProvider;
     private final RedisTemplate<String, String> redisTemplate;
     private final InstructorCertificateService instructorCertificateService;
     private final AccountKafkaProducer accountKafkaProducer;
@@ -87,7 +88,19 @@ public class SignController {
         Account account = accountService.findAccountByEmail(signInInfo.getEmail());
         accountService.checkCorrectPassword(signInInfo.getPassword(), account);
 
-        AuthToken authToken = authService.getAuthToken(String.valueOf(account.getId()), signInInfo.getPassword());
+        String accessToken = jwtTokenProvider.createAccessToken(
+                String.valueOf(account.getId()), account.getRoles());
+        String refreshToken = jwtTokenProvider.createRefreshToken(
+                String.valueOf(account.getId()));
+
+        AuthToken authToken = AuthToken.builder()
+                .access_token(accessToken)
+                .refresh_token(refreshToken)
+                .token_type("bearer")
+                .scope("read")
+                .expires_in(jwtTokenProvider.getAccessTokenValiditySeconds())
+                .jti(UUID.randomUUID().toString())
+                .build();
 
         WebMvcLinkBuilder selfLinkBuilder = linkTo(methodOn(SignController.class).login(signInInfo, result));
         EntityModel<AuthToken> entityModel = EntityModel.of(authToken);
