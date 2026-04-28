@@ -1,4 +1,6 @@
 spring:
+  jwt:
+    secret: test-only-secret-not-for-production-do-not-rotate
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.elasticsearch.ElasticsearchRestClientAutoConfiguration
@@ -22,3 +24,7 @@ spring:
 
 elasticsearch:
   uri: http://localhost:9200
+
+AdminMail:
+  id: test@example.invalid
+  password: test-only-password

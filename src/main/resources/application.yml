@@ -23,7 +23,7 @@ spring:
       max-file-size: 20MB
       max-request-size: 20MB
 
-  jwt.secret: jwt_secret_key
+  jwt.secret: ${JWT_SECRET}
 
 logging:
   level:
@@ -66,5 +66,5 @@ mail:
       port: 465
 
 AdminMail:
-  id: pungdong773@gmail.com
-  password: pungdong1974@@
+  id: ${ADMIN_MAIL_ID}
+  password: ${ADMIN_MAIL_PASSWORD}
