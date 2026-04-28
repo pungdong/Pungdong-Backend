@@ -9,7 +9,7 @@ import com.diving.pungdong.domain.account.Role;
 import com.diving.pungdong.dto.account.emailCheck.EmailResult;
 import com.diving.pungdong.service.InstructorCertificateService;
 import com.diving.pungdong.service.account.AccountService;
-import com.diving.pungdong.service.kafka.AccountKafkaProducer;
+import com.diving.pungdong.service.account.FirebaseTokenService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;
@@ -58,7 +58,7 @@ class AuthUseCaseTest {
 
     @MockBean AccountService accountService;
     @MockBean InstructorCertificateService instructorCertificateService;
-    @MockBean AccountKafkaProducer accountKafkaProducer;
+    @MockBean FirebaseTokenService firebaseTokenService;
 
     private String encodedKey() {
         return Base64.getEncoder().encodeToString(rawSecret.getBytes());

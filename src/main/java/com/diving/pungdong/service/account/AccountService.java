@@ -28,7 +28,6 @@ import com.diving.pungdong.service.EmailService;
 import com.diving.pungdong.dto.account.read.AccountBasicInfo;
 import com.diving.pungdong.service.LectureService;
 import com.diving.pungdong.service.elasticSearch.LectureEsService;
-import com.diving.pungdong.service.kafka.AccountKafkaProducer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -53,7 +52,6 @@ public class AccountService implements UserDetailsService {
     private final AccountJpaRepo accountJpaRepo;
     private final EmailService emailService;
     private final PasswordEncoder passwordEncoder;
-    private final AccountKafkaProducer producer;
     private final ProfilePhotoService profilePhotoService;
     private final LectureService lectureService;
     private final LectureEsService lectureEsService;
@@ -122,8 +120,6 @@ public class AccountService implements UserDetailsService {
                 .profilePhoto(profilePhoto)
                 .build();
         Account savedStudent = accountJpaRepo.save(student);
-
-        producer.sendAccountInfo(savedStudent);
 
         return SignUpResult.builder()
                 .email(savedStudent.getEmail())
@@ -198,8 +194,6 @@ public class AccountService implements UserDetailsService {
         account.getRoles().add(Role.INSTRUCTOR);
         accountJpaRepo.save(account);
 
-        producer.sendAccountInfo(account);
-
         return account;
     }
 
@@ -234,9 +228,7 @@ public class AccountService implements UserDetailsService {
         account.setGender(updateInfo.getGender());
         account.setPhoneNumber(updateInfo.getPhoneNumber());
 
-        Account updatedAccount = accountJpaRepo.save(account);
-
-        producer.sendAccountUpdateInfo(updatedAccount);
+        accountJpaRepo.save(account);
     }
 
     public void updateNickName(Account account, String nickName) {
@@ -245,18 +237,14 @@ public class AccountService implements UserDetailsService {
         lectureEsService.updateInstructorNickName(account, nickName);
 
         account.setNickName(nickName);
-        Account updatedAccount = accountJpaRepo.save(account);
-
-        producer.sendAccountUpdateInfo(updatedAccount);
+        accountJpaRepo.save(account);
     }
 
     public void updatePassword(Account account, PasswordUpdateInfo passwordUpdateInfo) {
         checkCorrectPassword(passwordUpdateInfo.getCurrentPassword(), account);
 
         account.setPassword(passwordEncoder.encode(passwordUpdateInfo.getNewPassword()));
-        Account updatedAccount = accountJpaRepo.save(account);
-
-        producer.sendAccountUpdateInfo(updatedAccount);
+        accountJpaRepo.save(account);
     }
 
     public void deleteAccount(Account account, String password) {
@@ -292,8 +280,6 @@ public class AccountService implements UserDetailsService {
         Account account = findAccountByEmail(email);
 
         account.setPassword(passwordEncoder.encode(forgotPasswordInfo.getNewPassword()));
-        Account updatedAccount = accountJpaRepo.save(account);
-
-        producer.sendAccountUpdateInfo(updatedAccount);
+        accountJpaRepo.save(account);
     }
 }
