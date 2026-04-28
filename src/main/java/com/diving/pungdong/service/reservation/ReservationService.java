@@ -13,6 +13,9 @@ import com.diving.pungdong.domain.schedule.Schedule;
 import com.diving.pungdong.domain.schedule.ScheduleDateTime;
 import com.diving.pungdong.domain.schedule.ScheduleEquipment;
 import com.diving.pungdong.domain.schedule.ScheduleEquipmentStock;
+import com.diving.pungdong.domain.notification.event.LectureNotificationEvent;
+import com.diving.pungdong.domain.notification.event.ReservationCancelledEvent;
+import com.diving.pungdong.domain.notification.event.ReservationCreatedEvent;
 import com.diving.pungdong.dto.reservation.ReservationCreateInfo;
 import com.diving.pungdong.dto.reservation.detail.PaymentDetail;
 import com.diving.pungdong.dto.reservation.detail.RentEquipmentDetail;
@@ -25,9 +28,9 @@ import com.diving.pungdong.dto.schedule.notification.Notification;
 import com.diving.pungdong.repo.reservation.ReservationJpaRepo;
 import com.diving.pungdong.service.LectureService;
 import com.diving.pungdong.service.PaymentService;
-import com.diving.pungdong.service.kafka.ReservationKafkaProducer;
 import com.diving.pungdong.service.schedule.ScheduleService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -49,7 +52,7 @@ public class ReservationService {
     private final ReservationEquipmentService reservationEquipmentService;
     private final PaymentService paymentService;
     private final LectureService lectureService;
-    private final ReservationKafkaProducer reservationKafkaProducer;
+    private final ApplicationEventPublisher eventPublisher;
 
     public Reservation saveReservation(Account account, ReservationCreateInfo reservationCreateInfo) {
         Schedule schedule = scheduleService.findScheduleById(reservationCreateInfo.getScheduleId());
@@ -74,11 +77,14 @@ public class ReservationService {
 
         reservationEquipmentService.saveReservationEquipmentList(reservationCreateInfo, savedReservation);
 
-        reservationKafkaProducer.sendEnrollReservationEvent(
-                account,
-                schedule.getLecture().getInstructor(),
-                schedule.getLecture(),
-                schedule);
+        eventPublisher.publishEvent(ReservationCreatedEvent.builder()
+                .instructorAccountId(schedule.getLecture().getInstructor().getId())
+                .studentAccountId(account.getId())
+                .lectureId(schedule.getLecture().getId())
+                .scheduleId(schedule.getId())
+                .studentNickname(account.getNickName())
+                .lectureTitle(schedule.getLecture().getTitle())
+                .build());
 
         return savedReservation;
     }
@@ -186,11 +192,14 @@ public class ReservationService {
         Schedule schedule = reservation.getSchedule();
         scheduleService.minusScheduleReservationNumber(schedule, reservation.getNumberOfPeople());
 
-        reservationKafkaProducer.sendCancelReservationEvent(
-                account,
-                schedule.getLecture().getInstructor(),
-                schedule,
-                schedule.getLecture());
+        eventPublisher.publishEvent(ReservationCancelledEvent.builder()
+                .instructorAccountId(schedule.getLecture().getInstructor().getId())
+                .studentAccountId(account.getId())
+                .lectureId(schedule.getLecture().getId())
+                .scheduleId(schedule.getId())
+                .studentNickname(account.getNickName())
+                .lectureTitle(schedule.getLecture().getTitle())
+                .build());
 
         reservationJpaRepo.deleteById(reservation.getId());
     }
@@ -212,12 +221,17 @@ public class ReservationService {
         lectureService.checkLectureCreator(account, schedule.getLecture().getId());
 
         List<Reservation> reservations = reservationJpaRepo.findBySchedule(schedule);
-        List<String> applicantIds = new ArrayList<>();
+        List<Long> applicantIds = new ArrayList<>();
         for (Reservation reservation : reservations) {
-            applicantIds.add(String.valueOf(reservation.getAccount().getId()));
+            applicantIds.add(reservation.getAccount().getId());
         }
 
-        reservationKafkaProducer.sendLectureNotification(applicantIds, notification, schedule.getLecture().getId());
+        eventPublisher.publishEvent(LectureNotificationEvent.builder()
+                .lectureId(schedule.getLecture().getId())
+                .recipientAccountIds(applicantIds)
+                .title(notification.getTitle())
+                .body(notification.getBody())
+                .build());
     }
 
     @Transactional(readOnly = true)
