@@ -3,7 +3,6 @@ package com.diving.pungdong.dto.reservation.detail;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
-import org.springframework.retry.annotation.Backoff;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
