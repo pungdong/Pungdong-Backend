@@ -14,4 +14,6 @@ public interface NotificationOutboxJpaRepo extends JpaRepository<NotificationOut
             List<NotificationStatus> statuses,
             LocalDateTime now,
             Pageable pageable);
+
+    int deleteByStatusAndCreatedAtBefore(NotificationStatus status, LocalDateTime threshold);
 }
