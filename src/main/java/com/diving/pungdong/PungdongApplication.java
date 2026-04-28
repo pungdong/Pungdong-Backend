@@ -5,8 +5,6 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.scheduling.annotation.EnableScheduling;
-import org.springframework.kafka.support.converter.RecordMessageConverter;
-import org.springframework.kafka.support.converter.StringJsonMessageConverter;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -17,11 +15,9 @@ public class PungdongApplication {
     public static final String APPLICATION_LOCATIONS = "spring.config.location="
             + "classpath:application.yml,"
             + "classpath:database.yml,"
-            + "classpath:kafka.yml,"
             + "classpath:redis.yml,"
             + "classpath:aws.yml,"
             + "/home/ubuntu/config/project/pungdong/database.yml,"
-            + "/home/ubuntu/config/project/pungdong/kafka.yml,"
             + "/home/ubuntu/config/project/pungdong/redis.yml,"
             + "/home/ubuntu/config/project/pungdong/aws.yml";
 
@@ -40,10 +36,4 @@ public class PungdongApplication {
     public ModelMapper modelMapper() {
         return new ModelMapper();
     }
-
-    @Bean
-    public RecordMessageConverter converter() {
-        return new StringJsonMessageConverter();
-    }
-
 }
