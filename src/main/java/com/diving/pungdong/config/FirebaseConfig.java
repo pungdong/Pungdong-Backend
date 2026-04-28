@@ -15,10 +15,10 @@ import java.io.IOException;
 
 @Slf4j
 @Configuration
-@ConditionalOnProperty(name = "firebase.credentials.path")
+@ConditionalOnProperty(name = "firebase.enabled", havingValue = "true")
 public class FirebaseConfig {
 
-    @Value("${firebase.credentials.path}")
+    @Value("${firebase.credentials.path:}")
     private String credentialsPath;
 
     @Bean
@@ -26,18 +26,27 @@ public class FirebaseConfig {
         if (!FirebaseApp.getApps().isEmpty()) {
             return FirebaseApp.getInstance();
         }
-        try (FileInputStream stream = new FileInputStream(credentialsPath)) {
-            FirebaseOptions options = FirebaseOptions.builder()
-                    .setCredentials(GoogleCredentials.fromStream(stream))
-                    .build();
-            FirebaseApp app = FirebaseApp.initializeApp(options);
-            log.info("Firebase Admin SDK initialised from {}", credentialsPath);
-            return app;
-        }
+
+        GoogleCredentials credentials = loadCredentials();
+        FirebaseOptions options = FirebaseOptions.builder()
+                .setCredentials(credentials)
+                .build();
+        return FirebaseApp.initializeApp(options);
     }
 
     @Bean
     public FirebaseMessaging firebaseMessaging(FirebaseApp firebaseApp) {
         return FirebaseMessaging.getInstance(firebaseApp);
+    }
+
+    private GoogleCredentials loadCredentials() throws IOException {
+        if (credentialsPath != null && !credentialsPath.isBlank()) {
+            try (FileInputStream stream = new FileInputStream(credentialsPath)) {
+                log.info("Firebase Admin SDK initialised from service account key {}", credentialsPath);
+                return GoogleCredentials.fromStream(stream);
+            }
+        }
+        log.info("Firebase Admin SDK initialised from Application Default Credentials (ADC)");
+        return GoogleCredentials.getApplicationDefault();
     }
 }
