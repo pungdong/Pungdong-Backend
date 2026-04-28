@@ -4,36 +4,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`pungdong` (풍덩) is the legacy Spring Boot backend for a freediving instructor ↔ student lecture/reservation matching service. Spring application name is `msa-legacy-service` — this service registers with a Eureka discovery server and is one piece of a larger MSA, not a standalone monolith.
+`pungdong` (풍덩) is the Spring Boot backend for a freediving instructor ↔ student lecture/reservation matching service. The Spring application name is still `msa-legacy-service` (the name predates the in-progress consolidation), but the service no longer registers with Eureka and is being merged toward a single self-contained Boot jar. One external dependency remains: the OAuth2 authorization server at `${authorization-server.host}` is still called from `AuthService.getAuthToken` for login token issuance — this is scheduled for absorption in Phase 1.
 
-Stack: Spring Boot 2.3.10, Java 11, Gradle, JPA + QueryDSL, MySQL (prod) / H2 (test), Spring Security + JWT, Redis, Kafka, Spring Data Elasticsearch, Spring HATEOAS, Spring Cloud Netflix Eureka client, Spring Cloud AWS (S3), Spring REST Docs (Asciidoctor).
+Stack: Spring Boot **2.7.18**, Java **17**, Gradle **7.6.4**, JPA + Spring Data Specifications, MySQL (prod) / H2 (test), Spring Security 5.7 + JWT, Redis, Kafka, Spring Data Elasticsearch, Spring HATEOAS, `io.awspring.cloud:spring-cloud-starter-aws:2.4.4` (community fork; AWS SDK v1 path used by `S3Uploader`), Spring REST Docs (Asciidoctor 2.4).
 
 ## Commands
 
-Build, test, generate docs (REST Docs → `build/generated-snippets` → asciidoctor → `static/docs` inside the boot jar):
+The user has multiple JDKs installed; tests must run on JDK 17. Prefix each gradle invocation:
+
 ```
-./gradlew build
+JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew test
 ```
 
-Tests only (JUnit 5 platform):
+Build, test, generate docs (REST Docs → `build/generated-snippets` → asciidoctor → `static/docs` inside the boot jar):
 ```
-./gradlew test
+JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew build
 ```
 
 Single test class / method:
 ```
-./gradlew test --tests com.diving.pungdong.controller.account.AccountControllerTest
-./gradlew test --tests com.diving.pungdong.controller.account.AccountControllerTest.<methodName>
+JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew test --tests com.diving.pungdong.controller.account.AccountControllerTest
+JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew test --tests com.diving.pungdong.controller.account.AccountControllerTest.<methodName>
 ```
 
-Regenerate QueryDSL Q-classes (output: `build/generated/querydsl`, added to `main` source set):
+Run locally (also requires the missing yml files — see Runtime configuration):
 ```
-./gradlew compileQuerydsl
-```
-
-Run locally:
-```
-./gradlew bootRun
+JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew bootRun
 ```
 
 Note: `bootJar` depends on `asciidoctor` which depends on `test`, so `./gradlew build` will fail the artifact step if any test fails. Use `./gradlew bootJar -x test -x asciidoctor` only when intentionally skipping docs.
@@ -45,32 +41,38 @@ Note: `bootJar` depends on `asciidoctor` which depends on `test`, so `./gradlew 
 - Classpath: `application.yml`, `database.yml`, `kafka.yml`, `redis.yml`, `aws.yml`
 - Filesystem (production EC2 only): `/home/ubuntu/config/project/pungdong/{database,kafka,redis,aws}.yml`
 
-Only `application.yml` is checked into `src/main/resources` — `database.yml`, `kafka.yml`, `redis.yml`, `aws.yml` are intentionally absent and supplied at deploy time. If you need to run locally end-to-end you must create these classpath files yourself; otherwise prefer the test profile.
+Only `application.yml` is checked into `src/main/resources` — `database.yml`, `kafka.yml`, `redis.yml`, `aws.yml` are intentionally absent and were supplied at deploy time. The prod EC2 host is currently offline; running `bootRun` end-to-end requires creating these files locally. Otherwise prefer the test profile.
 
-`application.yml` references a Eureka server and an external authorization server by hard-coded IP. This service is not designed to start in isolation — expect Eureka registration attempts at boot.
+`application.yml` still references the external authorization server by hardcoded IP (`authorization-server.host`) and contains plaintext secrets (Gmail SMTP password, JWT secret, OAuth client secret). Externalization + rotation is scheduled for Phase 1.
 
 ## Test setup
 
-- Active profile: `test` (`@ActiveProfiles("test")`) — loads `src/test/resources/application-test.yml` which switches the datasource to in-memory H2 with `MySQL5InnoDBDialect` overridden to H2.
-- Redis: tests use an **embedded Redis server** (`it.ozimov:embedded-redis`) started by `EmbeddedRedisConfig` on the port from `spring.redis.port` (6379 by default — kill any local Redis on that port first, or change the port in `application-test.yml`).
-- Controller tests follow the pattern `@SpringBootTest + @AutoConfigureMockMvc + @AutoConfigureRestDocs + @Import(RestDocsConfiguration.class)` with services replaced via `@MockBean`. They are responsible for emitting REST Docs snippets — when adding a new controller test, include `document(...)` calls so the generated documentation in `src/docs/asciidoc/api.adoc` stays complete.
+- Active profile: `test` (`@ActiveProfiles("test")`) — loads `src/test/resources/application-test.yml` which switches the datasource to in-memory H2 (the prod `MySQL5InnoDBDialect` is overridden to `H2Dialect` here).
+- Redis: tests use an **embedded Redis server** (`com.github.codemonstur:embedded-redis:1.4.3`, the maintained arm64-compatible fork) started by `EmbeddedRedisConfig` on the port from `spring.redis.port` (6379 by default — kill any local Redis on that port first, or change the port in `application-test.yml`).
+- Elasticsearch: **gated off in test profile**. `ElasticSearchConfig` is `@Profile("!test")`, three Boot ES auto-configs are excluded in `application-test.yml`, and `TestElasticSearchConfig` provides a Mockito-mocked `LectureEsRepo` so `LectureEsService` (which is real in many test contexts) can still autowire its dependency. **Do not "fix" this** — it's an intentional scaffold being torn down in Phase 3 when ES is removed entirely. The existing `LectureControllerTest > ElasticSearch에 강의 데이터 저장` test now passes against a mock and is essentially useless until Phase 3 — that's accepted.
+- Controller tests follow the pattern `@SpringBootTest + @AutoConfigureMockMvc + @AutoConfigureRestDocs + @Import(RestDocsConfiguration.class) [+ EmbeddedRedisConfig.class]` with services replaced via `@MockBean`. They emit REST Docs snippets — when adding a new controller test, include `document(...)` calls so the generated documentation in `src/docs/asciidoc/api.adoc` stays complete.
+- The `AuthUseCaseTest` (`src/test/java/com/diving/pungdong/usecase/`) is a Phase 1 safety net of 10 use-case scenarios that run against the real Spring Security filter chain (no `@MockBean` for auth). When changing anything in `JwtTokenProvider`, `JwtAuthenticationFilter`, `SecurityConfiguration`, or auth flow controllers, **expect this test to catch regressions**. Two intentional quirks in this file:
+  - `L1: 로그아웃 후에도 같은 access token으로 보호된 API 통과` captures the **current logout no-op** (the filter does not check the Redis blacklist that `/sign/logout` writes to). When Phase 1/2 wires up the blacklist check, this test must be **consciously updated** (assertion + `@DisplayName`), not silently fixed.
+  - The class carries `@AutoConfigureRestDocs` + `RestDocsConfiguration` import only as a context-cache-merging hack to share the embedded-Redis instance with `SignControllerTest`. Do not delete those annotations until Phase 0.6/0.8 wrap-up addresses the root cause (random port or Testcontainers).
 
 ## Code layout
 
 Standard Spring layered architecture under `com.diving.pungdong`:
 
 - `controller/` — REST endpoints, organized by feature (`account/`, `lecture/`, `schedule/`, `reservation/`, `review/`, `equipment/`, `location/`, `lectureImage/`, `profilePhoto/`, `sign/`).
-- `service/` — business logic, mirroring controller features. Sub-packages exist for cross-cutting concerns: `service/kafka/` (producers/consumers + their DTOs), `service/elasticSearch/`, `service/image/`.
-- `repo/` — Spring Data JPA repositories plus QueryDSL custom impls (`*RepoCustom` / `*RepoImpl` pattern). `repo/elasticSearch/` holds `ElasticsearchRepository` interfaces.
+- `service/` — business logic, mirroring controller features. Sub-packages exist for cross-cutting concerns: `service/kafka/` (producers/consumers + their DTOs — scheduled for removal in Phase 2), `service/elasticSearch/` (scheduled for removal in Phase 3), `service/image/` (S3 upload via AWS SDK v1).
+- `repo/` — Spring Data JPA repositories. Dynamic queries use **`JpaSpecificationExecutor` + a sibling `*Specifications` utility class** (e.g. `LectureSpecifications`); QueryDSL was removed in Phase 0.4. `repo/elasticSearch/` holds an `ElasticsearchRepository` interface that won't be instantiated under the `test` profile (see Test setup).
 - `domain/` — JPA entities grouped by aggregate (`account/`, `lecture/`, `schedule/`, `reservation/`, `payment/`, `review/`, `equipment/`, `location/`). `domain/lecture/elasticSearch/` holds the `@Document` projections indexed in ES.
 - `dto/` — request/response DTOs. **Convention**: `dto/<feature>/<operation>/` (e.g. `dto/lecture/create/`, `dto/account/signUp/`). Add new DTOs to the matching operation folder; create a new one if needed.
-- `config/` — Spring `@Configuration` beans (Redis, Elasticsearch, email, HTTP client, i18n message source). `config/security/` holds `SecurityConfiguration`, `JwtTokenProvider`, `JwtAuthenticationFilter`, `CurrentUser` (custom `@AuthenticationPrincipal` annotation), `UserAccount` (UserDetails wrapper).
+- `config/` — Spring `@Configuration` beans (Redis, Elasticsearch, email, HTTP client, i18n message source). `config/security/` holds `SecurityConfiguration` (still extends the **deprecated** `WebSecurityConfigurerAdapter` — migration to `SecurityFilterChain` bean is scheduled with the Phase 1 auth absorption), `JwtTokenProvider`, `JwtAuthenticationFilter`, `CurrentUser` (custom `@AuthenticationPrincipal` annotation), `UserAccount` (`UserDetails` wrapper).
 - `advice/` — `@RestControllerAdvice` exception handling. Custom exceptions live in `advice/exception/`; user-facing messages are looked up via `MessageSource` against `src/main/resources/i18n/exception*.yml` (configured via `yaml-resource-bundle`).
 - `model/` — `CommonResult` / `SingleResult<T>` / `ListResult<T>` / `SuccessResult` envelope types returned to clients. Build them through `ResponseService`.
 
 ## Security model
 
-JWT-based, stateless (`SessionCreationPolicy.STATELESS`). `JwtAuthenticationFilter` runs before `UsernamePasswordAuthenticationFilter`. URL → role mapping is centralized in `SecurityConfiguration.configure(HttpSecurity)` — when adding a new endpoint, update the matchers there. Roles in use: `ADMIN`, `INSTRUCTOR`, plus authenticated default. Several public endpoints (lecture browsing, sign-up/login, email code, password reset, exception lookup) are explicitly `permitAll`. Inject the current user via `@CurrentUser Account` rather than reading from `SecurityContextHolder` directly.
+JWT-based, stateless (`SessionCreationPolicy.STATELESS`). `JwtAuthenticationFilter` runs before `UsernamePasswordAuthenticationFilter`. URL → role mapping is centralized in `SecurityConfiguration.configure(HttpSecurity)` — when adding a new endpoint, update the matchers there. Roles: `ADMIN`, `INSTRUCTOR`, `STUDENT` (the default for new sign-ups). Several public endpoints (lecture browsing, sign-up/login, email code, password reset, exception lookup) are explicitly `permitAll`. Inject the current user via `@CurrentUser Account` rather than reading from `SecurityContextHolder` directly.
+
+Auth failures redirect (302) to `/exception/entrypoint`; access denials redirect to `/exception/accessDenied`. These endpoints are mapped in `ExceptionController` and translate into JSON via `ExceptionAdvice`. This is unusual for a JSON API — a switch to direct 401/403 responses is on the table for the Phase 1 auth absorption.
 
 ## Docs
 
@@ -78,4 +80,6 @@ REST Docs source: `src/docs/asciidoc/api.adoc` (Korean). The `bootJar` task copi
 
 ## Deployment
 
-GitHub Actions (`.github/workflows/deploy.yml`) builds on push to `master`, zips the workspace, uploads to S3 (`s3://pungdong-legacy/action_codedeploy/`), and triggers AWS CodeDeploy (application `pungdong`, group `dev`). On the EC2 host, `scripts/deploy.sh` (run via `appspec.yml` `AfterInstall` hook) kills the previous `pungdong-legacy` Java process and `nohup`s the new jar. Do not push to master casually — it deploys.
+**There is no auto-deploy workflow currently.** The original `.github/workflows/deploy.yml` (S3 + CodeDeploy + EC2 `nohup java -jar`) was removed in PR #1 because the target infrastructure is offline and will be replaced in Phase 2 (Docker/ECS or systemd, TBD). `master` pushes do not trigger anything. A new workflow will be introduced when the deploy target exists.
+
+`scripts/deploy.sh` and `appspec.yml` are leftover from the old deploy and are not currently invoked by anything; don't rely on them as a guide.
