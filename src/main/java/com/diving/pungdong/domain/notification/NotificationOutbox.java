@@ -79,6 +79,12 @@ public class NotificationOutbox {
         }
     }
 
+    public void markGaveUp(String reason) {
+        this.attempts += 1;
+        this.status = NotificationStatus.GAVE_UP;
+        this.lastError = truncate(reason);
+    }
+
     private String truncate(String s) {
         if (s == null) return null;
         return s.length() > 1024 ? s.substring(0, 1024) : s;
