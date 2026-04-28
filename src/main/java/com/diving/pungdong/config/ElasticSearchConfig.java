@@ -14,7 +14,7 @@ import org.springframework.data.elasticsearch.repository.config.EnableElasticsea
 @Profile("!test")
 @EnableElasticsearchRepositories(basePackages = "com.diving.pungdong.repo.elasticSearch")
 public class ElasticSearchConfig {
-    @org.springframework.beans.factory.annotation.Value("${elasticsearch.uri:https://search-pungdong-lecture-byx4ncvp46qtssndxinvzwbgwa.ap-northeast-2.es.amazonaws.com:443}")
+    @org.springframework.beans.factory.annotation.Value("${elasticsearch.uri}")
     private String esUri;
 
     @Bean
