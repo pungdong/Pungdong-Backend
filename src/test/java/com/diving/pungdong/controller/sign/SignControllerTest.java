@@ -20,10 +20,8 @@ import com.diving.pungdong.dto.account.nickNameCheck.NickNameResult;
 import com.diving.pungdong.dto.account.signIn.SignInInfo;
 import com.diving.pungdong.dto.account.signUp.SignUpInfo;
 import com.diving.pungdong.dto.account.signUp.SignUpResult;
-import com.diving.pungdong.dto.auth.AuthToken;
 import com.diving.pungdong.model.SuccessResult;
 import com.diving.pungdong.service.account.AccountService;
-import com.diving.pungdong.service.AuthService;
 import com.diving.pungdong.service.InstructorCertificateService;
 import com.diving.pungdong.service.kafka.AccountKafkaProducer;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -90,9 +88,6 @@ class SignControllerTest {
 
     @MockBean
     AccountService accountService;
-
-    @MockBean
-    AuthService authService;
 
     @MockBean
     InstructorCertificateService instructorCertificateService;
@@ -279,16 +274,6 @@ class SignControllerTest {
                 .roles(Set.of(Role.STUDENT))
                 .build();
 
-        AuthToken authToken = AuthToken.builder()
-                .access_token("accessToken")
-                .refresh_token("refreshToken")
-                .token_type("tokenType")
-                .scope("read")
-                .expires_in(10000)
-                .jti("jti")
-                .build();
-
-        given(authService.getAuthToken(String.valueOf(account.getId()), signInInfo.getPassword())).willReturn(authToken);
         given(accountService.findAccountByEmail(signInInfo.getEmail())).willReturn(account);
 
         mockMvc.perform(post("/sign/login")

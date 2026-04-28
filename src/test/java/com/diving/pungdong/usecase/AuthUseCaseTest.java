@@ -7,7 +7,6 @@ import com.diving.pungdong.config.security.UserAccount;
 import com.diving.pungdong.domain.account.Account;
 import com.diving.pungdong.domain.account.Role;
 import com.diving.pungdong.dto.account.emailCheck.EmailResult;
-import com.diving.pungdong.service.AuthService;
 import com.diving.pungdong.service.InstructorCertificateService;
 import com.diving.pungdong.service.account.AccountService;
 import com.diving.pungdong.service.kafka.AccountKafkaProducer;
@@ -58,7 +57,6 @@ class AuthUseCaseTest {
     String rawSecret;
 
     @MockBean AccountService accountService;
-    @MockBean AuthService authService;
     @MockBean InstructorCertificateService instructorCertificateService;
     @MockBean AccountKafkaProducer accountKafkaProducer;
 
