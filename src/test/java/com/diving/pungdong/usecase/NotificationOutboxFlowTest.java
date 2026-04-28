@@ -177,6 +177,53 @@ class NotificationOutboxFlowTest {
     }
 
     @Test
+    @DisplayName("Retention: deleteByStatusAndCreatedAtBefore는 오래된 SENT만 지우고 FAILED/GAVE_UP 및 최근 SENT는 보존")
+    void retention_deletesOnlyOldSentRows() {
+        Account recipient = persistAccount("recipient@test.com");
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime old = now.minusDays(40);
+        LocalDateTime recent = now.minusDays(5);
+
+        outboxRepo.save(buildOutbox(recipient, NotificationStatus.SENT, old, "old-sent"));
+        outboxRepo.save(buildOutbox(recipient, NotificationStatus.SENT, recent, "recent-sent"));
+        outboxRepo.save(buildOutbox(recipient, NotificationStatus.FAILED, old, "old-failed"));
+        outboxRepo.save(buildOutbox(recipient, NotificationStatus.GAVE_UP, old, "old-gave-up"));
+        assertThat(outboxRepo.findAll()).hasSize(4);
+
+        LocalDateTime threshold = now.minusDays(30);
+        int deleted = transactionTemplate.execute(status ->
+                outboxRepo.deleteByStatusAndCreatedAtBefore(NotificationStatus.SENT, threshold));
+
+        assertThat(deleted).isEqualTo(1);
+        List<NotificationOutbox> remaining = outboxRepo.findAll();
+        assertThat(remaining).hasSize(3);
+        assertThat(remaining)
+                .extracting(NotificationOutbox::getStatus)
+                .containsExactlyInAnyOrder(
+                        NotificationStatus.SENT,
+                        NotificationStatus.FAILED,
+                        NotificationStatus.GAVE_UP);
+        assertThat(remaining)
+                .filteredOn(r -> r.getStatus() == NotificationStatus.SENT)
+                .singleElement()
+                .extracting(NotificationOutbox::getCreatedAt)
+                .matches(t -> ((LocalDateTime) t).isAfter(threshold));
+    }
+
+    private NotificationOutbox buildOutbox(Account recipient, NotificationStatus status,
+                                           LocalDateTime createdAt, String marker) {
+        return NotificationOutbox.builder()
+                .type(NotificationType.RESERVATION_CREATED)
+                .recipientAccountId(recipient.getId())
+                .payload("{\"title\":\"" + marker + "\",\"body\":\"x\"}")
+                .status(status)
+                .attempts(0)
+                .nextAttemptAt(createdAt)
+                .createdAt(createdAt)
+                .build();
+    }
+
+    @Test
     @DisplayName("FirebaseToken upsert: 같은 token을 다른 account로 등록하면 account_id가 갱신됨 (행 추가 X)")
     void firebaseToken_upsertOnExistingToken() {
         Account first = persistAccount("first@test.com");
