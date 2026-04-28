@@ -23,7 +23,7 @@ import com.diving.pungdong.dto.account.signUp.SignUpResult;
 import com.diving.pungdong.model.SuccessResult;
 import com.diving.pungdong.service.account.AccountService;
 import com.diving.pungdong.service.InstructorCertificateService;
-import com.diving.pungdong.service.kafka.AccountKafkaProducer;
+import com.diving.pungdong.service.account.FirebaseTokenService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -93,7 +93,7 @@ class SignControllerTest {
     InstructorCertificateService instructorCertificateService;
 
     @MockBean
-    AccountKafkaProducer producer;
+    FirebaseTokenService firebaseTokenService;
 
     public Account createAccount(Role role) {
         Account account = Account.builder()
