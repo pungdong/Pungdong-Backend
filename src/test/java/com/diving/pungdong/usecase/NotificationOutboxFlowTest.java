@@ -14,19 +14,27 @@ import com.diving.pungdong.repo.FirebaseTokenJpaRepo;
 import com.diving.pungdong.repo.notification.NotificationOutboxJpaRepo;
 import com.diving.pungdong.service.account.FirebaseTokenService;
 import com.diving.pungdong.service.notification.NotificationDeliveryWorker;
+import com.diving.pungdong.service.notification.fcm.FcmGateway;
+import com.diving.pungdong.service.notification.fcm.FcmGateway.SendResult;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.BDDMockito.given;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -40,8 +48,11 @@ class NotificationOutboxFlowTest {
     @Autowired AccountJpaRepo accountRepo;
     @Autowired TransactionTemplate transactionTemplate;
 
-    private void inTransaction(Runnable work) {
-        transactionTemplate.executeWithoutResult(status -> work.run());
+    @MockBean FcmGateway fcmGateway;
+
+    @BeforeEach
+    void defaultGatewaySuccess() {
+        given(fcmGateway.send(any(), any(), any(), any())).willReturn(SendResult.SUCCESS);
     }
 
     @AfterEach
@@ -62,20 +73,25 @@ class NotificationOutboxFlowTest {
                 .build());
     }
 
+    private void publishReservationCreated(Account instructor, Account student) {
+        transactionTemplate.executeWithoutResult(s ->
+                eventPublisher.publishEvent(ReservationCreatedEvent.builder()
+                        .instructorAccountId(instructor.getId())
+                        .studentAccountId(student.getId())
+                        .lectureId(100L)
+                        .scheduleId(200L)
+                        .studentNickname(student.getNickName())
+                        .lectureTitle("프리다이빙 입문")
+                        .build()));
+    }
+
     @Test
-    @DisplayName("ReservationCreatedEvent 발행 시 outbox에 instructor 수신 PENDING 행이 생성됨")
+    @DisplayName("ReservationCreatedEvent 발행 시 outbox에 instructor 수신 PENDING 행이 생성됨 (payload는 title/body 구조)")
     void reservationCreatedEvent_writesOutboxRowForInstructor() {
         Account instructor = persistAccount("instructor@test.com");
         Account student = persistAccount("student@test.com");
 
-        inTransaction(() -> eventPublisher.publishEvent(ReservationCreatedEvent.builder()
-                .instructorAccountId(instructor.getId())
-                .studentAccountId(student.getId())
-                .lectureId(100L)
-                .scheduleId(200L)
-                .studentNickname("student-nick")
-                .lectureTitle("프리다이빙 입문")
-                .build()));
+        publishReservationCreated(instructor, student);
 
         List<NotificationOutbox> rows = outboxRepo.findAll();
         assertThat(rows).hasSize(1);
@@ -83,31 +99,81 @@ class NotificationOutboxFlowTest {
         assertThat(row.getType()).isEqualTo(NotificationType.RESERVATION_CREATED);
         assertThat(row.getRecipientAccountId()).isEqualTo(instructor.getId());
         assertThat(row.getStatus()).isEqualTo(NotificationStatus.PENDING);
-        assertThat(row.getAttempts()).isZero();
         assertThat(row.getPayload()).contains("프리다이빙 입문");
+        assertThat(row.getPayload()).contains("\"title\"");
+        assertThat(row.getPayload()).contains("\"body\"");
     }
 
     @Test
-    @DisplayName("발송 워커가 PENDING 행을 SENT로 전환 (Phase 2-A 스텁 동작)")
-    void deliveryWorker_marksPendingAsSent() {
-        Account instructor = persistAccount("instructor2@test.com");
-        Account student = persistAccount("student2@test.com");
-        inTransaction(() -> eventPublisher.publishEvent(ReservationCreatedEvent.builder()
-                .instructorAccountId(instructor.getId())
-                .studentAccountId(student.getId())
-                .lectureId(101L)
-                .scheduleId(201L)
-                .studentNickname("nick")
-                .lectureTitle("강의")
-                .build()));
-
+    @DisplayName("발송 워커: 토큰 등록된 수신자, FCM 성공 → SENT")
+    void deliveryWorker_marksSent_whenFcmSucceeds() {
+        Account instructor = persistAccount("instructor@test.com");
+        Account student = persistAccount("student@test.com");
+        firebaseTokenService.register(instructor, "device-token-A", DeviceType.ANDROID);
+        publishReservationCreated(instructor, student);
         Long outboxId = outboxRepo.findAll().get(0).getId();
 
         deliveryWorker.deliver(outboxId);
 
-        NotificationOutbox afterDelivery = outboxRepo.findById(outboxId).orElseThrow();
-        assertThat(afterDelivery.getStatus()).isEqualTo(NotificationStatus.SENT);
-        assertThat(afterDelivery.getSentAt()).isNotNull();
+        NotificationOutbox after = outboxRepo.findById(outboxId).orElseThrow();
+        assertThat(after.getStatus()).isEqualTo(NotificationStatus.SENT);
+        assertThat(after.getSentAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("발송 워커: 수신자에게 등록된 토큰이 없으면 즉시 GAVE_UP")
+    void deliveryWorker_givesUp_whenRecipientHasNoTokens() {
+        Account instructor = persistAccount("instructor@test.com");
+        Account student = persistAccount("student@test.com");
+        publishReservationCreated(instructor, student);
+        Long outboxId = outboxRepo.findAll().get(0).getId();
+
+        deliveryWorker.deliver(outboxId);
+
+        NotificationOutbox after = outboxRepo.findById(outboxId).orElseThrow();
+        assertThat(after.getStatus()).isEqualTo(NotificationStatus.GAVE_UP);
+        assertThat(after.getLastError()).contains("no registered firebase tokens");
+    }
+
+    @Test
+    @DisplayName("발송 워커: FCM 영구 실패(UNREGISTERED 등) → 토큰 삭제 + GAVE_UP")
+    void deliveryWorker_deletesToken_onPermanentFailure() {
+        Account instructor = persistAccount("instructor@test.com");
+        Account student = persistAccount("student@test.com");
+        firebaseTokenService.register(instructor, "dead-token", DeviceType.ANDROID);
+        publishReservationCreated(instructor, student);
+        Long outboxId = outboxRepo.findAll().get(0).getId();
+
+        given(fcmGateway.send(eq("dead-token"), any(), any(), any()))
+                .willReturn(SendResult.PERMANENT_FAILURE);
+
+        deliveryWorker.deliver(outboxId);
+
+        NotificationOutbox after = outboxRepo.findById(outboxId).orElseThrow();
+        assertThat(after.getStatus()).isEqualTo(NotificationStatus.GAVE_UP);
+        assertThat(firebaseTokenRepo.findByToken("dead-token")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("발송 워커: FCM 일시 실패 → 토큰 보존 + FAILED + next_attempt_at 미래로 스케줄")
+    void deliveryWorker_schedulesRetry_onTransientFailure() {
+        Account instructor = persistAccount("instructor@test.com");
+        Account student = persistAccount("student@test.com");
+        firebaseTokenService.register(instructor, "flaky-token", DeviceType.ANDROID);
+        publishReservationCreated(instructor, student);
+        Long outboxId = outboxRepo.findAll().get(0).getId();
+        LocalDateTime before = LocalDateTime.now();
+
+        given(fcmGateway.send(eq("flaky-token"), any(), any(), any()))
+                .willReturn(SendResult.TRANSIENT_FAILURE);
+
+        deliveryWorker.deliver(outboxId);
+
+        NotificationOutbox after = outboxRepo.findById(outboxId).orElseThrow();
+        assertThat(after.getStatus()).isEqualTo(NotificationStatus.FAILED);
+        assertThat(after.getAttempts()).isEqualTo(1);
+        assertThat(after.getNextAttemptAt()).isAfter(before);
+        assertThat(firebaseTokenRepo.findByToken("flaky-token")).isPresent();
     }
 
     @Test
