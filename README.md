@@ -65,14 +65,25 @@ flowchart LR
 
 ## 개발 시작하기
 
-상세 가이드는 **[CLAUDE.md](CLAUDE.md)** 참고. 핵심:
+상세 가이드는 **[CLAUDE.md](CLAUDE.md)** 참고. 빠른 시작:
 
 ```bash
-# JDK 17 사용 + .env.local 셋업 (.env.example 참고)
+# 1) 로컬 의존성 (MySQL + Redis + Elasticsearch) 띄우기
+docker compose up -d
+
+# 2) 외부 yml 파일 1회 카피 (실제 값은 본인 환경에 맞춰 수정 가능)
+cp src/main/resources/database.yml.example src/main/resources/database.yml
+cp src/main/resources/redis.yml.example    src/main/resources/redis.yml
+cp src/main/resources/aws.yml.example      src/main/resources/aws.yml
+
+# 3) 테스트 실행 (도커 + yml 카피 없이도 동작 — H2 + 임베디드 Redis)
 JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew test
+
+# 4) 로컬 서버 부팅 (도커 + yml + .env.local 필요)
+JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew bootRun
 ```
 
-> **참고**: `bootRun`(로컬 서버 띄우기)은 `database.yml` / `kafka.yml` / `redis.yml` / `aws.yml` 파일이 있어야 동작. 운영 EC2에서만 가지던 파일들이라 로컬 셋업이 무거움. Phase 4 (배포 재설계) 시 단순화 예정. 현재는 **테스트 실행 (`./gradlew test`) 위주**로 작업.
+테스트는 `application-test.yml` + 임베디드 Redis로 자체 완결. 도커 + yml 카피는 `bootRun`(실제 서버 띄우기)에 필요. `.env.local` 셋업은 `.env.example` 참고.
 
 ## 진행 중인 단순화 phase
 

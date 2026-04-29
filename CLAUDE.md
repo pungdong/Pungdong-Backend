@@ -27,10 +27,16 @@ JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew test --tests com.diving.pung
 JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew test --tests com.diving.pungdong.controller.account.AccountControllerTest.<methodName>
 ```
 
-Run locally (also requires the missing yml files — see Runtime configuration):
+Run locally (one-time setup of Docker dependencies + yml files — see Runtime configuration):
 ```
+docker compose up -d
+cp src/main/resources/database.yml.example src/main/resources/database.yml
+cp src/main/resources/redis.yml.example    src/main/resources/redis.yml
+cp src/main/resources/aws.yml.example      src/main/resources/aws.yml
 JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew bootRun
 ```
+
+`bootRun` requires direnv-loaded env vars (`JWT_SECRET`, `ADMIN_MAIL_ID`, `ADMIN_MAIL_PASSWORD`, `ELASTICSEARCH_URI`). See `.env.example`. If unset, Spring fail-fasts on placeholder resolution at boot.
 
 Note: `bootJar` depends on `asciidoctor` which depends on `test`, so `./gradlew build` will fail the artifact step if any test fails. Use `./gradlew bootJar -x test -x asciidoctor` only when intentionally skipping docs.
 
@@ -38,12 +44,14 @@ Note: `bootJar` depends on `asciidoctor` which depends on `test`, so `./gradlew 
 
 `PungdongApplication` explicitly sets `spring.config.location` to load **multiple YAML files** beyond the default `application.yml`:
 
-- Classpath: `application.yml`, `database.yml`, `kafka.yml`, `redis.yml`, `aws.yml`
-- Filesystem (production EC2 only): `/home/ubuntu/config/project/pungdong/{database,kafka,redis,aws}.yml`
+- Classpath (required): `application.yml`, `database.yml`, `redis.yml`, `aws.yml`
+- Filesystem (`optional:file:`, prod-only): `/home/ubuntu/config/project/pungdong/{database,redis,aws}.yml`
 
-Only `application.yml` is checked into `src/main/resources` — `database.yml`, `kafka.yml`, `redis.yml`, `aws.yml` are intentionally absent and were supplied at deploy time. The prod EC2 host is currently offline; running `bootRun` end-to-end requires creating these files locally. Otherwise prefer the test profile.
+`application.yml` is committed. `database.yml` / `redis.yml` / `aws.yml` are gitignored — `.example` siblings are committed and copied via the `cp ... .example ...` commands above for local dev. The filesystem entries use `optional:file:` prefix so they can be missing locally without breaking boot; in production those paths exist and override the local copies.
 
-`application.yml` still references the external authorization server by hardcoded IP (`authorization-server.host`) and contains plaintext secrets (Gmail SMTP password, JWT secret, OAuth client secret). Externalization + rotation is scheduled for Phase 1.
+Secrets (`spring.jwt.secret`, `AdminMail.id`, `AdminMail.password`, `elasticsearch.uri`) are externalized to env vars — see `.env.example` and `.env.local` (loaded by direnv). Fail-fast on missing vars at boot.
+
+The local Docker stack (`docker compose up -d`) provides MySQL 8 (port 3306, db `pungdong`, user `pungdong/pungdongpw`), Redis 7 (port 6379), and Elasticsearch 7.17 (port 9200, security disabled). Spring connects via the values in the example yml files. Hibernate `hbm2ddl.auto: update` (in `application.yml`) auto-creates tables on first connect.
 
 ## Test setup
 
