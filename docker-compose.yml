@@ -1,0 +1,72 @@
+# 로컬 개발용 도커 컴포즈. MySQL + Redis 만 띄움.
+# Spring Boot 자체는 host에서 ./gradlew bootRun 으로 직접 실행 (IDE 디버거 사용 + 빠른 핫리로드).
+#
+# 사용법:
+#   docker compose up -d         # 백그라운드 시작
+#   docker compose ps            # 상태 확인 (MySQL healthy 까지 5~10초 걸림)
+#   docker compose logs -f mysql # MySQL 로그 실시간
+#   docker compose down          # 정지 + 컨테이너 삭제 (볼륨은 유지)
+#   docker compose down -v       # 볼륨까지 삭제 (DB 데이터 통째 날아감)
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: pungdong-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpw
+      MYSQL_DATABASE: pungdong
+      MYSQL_USER: pungdong
+      MYSQL_PASSWORD: pungdongpw
+      TZ: Asia/Seoul
+    ports:
+      - "3306:3306"
+    volumes:
+      - pungdong-mysql-data:/var/lib/mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpw"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: pungdong-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - pungdong-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Spring Data Elasticsearch 4.4 (Boot 2.7) targets ES 7.x. ES 8.x 미지원.
+  # 보안 비활성화는 로컬 dev 한정. Phase 3 ES 제거 결정 시 이 서비스도 같이 제거.
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.22
+    container_name: pungdong-elasticsearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms256m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - pungdong-es-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9200/_cluster/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  pungdong-mysql-data:
+  pungdong-redis-data:
+  pungdong-es-data:
