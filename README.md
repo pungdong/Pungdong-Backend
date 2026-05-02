@@ -65,25 +65,65 @@ flowchart LR
 
 ## 개발 시작하기
 
-상세 가이드는 **[CLAUDE.md](CLAUDE.md)** 참고. 빠른 시작:
+상세 가이드는 **[CLAUDE.md](CLAUDE.md)** 참고.
+
+### 최초 1회 셋업
+
+| 항목 | 명령 / 위치 |
+|---|---|
+| OrbStack (또는 Docker Desktop) 설치 | `brew install --cask orbstack` |
+| direnv 설치 (env vars 자동 로드용) | `brew install direnv` + `~/.zshrc` 에 `eval "$(direnv hook zsh)"` 추가 |
+| 외부 yml 카피 | `cp src/main/resources/{database,redis,aws}.yml.example src/main/resources/{database,redis,aws}.yml` |
+| `.env.local` 작성 | `.env.example` 참고. `direnv allow` 까지 |
+
+### 일상 dev 흐름
 
 ```bash
-# 1) 로컬 의존성 (MySQL + Redis + Elasticsearch) 띄우기
+# 의존성 (MySQL + Redis + Elasticsearch) — 한번 띄우면 며칠 그대로
 docker compose up -d
 
-# 2) 외부 yml 파일 1회 카피 (실제 값은 본인 환경에 맞춰 수정 가능)
-cp src/main/resources/database.yml.example src/main/resources/database.yml
-cp src/main/resources/redis.yml.example    src/main/resources/redis.yml
-cp src/main/resources/aws.yml.example      src/main/resources/aws.yml
-
-# 3) 테스트 실행 (도커 + yml 카피 없이도 동작 — H2 + 임베디드 Redis)
-JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew test
-
-# 4) 로컬 서버 부팅 (도커 + yml + .env.local 필요)
+# 백엔드 띄우기 (다른 터미널)
 JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew bootRun
+# Ctrl+C 로 종료
 ```
 
-테스트는 `application-test.yml` + 임베디드 Redis로 자체 완결. 도커 + yml 카피는 `bootRun`(실제 서버 띄우기)에 필요. `.env.local` 셋업은 `.env.example` 참고.
+`Started PungdongApplication` 로그가 마지막에 뜨고 터미널이 멈춰있으면 정상. 다른 터미널에서:
+```bash
+curl -X POST http://localhost:8080/sign/check/email \
+  -H "Content-Type: application/json" -d '{"email":"a@b.com"}'
+# → {"existed":false, ...}
+```
+
+### Docker 명령어
+
+```bash
+docker compose ps                # 컨테이너 상태 확인
+docker compose logs -f mysql     # MySQL 로그 실시간 (서비스명 변경 가능)
+docker compose stop              # 정지 (데이터 유지)
+docker compose down              # 정지 + 컨테이너 삭제 (볼륨/데이터 유지)
+docker compose down -v           # 볼륨까지 삭제 (DB 초기화)
+docker compose restart mysql     # 한 서비스만 재시작
+```
+
+DB 직접 접속:
+```bash
+docker compose exec mysql mysql -upungdong -ppungdongpw pungdong
+docker compose exec redis redis-cli
+```
+
+### Gradle 명령어
+
+```bash
+# 매번 JAVA_HOME 입력 귀찮으면 ~/.zshrc 에 한 줄:
+#   alias gw='JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew'
+
+JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew test         # 전체 테스트 (도커 / yml 불필요 — 임베디드 H2 + Redis)
+JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew bootRun      # 로컬 서버
+JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew clean test   # 캐시 비우고 테스트
+JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew test --tests com.diving.pungdong.usecase.AuthUseCaseTest
+```
+
+> **참고**: 테스트는 `application-test.yml` + 임베디드 Redis로 자체 완결 — 도커 / yml 카피 / env vars 없어도 동작. 도커 + yml + `.env.local` 은 `bootRun`(실제 서버) 에만 필요.
 
 ## 진행 중인 단순화 phase
 
