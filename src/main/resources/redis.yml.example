@@ -1,0 +1,8 @@
+# 로컬 개발용 Redis 연결. 도커 컴포즈에서 띄운 컨테이너 가정.
+# 사용:
+#   cp src/main/resources/redis.yml.example src/main/resources/redis.yml
+
+spring:
+  redis:
+    host: localhost
+    port: 6379
