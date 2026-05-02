@@ -1,0 +1,11 @@
+# 로컬 개발용 MySQL 연결. 도커 컴포즈에서 띄운 컨테이너 가정.
+# 실제 사용:
+#   cp src/main/resources/database.yml.example src/main/resources/database.yml
+# database.yml 자체는 .gitignore'd (실제 운영 자격증명을 위해).
+
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/pungdong?characterEncoding=UTF-8&serverTimezone=Asia/Seoul&useSSL=false&allowPublicKeyRetrieval=true
+    username: pungdong
+    password: pungdongpw
+    driver-class-name: com.mysql.cj.jdbc.Driver

@@ -1,0 +1,14 @@
+# 로컬 개발용 AWS 자격증명. S3 실제 사용 안 할 때 더미값으로 부팅만 통과시킴.
+# 이미지 업로드 기능 직접 테스트하려면 본인 IAM 사용자 자격증명 또는 LocalStack 설정.
+# 사용:
+#   cp src/main/resources/aws.yml.example src/main/resources/aws.yml
+
+cloud:
+  aws:
+    credentials:
+      access-key: dummy-local-key
+      secret-key: dummy-local-secret
+    stack:
+      auto: false
+    region:
+      static: ap-northeast-2
