@@ -130,13 +130,32 @@ public class SignController {
             throw new SignInInputException();
         }
 
-        SignUpResult signUpResult = accountService.saveAccountInfo(signUpInfo);
+        Account saved = accountService.saveAccountInfo(signUpInfo);
+
+        // 가입과 동시에 로그인 — 클라이언트가 별도 /sign/login 호출 불필요
+        String accessToken = jwtTokenProvider.createAccessToken(
+                String.valueOf(saved.getId()), saved.getRoles());
+        String refreshToken = jwtTokenProvider.createRefreshToken(
+                String.valueOf(saved.getId()));
+        AuthToken tokens = AuthToken.builder()
+                .access_token(accessToken)
+                .refresh_token(refreshToken)
+                .token_type("bearer")
+                .scope("read")
+                .expires_in(jwtTokenProvider.getAccessTokenValiditySeconds())
+                .jti(UUID.randomUUID().toString())
+                .build();
+
+        SignUpResult signUpResult = SignUpResult.builder()
+                .email(saved.getEmail())
+                .nickName(saved.getNickName())
+                .tokens(tokens)
+                .build();
 
         EntityModel<SignUpResult> model = EntityModel.of(signUpResult);
         WebMvcLinkBuilder selfLinkBuilder = linkTo(methodOn(SignController.class).signUp(signUpInfo, result));
         model.add(selfLinkBuilder.withSelfRel());
         model.add(Link.of("/docs/api.html#resource-account-create").withRel("profile"));
-        model.add(linkTo(methodOn(SignController.class).login(new SignInInfo(signUpInfo.getEmail(), signUpInfo.getPassword()), result)).withRel("login"));
 
         return ResponseEntity.created(selfLinkBuilder.toUri()).body(model);
     }

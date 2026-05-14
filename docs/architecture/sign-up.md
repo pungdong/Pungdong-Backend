@@ -4,7 +4,7 @@
 
 이메일 / 비밀번호 / 닉네임만 받고 즉시 **STUDENT** 권한으로 가입 완료. 본인인증(CI) 은 가입 단계가 아니라 **예약 직전 / 강사 등록 시점** 으로 분리한다 (PR #17 에서 정착).
 
-가입 직후 같은 자격으로 `/sign/login` 에 던지면 access / refresh JWT 가 떨어진다.
+**가입 응답에 access / refresh 토큰이 같이 떨어진다 (auto-login)** — 클라이언트는 별도 `/sign/login` 호출 없이 즉시 인증 상태로 진입.
 
 ---
 
@@ -79,8 +79,11 @@ sequenceDiagram
     Svc->>DB: INSERT account<br/>provider=EMAIL · role=STUDENT<br/>+ @PrePersist 기본값 (isDeleted=false 등)
     DB-->>Svc: Account{id}
 
-    Svc-->>Ctrl: SignUpResult{email, nickName}
-    Ctrl-->>C: 201 Created<br/>+ HATEOAS (self / profile / login)
+    Svc-->>Ctrl: Account{id, ...}
+
+    Note over Ctrl: 가입과 동시에 토큰 발급 (auto-login)
+    Ctrl->>Ctrl: createAccessToken / createRefreshToken
+    Ctrl-->>C: 201 Created<br/>{email, nickName,<br/>tokens: {access_token, refresh_token, ...}}<br/>+ HATEOAS (self / profile)
 ```
 
 **검증 거부 분기** (4xx 로 빠짐):
