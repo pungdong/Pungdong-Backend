@@ -244,6 +244,8 @@ erDiagram
 
 (이전에는 `/exception/entrypoint` / `/exception/accessDenied` 로 302 redirect 했으나 JSON API 클라이언트가 처리하기 어려워 직접 응답으로 변경됨.)
 
+**CORS**: `SecurityConfiguration.corsConfigurationSource` 가 `${cors.allowed-origins}` (env: `CORS_ALLOWED_ORIGINS`) 의 origin 들만 허용. dev 기본값 `http://localhost:3000,http://localhost:5173` (Next.js / Vite). `Authorization` / `Location` 헤더 노출, credentials 허용, preflight 캐시 1h.
+
 **가입 시 부여되는 역할은 `STUDENT` 단 하나.** `INSTRUCTOR` 승격은 별도 흐름:
 
 ```
