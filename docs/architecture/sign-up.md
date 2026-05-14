@@ -143,6 +143,46 @@ sequenceDiagram
 
 ---
 
+---
+
+## 흐름 3: Refresh — access token 만료 시 갱신
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as 모바일 앱
+    participant Ctrl as SignController
+    participant Jwt as JwtTokenProvider
+    participant Svc as AccountService
+    participant DB as MySQL
+
+    Note over C: 보유한 access token 만료 감지<br/>(401 응답 또는 만료 시각 추적)
+    C->>Ctrl: POST /sign/refresh {refreshToken}
+
+    Ctrl->>Jwt: validateToken(refreshToken)
+    alt 유효하지 않음 (서명 / 만료 등)
+        Jwt-->>Ctrl: false
+        Ctrl-->>C: 4xx + JSON {success:false, code:-1006,<br/>"RefreshToken이 만료되었습니다"}
+    else 유효
+        Jwt-->>Ctrl: true
+        Ctrl->>Jwt: getUserPk(refreshToken)
+        Jwt-->>Ctrl: userId
+        Ctrl->>Svc: findAccountById(userId)
+        Svc->>DB: SELECT account
+        DB-->>Svc: Account
+        Svc-->>Ctrl: Account
+        Ctrl->>Jwt: createAccessToken(id, roles)
+        Jwt-->>Ctrl: 새 access JWT (1h)
+        Ctrl->>Jwt: createRefreshToken(id)
+        Jwt-->>Ctrl: 새 refresh JWT (30h)
+        Ctrl-->>C: 200 OK<br/>{access_token, refresh_token, ...}
+    end
+```
+
+매 갱신마다 **refresh token 도 함께 회전** (rotation) — 도난된 refresh token 의 유효 기간을 짧게 유지하는 패턴.
+
+---
+
 ## 데이터 모델
 
 ```mermaid
@@ -187,8 +227,9 @@ erDiagram
 
 | 엔드포인트 | 인증 | 권한 | 비고 |
 |---|---|---|---|
-| `POST /sign/sign-up` | permitAll | — | 이 도메인의 진입점 |
+| `POST /sign/sign-up` | permitAll | — | 이 도메인의 진입점 — 응답에 토큰 동봉 (auto-login) |
 | `POST /sign/login` | permitAll | — | JWT 발급 |
+| `POST /sign/refresh` | permitAll | — | refresh token 본문 검증 → 새 토큰 쌍 발급 |
 | `POST /sign/check/email` | permitAll | — | 가입 전 중복 사전체크 |
 | `GET /sign/check/nickName` | permitAll | — | 가입 전 중복 사전체크 |
 | `POST /sign/logout` | 인증 필요 | any | **현재 no-op** — `AuthUseCaseTest.L1` 참조 |

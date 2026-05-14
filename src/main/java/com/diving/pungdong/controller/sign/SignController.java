@@ -17,6 +17,7 @@ import com.diving.pungdong.dto.account.signIn.SignInInfo;
 import com.diving.pungdong.dto.account.signUp.SignUpInfo;
 import com.diving.pungdong.dto.account.signUp.SignUpResult;
 import com.diving.pungdong.dto.auth.AuthToken;
+import com.diving.pungdong.dto.auth.RefreshRequest;
 import com.diving.pungdong.model.SuccessResult;
 import com.diving.pungdong.service.account.AccountService;
 import com.diving.pungdong.service.account.FirebaseTokenService;
@@ -108,6 +109,37 @@ public class SignController {
         entityModel.add(Link.of("/docs/api.html#resource-account-login").withRel("profile"));
 
         return ResponseEntity.ok().body(entityModel);
+    }
+
+    @PostMapping("/refresh")
+    public ResponseEntity<?> refresh(@Valid @RequestBody RefreshRequest request,
+                                     BindingResult result) {
+        if (result.hasErrors() || !jwtTokenProvider.validateToken(request.getRefreshToken())) {
+            throw new com.diving.pungdong.advice.exception.ExpiredRefreshTokenException();
+        }
+
+        String userPk = jwtTokenProvider.getUserPk(request.getRefreshToken());
+        Account account = accountService.findAccountById(Long.parseLong(userPk));
+
+        String newAccessToken = jwtTokenProvider.createAccessToken(
+                String.valueOf(account.getId()), account.getRoles());
+        String newRefreshToken = jwtTokenProvider.createRefreshToken(
+                String.valueOf(account.getId()));
+
+        AuthToken authToken = AuthToken.builder()
+                .access_token(newAccessToken)
+                .refresh_token(newRefreshToken)
+                .token_type("bearer")
+                .scope("read")
+                .expires_in(jwtTokenProvider.getAccessTokenValiditySeconds())
+                .jti(UUID.randomUUID().toString())
+                .build();
+
+        EntityModel<AuthToken> model = EntityModel.of(authToken);
+        model.add(linkTo(methodOn(SignController.class).refresh(request, result)).withSelfRel());
+        model.add(Link.of("/docs/api.html#resource-account-refresh").withRel("profile"));
+
+        return ResponseEntity.ok().body(model);
     }
 
     @PostMapping("/firebase-token")

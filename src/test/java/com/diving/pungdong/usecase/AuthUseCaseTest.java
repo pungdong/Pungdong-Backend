@@ -237,6 +237,56 @@ class AuthUseCaseTest {
     }
 
     @Test
+    @DisplayName("F1: 유효한 refresh token 으로 /sign/refresh → 새 access/refresh 토큰 발급")
+    void refresh_succeeds_withValidRefreshToken() throws Exception {
+        Account student = stubAccount(1L, Role.STUDENT);
+        given(accountService.findAccountById(1L)).willReturn(student);
+        String refreshToken = jwtTokenProvider.createRefreshToken(String.valueOf(student.getId()));
+
+        mockMvc.perform(post("/sign/refresh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"" + refreshToken + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.access_token").exists())
+                .andExpect(jsonPath("$.refresh_token").exists())
+                .andExpect(jsonPath("$.token_type").value("bearer"));
+    }
+
+    @Test
+    @DisplayName("F2: 만료된 refresh token 으로 /sign/refresh → 거부")
+    void refresh_rejectsExpiredRefreshToken() throws Exception {
+        Account student = stubAccount(1L, Role.STUDENT);
+        String expired = expiredToken(student);
+
+        mockMvc.perform(post("/sign/refresh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"" + expired + "\"}"))
+                .andExpect(status().is4xxClientError())
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    @DisplayName("F3: 잘못된 서명의 refresh token 으로 /sign/refresh → 거부")
+    void refresh_rejectsTokenWithWrongSignature() throws Exception {
+        Account student = stubAccount(1L, Role.STUDENT);
+        String wrong = tokenWithWrongSignature(student);
+
+        mockMvc.perform(post("/sign/refresh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"" + wrong + "\"}"))
+                .andExpect(status().is4xxClientError());
+    }
+
+    @Test
+    @DisplayName("F4: refreshToken 누락 시 /sign/refresh → 거부")
+    void refresh_rejectsMissingToken() throws Exception {
+        mockMvc.perform(post("/sign/refresh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"\"}"))
+                .andExpect(status().is4xxClientError());
+    }
+
+    @Test
     @DisplayName("L1: 로그아웃 후에도 같은 access token으로 보호된 API 통과 — 블랙리스트 미작동, 현재 동작 캡처")
     void logoutDoesNotInvalidateToken_currentBehavior() throws Exception {
         Account student = stubAccount(1L, Role.STUDENT);
