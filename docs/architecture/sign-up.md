@@ -232,7 +232,7 @@ erDiagram
 | `POST /sign/refresh` | permitAll | — | refresh token 본문 검증 → 새 토큰 쌍 발급 |
 | `POST /sign/check/email` | permitAll | — | 가입 전 중복 사전체크 |
 | `GET /sign/check/nickName` | permitAll | — | 가입 전 중복 사전체크 |
-| `POST /sign/logout` | 인증 필요 | any | **현재 no-op** — `AuthUseCaseTest.L1` 참조 |
+| `POST /sign/logout` | 인증 필요 | any | access + refresh 둘 다 Redis 블랙리스트 등록 → 이후 사용 시 401 (`AuthUseCaseTest.L1` / `L2`) |
 | `POST /sign/firebase-token` | 인증 필요 | any | 알림 도메인으로 빠짐 |
 
 **인증 / 권한 실패 시 응답** (JSON, 모바일/웹 클라이언트 직파싱용):

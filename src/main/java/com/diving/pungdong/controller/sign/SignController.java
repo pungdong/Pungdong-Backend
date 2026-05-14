@@ -114,7 +114,8 @@ public class SignController {
     @PostMapping("/refresh")
     public ResponseEntity<?> refresh(@Valid @RequestBody RefreshRequest request,
                                      BindingResult result) {
-        if (result.hasErrors() || !jwtTokenProvider.validateToken(request.getRefreshToken())) {
+        if (result.hasErrors() || !jwtTokenProvider.validateToken(request.getRefreshToken())
+                || "false".equals(redisTemplate.opsForValue().get(request.getRefreshToken()))) {
             throw new com.diving.pungdong.advice.exception.ExpiredRefreshTokenException();
         }
 

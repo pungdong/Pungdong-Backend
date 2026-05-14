@@ -25,11 +25,14 @@ import com.diving.pungdong.service.account.AccountService;
 import com.diving.pungdong.service.InstructorCertificateService;
 import com.diving.pungdong.service.account.FirebaseTokenService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.restdocs.AutoConfigureRestDocs;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.data.redis.connection.RedisConnection;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
@@ -85,6 +88,18 @@ class SignControllerTest {
 
     @Autowired
     JwtTokenProvider jwtTokenProvider;
+
+    @Autowired
+    RedisTemplate<String, String> redisTemplate;
+
+    /** /sign/logout 가 redis 에 남긴 블랙리스트 토큰이 같은 user id (1L) 를 쓰는 다른 테스트로 새지 않도록 매 테스트 후 flush. */
+    @AfterEach
+    void flushRedisBlacklist() {
+        redisTemplate.execute((RedisConnection conn) -> {
+            conn.flushDb();
+            return null;
+        });
+    }
 
     @MockBean
     AccountService accountService;
