@@ -130,9 +130,20 @@ The user is a solo dev running this as a side project and chose a strict PR-base
 
 - Each architectural change starts with **use-case integration tests** that exercise the real Spring Security filter chain with H2 — written BEFORE the code change. The user reviews test scenarios in plain Korean (not code) since they are Spring-beginner.
 - Existing `@MockBean`-heavy controller tests are NOT trustworthy as regression catchers — they verify HTTP wiring + REST Docs only, not business logic.
-- The `AuthUseCaseTest` (10 scenarios) and `NotificationOutboxFlowTest` (6 scenarios) under `src/test/java/com/diving/pungdong/usecase/` are the load-bearing safety nets.
+- The `AuthUseCaseTest`, `NotificationOutboxFlowTest`, `SignUpUseCaseTest` under `src/test/java/com/diving/pungdong/usecase/` are the load-bearing safety nets.
 - Each commit on a working branch: green tests required. Never `--no-verify`. Never disable a failing test to make a change pass — investigate the regression instead.
 - For things tests cannot catch (real mobile-client compatibility, real FCM/SMTP delivery, real DB migrations against prod data), explicitly tell the user "this needs manual verification."
+
+### Use-case test convention
+
+When a feature ships, write **scenario-oriented** tests under `src/test/java/com/diving/pungdong/usecase/<Feature>UseCaseTest.java`, not coverage-driven unit tests. The user is a Spring beginner and reads tests as **executable spec** — they should be able to grok the feature by reading the `@DisplayName` lines top to bottom.
+
+- **Real stack, not mocks**: `@SpringBootTest @AutoConfigureMockMvc @ActiveProfiles("test")`. Real H2, real Spring Security filter chain, real services. Only mock genuine external boundaries (`FcmGateway`, S3, third-party HTTP). Never `@MockBean` the service under test — verify final DB state via real `*JpaRepo` autowire.
+- **Avoid `EmbeddedRedisConfig` unless the feature actually exercises Redis**: importing it forces a new Spring context that competes for port 6379 with `AuthUseCaseTest` / `SignControllerTest`. `RedisTemplate` autowires lazily, so as long as the test path doesn't call Redis ops you can omit it. (Root-cause fix scheduled for Phase 0.6/0.8 — random port or Testcontainers.)
+- **`@DisplayName` is Korean prose, prefixed with a scenario code** (e.g. `S1`, `V2`, `D1`, `L1`). Group: `S*` = success/happy-path, `V*` = validation rejection, `D*` = duplicate/conflict, `L*` = login/logout interaction, `T*` = token-related, `R*` = role/authorization. Each line reads as a sentence ending with the observable outcome.
+- **One scenario = one `@Test` method**: arrange (HTTP body), act (`mockMvc.perform(...)`), assert HTTP status + assert DB state via repo. Don't squeeze multiple branches into one test.
+- **`@AfterEach` cleans up persisted rows** so tests are order-independent. Don't rely on `@Transactional` rollback for `@SpringBootTest` + MockMvc — the transaction boundary is inside the controller call, not the test method.
+- **Comments at class level**: a short Javadoc explaining "read the `@DisplayName` lines top to bottom = spec." Patterns to copy: `AuthUseCaseTest` (HTTP-level + filter chain), `NotificationOutboxFlowTest` (event/repo-level + lifecycle), `SignUpUseCaseTest` (HTTP → DB end-to-end).
 
 ### Memory & context handoff
 
