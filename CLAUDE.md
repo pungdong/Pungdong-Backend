@@ -156,17 +156,28 @@ The user maintains permanent project context in `~/.claude/projects/<this-repo-p
 
 When `application.yml` placeholders, `@Profile("!test")` annotations, or `@MockBean` on services that we can't really mock look "wrong" — check memory first. They're often deliberate.
 
-### Architectural changes update README
+### Architectural changes update README + domain docs
 
-When a PR materially changes the architecture (removes/adds a major external dependency, changes the deployment topology, swaps a storage backend), update `README.md` — specifically the **Mermaid architecture diagram** — in the same PR. The diagram is the single source of truth for newcomer orientation.
+Two layers of architecture documentation, both versioned in the repo:
 
-Examples that warrant a diagram update:
+1. **Root [README.md](README.md)** — single Mermaid diagram of the whole system. Update when the *system topology* changes (external dependencies, deployment shape, storage backends).
+2. **[docs/architecture/<domain>.md](docs/architecture/)** — per-domain zoom-in. Each file has the same shape: 한 줄 요약 / 컴포넌트 지도 / 흐름 시퀀스 / 데이터 모델 / 보안 매트릭스 / 확장 자리 / use-case 테스트 포인터. Update when *that domain's* components, flow, model, or permission matrix changes.
+
+When a PR materially changes either layer, update the relevant doc(s) **in the same PR**. The docs are the orientation surface for human reviewers (the user is a Spring beginner — diagrams help them grok the change).
+
+Examples that warrant a **root README** diagram update:
 - Removing Kafka (Phase 2-C will do this)
 - Adding/removing Elasticsearch (Phase 3 may do this)
 - Switching from EC2/CodeDeploy to Docker/ECS (Phase 4)
 - Adding a new external service (e.g. Stripe, payment processor)
 
-Examples that do NOT warrant an update:
+Examples that warrant a **domain doc** update:
+- Adding a new endpoint to a domain (changes the component map / permission matrix)
+- Changing the request payload or response shape (sequence + ER diagram)
+- Adding a new collaborating service inside the domain (component map)
+- Shifting a behavior to a different lifecycle stage (e.g. moving CI verification out of sign-up)
+
+Examples that do NOT warrant either update:
 - Internal refactors (e.g. extracting a service class)
 - Test-only infrastructure changes
 - Config file restructuring
