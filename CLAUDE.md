@@ -163,6 +163,12 @@ Two layers of architecture documentation, both versioned in the repo:
 1. **Root [README.md](README.md)** — single Mermaid diagram of the whole system. Update when the *system topology* changes (external dependencies, deployment shape, storage backends).
 2. **[docs/architecture/<domain>.md](docs/architecture/)** — per-domain zoom-in. Each file has the same shape: 한 줄 요약 / 컴포넌트 지도 / 흐름 시퀀스 / 데이터 모델 / 보안 매트릭스 / 확장 자리 / use-case 테스트 포인터. Update when *that domain's* components, flow, model, or permission matrix changes.
 
+**Per-feature requirement (durable across sessions):** every PR that ships or modifies a feature must leave its domain doc in a state where a future reader can deep-dive *without re-reading the code*. Even when the PR is rushed:
+
+- If the feature's domain already has a doc → **update it in the same PR**. Diagram changes, new endpoint rows, new event types, new state transitions — all must land together.
+- If the feature's domain doesn't have a doc yet → **create the doc as part of the PR**, following the sign-up.md / notification.md template (7 sections + use-case test pointer). A small "WIP" section is OK; a missing file is not.
+- The doc is for the user (Spring beginner running this solo). Future-them should be able to walk into the codebase cold and grok the feature from the doc → use-case tests → code in that order.
+
 When a PR materially changes either layer, update the relevant doc(s) **in the same PR**. The docs are the orientation surface for human reviewers (the user is a Spring beginner — diagrams help them grok the change).
 
 Examples that warrant a **root README** diagram update:
