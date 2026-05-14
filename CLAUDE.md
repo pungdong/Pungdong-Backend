@@ -156,6 +156,22 @@ The user maintains permanent project context in `~/.claude/projects/<this-repo-p
 
 When `application.yml` placeholders, `@Profile("!test")` annotations, or `@MockBean` on services that we can't really mock look "wrong" — check memory first. They're often deliberate.
 
+### TypeScript API contract
+
+API 컨슈머는 모바일 + 웹 TypeScript 클라이언트들. 그들의 단일 출처는 [`docs/api-clients/types.ts`](docs/api-clients/types.ts).
+
+**Per-PR 규칙 (도메인 문서와 동일 원칙)**: 컨트롤러 시그니처를 건드리는 PR 은 같은 커밋 / PR 안에서 `types.ts` 를 갱신한다.
+
+- 새 엔드포인트 → request + response interface 추가
+- 응답 필드 추가/변경/제거 → 해당 interface 갱신
+- 새 enum / 도메인 값 (Role, AuthProvider, Gender 등) → enum literal union 갱신
+- 공통 envelope (`CommonResult`, `SingleResult<T>`, `ListResult<T>`, `AuthToken`) 변경 → 최우선 갱신
+- 새 에러 code → `ErrorCode` const 객체에 추가
+
+체크리스트와 FE Claude 가 읽는 entry 안내는 [`docs/api-clients/README.md`](docs/api-clients/README.md) 에 있다.
+
+자동화 (springdoc-openapi) 는 출시 이후 검토 — 현재는 솔로 dev + 출시 임박이라 수동 유지.
+
 ### Architectural changes update README + domain docs
 
 Two layers of architecture documentation, both versioned in the repo:

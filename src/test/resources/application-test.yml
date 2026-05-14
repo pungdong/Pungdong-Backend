@@ -28,3 +28,6 @@ elasticsearch:
 AdminMail:
   id: test@example.invalid
   password: test-only-password
+
+cors:
+  allowed-origins: http://localhost:3000

@@ -68,3 +68,7 @@ mail:
 AdminMail:
   id: ${ADMIN_MAIL_ID}
   password: ${ADMIN_MAIL_PASSWORD}
+
+# CORS 허용 origin — 콤마 구분. 로컬 dev 기본값 (Vite/Next dev 서버). prod 는 env 로 override.
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}

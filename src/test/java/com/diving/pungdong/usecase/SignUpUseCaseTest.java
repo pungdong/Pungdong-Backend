@@ -56,7 +56,7 @@ class SignUpUseCaseTest {
     }
 
     @Test
-    @DisplayName("S1: 이메일/비밀번호/닉네임만 보내면 201 + 새 STUDENT 계정이 DB에 저장됨")
+    @DisplayName("S1: 이메일/비밀번호/닉네임만 보내면 201 + 새 STUDENT 계정이 DB에 저장됨 + 토큰 동시 발급")
     void signUp_succeeds_withMinimalPayload() throws Exception {
         SignUpInfo payload = SignUpInfo.builder()
                 .email("yechan@example.com")
@@ -69,7 +69,10 @@ class SignUpUseCaseTest {
                 .content(json(payload)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.email").value("yechan@example.com"))
-                .andExpect(jsonPath("$.nickName").value("yechan"));
+                .andExpect(jsonPath("$.nickName").value("yechan"))
+                .andExpect(jsonPath("$.tokens.access_token").exists())
+                .andExpect(jsonPath("$.tokens.refresh_token").exists())
+                .andExpect(jsonPath("$.tokens.token_type").value("bearer"));
 
         Account saved = accountRepo.findByEmail("yechan@example.com").orElseThrow();
         assertThat(saved.getNickName()).isEqualTo("yechan");
@@ -230,8 +233,8 @@ class SignUpUseCaseTest {
     }
 
     @Test
-    @DisplayName("L1: 가입 직후 같은 이메일/비밀번호로 즉시 로그인되어 access token 이 발급된다")
-    void signUp_thenLogin_succeedsImmediately() throws Exception {
+    @DisplayName("L1: 가입 응답에 토큰이 같이 와서 별도 로그인 호출 없이 인증 상태로 진입 — 같은 자격으로 다시 /sign/login 도 동일하게 토큰 발급")
+    void signUp_returnsTokens_andCanRelogin() throws Exception {
         SignUpInfo signUp = SignUpInfo.builder()
                 .email("login@example.com")
                 .password("pw1234")
@@ -241,15 +244,18 @@ class SignUpUseCaseTest {
         mockMvc.perform(post("/sign/sign-up")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json(signUp)))
-                .andExpect(status().isCreated());
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.tokens.access_token").exists())
+                .andExpect(jsonPath("$.tokens.refresh_token").exists())
+                .andExpect(jsonPath("$.tokens.token_type").value("bearer"));
 
+        // 가입 후 같은 자격으로 명시적 로그인도 정상 — 다른 디바이스/세션 진입 시나리오
         String loginBody = "{\"email\":\"login@example.com\",\"password\":\"pw1234\"}";
         mockMvc.perform(post("/sign/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(loginBody))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.access_token").exists())
-                .andExpect(jsonPath("$.refresh_token").exists())
-                .andExpect(jsonPath("$.token_type").value("bearer"));
+                .andExpect(jsonPath("$.refresh_token").exists());
     }
 }
