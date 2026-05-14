@@ -3,6 +3,7 @@ package com.diving.pungdong.service.account;
 import com.diving.pungdong.advice.exception.*;
 import com.diving.pungdong.config.security.UserAccount;
 import com.diving.pungdong.domain.account.Account;
+import com.diving.pungdong.domain.account.AuthProvider;
 import com.diving.pungdong.domain.account.InstructorCertificate;
 import com.diving.pungdong.domain.account.ProfilePhoto;
 import com.diving.pungdong.domain.account.Role;
@@ -103,7 +104,6 @@ public class AccountService implements UserDetailsService {
     }
 
     public SignUpResult saveAccountInfo(SignUpInfo signUpInfo) {
-        emailService.verifyAuthCode(signUpInfo.getEmail(), signUpInfo.getVerifyCode());
         checkDuplicationOfNickName(signUpInfo.getNickName());
         checkDuplicationOfEmail(signUpInfo.getEmail());
 
@@ -112,10 +112,8 @@ public class AccountService implements UserDetailsService {
         Account student = Account.builder()
                 .email(signUpInfo.getEmail())
                 .password(passwordEncoder.encode(signUpInfo.getPassword()))
-                .gender(signUpInfo.getGender())
-                .birth(signUpInfo.getBirth())
                 .nickName(signUpInfo.getNickName())
-                .phoneNumber(signUpInfo.getPhoneNumber())
+                .provider(AuthProvider.EMAIL)
                 .roles(Set.of(Role.STUDENT))
                 .profilePhoto(profilePhoto)
                 .build();
