@@ -186,16 +186,12 @@ class SignControllerTest {
     }
 
     @Test
-    @DisplayName("회원가입 성공 - 수강생 권한으로만 가입됨")
+    @DisplayName("회원가입 성공 - 수강생 권한으로만 가입됨 (이메일/비밀번호/닉네임만 받음)")
     public void signupInstructorSuccess() throws Exception {
         SignUpInfo signUpInfo = SignUpInfo.builder()
                 .email("yechan@gmail.com")
                 .password("1234")
                 .nickName("yechan")
-                .birth("1999-09-11")
-                .gender(Gender.MALE)
-                .phoneNumber("010-1111-2222")
-                .verifyCode("111222")
                 .build();
 
         SignUpResult signUpResult = SignUpResult.builder()
@@ -219,13 +215,9 @@ class SignControllerTest {
                                 headerWithName(HttpHeaders.CONTENT_TYPE).description("JSON 타입")
                         ),
                         requestFields(
-                                fieldWithPath("email").description("유저 ID"),
+                                fieldWithPath("email").description("유저 ID (이메일)"),
                                 fieldWithPath("password").description("유저 PASSWORD"),
-                                fieldWithPath("nickName").description("유저의 닉네임"),
-                                fieldWithPath("birth").description("유저의 생년월일"),
-                                fieldWithPath("gender").description("유저의 성별"),
-                                fieldWithPath("phoneNumber").description("휴대폰 번호"),
-                                fieldWithPath("verifyCode").description("이메일 승인 코드")
+                                fieldWithPath("nickName").description("유저의 닉네임")
                         ),
                         responseHeaders(
                                 headerWithName(HttpHeaders.LOCATION).description("API 주소"),

@@ -48,6 +48,10 @@ flowchart LR
 - **JWT 자체 발급.** 외부 OAuth 서버 분리되어 있던 거 흡수 완료 ([PR #7](../../pull/7)).
 - **시크릿 외부화.** 평문 시크릿 git에서 제거, 환경변수 기반 ([PR #8](../../pull/8)). FCM 인증은 keyless ADC ([PR #11](../../pull/11)) — 운영 시 Workload Identity Federation으로 확장.
 
+### 도메인별 줌인
+
+위 그림에서 한 단계 들어가서 도메인별 컴포넌트 / 흐름 / 데이터 모델을 보려면 [docs/architecture/](docs/architecture/) 참고. 각 문서는 `@DisplayName` 시나리오 테스트로 이어지는 포인터를 함께 제공한다.
+
 ## 기술 스택
 
 | 영역 | |
