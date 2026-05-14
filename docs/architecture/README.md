@@ -18,7 +18,7 @@
 |---|---|---|
 | 회원가입 + 로그인 (sign-up) | [sign-up.md](sign-up.md) | ✅ |
 | 알림 (notification outbox + FCM) | [notification.md](notification.md) | ✅ |
-| 강의 (lecture) | _TODO_ | 🔜 |
+| 강의 (lecture) | [lecture.md](lecture.md) | ✅ (baseline — ES 동기화 / 폐쇄 정책 간극) |
 | 예약 (reservation) | _TODO_ | 🔜 |
 | 후기 (review) | _TODO_ | 🔜 |
 | 검색 (search / Elasticsearch) | _TODO — Phase 3 정리 후_ | ⏸️ |
