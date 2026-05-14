@@ -15,6 +15,7 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +25,8 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.redis.connection.RedisConnection;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
@@ -39,7 +42,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
@@ -52,6 +55,7 @@ class AuthUseCaseTest {
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired JwtTokenProvider jwtTokenProvider;
+    @Autowired RedisTemplate<String, String> redisTemplate;
 
     @Value("${spring.jwt.secret}")
     String rawSecret;
@@ -59,6 +63,15 @@ class AuthUseCaseTest {
     @MockBean AccountService accountService;
     @MockBean InstructorCertificateService instructorCertificateService;
     @MockBean FirebaseTokenService firebaseTokenService;
+
+    /** /sign/logout 가 redis 에 남긴 블랙리스트 토큰이 다음 테스트로 새지 않도록 매 테스트 후 flush. */
+    @AfterEach
+    void flushRedisBlacklist() {
+        redisTemplate.execute((RedisConnection conn) -> {
+            conn.flushDb();
+            return null;
+        });
+    }
 
     private String encodedKey() {
         return Base64.getEncoder().encodeToString(rawSecret.getBytes());
@@ -109,7 +122,7 @@ class AuthUseCaseTest {
     }
 
     @Test
-    @DisplayName("T1: 만료된 access token으로 보호된 API 호출 시 인증 실패 처리됨")
+    @DisplayName("T1: 만료된 access token으로 보호된 API 호출 시 401 + JSON 응답")
     void expiredToken_isRejected() throws Exception {
         Account student = stubAccount(1L, Role.STUDENT);
         String expired = expiredToken(student);
@@ -118,12 +131,13 @@ class AuthUseCaseTest {
                 .header(HttpHeaders.AUTHORIZATION, expired)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"token\":\"x\"}"))
-                .andExpect(status().isFound())
-                .andExpect(redirectedUrl("/exception/entrypoint"));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(-1002));
     }
 
     @Test
-    @DisplayName("T2: 다른 키로 서명된 access token은 인증 실패 처리됨")
+    @DisplayName("T2: 다른 키로 서명된 access token은 401 + JSON 응답")
     void wrongSignatureToken_isRejected() throws Exception {
         Account student = stubAccount(1L, Role.STUDENT);
         String wrong = tokenWithWrongSignature(student);
@@ -132,33 +146,36 @@ class AuthUseCaseTest {
                 .header(HttpHeaders.AUTHORIZATION, wrong)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"token\":\"x\"}"))
-                .andExpect(status().isFound())
-                .andExpect(redirectedUrl("/exception/entrypoint"));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(-1002));
     }
 
     @Test
-    @DisplayName("T3: Authorization 헤더 없이 보호된 API 호출 시 인증 실패 처리됨")
+    @DisplayName("T3: Authorization 헤더 없이 보호된 API 호출 시 401 + JSON 응답")
     void missingAuthHeader_isRejected() throws Exception {
         mockMvc.perform(post("/sign/firebase-token")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"token\":\"x\"}"))
-                .andExpect(status().isFound())
-                .andExpect(redirectedUrl("/exception/entrypoint"));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(-1002));
     }
 
     @Test
-    @DisplayName("T4: 형식이 깨진 문자열을 토큰으로 보내면 인증 실패 처리됨")
+    @DisplayName("T4: 형식이 깨진 문자열을 토큰으로 보내면 401 + JSON 응답")
     void malformedToken_isRejected() throws Exception {
         mockMvc.perform(post("/sign/firebase-token")
                 .header(HttpHeaders.AUTHORIZATION, "not.a.valid.jwt")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"token\":\"x\"}"))
-                .andExpect(status().isFound())
-                .andExpect(redirectedUrl("/exception/entrypoint"));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(-1002));
     }
 
     @Test
-    @DisplayName("R1: STUDENT 토큰으로 ADMIN 전용 API 호출 시 권한 부족으로 거부됨")
+    @DisplayName("R1: STUDENT 토큰으로 ADMIN 전용 API 호출 시 403 + JSON 응답")
     void studentAccessingAdminEndpoint_isForbidden() throws Exception {
         Account student = stubAccount(1L, Role.STUDENT);
         String token = tokenFor(student);
@@ -167,20 +184,22 @@ class AuthUseCaseTest {
                 .header(HttpHeaders.AUTHORIZATION, token)
                 .param("page", "0")
                 .param("size", "10"))
-                .andExpect(status().isFound())
-                .andExpect(redirectedUrl("/exception/accessDenied"));
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(-1003));
     }
 
     @Test
-    @DisplayName("R2: STUDENT 토큰으로 INSTRUCTOR 전용 API 호출 시 권한 부족으로 거부됨")
+    @DisplayName("R2: STUDENT 토큰으로 INSTRUCTOR 전용 API 호출 시 403 + JSON 응답")
     void studentAccessingInstructorEndpoint_isForbidden() throws Exception {
         Account student = stubAccount(1L, Role.STUDENT);
         String token = tokenFor(student);
 
         mockMvc.perform(get("/account/instructor/certificate/list")
                 .header(HttpHeaders.AUTHORIZATION, token))
-                .andExpect(status().isFound())
-                .andExpect(redirectedUrl("/exception/accessDenied"));
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(-1003));
     }
 
     @Test
@@ -231,8 +250,58 @@ class AuthUseCaseTest {
     }
 
     @Test
-    @DisplayName("L1: 로그아웃 후에도 같은 access token으로 보호된 API 통과 — 블랙리스트 미작동, 현재 동작 캡처")
-    void logoutDoesNotInvalidateToken_currentBehavior() throws Exception {
+    @DisplayName("F1: 유효한 refresh token 으로 /sign/refresh → 새 access/refresh 토큰 발급")
+    void refresh_succeeds_withValidRefreshToken() throws Exception {
+        Account student = stubAccount(1L, Role.STUDENT);
+        given(accountService.findAccountById(1L)).willReturn(student);
+        String refreshToken = jwtTokenProvider.createRefreshToken(String.valueOf(student.getId()));
+
+        mockMvc.perform(post("/sign/refresh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"" + refreshToken + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.access_token").exists())
+                .andExpect(jsonPath("$.refresh_token").exists())
+                .andExpect(jsonPath("$.token_type").value("bearer"));
+    }
+
+    @Test
+    @DisplayName("F2: 만료된 refresh token 으로 /sign/refresh → 거부")
+    void refresh_rejectsExpiredRefreshToken() throws Exception {
+        Account student = stubAccount(1L, Role.STUDENT);
+        String expired = expiredToken(student);
+
+        mockMvc.perform(post("/sign/refresh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"" + expired + "\"}"))
+                .andExpect(status().is4xxClientError())
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    @DisplayName("F3: 잘못된 서명의 refresh token 으로 /sign/refresh → 거부")
+    void refresh_rejectsTokenWithWrongSignature() throws Exception {
+        Account student = stubAccount(1L, Role.STUDENT);
+        String wrong = tokenWithWrongSignature(student);
+
+        mockMvc.perform(post("/sign/refresh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"" + wrong + "\"}"))
+                .andExpect(status().is4xxClientError());
+    }
+
+    @Test
+    @DisplayName("F4: refreshToken 누락 시 /sign/refresh → 거부")
+    void refresh_rejectsMissingToken() throws Exception {
+        mockMvc.perform(post("/sign/refresh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"\"}"))
+                .andExpect(status().is4xxClientError());
+    }
+
+    @Test
+    @DisplayName("L1: 로그아웃된 access token 으로 보호된 API 호출 시 401 + JSON 응답 — 블랙리스트 동작 검증")
+    void logoutInvalidatesAccessToken() throws Exception {
         Account student = stubAccount(1L, Role.STUDENT);
         String accessToken = tokenFor(student);
         String refreshToken = jwtTokenProvider.createRefreshToken(String.valueOf(student.getId()));
@@ -245,10 +314,35 @@ class AuthUseCaseTest {
                 .content(logoutBody))
                 .andExpect(status().isOk());
 
+        // 로그아웃 후 동일 access token 으로 보호된 API 호출 → 401 (블랙리스트 hit)
         mockMvc.perform(post("/sign/firebase-token")
                 .header(HttpHeaders.AUTHORIZATION, accessToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"token\":\"x\"}"))
-                .andExpect(status().isNoContent());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(-1002));
+    }
+
+    @Test
+    @DisplayName("L2: 로그아웃된 refresh token 으로 /sign/refresh 호출 시 거부 — 재발급 차단")
+    void logoutInvalidatesRefreshToken() throws Exception {
+        Account student = stubAccount(1L, Role.STUDENT);
+        String accessToken = tokenFor(student);
+        String refreshToken = jwtTokenProvider.createRefreshToken(String.valueOf(student.getId()));
+
+        String logoutBody = objectMapper.writeValueAsString(
+                java.util.Map.of("accessToken", accessToken, "refreshToken", refreshToken));
+        mockMvc.perform(post("/sign/logout")
+                .header(HttpHeaders.AUTHORIZATION, accessToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(logoutBody))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/sign/refresh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"" + refreshToken + "\"}"))
+                .andExpect(status().is4xxClientError())
+                .andExpect(jsonPath("$.success").value(false));
     }
 }

@@ -25,11 +25,14 @@ import com.diving.pungdong.service.account.AccountService;
 import com.diving.pungdong.service.InstructorCertificateService;
 import com.diving.pungdong.service.account.FirebaseTokenService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.restdocs.AutoConfigureRestDocs;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.data.redis.connection.RedisConnection;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
@@ -85,6 +88,18 @@ class SignControllerTest {
 
     @Autowired
     JwtTokenProvider jwtTokenProvider;
+
+    @Autowired
+    RedisTemplate<String, String> redisTemplate;
+
+    /** /sign/logout 가 redis 에 남긴 블랙리스트 토큰이 같은 user id (1L) 를 쓰는 다른 테스트로 새지 않도록 매 테스트 후 flush. */
+    @AfterEach
+    void flushRedisBlacklist() {
+        redisTemplate.execute((RedisConnection conn) -> {
+            conn.flushDb();
+            return null;
+        });
+    }
 
     @MockBean
     AccountService accountService;
@@ -186,7 +201,7 @@ class SignControllerTest {
     }
 
     @Test
-    @DisplayName("회원가입 성공 - 수강생 권한으로만 가입됨 (이메일/비밀번호/닉네임만 받음)")
+    @DisplayName("회원가입 성공 - 가입과 동시에 access/refresh 토큰이 함께 반환됨 (auto-login)")
     public void signupInstructorSuccess() throws Exception {
         SignUpInfo signUpInfo = SignUpInfo.builder()
                 .email("yechan@gmail.com")
@@ -194,12 +209,13 @@ class SignControllerTest {
                 .nickName("yechan")
                 .build();
 
-        SignUpResult signUpResult = SignUpResult.builder()
+        Account saved = Account.builder()
+                .id(1L)
                 .email(signUpInfo.getEmail())
                 .nickName(signUpInfo.getNickName())
+                .roles(java.util.Set.of(Role.STUDENT))
                 .build();
-
-        given(accountService.saveAccountInfo(signUpInfo)).willReturn(signUpResult);
+        given(accountService.saveAccountInfo(signUpInfo)).willReturn(saved);
 
         mockMvc.perform(post("/sign/sign-up")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -208,8 +224,11 @@ class SignControllerTest {
                 .andDo(print())
                 .andExpect(status().isCreated())
                 .andExpect(header().exists(HttpHeaders.LOCATION))
-                .andExpect(jsonPath("email").exists())
-                .andExpect(jsonPath("nickName").exists())
+                .andExpect(jsonPath("email").value(signUpInfo.getEmail()))
+                .andExpect(jsonPath("nickName").value(signUpInfo.getNickName()))
+                .andExpect(jsonPath("tokens.access_token").exists())
+                .andExpect(jsonPath("tokens.refresh_token").exists())
+                .andExpect(jsonPath("tokens.token_type").value("bearer"))
                 .andDo(document("signUp",
                         requestHeaders(
                                 headerWithName(HttpHeaders.CONTENT_TYPE).description("JSON 타입")
@@ -226,9 +245,14 @@ class SignControllerTest {
                         responseFields(
                                 fieldWithPath("email").description("유저 ID"),
                                 fieldWithPath("nickName").description("유저의 닉네임"),
+                                fieldWithPath("tokens.access_token").description("Access token (1h)"),
+                                fieldWithPath("tokens.refresh_token").description("Refresh token (30h)"),
+                                fieldWithPath("tokens.token_type").description("토큰 타입 (bearer)"),
+                                fieldWithPath("tokens.expires_in").description("access_token 만료 (초)"),
+                                fieldWithPath("tokens.scope").description("권한 범위"),
+                                fieldWithPath("tokens.jti").description("토큰 식별자 (UUID)"),
                                 fieldWithPath("_links.self.href").description("해당 API 링크"),
-                                fieldWithPath("_links.profile.href").description("API 문서 링크"),
-                                fieldWithPath("_links.login.href").description("로그인 링크")
+                                fieldWithPath("_links.profile.href").description("API 문서 링크")
                         )
                 ));
     }

@@ -4,7 +4,7 @@
 
 이메일 / 비밀번호 / 닉네임만 받고 즉시 **STUDENT** 권한으로 가입 완료. 본인인증(CI) 은 가입 단계가 아니라 **예약 직전 / 강사 등록 시점** 으로 분리한다 (PR #17 에서 정착).
 
-가입 직후 같은 자격으로 `/sign/login` 에 던지면 access / refresh JWT 가 떨어진다.
+**가입 응답에 access / refresh 토큰이 같이 떨어진다 (auto-login)** — 클라이언트는 별도 `/sign/login` 호출 없이 즉시 인증 상태로 진입.
 
 ---
 
@@ -79,8 +79,11 @@ sequenceDiagram
     Svc->>DB: INSERT account<br/>provider=EMAIL · role=STUDENT<br/>+ @PrePersist 기본값 (isDeleted=false 등)
     DB-->>Svc: Account{id}
 
-    Svc-->>Ctrl: SignUpResult{email, nickName}
-    Ctrl-->>C: 201 Created<br/>+ HATEOAS (self / profile / login)
+    Svc-->>Ctrl: Account{id, ...}
+
+    Note over Ctrl: 가입과 동시에 토큰 발급 (auto-login)
+    Ctrl->>Ctrl: createAccessToken / createRefreshToken
+    Ctrl-->>C: 201 Created<br/>{email, nickName,<br/>tokens: {access_token, refresh_token, ...}}<br/>+ HATEOAS (self / profile)
 ```
 
 **검증 거부 분기** (4xx 로 빠짐):
@@ -140,6 +143,46 @@ sequenceDiagram
 
 ---
 
+---
+
+## 흐름 3: Refresh — access token 만료 시 갱신
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as 모바일 앱
+    participant Ctrl as SignController
+    participant Jwt as JwtTokenProvider
+    participant Svc as AccountService
+    participant DB as MySQL
+
+    Note over C: 보유한 access token 만료 감지<br/>(401 응답 또는 만료 시각 추적)
+    C->>Ctrl: POST /sign/refresh {refreshToken}
+
+    Ctrl->>Jwt: validateToken(refreshToken)
+    alt 유효하지 않음 (서명 / 만료 등)
+        Jwt-->>Ctrl: false
+        Ctrl-->>C: 4xx + JSON {success:false, code:-1006,<br/>"RefreshToken이 만료되었습니다"}
+    else 유효
+        Jwt-->>Ctrl: true
+        Ctrl->>Jwt: getUserPk(refreshToken)
+        Jwt-->>Ctrl: userId
+        Ctrl->>Svc: findAccountById(userId)
+        Svc->>DB: SELECT account
+        DB-->>Svc: Account
+        Svc-->>Ctrl: Account
+        Ctrl->>Jwt: createAccessToken(id, roles)
+        Jwt-->>Ctrl: 새 access JWT (1h)
+        Ctrl->>Jwt: createRefreshToken(id)
+        Jwt-->>Ctrl: 새 refresh JWT (30h)
+        Ctrl-->>C: 200 OK<br/>{access_token, refresh_token, ...}
+    end
+```
+
+매 갱신마다 **refresh token 도 함께 회전** (rotation) — 도난된 refresh token 의 유효 기간을 짧게 유지하는 패턴.
+
+---
+
 ## 데이터 모델
 
 ```mermaid
@@ -184,12 +227,24 @@ erDiagram
 
 | 엔드포인트 | 인증 | 권한 | 비고 |
 |---|---|---|---|
-| `POST /sign/sign-up` | permitAll | — | 이 도메인의 진입점 |
+| `POST /sign/sign-up` | permitAll | — | 이 도메인의 진입점 — 응답에 토큰 동봉 (auto-login) |
 | `POST /sign/login` | permitAll | — | JWT 발급 |
+| `POST /sign/refresh` | permitAll | — | refresh token 본문 검증 → 새 토큰 쌍 발급 |
 | `POST /sign/check/email` | permitAll | — | 가입 전 중복 사전체크 |
 | `GET /sign/check/nickName` | permitAll | — | 가입 전 중복 사전체크 |
-| `POST /sign/logout` | 인증 필요 | any | **현재 no-op** — `AuthUseCaseTest.L1` 참조 |
+| `POST /sign/logout` | 인증 필요 | any | access + refresh 둘 다 Redis 블랙리스트 등록 → 이후 사용 시 401 (`AuthUseCaseTest.L1` / `L2`) |
 | `POST /sign/firebase-token` | 인증 필요 | any | 알림 도메인으로 빠짐 |
+
+**인증 / 권한 실패 시 응답** (JSON, 모바일/웹 클라이언트 직파싱용):
+
+| 상황 | HTTP | 응답 body |
+|---|---|---|
+| 토큰 없음 / 만료 / 형식 깨짐 / 서명 불일치 | `401 Unauthorized` | `{success: false, code: -1002, msg: "해당 리소스에 접근하기 위한 권한이 없습니다."}` |
+| 토큰은 유효하나 역할 부족 | `403 Forbidden` | `{success: false, code: -1003, msg: "보유한 권한으로 접근할 수 없는 리소스 입니다"}` |
+
+(이전에는 `/exception/entrypoint` / `/exception/accessDenied` 로 302 redirect 했으나 JSON API 클라이언트가 처리하기 어려워 직접 응답으로 변경됨.)
+
+**CORS**: `SecurityConfiguration.corsConfigurationSource` 가 `${cors.allowed-origins}` (env: `CORS_ALLOWED_ORIGINS`) 의 origin 들만 허용. dev 기본값 `http://localhost:3000,http://localhost:5173` (Next.js / Vite). `Authorization` / `Location` 헤더 노출, credentials 허용, preflight 캐시 1h.
 
 **가입 시 부여되는 역할은 `STUDENT` 단 하나.** `INSTRUCTOR` 승격은 별도 흐름:
 

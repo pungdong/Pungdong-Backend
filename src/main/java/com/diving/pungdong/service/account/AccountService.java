@@ -103,7 +103,7 @@ public class AccountService implements UserDetailsService {
                 .build();
     }
 
-    public SignUpResult saveAccountInfo(SignUpInfo signUpInfo) {
+    public Account saveAccountInfo(SignUpInfo signUpInfo) {
         checkDuplicationOfNickName(signUpInfo.getNickName());
         checkDuplicationOfEmail(signUpInfo.getEmail());
 
@@ -117,12 +117,7 @@ public class AccountService implements UserDetailsService {
                 .roles(Set.of(Role.STUDENT))
                 .profilePhoto(profilePhoto)
                 .build();
-        Account savedStudent = accountJpaRepo.save(student);
-
-        return SignUpResult.builder()
-                .email(savedStudent.getEmail())
-                .nickName(savedStudent.getNickName())
-                .build();
+        return accountJpaRepo.save(student);
     }
 
     @Transactional(readOnly = true)
