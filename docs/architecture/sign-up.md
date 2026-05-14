@@ -191,6 +191,15 @@ erDiagram
 | `POST /sign/logout` | 인증 필요 | any | **현재 no-op** — `AuthUseCaseTest.L1` 참조 |
 | `POST /sign/firebase-token` | 인증 필요 | any | 알림 도메인으로 빠짐 |
 
+**인증 / 권한 실패 시 응답** (JSON, 모바일/웹 클라이언트 직파싱용):
+
+| 상황 | HTTP | 응답 body |
+|---|---|---|
+| 토큰 없음 / 만료 / 형식 깨짐 / 서명 불일치 | `401 Unauthorized` | `{success: false, code: -1002, msg: "해당 리소스에 접근하기 위한 권한이 없습니다."}` |
+| 토큰은 유효하나 역할 부족 | `403 Forbidden` | `{success: false, code: -1003, msg: "보유한 권한으로 접근할 수 없는 리소스 입니다"}` |
+
+(이전에는 `/exception/entrypoint` / `/exception/accessDenied` 로 302 redirect 했으나 JSON API 클라이언트가 처리하기 어려워 직접 응답으로 변경됨.)
+
 **가입 시 부여되는 역할은 `STUDENT` 단 하나.** `INSTRUCTOR` 승격은 별도 흐름:
 
 ```

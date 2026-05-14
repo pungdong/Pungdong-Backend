@@ -18,6 +18,8 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfiguration {
 
     private final JwtTokenProvider jwtTokenProvider;
+    private final CustomAuthenticationEntryPoint authenticationEntryPoint;
+    private final CustomAccessDeniedHandler accessDeniedHandler;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -43,8 +45,8 @@ public class SecurityConfiguration {
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(exception -> exception
-                        .accessDeniedHandler(new CustomAccessDeniedHandler())
-                        .authenticationEntryPoint(new CustomAuthenticationEntryPoint())
+                        .accessDeniedHandler(accessDeniedHandler)
+                        .authenticationEntryPoint(authenticationEntryPoint)
                 )
                 .addFilterBefore(new JwtAuthenticationFilter(jwtTokenProvider),
                         UsernamePasswordAuthenticationFilter.class);

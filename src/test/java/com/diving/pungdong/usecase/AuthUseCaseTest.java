@@ -39,7 +39,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
@@ -109,7 +109,7 @@ class AuthUseCaseTest {
     }
 
     @Test
-    @DisplayName("T1: 만료된 access token으로 보호된 API 호출 시 인증 실패 처리됨")
+    @DisplayName("T1: 만료된 access token으로 보호된 API 호출 시 401 + JSON 응답")
     void expiredToken_isRejected() throws Exception {
         Account student = stubAccount(1L, Role.STUDENT);
         String expired = expiredToken(student);
@@ -118,12 +118,13 @@ class AuthUseCaseTest {
                 .header(HttpHeaders.AUTHORIZATION, expired)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"token\":\"x\"}"))
-                .andExpect(status().isFound())
-                .andExpect(redirectedUrl("/exception/entrypoint"));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(-1002));
     }
 
     @Test
-    @DisplayName("T2: 다른 키로 서명된 access token은 인증 실패 처리됨")
+    @DisplayName("T2: 다른 키로 서명된 access token은 401 + JSON 응답")
     void wrongSignatureToken_isRejected() throws Exception {
         Account student = stubAccount(1L, Role.STUDENT);
         String wrong = tokenWithWrongSignature(student);
@@ -132,33 +133,36 @@ class AuthUseCaseTest {
                 .header(HttpHeaders.AUTHORIZATION, wrong)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"token\":\"x\"}"))
-                .andExpect(status().isFound())
-                .andExpect(redirectedUrl("/exception/entrypoint"));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(-1002));
     }
 
     @Test
-    @DisplayName("T3: Authorization 헤더 없이 보호된 API 호출 시 인증 실패 처리됨")
+    @DisplayName("T3: Authorization 헤더 없이 보호된 API 호출 시 401 + JSON 응답")
     void missingAuthHeader_isRejected() throws Exception {
         mockMvc.perform(post("/sign/firebase-token")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"token\":\"x\"}"))
-                .andExpect(status().isFound())
-                .andExpect(redirectedUrl("/exception/entrypoint"));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(-1002));
     }
 
     @Test
-    @DisplayName("T4: 형식이 깨진 문자열을 토큰으로 보내면 인증 실패 처리됨")
+    @DisplayName("T4: 형식이 깨진 문자열을 토큰으로 보내면 401 + JSON 응답")
     void malformedToken_isRejected() throws Exception {
         mockMvc.perform(post("/sign/firebase-token")
                 .header(HttpHeaders.AUTHORIZATION, "not.a.valid.jwt")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"token\":\"x\"}"))
-                .andExpect(status().isFound())
-                .andExpect(redirectedUrl("/exception/entrypoint"));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(-1002));
     }
 
     @Test
-    @DisplayName("R1: STUDENT 토큰으로 ADMIN 전용 API 호출 시 권한 부족으로 거부됨")
+    @DisplayName("R1: STUDENT 토큰으로 ADMIN 전용 API 호출 시 403 + JSON 응답")
     void studentAccessingAdminEndpoint_isForbidden() throws Exception {
         Account student = stubAccount(1L, Role.STUDENT);
         String token = tokenFor(student);
@@ -167,20 +171,22 @@ class AuthUseCaseTest {
                 .header(HttpHeaders.AUTHORIZATION, token)
                 .param("page", "0")
                 .param("size", "10"))
-                .andExpect(status().isFound())
-                .andExpect(redirectedUrl("/exception/accessDenied"));
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(-1003));
     }
 
     @Test
-    @DisplayName("R2: STUDENT 토큰으로 INSTRUCTOR 전용 API 호출 시 권한 부족으로 거부됨")
+    @DisplayName("R2: STUDENT 토큰으로 INSTRUCTOR 전용 API 호출 시 403 + JSON 응답")
     void studentAccessingInstructorEndpoint_isForbidden() throws Exception {
         Account student = stubAccount(1L, Role.STUDENT);
         String token = tokenFor(student);
 
         mockMvc.perform(get("/account/instructor/certificate/list")
                 .header(HttpHeaders.AUTHORIZATION, token))
-                .andExpect(status().isFound())
-                .andExpect(redirectedUrl("/exception/accessDenied"));
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(-1003));
     }
 
     @Test
