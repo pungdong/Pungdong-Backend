@@ -25,6 +25,19 @@ public class Account {
 
     private String password;
 
+    /**
+     * OAuth 공급자에서 발급한 사용자 식별값. provider != EMAIL 인 경우 not null.
+     * (provider, socialId) 조합이 사실상의 식별 키 — DB 유니크 제약은 OAuth 통합 PR에서.
+     */
+    private String socialId;
+
+    /**
+     * 가입 경로. EMAIL = 직접 가입 (이메일 + 비밀번호), 그 외 = OAuth.
+     * @PrePersist 에서 null이면 EMAIL 로 기본값 부여 — 기존 데이터 호환.
+     */
+    @Enumerated(EnumType.STRING)
+    private AuthProvider provider;
+
     private String nickName;
 
     private String birth;
@@ -72,5 +85,6 @@ public class Account {
         this.isRequestCertified = this.isRequestCertified != null && this.isRequestCertified;
         this.isCertified = this.isCertified != null && this.isCertified;
         this.isDeleted = false;
+        this.provider = this.provider == null ? AuthProvider.EMAIL : this.provider;
     }
 }
