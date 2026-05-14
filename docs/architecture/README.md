@@ -17,7 +17,7 @@
 | 도메인 | 문서 | 상태 |
 |---|---|---|
 | 회원가입 + 로그인 (sign-up) | [sign-up.md](sign-up.md) | ✅ |
-| 알림 (notification outbox + FCM) | _TODO_ | 🔜 |
+| 알림 (notification outbox + FCM) | [notification.md](notification.md) | ✅ |
 | 강의 (lecture) | _TODO_ | 🔜 |
 | 예약 (reservation) | _TODO_ | 🔜 |
 | 후기 (review) | _TODO_ | 🔜 |
