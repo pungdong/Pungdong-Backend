@@ -19,8 +19,9 @@
 | 회원가입 + 로그인 (sign-up) | [sign-up.md](sign-up.md) | ✅ |
 | 알림 (notification outbox + FCM) | [notification.md](notification.md) | ✅ |
 | 강의 (lecture) | [lecture.md](lecture.md) | ✅ (baseline — ES 동기화 / 폐쇄 정책 간극) |
+| 일정 (schedule) | [schedule.md](schedule.md) | ✅ (baseline — 동시성 / 시간 충돌 / 수정 API 부재) |
 | 예약 (reservation) | [reservation.md](reservation.md) | ✅ (baseline — 알려진 간극 다수) |
-| 후기 (review) | _TODO_ | 🔜 |
+| 후기 (review) | [review.md](review.md) | ✅ (baseline — 통계 갱신 버그) |
 | 검색 (search / Elasticsearch) | _TODO — Phase 3 정리 후_ | ⏸️ |
 
 ## 갱신 규칙
