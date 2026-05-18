@@ -20,7 +20,7 @@
 | 알림 (notification outbox + FCM) | [notification.md](notification.md) | ✅ |
 | 강의 (lecture) | _TODO_ | 🔜 |
 | 예약 (reservation) | _TODO_ | 🔜 |
-| 후기 (review) | _TODO_ | 🔜 |
+| 후기 (review) | [review.md](review.md) | ✅ (baseline — 통계 갱신 버그) |
 | 검색 (search / Elasticsearch) | _TODO — Phase 3 정리 후_ | ⏸️ |
 
 ## 갱신 규칙
