@@ -19,6 +19,7 @@
 | 회원가입 + 로그인 (sign-up) | [sign-up.md](sign-up.md) | ✅ |
 | 알림 (notification outbox + FCM) | [notification.md](notification.md) | ✅ |
 | 강의 (lecture) | _TODO_ | 🔜 |
+| 일정 (schedule) | [schedule.md](schedule.md) | ✅ (baseline — 동시성 / 시간 충돌 / 수정 API 부재) |
 | 예약 (reservation) | _TODO_ | 🔜 |
 | 후기 (review) | [review.md](review.md) | ✅ (baseline — 통계 갱신 버그) |
 | 검색 (search / Elasticsearch) | _TODO — Phase 3 정리 후_ | ⏸️ |
