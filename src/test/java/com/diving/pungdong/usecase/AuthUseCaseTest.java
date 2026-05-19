@@ -1,6 +1,5 @@
 package com.diving.pungdong.usecase;
 
-import com.diving.pungdong.config.EmbeddedRedisConfig;
 import com.diving.pungdong.config.security.JwtTokenProvider;
 import com.diving.pungdong.config.security.UserAccount;
 import com.diving.pungdong.domain.account.Account;
@@ -22,7 +21,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpHeaders;
@@ -46,7 +44,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-@Import(EmbeddedRedisConfig.class)
 class AuthUseCaseTest {
 
     @Autowired MockMvc mockMvc;

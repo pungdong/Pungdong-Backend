@@ -1,7 +1,6 @@
 package com.diving.pungdong.controller.sign;
 
 import com.diving.pungdong.advice.exception.CEmailSigninFailedException;
-import com.diving.pungdong.config.EmbeddedRedisConfig;
 import com.diving.pungdong.config.RestDocsConfiguration;
 import com.diving.pungdong.config.security.JwtTokenProvider;
 import com.diving.pungdong.config.security.UserAccount;
@@ -74,7 +73,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @AutoConfigureRestDocs
-@Import({RestDocsConfiguration.class, EmbeddedRedisConfig.class})
+@Import(RestDocsConfiguration.class)
 class SignControllerTest {
 
     @Autowired
