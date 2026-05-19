@@ -1,5 +1,7 @@
 # Pungdong (풍덩) — 프리 다이빙 강의 예약 백엔드
 
+[![CI](https://github.com/pungdong/Pungdong-Backend/actions/workflows/ci.yml/badge.svg)](https://github.com/pungdong/Pungdong-Backend/actions/workflows/ci.yml)
+
 프리 다이빙 강사와 수강생을 온라인으로 매칭시켜주는 서비스의 백엔드 API. 강사가 강의/스케줄을 개설하고, 수강생이 예약, 후기까지 한 곳에서.
 
 > **2026-04월부터 진행 중인 단순화 작업.** 외부 OAuth 서버 / Eureka / QueryDSL / Spring Cloud Hoxton / Kafka 모두 제거됨. 알림은 in-process Spring Events + DB outbox + 워커 + FCM 으로 직결. 단계별 진행 현황과 의도는 [CLAUDE.md](CLAUDE.md) 참고.
