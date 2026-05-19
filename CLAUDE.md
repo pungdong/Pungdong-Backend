@@ -86,9 +86,11 @@ Auth failures redirect (302) to `/exception/entrypoint`; access denials redirect
 
 REST Docs source: `src/docs/asciidoc/api.adoc` (Korean). The `bootJar` task copies the rendered HTML into `static/docs/` so it is served from the running app at `/docs/**` (whitelisted in `SecurityConfiguration.configure(WebSecurity)`). Snippets used by `api.adoc` come from controller tests — a new endpoint without a `document(...)` call in its test will leave the doc with broken includes.
 
-## Deployment
+## CI / Deployment
 
-**There is no auto-deploy workflow currently.** The original `.github/workflows/deploy.yml` (S3 + CodeDeploy + EC2 `nohup java -jar`) was removed in PR #1 because the target infrastructure is offline and will be replaced in Phase 4 (Docker/ECS or systemd, TBD). `master` pushes do not trigger anything. A new workflow will be introduced when the deploy target exists.
+**CI (tests only)**: `.github/workflows/ci.yml` runs `./gradlew test` on every PR and on push to `master`. Uses JDK 17 / Temurin + gradle dependency caching. Test reports are uploaded as artifacts on failure. The workflow is **light** — no build / asciidoctor / bootJar, just tests (since asciidoctor is fixed but slower).
+
+**No auto-deploy workflow yet.** The original `.github/workflows/deploy.yml` (S3 + CodeDeploy + EC2 `nohup java -jar`) was removed in PR #1 because the target infrastructure is offline and will be replaced in Phase 4 (AWS ECS Fargate per `phase_4_deployment_decisions.md` memory). `master` pushes only trigger CI tests, not deploy. Deploy workflow will be introduced when the deploy target exists.
 
 `scripts/deploy.sh` and `appspec.yml` are leftover from the old deploy and are not currently invoked by anything; don't rely on them as a guide.
 
