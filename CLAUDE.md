@@ -162,15 +162,9 @@ When `application.yml` placeholders, `@Profile("!test")` annotations, or `@MockB
 
 API 컨슈머는 모바일 + 웹 TypeScript 클라이언트들. 그들의 단일 출처는 [`docs/api-clients/types.ts`](docs/api-clients/types.ts).
 
-**Per-PR 규칙 (도메인 문서와 동일 원칙)**: 컨트롤러 시그니처를 건드리는 PR 은 같은 커밋 / PR 안에서 `types.ts` 를 갱신한다.
+**Per-PR 규칙 (도메인 문서와 동일 원칙)**: 컨트롤러 시그니처 / 응답 필드 / 도메인 enum / 공통 envelope 을 건드리는 PR 은 같은 커밋 / PR 안에서 `types.ts` 를 갱신한다.
 
-- 새 엔드포인트 → request + response interface 추가
-- 응답 필드 추가/변경/제거 → 해당 interface 갱신
-- 새 enum / 도메인 값 (Role, AuthProvider, Gender 등) → enum literal union 갱신
-- 공통 envelope (`CommonResult`, `SingleResult<T>`, `ListResult<T>`, `AuthToken`) 변경 → 최우선 갱신
-- 새 에러 code → `ErrorCode` const 객체에 추가
-
-체크리스트와 FE Claude 가 읽는 entry 안내는 [`docs/api-clients/README.md`](docs/api-clients/README.md) 에 있다.
+세부 작성 규약 (enum 표기 / HAL 응답 패턴 / 섹션 주석 / FE Claude 핸드오프 프롬프트 등) 은 [`docs/api-clients/CLAUDE.md`](docs/api-clients/CLAUDE.md) — 그 디렉토리에서 작업할 때 자동 로드되는 좁은 컨텍스트.
 
 자동화 (springdoc-openapi) 는 출시 이후 검토 — 현재는 솔로 dev + 출시 임박이라 수동 유지.
 
@@ -179,9 +173,11 @@ API 컨슈머는 모바일 + 웹 TypeScript 클라이언트들. 그들의 단일
 Two layers of architecture documentation, both versioned in the repo:
 
 1. **Root [README.md](README.md)** — single Mermaid diagram of the whole system. Update when the *system topology* changes (external dependencies, deployment shape, storage backends).
-2. **[docs/architecture/<domain>.md](docs/architecture/)** — per-domain zoom-in. Each file has the same shape: 한 줄 요약 / 컴포넌트 지도 / 흐름 시퀀스 / 데이터 모델 / 보안 매트릭스 / 확장 자리 / use-case 테스트 포인터. Update when *that domain's* components, flow, model, or permission matrix changes.
+2. **[docs/architecture/<domain>.md](docs/architecture/)** — per-domain zoom-in. 7-section template. Update when *that domain's* components, flow, model, or permission matrix changes.
 
 When a PR materially changes either layer, update the relevant doc(s) **in the same PR**. The docs are the orientation surface for human reviewers (the user is a Spring beginner — diagrams help them grok the change).
+
+세부 작성 규약 (7-섹션 템플릿 / Mermaid fence 균형 검증 / 인덱스 충돌 resolve / 톤·스타일 / use-case 테스트 부재 처리) 은 [`docs/architecture/CLAUDE.md`](docs/architecture/CLAUDE.md) — 그 디렉토리에서 작업할 때 자동 로드되는 좁은 컨텍스트.
 
 Examples that warrant a **root README** diagram update:
 - Removing Kafka (Phase 2-C will do this)
