@@ -89,7 +89,7 @@ Cross-domain coupling is expected in this monolith — e.g. `Account` is importe
 
 JWT-based, stateless (`SessionCreationPolicy.STATELESS`). `JwtAuthenticationFilter` runs before `UsernamePasswordAuthenticationFilter`. URL → role mapping is centralized in `SecurityConfiguration.configure(HttpSecurity)` — when adding a new endpoint, update the matchers there. Roles: `ADMIN`, `INSTRUCTOR`, `STUDENT` (the default for new sign-ups). Several public endpoints (lecture browsing, sign-up/login, email code, password reset, exception lookup) are explicitly `permitAll`. Inject the current user via `@CurrentUser Account` rather than reading from `SecurityContextHolder` directly.
 
-Auth failures redirect (302) to `/exception/entrypoint`; access denials redirect to `/exception/accessDenied`. These endpoints are mapped in `ExceptionController` and translate into JSON via `ExceptionAdvice`. This is unusual for a JSON API — a switch to direct 401/403 responses is on the table for the Phase 1 auth absorption.
+Auth failures return **JSON `401`** directly via `CustomAuthenticationEntryPoint`; access denials return **JSON `403`** via `CustomAccessDeniedHandler` (both wired in `SecurityConfiguration.exceptionHandling`; bodies are the `CommonResult` `{success:false, code, msg}` envelope, code/msg from `MessageSource`). This replaced the old 302-redirect-to-`/exception/*` scheme (done in PR #19). `ExceptionController` now only exposes a **vestigial** `GET /exception/forbiddenToken` (throws `ForbiddenTokenException` → `ExceptionAdvice`) — it is not wired into the auth flow anymore and is a cleanup candidate.
 
 ### PII in requests — reads use GET, but PII parameters go in a POST body
 
