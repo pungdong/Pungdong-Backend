@@ -91,6 +91,14 @@ JWT-based, stateless (`SessionCreationPolicy.STATELESS`). `JwtAuthenticationFilt
 
 Auth failures redirect (302) to `/exception/entrypoint`; access denials redirect to `/exception/accessDenied`. These endpoints are mapped in `ExceptionController` and translate into JSON via `ExceptionAdvice`. This is unusual for a JSON API — a switch to direct 401/403 responses is on the table for the Phase 1 auth absorption.
 
+### PII in requests — reads use GET, but PII parameters go in a POST body
+
+**Repo rule (set 2026-06-03):** *"Reads use `GET`; but if a request parameter is PII, put it in a `POST` body."* PII in a query/path string leaks into server access logs, proxies, browser history, and `Referer` headers — HTTPS encrypts data *in transit* but not these *at-rest* logs. So a semantically-read endpoint whose input is PII becomes a `POST` to keep that PII out of URLs.
+
+- **PII** = anything identifying a person: email, phone, real name, address, 주민등록번호, etc. A user-chosen **nickName (public display handle) is NOT PII** — it stays `GET`.
+- Reference shape: `GET /sign/check/nickName?nickName=` (non-PII read) vs `POST /sign/check/email {email}` (PII read). The method asymmetry is **intentional and rule-driven**, not inconsistency. Both responses use `{ exists: boolean }`.
+- **Claude must apply this proactively**: when adding or reviewing any endpoint whose request carries a PII value as a query or path parameter, *propose moving it to a POST body even if the user did not ask* — the user (Spring beginner) may not catch it. Flag the same whenever a PII value would otherwise end up in a URL or log line.
+
 ## Docs
 
 REST Docs source: `src/docs/asciidoc/api.adoc` (Korean). The `bootJar` task copies the rendered HTML into `static/docs/` so it is served from the running app at `/docs/**` (whitelisted in `SecurityConfiguration.configure(WebSecurity)`). Snippets used by `api.adoc` come from controller tests — a new endpoint without a `document(...)` call in its test will leave the doc with broken includes.
