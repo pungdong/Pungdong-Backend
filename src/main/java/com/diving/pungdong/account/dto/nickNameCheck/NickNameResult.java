@@ -8,5 +8,5 @@ import lombok.Data;
 @AllArgsConstructor
 @Builder
 public class NickNameResult {
-    private Boolean isExisted;
+    private Boolean exists;
 }
