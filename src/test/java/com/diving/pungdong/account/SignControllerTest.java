@@ -140,7 +140,7 @@ class SignControllerTest {
                 .build();
 
         EmailResult emailResult = EmailResult.builder()
-                .existed(true)
+                .exists(true)
                 .build();
 
         given(accountService.checkEmailExistence(any())).willReturn(emailResult);
@@ -159,7 +159,7 @@ class SignControllerTest {
                                         fieldWithPath("email").description("유저 이메일")
                                 ),
                                 responseFields(
-                                        fieldWithPath("existed").description("유저 이메일 존재 여부"),
+                                        fieldWithPath("exists").description("유저 이메일 존재 여부"),
                                         fieldWithPath("_links.self.href").description("해당 API 링크"),
                                         fieldWithPath("_links.profile.href").description("API 문서 링크")
                                 )
@@ -172,7 +172,7 @@ class SignControllerTest {
     public void checkDuplicationNickName() throws Exception {
         String nickName = "닉네임";
         NickNameResult nickNameResult = NickNameResult.builder()
-                .isExisted(false)
+                .exists(false)
                 .build();
 
         given(accountService.checkDuplicationOfNickName(nickName)).willReturn(nickNameResult);
@@ -191,7 +191,7 @@ class SignControllerTest {
                                         parameterWithName("nickName").description("닉네임")
                                 ),
                                 responseFields(
-                                        fieldWithPath("isExisted").description("유저 닉네임 존재 여부"),
+                                        fieldWithPath("exists").description("유저 닉네임 존재 여부"),
                                         fieldWithPath("_links.self.href").description("해당 API 링크"),
                                         fieldWithPath("_links.profile.href").description("API 문서 링크")
                                 )

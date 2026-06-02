@@ -99,7 +99,7 @@ public class AccountService implements UserDetailsService {
         Boolean isExisted = accountJpaRepo.existsByEmail(email);
 
         return EmailResult.builder()
-                .existed(isExisted)
+                .exists(isExisted)
                 .build();
     }
 
@@ -128,7 +128,7 @@ public class AccountService implements UserDetailsService {
         }
 
         return NickNameResult.builder()
-                .isExisted(false)
+                .exists(false)
                 .build();
     }
 

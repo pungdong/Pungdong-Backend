@@ -216,7 +216,7 @@ class AuthUseCaseTest {
     @DisplayName("P1: 토큰 없이도 public 엔드포인트(/sign/check/email)는 200 응답")
     void publicEndpoint_acceptsRequestWithoutToken() throws Exception {
         given(accountService.checkEmailExistence(any()))
-                .willReturn(EmailResult.builder().existed(false).build());
+                .willReturn(EmailResult.builder().exists(false).build());
 
         mockMvc.perform(post("/sign/check/email")
                 .contentType(MediaType.APPLICATION_JSON)
