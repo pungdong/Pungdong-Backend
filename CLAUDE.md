@@ -65,7 +65,16 @@ The local Docker stack (`docker compose up -d`) provides MySQL 8 (port 3306, db 
 
 ## Code layout
 
-Standard Spring layered architecture under `com.diving.pungdong`:
+**Mid-transition: layered → domain-based (package-by-feature).** Decided 2026-06-03 (memory `architecture-package-by-feature`). Spring is package-structure-agnostic — `@SpringBootApplication` at `com.diving.pungdong` scans everything beneath it regardless of layout. New/rewritten domains are organized **by feature** (one package holds that domain's controller + service + repo + entity + dto + a domain `CLAUDE.md`). Legacy domains still sit in the old layered packages until they're rewritten.
+
+Settled feature packages (each auto-loads its own `CLAUDE.md` when you work in it):
+- `account/` — auth/계정 (sign/email/account/profilePhoto controllers, AccountService etc., Account + Role/Gender/AuthProvider/DeviceType/FirebaseToken/ProfilePhoto/InstructorCertificate entities, `dto/`). Auth **infra** (`JwtTokenProvider`, `SecurityConfiguration`, `@CurrentUser`, `UserAccount`) lives in `global/security/`, not here — it's cross-cutting.
+- `notification/` — domain events → outbox → FCM pipeline.
+- `global/` — domain-agnostic shared: `global/config/`, `global/security/`, `global/advice/`, `global/model/` (CommonResult envelope), `global/ResponseService`.
+
+Cross-domain coupling is expected in this monolith — e.g. `Account` is imported by ~35 files in other domains (lecture/reservation reference it as creator/applicant). That's fine; just keep the dependency direction one-way (account doesn't import lecture).
+
+**Legacy layered packages** (`controller/ service/ repo/ domain/ dto/`) — still hold lecture/reservation/schedule/review/equipment/location/lectureImage. These get folded into feature packages as each is rewritten (lecture/reservation are pending a 기획 redesign). Old description of the layered layout below still applies to these:
 
 - `controller/` — REST endpoints, organized by feature (`account/`, `lecture/`, `schedule/`, `reservation/`, `review/`, `equipment/`, `location/`, `lectureImage/`, `profilePhoto/`, `sign/`).
 - `service/` — business logic, mirroring controller features. Sub-packages exist for cross-cutting concerns: `service/kafka/` (producers/consumers + their DTOs — scheduled for removal in Phase 2), `service/elasticSearch/` (scheduled for removal in Phase 3), `service/image/` (S3 upload via AWS SDK v1).
