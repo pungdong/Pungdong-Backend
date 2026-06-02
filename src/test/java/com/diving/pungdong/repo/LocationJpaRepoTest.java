@@ -1,6 +1,6 @@
 package com.diving.pungdong.repo;
 
-import com.diving.pungdong.advice.exception.BadRequestException;
+import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.domain.lecture.Lecture;
 import com.diving.pungdong.domain.location.Location;
 import org.junit.jupiter.api.DisplayName;

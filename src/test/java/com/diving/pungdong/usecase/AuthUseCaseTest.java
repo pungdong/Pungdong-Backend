@@ -1,13 +1,13 @@
 package com.diving.pungdong.usecase;
 
-import com.diving.pungdong.config.security.JwtTokenProvider;
-import com.diving.pungdong.config.security.UserAccount;
-import com.diving.pungdong.domain.account.Account;
-import com.diving.pungdong.domain.account.Role;
-import com.diving.pungdong.dto.account.emailCheck.EmailResult;
-import com.diving.pungdong.service.InstructorCertificateService;
-import com.diving.pungdong.service.account.AccountService;
-import com.diving.pungdong.service.account.FirebaseTokenService;
+import com.diving.pungdong.global.security.JwtTokenProvider;
+import com.diving.pungdong.global.security.UserAccount;
+import com.diving.pungdong.account.Account;
+import com.diving.pungdong.account.Role;
+import com.diving.pungdong.account.dto.emailCheck.EmailResult;
+import com.diving.pungdong.account.InstructorCertificateService;
+import com.diving.pungdong.account.AccountService;
+import com.diving.pungdong.account.FirebaseTokenService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;

@@ -1,7 +1,7 @@
 package com.diving.pungdong.repo;
 
 import com.diving.pungdong.domain.LectureMark;
-import com.diving.pungdong.domain.account.Account;
+import com.diving.pungdong.account.Account;
 import com.diving.pungdong.domain.lecture.Lecture;
 import org.hibernate.Hibernate;
 import org.junit.jupiter.api.DisplayName;

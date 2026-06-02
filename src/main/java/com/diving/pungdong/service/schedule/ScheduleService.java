@@ -1,8 +1,8 @@
 package com.diving.pungdong.service.schedule;
 
-import com.diving.pungdong.advice.exception.BadRequestException;
-import com.diving.pungdong.advice.exception.ResourceNotFoundException;
-import com.diving.pungdong.domain.account.Account;
+import com.diving.pungdong.global.advice.exception.BadRequestException;
+import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
+import com.diving.pungdong.account.Account;
 import com.diving.pungdong.domain.lecture.Lecture;
 import com.diving.pungdong.domain.reservation.Reservation;
 import com.diving.pungdong.domain.reservation.ReservationEquipment;

@@ -1,7 +1,7 @@
 package com.diving.pungdong.service;
 
-import com.diving.pungdong.advice.exception.ResourceNotFoundException;
-import com.diving.pungdong.domain.account.Account;
+import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
+import com.diving.pungdong.account.Account;
 import com.diving.pungdong.domain.equipment.Equipment;
 import com.diving.pungdong.domain.equipment.EquipmentStock;
 import com.diving.pungdong.domain.lecture.Lecture;

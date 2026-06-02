@@ -1,7 +1,7 @@
 package com.diving.pungdong.service.schedule;
 
-import com.diving.pungdong.advice.exception.BadRequestException;
-import com.diving.pungdong.advice.exception.ResourceNotFoundException;
+import com.diving.pungdong.global.advice.exception.BadRequestException;
+import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.domain.equipment.EquipmentStock;
 import com.diving.pungdong.domain.schedule.ScheduleEquipment;
 import com.diving.pungdong.domain.schedule.ScheduleEquipmentStock;

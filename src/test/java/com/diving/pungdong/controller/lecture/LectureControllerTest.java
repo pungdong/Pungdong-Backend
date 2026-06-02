@@ -1,12 +1,12 @@
 package com.diving.pungdong.controller.lecture;
 
-import com.diving.pungdong.advice.ExceptionAdvice;
-import com.diving.pungdong.config.RestDocsConfiguration;
-import com.diving.pungdong.config.security.JwtTokenProvider;
-import com.diving.pungdong.config.security.UserAccount;
-import com.diving.pungdong.domain.account.Account;
-import com.diving.pungdong.domain.account.Gender;
-import com.diving.pungdong.domain.account.Role;
+import com.diving.pungdong.global.advice.ExceptionAdvice;
+import com.diving.pungdong.global.config.RestDocsConfiguration;
+import com.diving.pungdong.global.security.JwtTokenProvider;
+import com.diving.pungdong.global.security.UserAccount;
+import com.diving.pungdong.account.Account;
+import com.diving.pungdong.account.Gender;
+import com.diving.pungdong.account.Role;
 import com.diving.pungdong.domain.lecture.Lecture;
 import com.diving.pungdong.domain.lecture.Organization;
 import com.diving.pungdong.dto.lecture.LectureCreatorInfo;
@@ -25,7 +25,7 @@ import com.diving.pungdong.dto.lecture.list.search.FilterSearchCondition;
 import com.diving.pungdong.dto.lecture.update.LectureClosedInfo;
 import com.diving.pungdong.dto.lecture.update.LectureUpdateInfo;
 import com.diving.pungdong.service.LectureMarkService;
-import com.diving.pungdong.service.account.AccountService;
+import com.diving.pungdong.account.AccountService;
 import com.diving.pungdong.service.LectureImageService;
 import com.diving.pungdong.service.LectureService;
 import com.diving.pungdong.service.elasticSearch.LectureEsService;

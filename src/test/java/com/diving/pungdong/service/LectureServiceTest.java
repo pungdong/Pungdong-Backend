@@ -1,8 +1,8 @@
 package com.diving.pungdong.service;
 
-import com.diving.pungdong.advice.exception.BadRequestException;
+import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.domain.LectureMark;
-import com.diving.pungdong.domain.account.Account;
+import com.diving.pungdong.account.Account;
 import com.diving.pungdong.domain.lecture.Lecture;
 import com.diving.pungdong.domain.lecture.Organization;
 import com.diving.pungdong.domain.schedule.Schedule;

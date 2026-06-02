@@ -1,6 +1,6 @@
 package com.diving.pungdong.repo;
 
-import com.diving.pungdong.domain.account.Account;
+import com.diving.pungdong.account.Account;
 import com.diving.pungdong.domain.lecture.Lecture;
 import com.diving.pungdong.domain.review.Review;
 import org.junit.jupiter.api.DisplayName;

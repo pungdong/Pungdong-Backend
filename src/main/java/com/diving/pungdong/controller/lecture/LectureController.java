@@ -1,10 +1,10 @@
 package com.diving.pungdong.controller.lecture;
 
-import com.diving.pungdong.advice.exception.BadRequestException;
-import com.diving.pungdong.advice.exception.NoPermissionsException;
-import com.diving.pungdong.config.security.CurrentUser;
+import com.diving.pungdong.global.advice.exception.BadRequestException;
+import com.diving.pungdong.global.advice.exception.NoPermissionsException;
+import com.diving.pungdong.global.security.CurrentUser;
 import com.diving.pungdong.domain.LectureMark;
-import com.diving.pungdong.domain.account.Account;
+import com.diving.pungdong.account.Account;
 import com.diving.pungdong.domain.lecture.Lecture;
 import com.diving.pungdong.domain.lecture.elasticSearch.LectureEs;
 import com.diving.pungdong.dto.lecture.like.mark.MarkLectureInfo;

@@ -1,8 +1,8 @@
 package com.diving.pungdong.controller.schedule;
 
-import com.diving.pungdong.advice.exception.BadRequestException;
-import com.diving.pungdong.config.security.CurrentUser;
-import com.diving.pungdong.domain.account.Account;
+import com.diving.pungdong.global.advice.exception.BadRequestException;
+import com.diving.pungdong.global.security.CurrentUser;
+import com.diving.pungdong.account.Account;
 import com.diving.pungdong.domain.schedule.Schedule;
 import com.diving.pungdong.dto.schedule.create.ScheduleCreateInfo;
 import com.diving.pungdong.dto.schedule.create.ScheduleCreateResult;

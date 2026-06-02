@@ -1,6 +1,6 @@
 package com.diving.pungdong.domain.reservation;
 
-import com.diving.pungdong.domain.account.Account;
+import com.diving.pungdong.account.Account;
 import com.diving.pungdong.domain.payment.Payment;
 import com.diving.pungdong.domain.review.Review;
 import com.diving.pungdong.domain.schedule.Schedule;

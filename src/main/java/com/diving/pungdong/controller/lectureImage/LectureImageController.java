@@ -1,8 +1,8 @@
 package com.diving.pungdong.controller.lectureImage;
 
-import com.diving.pungdong.advice.exception.BadRequestException;
-import com.diving.pungdong.config.security.CurrentUser;
-import com.diving.pungdong.domain.account.Account;
+import com.diving.pungdong.global.advice.exception.BadRequestException;
+import com.diving.pungdong.global.security.CurrentUser;
+import com.diving.pungdong.account.Account;
 import com.diving.pungdong.dto.lectureImage.LectureImageInfo;
 import com.diving.pungdong.dto.lectureImage.LectureImageUrl;
 import com.diving.pungdong.dto.lectureImage.delete.LectureImageDeleteInfo;

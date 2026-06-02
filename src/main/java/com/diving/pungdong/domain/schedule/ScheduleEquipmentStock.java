@@ -1,6 +1,6 @@
 package com.diving.pungdong.domain.schedule;
 
-import com.diving.pungdong.advice.exception.BadRequestException;
+import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.domain.reservation.ReservationEquipment;
 import lombok.*;
 import org.springframework.transaction.annotation.Transactional;

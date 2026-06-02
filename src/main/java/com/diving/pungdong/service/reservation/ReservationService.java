@@ -1,10 +1,10 @@
 package com.diving.pungdong.service.reservation;
 
-import com.diving.pungdong.advice.exception.BadRequestException;
-import com.diving.pungdong.advice.exception.ClosedLectureException;
-import com.diving.pungdong.advice.exception.NoPermissionsException;
-import com.diving.pungdong.advice.exception.ResourceNotFoundException;
-import com.diving.pungdong.domain.account.Account;
+import com.diving.pungdong.global.advice.exception.BadRequestException;
+import com.diving.pungdong.global.advice.exception.ClosedLectureException;
+import com.diving.pungdong.global.advice.exception.NoPermissionsException;
+import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
+import com.diving.pungdong.account.Account;
 import com.diving.pungdong.domain.lecture.Lecture;
 import com.diving.pungdong.domain.payment.Payment;
 import com.diving.pungdong.domain.reservation.Reservation;
@@ -13,9 +13,9 @@ import com.diving.pungdong.domain.schedule.Schedule;
 import com.diving.pungdong.domain.schedule.ScheduleDateTime;
 import com.diving.pungdong.domain.schedule.ScheduleEquipment;
 import com.diving.pungdong.domain.schedule.ScheduleEquipmentStock;
-import com.diving.pungdong.domain.notification.event.LectureNotificationEvent;
-import com.diving.pungdong.domain.notification.event.ReservationCancelledEvent;
-import com.diving.pungdong.domain.notification.event.ReservationCreatedEvent;
+import com.diving.pungdong.notification.event.LectureNotificationEvent;
+import com.diving.pungdong.notification.event.ReservationCancelledEvent;
+import com.diving.pungdong.notification.event.ReservationCreatedEvent;
 import com.diving.pungdong.dto.reservation.ReservationCreateInfo;
 import com.diving.pungdong.dto.reservation.detail.PaymentDetail;
 import com.diving.pungdong.dto.reservation.detail.RentEquipmentDetail;
