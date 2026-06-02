@@ -132,12 +132,12 @@ export interface CheckEmailRequest {
 
 /** POST /sign/check/email 응답. */
 export interface CheckEmailResponse extends HalLinks {
-  existed: boolean;
+  exists: boolean;
 }
 
 /** GET /sign/check/nickName?nickName=... 응답. */
 export interface CheckNickNameResponse extends HalLinks {
-  isExisted: boolean;
+  exists: boolean;
 }
 
 // ============================================================
