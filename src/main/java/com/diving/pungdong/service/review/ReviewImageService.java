@@ -1,6 +1,6 @@
 package com.diving.pungdong.service.review;
 
-import com.diving.pungdong.domain.account.Account;
+import com.diving.pungdong.account.Account;
 import com.diving.pungdong.domain.reservation.Reservation;
 import com.diving.pungdong.domain.review.Review;
 import com.diving.pungdong.domain.review.ReviewImage;

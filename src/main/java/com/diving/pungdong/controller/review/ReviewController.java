@@ -1,8 +1,8 @@
 package com.diving.pungdong.controller.review;
 
-import com.diving.pungdong.advice.exception.BadRequestException;
-import com.diving.pungdong.config.security.CurrentUser;
-import com.diving.pungdong.domain.account.Account;
+import com.diving.pungdong.global.advice.exception.BadRequestException;
+import com.diving.pungdong.global.security.CurrentUser;
+import com.diving.pungdong.account.Account;
 import com.diving.pungdong.domain.review.Review;
 import com.diving.pungdong.domain.review.ReviewImage;
 import com.diving.pungdong.dto.review.ReviewInfo;

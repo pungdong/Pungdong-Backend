@@ -1,8 +1,8 @@
 package com.diving.pungdong.controller.location;
 
-import com.diving.pungdong.advice.exception.BadRequestException;
-import com.diving.pungdong.config.security.CurrentUser;
-import com.diving.pungdong.domain.account.Account;
+import com.diving.pungdong.global.advice.exception.BadRequestException;
+import com.diving.pungdong.global.security.CurrentUser;
+import com.diving.pungdong.account.Account;
 import com.diving.pungdong.domain.location.Location;
 import com.diving.pungdong.dto.location.LocationCreateInfo;
 import com.diving.pungdong.dto.location.LocationCreateResult;

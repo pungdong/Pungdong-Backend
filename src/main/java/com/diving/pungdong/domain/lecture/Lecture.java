@@ -1,7 +1,7 @@
 package com.diving.pungdong.domain.lecture;
 
 import com.diving.pungdong.domain.LectureMark;
-import com.diving.pungdong.domain.account.Account;
+import com.diving.pungdong.account.Account;
 import com.diving.pungdong.domain.equipment.Equipment;
 import com.diving.pungdong.domain.location.Location;
 import com.diving.pungdong.domain.review.Review;

@@ -1,16 +1,16 @@
 package com.diving.pungdong.controller.equipment;
 
-import com.diving.pungdong.config.RestDocsConfiguration;
-import com.diving.pungdong.config.security.JwtTokenProvider;
-import com.diving.pungdong.config.security.UserAccount;
-import com.diving.pungdong.domain.account.Account;
-import com.diving.pungdong.domain.account.Gender;
-import com.diving.pungdong.domain.account.Role;
+import com.diving.pungdong.global.config.RestDocsConfiguration;
+import com.diving.pungdong.global.security.JwtTokenProvider;
+import com.diving.pungdong.global.security.UserAccount;
+import com.diving.pungdong.account.Account;
+import com.diving.pungdong.account.Gender;
+import com.diving.pungdong.account.Role;
 import com.diving.pungdong.domain.equipment.EquipmentStock;
 import com.diving.pungdong.dto.equipment.stock.create.EquipmentStockCreateInfo;
 import com.diving.pungdong.service.EquipmentService;
 import com.diving.pungdong.service.EquipmentStockService;
-import com.diving.pungdong.service.account.AccountService;
+import com.diving.pungdong.account.AccountService;
 import com.diving.pungdong.service.elasticSearch.LectureEsService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.http.HttpHeaders;

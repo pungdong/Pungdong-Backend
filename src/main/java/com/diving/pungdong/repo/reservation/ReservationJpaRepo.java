@@ -1,6 +1,6 @@
 package com.diving.pungdong.repo.reservation;
 
-import com.diving.pungdong.domain.account.Account;
+import com.diving.pungdong.account.Account;
 import com.diving.pungdong.domain.reservation.Reservation;
 import com.diving.pungdong.domain.schedule.Schedule;
 import org.springframework.data.domain.Page;
