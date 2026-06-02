@@ -1,11 +1,11 @@
 package com.diving.pungdong.controller.review;
 
-import com.diving.pungdong.config.RestDocsConfiguration;
-import com.diving.pungdong.config.security.JwtTokenProvider;
-import com.diving.pungdong.config.security.UserAccount;
-import com.diving.pungdong.domain.account.Account;
-import com.diving.pungdong.domain.account.Gender;
-import com.diving.pungdong.domain.account.Role;
+import com.diving.pungdong.global.config.RestDocsConfiguration;
+import com.diving.pungdong.global.security.JwtTokenProvider;
+import com.diving.pungdong.global.security.UserAccount;
+import com.diving.pungdong.account.Account;
+import com.diving.pungdong.account.Gender;
+import com.diving.pungdong.account.Role;
 import com.diving.pungdong.domain.lecture.Lecture;
 import com.diving.pungdong.domain.review.Review;
 import com.diving.pungdong.domain.review.ReviewImage;
@@ -17,7 +17,7 @@ import com.diving.pungdong.dto.review.ReviewInfo;
 import com.diving.pungdong.dto.review.create.ReviewCreateInfo;
 import com.diving.pungdong.dto.review.image.create.ReviewImageInfo;
 import com.diving.pungdong.service.ReviewService;
-import com.diving.pungdong.service.account.AccountService;
+import com.diving.pungdong.account.AccountService;
 import com.diving.pungdong.service.review.ReviewImageService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;

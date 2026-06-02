@@ -1,6 +1,6 @@
 package com.diving.pungdong.service;
 
-import com.diving.pungdong.domain.account.Account;
+import com.diving.pungdong.account.Account;
 import com.diving.pungdong.domain.lecture.Lecture;
 import com.diving.pungdong.domain.lecture.LectureImage;
 import com.diving.pungdong.dto.lectureImage.LectureImageInfo;

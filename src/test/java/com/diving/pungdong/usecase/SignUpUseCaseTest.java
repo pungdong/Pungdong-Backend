@@ -1,11 +1,11 @@
 package com.diving.pungdong.usecase;
 
-import com.diving.pungdong.domain.account.Account;
-import com.diving.pungdong.domain.account.AuthProvider;
-import com.diving.pungdong.domain.account.Role;
-import com.diving.pungdong.dto.account.signUp.SignUpInfo;
-import com.diving.pungdong.repo.AccountJpaRepo;
-import com.diving.pungdong.repo.ProfilePhotoJpaRepo;
+import com.diving.pungdong.account.Account;
+import com.diving.pungdong.account.AuthProvider;
+import com.diving.pungdong.account.Role;
+import com.diving.pungdong.account.dto.signUp.SignUpInfo;
+import com.diving.pungdong.account.AccountJpaRepo;
+import com.diving.pungdong.account.ProfilePhotoJpaRepo;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -27,7 +27,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 회원가입 흐름 use-case 시나리오.
  * <p>
  * 컨트롤러부터 DB까지 통째로 묶어서 실제 HTTP → Spring Security 필터 → 서비스 → JPA 까지
- * 일관된 시나리오로 검증한다. {@link com.diving.pungdong.controller.sign.SignControllerTest}
+ * 일관된 시나리오로 검증한다. {@link com.diving.pungdong.account.SignControllerTest}
  * 가 HTTP 와 REST Docs 만 검증하는 반면, 이 테스트는 "어떤 입력에 대해 어떤 사용자 상태가
  * 생기는가" 를 검증하는 안전망 역할.
  * <p>

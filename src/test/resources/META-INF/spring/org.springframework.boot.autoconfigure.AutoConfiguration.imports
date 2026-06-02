@@ -1,1 +1,1 @@
-com.diving.pungdong.config.EmbeddedRedisConfig
+com.diving.pungdong.global.config.EmbeddedRedisConfig

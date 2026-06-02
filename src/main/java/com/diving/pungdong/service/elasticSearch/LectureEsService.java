@@ -1,7 +1,7 @@
 package com.diving.pungdong.service.elasticSearch;
 
-import com.diving.pungdong.advice.exception.ResourceNotFoundException;
-import com.diving.pungdong.domain.account.Account;
+import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
+import com.diving.pungdong.account.Account;
 import com.diving.pungdong.domain.lecture.Lecture;
 import com.diving.pungdong.domain.lecture.elasticSearch.LectureEs;
 import com.diving.pungdong.dto.equipment.create.EquipmentCreateInfo;

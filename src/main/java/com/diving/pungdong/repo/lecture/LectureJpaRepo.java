@@ -1,6 +1,6 @@
 package com.diving.pungdong.repo.lecture;
 
-import com.diving.pungdong.domain.account.Account;
+import com.diving.pungdong.account.Account;
 import com.diving.pungdong.domain.lecture.Lecture;
 import com.diving.pungdong.dto.lecture.list.search.FilterSearchCondition;
 import org.springframework.data.domain.Page;

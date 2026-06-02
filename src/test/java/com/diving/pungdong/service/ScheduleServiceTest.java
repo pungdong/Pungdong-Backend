@@ -1,6 +1,6 @@
 package com.diving.pungdong.service;
 
-import com.diving.pungdong.advice.exception.BadRequestException;
+import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.domain.lecture.Lecture;
 import com.diving.pungdong.domain.schedule.Schedule;
 import com.diving.pungdong.domain.schedule.ScheduleDateTime;
