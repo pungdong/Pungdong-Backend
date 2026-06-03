@@ -294,6 +294,26 @@ class AuthUseCaseTest {
     }
 
     @Test
+    @DisplayName("F5: refresh 로 회전된 옛 refresh token 으로 다시 /sign/refresh → 거부 (rotation 재사용 차단)")
+    void refresh_rejectsReusedOldToken() throws Exception {
+        Account student = stubAccount(1L, Role.STUDENT);
+        given(accountService.findAccountById(1L)).willReturn(student);
+        String oldRefreshToken = jwtTokenProvider.createRefreshToken(String.valueOf(student.getId()));
+
+        // 1차 refresh: 성공 — 이 시점에 옛 RT 는 블랙리스트로 무효화된다
+        mockMvc.perform(post("/sign/refresh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"" + oldRefreshToken + "\"}"))
+                .andExpect(status().isOk());
+
+        // 같은 옛 RT 로 재시도 → 거부 (탈취 replay 차단)
+        mockMvc.perform(post("/sign/refresh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"" + oldRefreshToken + "\"}"))
+                .andExpect(status().is4xxClientError());
+    }
+
+    @Test
     @DisplayName("L1: 로그아웃된 access token 으로 보호된 API 호출 시 401 + JSON 응답 — 블랙리스트 동작 검증")
     void logoutInvalidatesAccessToken() throws Exception {
         Account student = stubAccount(1L, Role.STUDENT);

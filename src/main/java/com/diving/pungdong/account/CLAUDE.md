@@ -26,8 +26,9 @@
 - **가입 시 별도 인증 없음** (설계 결정). 본인확인(간편인증 + CI 수집)은 수강생=강의신청 전, 강사=강사전환 시점. `EmailController`의 `/email/code/*` 는 가입용 아님 — **비밀번호 재설정 + 계정복구** 전용 (`AccountService.modifyForgetPassword`, `updateAccountDeleted`). 지우지 말 것. (memory: identity-verification-model)
 - **PR #19**: 이메일 가입/로그인 e2e 완성 — 가입 시 tokens 동봉(auto-login, 별도 login 불필요), refresh 토큰 회전, 로그아웃 블랙리스트(Redis), JSON 401/403, CORS.
 - **PR #17**: 가입 페이로드 슬림화 + `Account` 에 OAuth 식별 필드(`AuthProvider`) 추가.
+- **토큰 정책** (TTL/rotation/무효화): AT 1시간, RT **30일**(rotation 과 결합한 슬라이딩 윈도우 = 최대 비활성 허용 기간), refresh 시 **옛 RT 즉시 무효화**(재사용 replay 차단), 로그아웃 시 AT·RT 블랙리스트(TTL=유효기간 일치). 상세·이유 → [docs/architecture/sign-up.md](../../../../../../../docs/architecture/sign-up.md) "토큰 정책" 섹션. 값의 원천 = `JwtTokenProvider` 상수.
 - **OAuth(Kakao/Naver)**: 출시 후로 deferred. 블로커 = 사업자등록증(~2026-06-04) → 개발자 앱 등록. (memory: project_simplification_plan)
 
 ## 안전망 테스트
 
-`src/test/.../account/` + `src/test/.../usecase/AuthUseCaseTest`, `SignUpUseCaseTest`. 인증 흐름 건드리면 여기가 회귀를 잡는다. `AuthUseCaseTest.L1` 은 의도된 quirk — memory `phase_0_deferred_items` 확인 후 수정.
+`src/test/.../account/` + `src/test/.../usecase/AuthUseCaseTest`, `SignUpUseCaseTest`. 인증 흐름 건드리면 여기가 회귀를 잡는다. `AuthUseCaseTest` 의 L1/L2 = 로그아웃 블랙리스트, F1~F5 = refresh + rotation 재사용 차단 검증 (블랙리스트·rotation 모두 배선 완료, phase_0_deferred #1/#2 resolved).
