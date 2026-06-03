@@ -26,7 +26,15 @@ public class JwtTokenProvider {
     @Value("${spring.jwt.secret}")
     private String secretKey;
 
-    private long tokenValidMilisecond = 1000L * 60 * 60;
+    /** Access token 유효기간: 1시간. */
+    private static final long ACCESS_TOKEN_VALID_MS = 1000L * 60 * 60;
+
+    /**
+     * Refresh token 유효기간: 30일.
+     * rotation(매 refresh 마다 재발급)과 결합해 슬라이딩 윈도우로 동작 —
+     * 30일 = "이 기간 안에 한 번도 접근 안 하면 재로그인" 즉 최대 비활성 허용 기간.
+     */
+    private static final long REFRESH_TOKEN_VALID_MS = 1000L * 60 * 60 * 24 * 30;
 
     private final UserDetailsService userDetailsService;
 
@@ -36,7 +44,17 @@ public class JwtTokenProvider {
     }
 
     public int getAccessTokenValiditySeconds() {
-        return (int) (tokenValidMilisecond / 1000);
+        return (int) (ACCESS_TOKEN_VALID_MS / 1000);
+    }
+
+    /** 로그아웃 블랙리스트 TTL / refresh rotation 시 옛 토큰 무효화 TTL 로 사용. */
+    public long getRefreshTokenValidMs() {
+        return REFRESH_TOKEN_VALID_MS;
+    }
+
+    /** 로그아웃 블랙리스트 TTL 로 사용. */
+    public long getAccessTokenValidMs() {
+        return ACCESS_TOKEN_VALID_MS;
     }
 
     public String createAccessToken(String userPk, Set<Role> roles) {
@@ -48,7 +66,7 @@ public class JwtTokenProvider {
         return Jwts.builder()
                 .setClaims(claims)
                 .setIssuedAt(date)
-                .setExpiration(new Date(date.getTime() + tokenValidMilisecond))
+                .setExpiration(new Date(date.getTime() + ACCESS_TOKEN_VALID_MS))
                 .signWith(SignatureAlgorithm.HS256, secretKey)
                 .compact();
     }
@@ -61,7 +79,7 @@ public class JwtTokenProvider {
         return Jwts.builder()
                 .setClaims(claims)
                 .setIssuedAt(date)
-                .setExpiration(new Date(date.getTime() + tokenValidMilisecond * 30))
+                .setExpiration(new Date(date.getTime() + REFRESH_TOKEN_VALID_MS))
                 .signWith(SignatureAlgorithm.HS256, secretKey)
                 .compact();
     }

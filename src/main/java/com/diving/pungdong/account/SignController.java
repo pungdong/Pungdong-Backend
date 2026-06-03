@@ -122,6 +122,10 @@ public class SignController {
         String userPk = jwtTokenProvider.getUserPk(request.getRefreshToken());
         Account account = accountService.findAccountById(Long.parseLong(userPk));
 
+        // rotation: 옛 refresh token 을 즉시 무효화해 재사용(탈취 replay)을 차단한다.
+        redisTemplate.opsForValue().set(request.getRefreshToken(), "false",
+                jwtTokenProvider.getRefreshTokenValidMs(), TimeUnit.MILLISECONDS);
+
         String newAccessToken = jwtTokenProvider.createAccessToken(
                 String.valueOf(account.getId()), account.getRoles());
         String newRefreshToken = jwtTokenProvider.createRefreshToken(
@@ -250,8 +254,9 @@ public class SignController {
 
     @PostMapping("/logout")
     public ResponseEntity logout(@RequestBody LogoutReq logoutReq) {
-        redisTemplate.opsForValue().set(logoutReq.getAccessToken(), "false", 60 * 60 * 1000, TimeUnit.MILLISECONDS);
-        redisTemplate.opsForValue().set(logoutReq.getRefreshToken(), "false", 60 * 60 * 1000 * 14, TimeUnit.MILLISECONDS);
+        // 블랙리스트 TTL 은 각 토큰의 유효기간과 맞춘다 (만료 전까지 무효 상태 유지 — 구멍 방지).
+        redisTemplate.opsForValue().set(logoutReq.getAccessToken(), "false", jwtTokenProvider.getAccessTokenValidMs(), TimeUnit.MILLISECONDS);
+        redisTemplate.opsForValue().set(logoutReq.getRefreshToken(), "false", jwtTokenProvider.getRefreshTokenValidMs(), TimeUnit.MILLISECONDS);
 
         EntityModel<LogoutRes> entity = EntityModel.of(new LogoutRes());
         entity.add(linkTo(methodOn(SignController.class).logout(logoutReq)).withSelfRel());

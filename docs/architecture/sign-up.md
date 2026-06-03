@@ -160,10 +160,10 @@ sequenceDiagram
     C->>Ctrl: POST /sign/refresh {refreshToken}
 
     Ctrl->>Jwt: validateToken(refreshToken)
-    alt 유효하지 않음 (서명 / 만료 등)
+    alt 유효하지 않음 (서명 / 만료 / 블랙리스트)
         Jwt-->>Ctrl: false
         Ctrl-->>C: 4xx + JSON {success:false, code:-1006,<br/>"RefreshToken이 만료되었습니다"}
-    else 유효
+    else 유효 + 블랙리스트에 없음
         Jwt-->>Ctrl: true
         Ctrl->>Jwt: getUserPk(refreshToken)
         Jwt-->>Ctrl: userId
@@ -171,15 +171,52 @@ sequenceDiagram
         Svc->>DB: SELECT account
         DB-->>Svc: Account
         Svc-->>Ctrl: Account
+        Note over Ctrl: 옛 refresh token 블랙리스트 등록<br/>(rotation — 재사용 replay 차단)
         Ctrl->>Jwt: createAccessToken(id, roles)
         Jwt-->>Ctrl: 새 access JWT (1h)
         Ctrl->>Jwt: createRefreshToken(id)
-        Jwt-->>Ctrl: 새 refresh JWT (30h)
+        Jwt-->>Ctrl: 새 refresh JWT (30일)
         Ctrl-->>C: 200 OK<br/>{access_token, refresh_token, ...}
     end
 ```
 
-매 갱신마다 **refresh token 도 함께 회전** (rotation) — 도난된 refresh token 의 유효 기간을 짧게 유지하는 패턴.
+매 갱신마다 **refresh token 을 새로 발급(rotation)하고 옛 token 을 즉시 블랙리스트** — 도난된 refresh token 의 재사용(replay)을 차단한다.
+
+---
+
+## 토큰 정책 (TTL · rotation · 무효화)
+
+| 토큰 | 유효기간 | 용도 |
+|---|---|---|
+| **Access (AT)** | **1시간** | `Authorization` 헤더에 raw JWT. 만료 시 refresh 로 갱신 |
+| **Refresh (RT)** | **30일** | `/sign/refresh` 본문. 새 AT/RT 재발급용 |
+
+값의 단일 출처는 `JwtTokenProvider` 의 `ACCESS_TOKEN_VALID_MS` / `REFRESH_TOKEN_VALID_MS`.
+
+### 슬라이딩 윈도우 (자동로그인 지속)
+
+RT 는 매 refresh 마다 새로 발급되므로 30일은 **"최대 비활성 허용 기간"** 으로 동작한다:
+
+- 30일 안에 한 번이라도 접근(=refresh) → 새 30일 RT 발급 → **활성 사용자는 로그인 무한 유지**
+- 30일 연속 미접근 → RT 만료 → 재로그인 필요
+
+(보안 강화가 필요하면 향후 "절대 상한" — 최초 로그인 후 N일 초과 시 강제 재로그인 — 을 얹을 수 있다. 현재 미적용.)
+
+### Rotation + 무효화
+
+`/sign/refresh` 는 새 AT/RT 를 발급하면서 **옛 RT 를 Redis 블랙리스트(`"false"`)에 등록**한다 → 같은 옛 RT 로 다시 refresh 하면 거부 (`AuthUseCaseTest.F5`). 탈취된 RT 의 replay 차단.
+
+> 🟡 한계: 완전한 reuse-detection(옛 RT 재사용 감지 시 토큰 계열 전체 폐기)은 미구현 — 토큰 family 추적이 필요해 출시 후 검토. 현재는 옛 RT 단건 무효화까지.
+
+### 로그아웃 무효화
+
+`/sign/logout` 은 AT·RT 를 모두 블랙리스트에 등록 (TTL = 각 토큰 유효기간과 일치, 만료 전 구멍 방지). `JwtAuthenticationFilter` 가 매 요청마다 블랙리스트를 확인해 무효화된 토큰을 거부 (`AuthUseCaseTest.L1/L2`).
+
+### FE 가 직접 처리할 것 (테스트로 못 잡음)
+
+- 401 인터셉터 → `/sign/refresh` → 원요청 재시도, 실패(RT 만료) 시 로그인 화면
+- 토큰 안전 저장(모바일 Keychain / Keystore) + 앱 재시작 시 복원 → 자동로그인 지속
+- RT 도 매 refresh 마다 교체되므로 **새 RT 로 갱신 저장** 필수
 
 ---
 
