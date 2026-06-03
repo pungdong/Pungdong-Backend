@@ -71,7 +71,7 @@ public class SignController {
 
     @GetMapping("/check/nickName")
     public ResponseEntity<?> checkDuplicationNickName(@NotEmpty @RequestParam String nickName) {
-        NickNameResult nickNameResult = accountService.checkDuplicationOfNickName(nickName);
+        NickNameResult nickNameResult = accountService.checkNickNameExistence(nickName);
 
         EntityModel<NickNameResult> model = EntityModel.of(nickNameResult);
         model.add(linkTo(methodOn(SignController.class).checkDuplicationNickName(nickName)).withSelfRel());

@@ -97,6 +97,24 @@ Auth failures return **JSON `401`** directly via `CustomAuthenticationEntryPoint
 - Reference shape: `GET /sign/check/nickName?nickName=` (non-PII read) vs `POST /sign/check/email {email}` (PII read). The method asymmetry is **intentional and rule-driven**, not inconsistency. Both responses use `{ exists: boolean }`.
 - **Claude must apply this proactively**: when adding or reviewing any endpoint whose request carries a PII value as a query or path parameter, *propose moving it to a POST body even if the user did not ask* — the user (Spring beginner) may not catch it. Flag the same whenever a PII value would otherwise end up in a URL or log line.
 
+## API conventions
+
+### HTTP status reflects request outcome, not the business answer
+
+**Repo rule (set 2026-06-03):** an *expected* result — including a "negative" one the client branches on (nickname already taken, not eligible, empty list) — returns **`200` with a result field**. Reserve non-2xx for *genuine* failures:
+- `400` malformed / invalid input (validation)
+- `401` / `403` unauthenticated / unauthorized
+- `404` a fetch-by-id whose resource truly does not exist
+- `5xx` server faults
+
+**Litmus test**: if the server correctly computed an answer and the client should render it as a normal UI state (not an error toast), it is `200` + a field. Do not `throw` to signal a business "no".
+
+- Canonical example: `check/email` and `check/nickName` both return `200 {exists: boolean}` — duplicate is `exists:true`, **not** a `400`. (The opposite — throwing `BadRequestException` on duplicate — broke a FE client that treats every non-2xx as a network error; fixed 2026-06-03.)
+- Split the two responsibilities: a *check/query* service method that powers an endpoint **returns** the answer (`checkNickNameExistence`, `checkEmailExistence`); a *guard* method that enforces an invariant during a write **throws** (`checkDuplicationOfNickName`, `checkDuplicationOfEmail` — used by sign-up / nickname-update).
+- **Claude must apply this proactively**: when designing or reviewing an endpoint, if a normal expected outcome would surface as 4xx/5xx, propose the `200` + result-field shape instead — even if not asked.
+
+(Request side — PII parameters belong in a POST body — is in the **Security model** section above.)
+
 ## Docs
 
 REST Docs source: `src/docs/asciidoc/api.adoc` (Korean). The `bootJar` task copies the rendered HTML into `static/docs/` so it is served from the running app at `/docs/**` (whitelisted in `SecurityConfiguration.configure(WebSecurity)`). Snippets used by `api.adoc` come from controller tests — a new endpoint without a `document(...)` call in its test will leave the doc with broken includes.
