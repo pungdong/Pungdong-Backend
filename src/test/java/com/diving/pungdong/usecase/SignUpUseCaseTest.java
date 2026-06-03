@@ -19,6 +19,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -230,6 +231,32 @@ class SignUpUseCaseTest {
 
         assertThat(accountRepo.findAll()).hasSize(1);
         assertThat(accountRepo.findByEmail("nick2@example.com")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("D3: 닉네임 중복확인 — 사용 가능한 닉네임은 200 {exists:false}")
+    void checkNickName_returnsFalse_whenAvailable() throws Exception {
+        mockMvc.perform(get("/sign/check/nickName").param("nickName", "freebie"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.exists").value(false));
+    }
+
+    @Test
+    @DisplayName("D4: 닉네임 중복확인 — 이미 쓰는 닉네임은 에러가 아니라 200 {exists:true}")
+    void checkNickName_returnsTrue_whenTaken() throws Exception {
+        SignUpInfo signUp = SignUpInfo.builder()
+                .email("taken@example.com")
+                .password("pw1234")
+                .nickName("takennick")
+                .build();
+        mockMvc.perform(post("/sign/sign-up")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json(signUp)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/sign/check/nickName").param("nickName", "takennick"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.exists").value(true));
     }
 
     @Test

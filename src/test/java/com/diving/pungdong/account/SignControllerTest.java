@@ -175,7 +175,7 @@ class SignControllerTest {
                 .exists(false)
                 .build();
 
-        given(accountService.checkDuplicationOfNickName(nickName)).willReturn(nickNameResult);
+        given(accountService.checkNickNameExistence(nickName)).willReturn(nickNameResult);
 
         mockMvc.perform(get("/sign/check/nickName")
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)

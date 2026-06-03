@@ -120,15 +120,19 @@ public class AccountService implements UserDetailsService {
         return accountJpaRepo.save(student);
     }
 
-    @Transactional(readOnly = true)
-    public NickNameResult checkDuplicationOfNickName(String nickName) {
-        Optional<Account> account = accountJpaRepo.findByNickName(nickName);
-        if (account.isPresent()) {
+    /** 가입 / 닉네임 변경 시 중복 가드 — 중복이면 throw (checkDuplicationOfEmail 와 대칭). */
+    public void checkDuplicationOfNickName(String nickName) {
+        if (accountJpaRepo.existsByNickName(nickName)) {
             throw new BadRequestException("닉네임이 중복되었습니다");
         }
+    }
+
+    /** 닉네임 중복확인 엔드포인트용 — 중복 여부를 200 으로 반환 (checkEmailExistence 와 대칭). */
+    public NickNameResult checkNickNameExistence(String nickName) {
+        Boolean isExisted = accountJpaRepo.existsByNickName(nickName);
 
         return NickNameResult.builder()
-                .exists(false)
+                .exists(isExisted)
                 .build();
     }
 
