@@ -66,7 +66,7 @@ flowchart LR
 | 푸시 알림 | Firebase Cloud Messaging — outbox 패턴 + 자동 재시도 |
 | 파일 저장 | AWS S3 (`io.awspring.cloud:spring-cloud-starter-aws`) |
 | 메일 | Gmail SMTP (이메일 인증 코드 발송) |
-| API 문서 | Spring REST Docs (Asciidoctor 2.4) |
+| API 문서 | Spring REST Docs (Asciidoctor JVM 3.3) |
 | 테스트 | JUnit 5, Mockito, embedded Redis (codemonstur fork) |
 
 ## 개발 시작하기
@@ -135,8 +135,9 @@ JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew test --tests com.diving.pung
 
 ```
 ✅ Phase 0  Boot 2.3 → 2.7, JDK 11 → 17, Gradle 6 → 7, QueryDSL/Eureka 제거
-✅ Phase 1  외부 Auth Server 흡수, SecurityFilterChain, 시크릿 외부화
-🔄 Phase 2  Kafka → Spring Events + Outbox + FCM (2-A/B/C 완료, 2-D outbox cleanup 남음)
+✅ Phase 1  외부 Auth Server 흡수, SecurityFilterChain, 시크릿 외부화 (+ 이메일 인증/토큰 정책 완성)
+✅ Phase 2  Kafka → Spring Events + Outbox + FCM (2-A~D 완료)
+   구조    layered → domain-based(package-by-feature) 전환 중 (account/notification 완료)
    Phase 3  Elasticsearch 제거 결정 (트래픽 측정 후)
    Phase 4  배포 재설계 (Docker / ECS / WIF 등)
    Phase 5  CI/CD 재설계 (staging/prod 분리)

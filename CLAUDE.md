@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`pungdong` (풍덩) is the Spring Boot backend for a freediving instructor ↔ student lecture/reservation matching service. The Spring application name is still `msa-legacy-service` (the name predates the in-progress consolidation), but the service no longer registers with Eureka and is being merged toward a single self-contained Boot jar. One external dependency remains: the OAuth2 authorization server at `${authorization-server.host}` is still called from `AuthService.getAuthToken` for login token issuance — this is scheduled for absorption in Phase 1.
+`pungdong` (풍덩) is the Spring Boot backend for a freediving instructor ↔ student lecture/reservation matching service. The Spring application name is still `msa-legacy-service` (the name predates the consolidation), but the service no longer registers with Eureka and is now a single self-contained Boot jar. Login token issuance is fully in-process (JWT minted by `JwtTokenProvider` in `account/`) — the former external OAuth2 authorization server dependency was absorbed in Phase 1. (Social OAuth — Kakao/Naver — is a separate future feature, deferred post-launch; see memory `project_simplification_plan`.)
 
-Stack: Spring Boot **2.7.18**, Java **17**, Gradle **7.6.4**, JPA + Spring Data Specifications, MySQL (prod) / H2 (test), Spring Security 5.7 + JWT, Redis, Kafka, Spring Data Elasticsearch, Spring HATEOAS, `io.awspring.cloud:spring-cloud-starter-aws:2.4.4` (community fork; AWS SDK v1 path used by `S3Uploader`), Spring REST Docs (Asciidoctor 2.4).
+Stack: Spring Boot **2.7.18**, Java **17**, Gradle **7.6.4**, JPA + Spring Data Specifications, MySQL (prod) / H2 (test), Spring Security 5.7 + JWT, Redis, Spring Data Elasticsearch (Phase 3 removal candidate), Spring HATEOAS, `io.awspring.cloud:spring-cloud-starter-aws:2.4.4` (community fork; AWS SDK v1 path used by `S3Uploader`), Spring REST Docs (Asciidoctor JVM 3.3). Kafka was removed in Phase 2 (domain events + notification outbox replaced it).
 
 ## Commands
 
