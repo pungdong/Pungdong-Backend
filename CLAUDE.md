@@ -36,6 +36,8 @@ cp src/main/resources/aws.yml.example      src/main/resources/aws.yml
 JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew bootRun
 ```
 
+After the one-time setup above, the day-to-day shortcut is **`./scripts/dev.sh`** — it cleans any process on 8080 (so it doubles as a restart), runs `docker compose up -d`, loads `.env.local`, and starts `bootRun` on JDK 17. (`scripts/dev.sh` is the only thing that needs to be in the permission allowlist for hands-off restarts.)
+
 `bootRun` requires direnv-loaded env vars (`JWT_SECRET`, `ADMIN_MAIL_ID`, `ADMIN_MAIL_PASSWORD`, `ELASTICSEARCH_URI`). See `.env.example`. If unset, Spring fail-fasts on placeholder resolution at boot.
 
 Note: `bootJar` depends on `asciidoctor` which depends on `test`, so `./gradlew build` will fail the artifact step if any test fails. Use `./gradlew bootJar -x test -x asciidoctor` only when intentionally skipping docs.
