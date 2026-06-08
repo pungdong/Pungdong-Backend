@@ -29,6 +29,9 @@ public class InstructorApplicationDetail {
     private String phoneNumber;
 
     private String rejectionReason;
+    private LocalDateTime createdAt;
     private LocalDateTime submittedAt;
     private LocalDateTime reviewedAt;
+    /** 처리한 어드민 닉네임 (승인/반려 후). */
+    private String reviewerNickName;
 }

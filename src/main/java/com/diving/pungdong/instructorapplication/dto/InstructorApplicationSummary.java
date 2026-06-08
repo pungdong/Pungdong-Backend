@@ -13,6 +13,7 @@ public class InstructorApplicationSummary {
     private Long applicationId;
     private Long accountId;
     private String nickName;
+    private String email;
     private String organizationCode;
     private String organizationOther;
     private InstructorApplicationStatus status;

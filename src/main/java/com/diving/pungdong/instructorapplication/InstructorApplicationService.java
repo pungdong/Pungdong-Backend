@@ -137,7 +137,23 @@ public class InstructorApplicationService {
     /* ─── 어드민 ─────────────────────────────────────────────── */
 
     public Page<InstructorApplicationSummary> getApplications(InstructorApplicationStatus status, Pageable pageable) {
-        return applicationRepo.findAllByStatus(status, pageable).map(this::toSummary);
+        Page<InstructorApplication> page = (status == null)
+                ? applicationRepo.findAll(pageable)               // "전체" 탭
+                : applicationRepo.findAllByStatus(status, pageable);
+        return page.map(this::toSummary);
+    }
+
+    /** 상태별 건수 (어드민 탭 뱃지). */
+    public InstructorApplicationCounts getCounts() {
+        long submitted = applicationRepo.countByStatus(InstructorApplicationStatus.SUBMITTED);
+        long approved = applicationRepo.countByStatus(InstructorApplicationStatus.APPROVED);
+        long rejected = applicationRepo.countByStatus(InstructorApplicationStatus.REJECTED);
+        return InstructorApplicationCounts.builder()
+                .submitted(submitted)
+                .approved(approved)
+                .rejected(rejected)
+                .total(submitted + approved + rejected)
+                .build();
     }
 
     public InstructorApplicationDetail getApplicationDetail(Long applicationId) {
@@ -255,6 +271,7 @@ public class InstructorApplicationService {
                 .applicationId(application.getId())
                 .accountId(applicant.getId())
                 .nickName(applicant.getNickName())
+                .email(applicant.getEmail())
                 .organizationCode(application.getOrganizationCode())
                 .organizationOther(application.getOrganizationOther())
                 .status(application.getStatus())
@@ -278,8 +295,10 @@ public class InstructorApplicationService {
                 .birth(verification != null ? verification.getBirth() : null)
                 .phoneNumber(verification != null ? verification.getPhoneNumber() : null)
                 .rejectionReason(application.getRejectionReason())
+                .createdAt(application.getCreatedAt())
                 .submittedAt(application.getSubmittedAt())
                 .reviewedAt(application.getReviewedAt())
+                .reviewerNickName(application.getReviewer() != null ? application.getReviewer().getNickName() : null)
                 .build();
     }
 }

@@ -231,15 +231,28 @@ export interface MyInstructorApplicationResponse extends HalLinks {
   reviewedAt?: string;
 }
 
-/** 어드민 대기 목록 (GET /admin/instructor-applications?status=) 의 한 행. PagedModel 로 감싸짐. */
+/**
+ * 어드민 목록 (GET /admin/instructor-applications) 의 한 행. PagedModel 로 감싸짐.
+ * `status` 쿼리 생략 시 전체, 지정 시 해당 상태만 (탭: 검수중 SUBMITTED / 통과 APPROVED /
+ * 불통과 REJECTED). 기본 정렬 submittedAt desc.
+ */
 export interface InstructorApplicationSummary extends HalLinks {
   applicationId: number;
   accountId: number;
   nickName: string;
+  email: string;
   organizationCode: string;
   organizationOther?: string;
   status: InstructorApplicationStatus;
   submittedAt: string;
+}
+
+/** GET /admin/instructor-applications/counts — 탭 뱃지용 상태별 건수. */
+export interface InstructorApplicationCountsResponse extends HalLinks {
+  submitted: number;
+  approved: number;
+  rejected: number;
+  total: number;
 }
 
 /** GET /admin/instructor-applications/{id} — 어드민 상세 (본인확인 PII 포함, ADMIN 전용). */
@@ -256,8 +269,11 @@ export interface InstructorApplicationDetailResponse extends HalLinks {
   birth: string;
   phoneNumber: string;
   rejectionReason?: string;
+  createdAt?: string;
   submittedAt: string;
   reviewedAt?: string;
+  /** 처리한 어드민 닉네임 (승인/반려 후). */
+  reviewerNickName?: string;
 }
 
 /** POST /admin/instructor-applications/{id}/reject 요청. */

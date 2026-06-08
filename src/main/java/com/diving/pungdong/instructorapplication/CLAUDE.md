@@ -32,6 +32,7 @@
 - **2-phase 업로드** — 자격증 이미지는 `POST /certificate-images`(multipart)로 먼저 올려 URL 을 받고, 제출 JSON 이 그 URL 을 참조. 제출 컨트랙트가 깔끔한 JSON 이 됨.
 - **승인 = additive role** — STUDENT 유지 + INSTRUCTOR 추가. 권한은 매 요청 DB 재계산이라 토큰 재발급 불필요 (use-case `R3`).
 - **중복/없음 응답** — 중복 신청은 400(레포에 409 인프라 없음, `EmailDuplicationException` 처럼 400 통일). 미신청 내 신청 조회는 200 `{status:NONE}`(404 아님 — repo API 규칙).
+- **어드민 지정 = DB role + env allowlist** (Sanity 아님) — admin 권한은 `Account.roles` 의 `ADMIN`(authz 는 우리 신뢰경계). "누구를 admin 으로"의 목록만 env `pungdong.admin.emails` → `account.AdminAccountInitializer` 가 부팅 시 부여. 어드민 심사 목록은 counts(탭 뱃지) + status 옵셔널(전체 탭) 지원. (사용자 결정 2026-06-09)
 
 ## 안전망 테스트
 
