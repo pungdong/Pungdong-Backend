@@ -4,12 +4,15 @@ import com.diving.pungdong.account.Account;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.model.SuccessResult;
 import com.diving.pungdong.global.security.CurrentUser;
+import com.diving.pungdong.instructorapplication.dto.InstructorApplicationCounts;
 import com.diving.pungdong.instructorapplication.dto.InstructorApplicationDetail;
 import com.diving.pungdong.instructorapplication.dto.InstructorApplicationSummary;
 import com.diving.pungdong.instructorapplication.dto.RejectRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.PagedResourcesAssembler;
 import org.springframework.hateoas.EntityModel;
 import org.springframework.hateoas.Link;
@@ -34,14 +37,28 @@ public class AdminInstructorApplicationController {
 
     private final InstructorApplicationService applicationService;
 
-    /** 상태별 신청 목록 (기본 SUBMITTED = 심사 대기). 승인/반려된 건은 빠진다. */
+    /**
+     * 신청 목록. {@code status} 생략 시 전체(전체 탭), 지정 시 해당 상태만(검수중/통과/불통과 탭).
+     * 기본 정렬은 최신 신청순(submittedAt desc).
+     */
     @GetMapping
     public ResponseEntity<?> getApplications(
-            @RequestParam(name = "status", defaultValue = "SUBMITTED") InstructorApplicationStatus status,
-            Pageable pageable,
+            @RequestParam(name = "status", required = false) InstructorApplicationStatus status,
+            @PageableDefault(size = 20, sort = "submittedAt", direction = Sort.Direction.DESC) Pageable pageable,
             PagedResourcesAssembler<InstructorApplicationSummary> assembler) {
         Page<InstructorApplicationSummary> page = applicationService.getApplications(status, pageable);
         PagedModel<EntityModel<InstructorApplicationSummary>> model = assembler.toModel(page);
+        return ResponseEntity.ok().body(model);
+    }
+
+    /** 상태별 건수 — 탭 뱃지(검수중/통과/불통과). */
+    @GetMapping("/counts")
+    public ResponseEntity<?> getCounts() {
+        InstructorApplicationCounts counts = applicationService.getCounts();
+
+        EntityModel<InstructorApplicationCounts> model = EntityModel.of(counts);
+        model.add(linkTo(methodOn(AdminInstructorApplicationController.class).getCounts()).withSelfRel());
+        model.add(Link.of("/docs/api.html#resource-admin-instructor-application-counts").withRel("profile"));
         return ResponseEntity.ok().body(model);
     }
 

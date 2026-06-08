@@ -85,3 +85,7 @@ pungdong:
       base-url: ${STORAGE_LOCAL_BASE_URL:http://localhost:8080}
   identity-verification:
     mode: ${IDENTITY_VERIFICATION_MODE:stub}   # stub | disabled (| real — 미구현)
+  # 어드민 지정 allowlist (콤마구분). 부팅 시 해당 이메일 계정에 ROLE_ADMIN 부여(idempotent).
+  # 권한은 DB role 이 출처 — 이 목록은 "누구를 admin 으로"만 정함. 가입 후 재기동 시 반영.
+  admin:
+    emails: ${ADMIN_EMAILS:}
