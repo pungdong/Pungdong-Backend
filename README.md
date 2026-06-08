@@ -85,20 +85,26 @@ flowchart LR
 ### 일상 dev 흐름
 
 ```bash
-# 의존성 (MySQL + Redis + Elasticsearch) — 한번 띄우면 며칠 그대로
-docker compose up -d
-
-# 백엔드 띄우기 (다른 터미널)
-JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew bootRun
-# Ctrl+C 로 종료
+# 서버 기동 / 재기동 — 한 방
+./scripts/dev.sh
 ```
 
-`Started PungdongApplication` 로그가 마지막에 뜨고 터미널이 멈춰있으면 정상. 다른 터미널에서:
+`scripts/dev.sh` 가 알아서: ① 8080 점유 프로세스 정리(=재기동 겸함) → ② `docker compose up -d` (의존성, 이미 떠 있으면 무시) → ③ `.env.local` 로드 → ④ JDK 17 로 `bootRun`. 종료는 `Ctrl+C`, 재시작도 같은 명령.
+
+`Started PungdongApplication` 로그가 뜨고 터미널이 멈춰있으면 정상. 다른 터미널에서 확인:
 ```bash
-curl -X POST http://localhost:8080/sign/check/email \
-  -H "Content-Type: application/json" -d '{"email":"a@b.com"}'
-# → {"existed":false, ...}
+curl "http://localhost:8080/sign/check/nickName?nickName=test"
+# → {"exists":false, ...}
 ```
+
+<details>
+<summary>스크립트 없이 수동으로</summary>
+
+```bash
+docker compose up -d                                          # 의존성 (MySQL + Redis + Elasticsearch)
+JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew bootRun   # 다른 터미널, Ctrl+C 종료
+```
+</details>
 
 ### Docker 명령어
 
