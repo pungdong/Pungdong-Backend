@@ -98,41 +98,6 @@ class AccountServiceTest {
     }
 
     @Test
-    @DisplayName("강사 권한 추가")
-    public void addInstructorRole() {
-        Set<Role> roles = new HashSet<>();
-        roles.add(Role.STUDENT);
-        Account account = Account.builder()
-                .id(1L)
-                .roles(roles)
-                .build();
-
-        doReturn(account).when(accountService).findAccountById(account.getId());
-
-        Account instructor = accountService.addInstructorRole(account.getId());
-
-        assertThat(instructor.getRoles()).contains(Role.INSTRUCTOR);
-    }
-
-    @Test
-    @DisplayName("강사 지원 여부 확인")
-    public void checkInstructorApplication() {
-        // given
-        Account account = Account.builder()
-                .id(1L)
-                .isRequestCertified(true)
-                .build();
-
-        doReturn(account).when(accountService).findAccountById(account.getId());
-
-        // when
-        boolean isApplied = accountService.checkInstructorApplication(account.getId());
-
-        // then
-        assertTrue(isApplied);
-    }
-
-    @Test
     @DisplayName("잊어버린 비밀번호 새로운 비밀번호로 변경")
     public void modifyForgetPassword() {
         // given

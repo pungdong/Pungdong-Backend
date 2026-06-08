@@ -83,36 +83,4 @@ class AccountJpaRepoTest {
         assertThat(updatedAccount.getRoles()).isEqualTo(savedAccount.getRoles());
     }
 
-    public void createInstructorRequestAccount(Boolean isCertified, Boolean isRequestCertified) {
-        Account account = Account.builder()
-            .isCertified(isCertified)
-            .isRequestCertified(isRequestCertified)
-            .build();
-        em.persist(account);
-
-        em.flush();
-        em.clear();
-    }
-
-    @Test
-    @DisplayName("강사 신청하고 승인되지 않음 계정 목록 조회")
-    public void getRequestInstructor() {
-        createInstructorRequestAccount(false, true);
-        Pageable pageable = PageRequest.of(0, 5);
-
-        Page<Account> accountPage = accountJpaRepo.findAllRequestInstructor(pageable);
-
-        assertThat(accountPage.getContent().size()).isEqualTo(1);
-    }
-
-    @Test
-    @DisplayName("강사 신청하고 승인되지 않음 계정 목록 조회 - 목록 없음")
-    public void getRequestInstructorEmpty() {
-        createInstructorRequestAccount(true, true);
-        Pageable pageable = PageRequest.of(0, 5);
-
-        Page<Account> accountPage = accountJpaRepo.findAllRequestInstructor(pageable);
-
-        assertThat(accountPage.getContent().size()).isEqualTo(0);
-    }
 }

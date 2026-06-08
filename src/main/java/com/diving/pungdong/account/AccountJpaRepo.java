@@ -16,7 +16,4 @@ public interface AccountJpaRepo extends JpaRepository<Account, Long> {
     Optional<Account> findByEmail(String email);
 
     Optional<Account> findByNickName(String nickName);
-
-    @Query("select a from Account a where a.isRequestCertified = true and a.isCertified = false")
-    Page<Account> findAllRequestInstructor(Pageable pageable);
 }
