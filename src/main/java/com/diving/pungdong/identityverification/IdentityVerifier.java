@@ -1,7 +1,7 @@
-package com.diving.pungdong.instructorapplication;
+package com.diving.pungdong.identityverification;
 
 import com.diving.pungdong.account.Account;
-import com.diving.pungdong.instructorapplication.dto.IdentityVerificationRequest;
+import com.diving.pungdong.identityverification.dto.IdentityVerificationRequest;
 
 /**
  * 본인확인(간편인증) 경계. 구현 교체만으로 stub ↔ 실제 본인확인기관 연동을 바꾼다.

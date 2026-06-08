@@ -42,23 +42,12 @@ public class InstructorApplicationController {
         return ResponseEntity.ok().body(model);
     }
 
-    /** 본인확인(간편인증 stub). PII 는 POST body. */
-    @PostMapping("/identity-verification")
-    public ResponseEntity<?> verifyIdentity(@CurrentUser Account account,
-                                            @Valid @RequestBody IdentityVerificationRequest request,
-                                            BindingResult result) {
-        if (result.hasErrors()) {
-            throw new BadRequestException();
-        }
-        IdentityVerificationResult verification = applicationService.verifyIdentity(account, request);
-
-        EntityModel<IdentityVerificationResult> model = EntityModel.of(verification);
-        model.add(linkTo(methodOn(InstructorApplicationController.class).verifyIdentity(account, request, result)).withSelfRel());
-        model.add(Link.of("/docs/api.html#resource-instructor-application-identity-verification").withRel("profile"));
-        return ResponseEntity.ok().body(model);
-    }
-
-    /** 자격증 이미지 업로드 (2-phase 1단계) — multipart, S3 URL 반환. */
+    /**
+     * 자격증 이미지 업로드 (2-phase 1단계) — multipart, S3 URL 반환.
+     *
+     * <p>본인확인은 이 도메인이 아니라 공유 자산: {@code POST /identity-verifications} 로 생성하고
+     * {@code GET /identity-verifications/me} 로 조회 (수강/강사 공유, skip 지원).
+     */
     @PostMapping("/certificate-images")
     public ResponseEntity<?> uploadCertificateImage(@CurrentUser Account account,
                                                     @RequestParam("image") MultipartFile image) {

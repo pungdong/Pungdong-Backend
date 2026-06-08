@@ -1,7 +1,7 @@
-package com.diving.pungdong.instructorapplication.dto;
+package com.diving.pungdong.identityverification.dto;
 
 import com.diving.pungdong.account.Gender;
-import com.diving.pungdong.instructorapplication.IdentityProvider;
+import com.diving.pungdong.identityverification.IdentityProvider;
 import lombok.*;
 
 import javax.validation.constraints.AssertTrue;
