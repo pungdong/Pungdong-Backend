@@ -200,7 +200,7 @@ erDiagram
 
 - 🔴 **본인확인 미연동 (stub)** — dev 는 `StubIdentityVerifier`(즉시 VERIFIED, mock 평문 CI/DI), prod 는 `mode=disabled` 로 `DisabledIdentityVerifier`(fail-closed)로 막힌다. 실 연동 시 (a) `IdentityVerifier` 실 구현 + `mode=real`, (b) CI/DI **암호화 저장**, (c) 푸시 대기/비동기 검증 흐름(디자인 ③④⑤ 화면)을 반영. 출시 전 본인확인이 필수면 이 실 구현이 블로커.
 - 🔴 **S3 미연동** — Phase 4 버킷 provision 전까지 prod 의 `S3CertificateImageStorage` 는 못 쓴다. dev 는 `LocalCertificateImageStorage`(로컬 디스크)로 대체. 버킷 생기면 `pungdong.storage.s3.enabled=true` 만 켜면 됨.
-- 🟡 **레거시 강사 흐름 잔존** — `/sign/instructor/*` + `Account.isRequestCertified` + `account.InstructorCertificate` + `AccountJpaRepo.findAllRequestInstructor` 가 아직 살아있다. 이 도메인으로 완전 이관 후 제거 대상(별도 PR).
+- 🟢 **레거시 신청/전환 흐름 제거 완료** — `/sign/instructor/*` 4종 + `/account/instructor`·`/account/instructor-application` + `Account.organization/income/isRequestCertified` + `findAllRequestInstructor` 제거됨. 잔존: `InstructorCertificate`(엔티티/서비스/`/account/instructor/certificate/list` 읽기) + `Account.selfIntroduction`(강의 상세에서 읽힘) — 강사 프로필(instructor-profile) 기능 때 정리.
 - 🟡 **REST Docs 스니펫 부재** — 이번 엔드포인트들은 use-case 테스트로만 검증되고 `document(...)` 컨트롤러 테스트가 없다. `api.adoc` 에 include 를 추가하지 않으므로 빌드는 깨지지 않지만, 공개 문서엔 아직 안 나온다. 후속 PR 에서 보강.
 - 🟡 **organizationCode 미검증** — BE 는 Sanity 카탈로그와 대조하지 않고 문자열을 그대로 신뢰한다(`OTHER` 직접입력만 빈값 체크). 잘못된 code 가 들어와도 막지 않음 — Sanity 가 출처라는 결정의 trade-off.
 - 🟢 **상태 단순화** — `UNDER_REVIEW` 없이 SUBMITTED 가 "검토 중"을 겸한다. 심사 담당자 분리/SLA 가 필요해지면 중간 상태 추가.
