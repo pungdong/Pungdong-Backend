@@ -18,17 +18,19 @@ flowchart TB
         UserCtl["InstructorApplicationController<br/>/instructor-applications/**"]
         AdminCtl["AdminInstructorApplicationController<br/>/admin/instructor-applications/**"]
         Svc["InstructorApplicationService<br/>(상태머신 강제)"]
-        Verifier["IdentityVerifier (interface)"]
-        Stub["StubIdentityVerifier (dev)<br/>Disabled~Verifier (prod fail-closed)"]
         Storage["CertificateImageStorage (interface)"]
         StoreS3["S3CertificateImageStorage (prod)"]
         StoreLocal["LocalCertificateImageStorage (dev)"]
         AppEntity["InstructorApplication"]
         CertEntity["ApplicationCertificate"]
-        IdvEntity["IdentityVerification"]
         AppRepo["InstructorApplicationJpaRepo"]
-        IdvRepo["IdentityVerificationJpaRepo"]
         CertRepo["ApplicationCertificateJpaRepo"]
+    end
+
+    subgraph IDV["identity-verification 도메인 (별도 — 계정 공유 자산)"]
+        IdvApi["POST /identity-verifications<br/>GET /identity-verifications/me"]
+        IdvRepo["IdentityVerificationJpaRepo"]
+        IdvEntity["IdentityVerification"]
     end
 
     subgraph Shared["크로스 도메인 (단방향 의존)"]
@@ -40,30 +42,27 @@ flowchart TB
 
     UserCtl --> Svc
     AdminCtl --> Svc
-    Svc --> Verifier --> Stub
     Svc --> Storage
     Storage --> StoreS3 --> S3up
     Storage --> StoreLocal
     Svc --> AppRepo --> AppEntity
-    Svc --> IdvRepo --> IdvEntity
     Svc --> CertRepo --> CertEntity
-    Stub --> IdvRepo
+    Svc -->|제출 시 verificationId 검증| IdvRepo --> IdvEntity
+    AppEntity -.참조.-> IdvEntity
     AppEntity --> CertEntity
-    AppEntity --> IdvEntity
     Svc -->|승인 시 role 추가| Account
     Sanity -.organizationCode 선택지 제공.-> UserCtl
 ```
 
-의존 방향은 한쪽 — `instructorapplication` 이 `account` 를 참조하고 그 역은 없다. 단체 카탈로그는 Sanity 가 source of truth라 BE 는 선택된 `organizationCode` 문자열만 저장한다(enum 아님).
+의존 방향은 한쪽 — `instructorapplication` 이 `account` 와 `identity-verification` 을 참조하고 그 역은 없다. 본인확인은 [identity-verification](identity-verification.md) 도메인(계정 공유 자산) 소관 — 신청은 `verificationId` 로 참조만. 단체 카탈로그는 Sanity 가 source of truth라 BE 는 `organizationCode` 문자열만 저장(enum 아님).
 
-**외부 연동 경계 (FcmGateway 패턴 복제).** 본인확인·이미지저장 둘 다 인터페이스 + `@ConditionalOnProperty` 로 환경별 구현 교체:
+**이미지 저장 경계 (FcmGateway 패턴).** 자격증 이미지 저장은 인터페이스 + `@ConditionalOnProperty` 로 환경별 교체:
 
 | 경계 | dev 기본 | prod | 프로퍼티 |
 |---|---|---|---|
-| 본인확인 | `StubIdentityVerifier` (즉시 VERIFIED) | `DisabledIdentityVerifier` (fail-closed, 호출 시 거부) → 추후 실 구현 | `pungdong.identity-verification.mode` = `stub` / `disabled` |
 | 이미지 저장 | `LocalCertificateImageStorage` (로컬 디스크 + `/local-uploads/**` 서빙) | `S3CertificateImageStorage` | `pungdong.storage.s3.enabled` = `false` / `true` |
 
-→ FE 는 AWS·본인확인기관 없이도 전체 흐름을 dev 에서 검증 가능. prod 전환은 코드 변경 없이 프로퍼티만.
+(본인확인 stub/disabled 경계는 identity-verification 도메인으로 이동.) → FE 는 AWS·본인확인기관 없이도 dev 에서 전체 흐름 검증 가능.
 
 ---
 
@@ -72,18 +71,18 @@ flowchart TB
 ```mermaid
 sequenceDiagram
     participant FE
+    participant IDV as identity-verification 도메인
     participant UC as InstructorApplicationController
     participant SVC as InstructorApplicationService
-    participant IDV as StubIdentityVerifier
     participant S3
     participant DB
 
     Note over FE: (단체 목록/약관문구는 Sanity 에서 직접 fetch)
-    FE->>UC: POST /identity-verification {realName,birth,gender,phone,provider,agree}
-    UC->>SVC: verifyIdentity
-    SVC->>IDV: verify (stub → 즉시 VERIFIED, mock CI/DI)
-    IDV->>DB: insert identity_verification
-    SVC-->>FE: {verificationId, verified:true}
+    FE->>IDV: GET /identity-verifications/me (skip 판단)
+    alt 미인증
+        FE->>IDV: POST /identity-verifications {realName,birth,phone,provider,agree}
+        IDV-->>FE: 201 {verificationId, verified:true}
+    end
 
     loop 자격증 1장씩
         FE->>UC: POST /certificate-images (multipart image)
@@ -183,7 +182,6 @@ erDiagram
 | 엔드포인트 | 메서드 | 권한 | 비고 |
 |---|---|---|---|
 | `/instructor-applications/me` | GET | 인증 | 본인 신청만. 미신청 시 200 `{status:NONE}` |
-| `/instructor-applications/identity-verification` | POST | 인증 | PII → POST body |
 | `/instructor-applications/certificate-images` | POST | 인증 | multipart (`image`) |
 | `/instructor-applications` | POST | 인증 | 제출. 중복/이미강사 → 400 |
 | `/instructor-applications/me` | PUT | 인증 | 수정·재제출 (APPROVED 는 거부) |

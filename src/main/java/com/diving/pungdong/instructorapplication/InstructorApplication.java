@@ -1,6 +1,7 @@
 package com.diving.pungdong.instructorapplication;
 
 import com.diving.pungdong.account.Account;
+import com.diving.pungdong.identityverification.IdentityVerification;
 import lombok.*;
 
 import javax.persistence.*;

@@ -5,6 +5,8 @@ import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.account.Role;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
+import com.diving.pungdong.identityverification.IdentityVerification;
+import com.diving.pungdong.identityverification.IdentityVerificationJpaRepo;
 import com.diving.pungdong.instructorapplication.dto.*;
 import com.diving.pungdong.instructorapplication.storage.CertificateImageStorage;
 import lombok.RequiredArgsConstructor;
@@ -35,21 +37,7 @@ public class InstructorApplicationService {
     private final InstructorApplicationJpaRepo applicationRepo;
     private final IdentityVerificationJpaRepo identityVerificationRepo;
     private final AccountJpaRepo accountRepo;
-    private final IdentityVerifier identityVerifier;
     private final CertificateImageStorage certificateImageStorage;
-
-    /* ─── 본인확인 (stub 경계) ─────────────────────────────── */
-
-    @Transactional
-    public IdentityVerificationResult verifyIdentity(Account account, IdentityVerificationRequest request) {
-        Account managed = loadAccount(account);
-        IdentityVerification verification = identityVerifier.verify(managed, request);
-        return IdentityVerificationResult.builder()
-                .verificationId(verification.getId())
-                .verified(true)
-                .realName(verification.getRealName())
-                .build();
-    }
 
     /* ─── 자격증 이미지 업로드 (2-phase 1단계) ───────────────── */
 

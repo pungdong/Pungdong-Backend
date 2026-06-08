@@ -9,11 +9,11 @@
 수강생 → 강사 전환 신청의 제출/심사 전체:
 - **컨트롤러**: `InstructorApplicationController`(신청자 `/instructor-applications/**`), `AdminInstructorApplicationController`(어드민 `/admin/instructor-applications/**`)
 - **서비스**: `InstructorApplicationService`(상태머신 강제 — 모든 전이는 여기서)
-- **본인확인 경계**: `IdentityVerifier`(interface) + `StubIdentityVerifier`(dev, 즉시 VERIFIED) / `DisabledIdentityVerifier`(prod fail-closed). `pungdong.identity-verification.mode` = `stub`(기본) / `disabled`
+- **본인확인**: 이 도메인 아님 — 별도 [identity-verification](../identityverification/CLAUDE.md) 도메인. 신청은 `verificationId` 로 **참조만**(제출 시 소유+verified 검증). 진입 skip 은 FE 가 `GET /identity-verifications/me`.
 - **이미지 저장 경계** (`storage/`): `CertificateImageStorage`(interface) + `S3CertificateImageStorage`(prod) / `LocalCertificateImageStorage`(dev, 로컬 디스크 + `/local-uploads/**` 정적 서빙 `LocalUploadsWebConfig`). `pungdong.storage.s3.enabled` = `false`(기본) / `true`
-- **엔티티**: `InstructorApplication`(계정당 1건, `account_id` UNIQUE), `ApplicationCertificate`(자격증 이미지 1:N), `IdentityVerification`(본인확인 결과), `InstructorApplicationStatus`/`IdentityProvider`(enum)
-- **레포**: `InstructorApplicationJpaRepo`, `ApplicationCertificateJpaRepo`, `IdentityVerificationJpaRepo`
-- **dto/**: identity / submit / 조회 / 어드민 DTO
+- **엔티티**: `InstructorApplication`(계정당 1건, `account_id` UNIQUE), `ApplicationCertificate`(자격증 이미지 1:N), `InstructorApplicationStatus`(enum). `IdentityVerification` 참조(identity-verification 도메인 소유)
+- **레포**: `InstructorApplicationJpaRepo`, `ApplicationCertificateJpaRepo` (+ identity-verification 의 `IdentityVerificationJpaRepo` 로 제출 시 검증)
+- **dto/**: submit / 조회 / 어드민 DTO (identity DTO 는 identity-verification 도메인)
 
 보안 매처(`/admin/instructor-applications/**` → ADMIN, `/instructor-applications/**` → authenticated)는 **`global/security/SecurityConfiguration`** 에 있음 — 새 엔드포인트 추가 시 거기서 갱신.
 
@@ -26,8 +26,8 @@
 ## 결정 히스토리 (왜 이렇게 됐나)
 
 - **전용 엔티티 + 상태머신** — 레거시 `Account.isRequestCertified/isCertified` 두 boolean 방식을 대체. 그 방식은 반려/심사이력 표현이 불가능하고, 승인 시 `isCertified` 를 안 켜는 버그가 있었다. (사용자 결정 2026-06-08)
-- **본인확인 stub 경계** — 디자인은 간편인증을 전면에 두지만 실 본인확인기관 연동은 deferred. `IdentityVerifier` 구현 교체만으로 실연동 전환. `ci/di` 는 현재 mock 평문 → 실연동 시 **암호화 저장 필수**.
-- **두 외부연동을 FcmGateway 패턴으로 게이트** (S3·본인확인) — `@ConditionalOnProperty` 로 정확히 하나만 활성(스캔 순서 무관). dev=stub/local 기본, prod=실연동/fail-closed. prod 는 `STORAGE_S3_ENABLED=true` + `IDENTITY_VERIFICATION_MODE=disabled`(실 구현 전) 로 override (application.yml 의 `pungdong.*` 블록 참고). 가짜 본인확인/가짜 업로드가 운영에 새지 않게.
+- **본인확인을 계정 공유 자산으로 승격** (2026-06-09) — 처음(#34)엔 이 도메인 하위(`POST /instructor-applications/identity-verification`)였으나, 본인확인은 수강에서도 쓰는 계정 자산이라 별도 [identity-verification](../identityverification/CLAUDE.md) 도메인으로 분리. FE 가 `GET /me` 로 skip(재인증 생략) 구현. stub/disabled 경계도 그 도메인으로 이동.
+- **이미지 저장을 FcmGateway 패턴으로 게이트** (S3) — `@ConditionalOnProperty` 로 dev=local / prod=S3. prod 는 `STORAGE_S3_ENABLED=true` 로 override. (본인확인 게이트 `IDENTITY_VERIFICATION_MODE` 는 identity-verification 도메인 소관.)
 - **organizationCode = 문자열 (enum 아님)** — 단체 목록(PADI/SSI/AIDA/.../OTHER)은 **Sanity 카탈로그**가 출처. BE enum 으로 박으면 단체 추가마다 배포 필요. trade-off: BE 는 code 를 검증하지 않고 신뢰(`OTHER` 직접입력 빈값만 체크).
 - **2-phase 업로드** — 자격증 이미지는 `POST /certificate-images`(multipart)로 먼저 올려 URL 을 받고, 제출 JSON 이 그 URL 을 참조. 제출 컨트랙트가 깔끔한 JSON 이 됨.
 - **승인 = additive role** — STUDENT 유지 + INSTRUCTOR 추가. 권한은 매 요청 DB 재계산이라 토큰 재발급 불필요 (use-case `R3`).

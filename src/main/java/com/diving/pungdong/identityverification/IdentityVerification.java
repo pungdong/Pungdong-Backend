@@ -1,4 +1,4 @@
-package com.diving.pungdong.instructorapplication;
+package com.diving.pungdong.identityverification;
 
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.Gender;
