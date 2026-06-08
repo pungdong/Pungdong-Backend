@@ -52,6 +52,8 @@ public class SecurityConfiguration {
                         .antMatchers("/lectureImage/list").permitAll()
                         .antMatchers(HttpMethod.GET, "/exception/**").permitAll()
                         .antMatchers("/sign/instructor/request/list", "/sign/instructor/confirm").hasRole("ADMIN")
+                        .antMatchers("/admin/instructor-applications/**").hasRole("ADMIN")
+                        .antMatchers("/instructor-applications/**").authenticated()
                         .antMatchers("/account/instructor/**").hasRole("INSTRUCTOR")
                         .antMatchers("/lecture/create", "/lecture/update", "/lecture/delete", "/lecture/manage/list",
                                 "/location/create", "/lectureImage/create/list", "/equipment/create/list").authenticated()
@@ -86,6 +88,6 @@ public class SecurityConfiguration {
     public WebSecurityCustomizer webSecurityCustomizer() {
         return web -> web.ignoring()
                 .requestMatchers(PathRequest.toStaticResources().atCommonLocations())
-                .antMatchers("/docs/**", "/webjars/**");
+                .antMatchers("/docs/**", "/webjars/**", "/local-uploads/**");
     }
 }

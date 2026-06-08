@@ -57,6 +57,12 @@ export type Gender = 'MALE' | 'FEMALE';
 
 export type DeviceType = 'ANDROID' | 'IOS' | 'WEB';
 
+/** 강사 신청 상태. 내 신청 조회는 미신청 시 'NONE' 도 반환. */
+export type InstructorApplicationStatus = 'SUBMITTED' | 'APPROVED' | 'REJECTED';
+
+/** 간편인증 공급자 (본인확인). 실제 본인확인기관 연동은 deferred — 현재 stub. */
+export type IdentityProvider = 'KAKAO' | 'NAVER' | 'TOSS' | 'PASS' | 'KB' | 'PAYCO';
+
 // ============================================================
 // 인증 / 토큰
 // ============================================================
@@ -152,6 +158,111 @@ export interface CheckNickNameResponse extends HalLinks {
  */
 export interface RegisterFirebaseTokenRequest {
   token: string;
+}
+
+// ============================================================
+// 강사 신청 (instructor-application 도메인)
+// docs/architecture/instructor-application.md 참고
+//
+// 흐름(2-phase): 본인확인(stub) → 자격증 이미지 업로드 → 신청 제출.
+// 단체 목록(PADI/SSI/AIDA/.../OTHER) + 폼 안내문구는 Sanity 카탈로그가 출처 —
+// BE 는 선택된 organizationCode 문자열을 그대로 저장한다 (enum 아님).
+// ============================================================
+
+/**
+ * POST /instructor-applications/identity-verification 요청 — 본인확인(간편인증 stub).
+ * PII(실명·생년월일·휴대폰)는 POST body 로만 전송 (URL/쿼리 금지).
+ */
+export interface IdentityVerificationRequest {
+  realName: string;
+  /** yyyyMMdd */
+  birth: string;
+  gender: Gender;
+  phoneNumber: string;
+  provider: IdentityProvider;
+  /** 필수 약관 전체 동의. false 면 400. */
+  agreedRequiredTerms: boolean;
+}
+
+/** 본인확인 결과 — 신청 제출 시 verificationId 를 참조. */
+export interface IdentityVerificationResponse extends HalLinks {
+  verificationId: number;
+  verified: boolean;
+  realName: string;
+}
+
+/**
+ * POST /instructor-applications/certificate-images 응답 (2-phase 1단계).
+ * 요청은 multipart/form-data, 파트 이름 `image` (단일 파일). 여러 장이면 반복 호출.
+ */
+export interface CertificateImageResponse extends HalLinks {
+  fileURL: string;
+}
+
+/** POST /instructor-applications (제출) · PUT /instructor-applications/me (재제출) 요청. */
+export interface InstructorApplicationSubmitRequest {
+  verificationId: number;
+  /** Sanity 카탈로그의 단체 code. 'OTHER' 면 organizationOther 필수. */
+  organizationCode: string;
+  organizationOther?: string;
+  /** 1단계에서 업로드한 자격증 이미지 URL 목록 (1장 이상). */
+  certificateImageUrls: string[];
+}
+
+/** 신청 제출/재제출 결과. POST 는 201, PUT 은 200. */
+export interface InstructorApplicationResponse extends HalLinks {
+  applicationId: number;
+  status: InstructorApplicationStatus;
+}
+
+/**
+ * GET /instructor-applications/me — 내 신청 상태 (프로필 탭 버튼/타임라인용).
+ * 미신청이면 status: 'NONE' 으로 200 (404 아님).
+ */
+export interface MyInstructorApplicationResponse extends HalLinks {
+  status: InstructorApplicationStatus | 'NONE';
+  organizationCode?: string;
+  organizationOther?: string;
+  certificateImageUrls?: string[];
+  identityVerified: boolean;
+  /** REJECTED 일 때 반려 사유. */
+  rejectionReason?: string;
+  submittedAt?: string;
+  reviewedAt?: string;
+}
+
+/** 어드민 대기 목록 (GET /admin/instructor-applications?status=) 의 한 행. PagedModel 로 감싸짐. */
+export interface InstructorApplicationSummary extends HalLinks {
+  applicationId: number;
+  accountId: number;
+  nickName: string;
+  organizationCode: string;
+  organizationOther?: string;
+  status: InstructorApplicationStatus;
+  submittedAt: string;
+}
+
+/** GET /admin/instructor-applications/{id} — 어드민 상세 (본인확인 PII 포함, ADMIN 전용). */
+export interface InstructorApplicationDetailResponse extends HalLinks {
+  applicationId: number;
+  accountId: number;
+  email: string;
+  nickName: string;
+  status: InstructorApplicationStatus;
+  organizationCode: string;
+  organizationOther?: string;
+  certificateImageUrls: string[];
+  realName: string;
+  birth: string;
+  phoneNumber: string;
+  rejectionReason?: string;
+  submittedAt: string;
+  reviewedAt?: string;
+}
+
+/** POST /admin/instructor-applications/{id}/reject 요청. */
+export interface RejectInstructorApplicationRequest {
+  reason: string;
 }
 
 // ============================================================
