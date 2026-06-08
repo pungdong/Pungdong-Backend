@@ -2,7 +2,6 @@ package com.diving.pungdong.account;
 
 import com.diving.pungdong.domain.LectureMark;
 import com.diving.pungdong.domain.lecture.Lecture;
-import com.diving.pungdong.domain.lecture.Organization;
 import com.diving.pungdong.domain.review.Review;
 import lombok.*;
 
@@ -54,16 +53,15 @@ public class Account {
 
     private String phoneNumber;
 
-    private Organization organization;
-
+    /**
+     * 강사 자기소개. 현재는 강의 상세(LectureCreatorInfo)에서 읽기만 한다 — 이 값을 쓰던 레거시
+     * 강사정보 입력(/sign/instructor/info)이 제거되어 신규로는 채워지지 않는다. lecture 도메인
+     * 재설계 시 함께 정리 예정.
+     */
     @Lob
     private String selfIntroduction;
 
-    private Boolean isRequestCertified;
-
     private Boolean isCertified;
-
-    private Long income;
 
     private Boolean isDeleted;
 
@@ -81,8 +79,6 @@ public class Account {
 
     @PrePersist
     public void prePersist() {
-        this.income = this.income == null ? 0 : this.income;
-        this.isRequestCertified = this.isRequestCertified != null && this.isRequestCertified;
         this.isCertified = this.isCertified != null && this.isCertified;
         this.isDeleted = false;
         this.provider = this.provider == null ? AuthProvider.EMAIL : this.provider;

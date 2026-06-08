@@ -6,9 +6,7 @@ import com.diving.pungdong.controller.lectureImage.LectureImageController;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.InstructorCertificate;
 import com.diving.pungdong.account.dto.delete.PasswordInfo;
-import com.diving.pungdong.account.dto.instructor.InstructorApplication;
 import com.diving.pungdong.account.dto.instructor.certificate.InstructorCertificateInfo;
-import com.diving.pungdong.account.dto.read.InstructorBasicInfo;
 import com.diving.pungdong.account.dto.restore.AccountRestoreInfo;
 import com.diving.pungdong.account.dto.update.AccountUpdateInfo;
 import com.diving.pungdong.account.dto.update.ForgotPasswordInfo;
@@ -47,25 +45,6 @@ public class AccountController {
         model.add(linkTo(methodOn(AccountController.class).readAccountInfo(account)).withSelfRel());
         model.add(Link.of("/docs/api.html#resource-account-read").withRel("profile"));
         return ResponseEntity.ok().body(model);
-    }
-
-    @GetMapping("/instructor")
-    public ResponseEntity<?> readInstructorInfo(@CurrentUser Account account) {
-        InstructorBasicInfo instructorBasicInfo = accountService.mapToInstructorBasicInfo(account);
-
-        EntityModel<InstructorBasicInfo> model = EntityModel.of(instructorBasicInfo);
-        model.add(linkTo(methodOn(AccountController.class).readInstructorInfo(account)).withSelfRel());
-        model.add(Link.of("/docs/api.html#resource-account-instructor-read").withRel("profile"));
-        return ResponseEntity.ok().body(model);
-    }
-
-    @GetMapping("/instructor-application")
-    public ResponseEntity<?> checkInstructorApplication(@CurrentUser Account account) {
-        boolean isApplied = accountService.checkInstructorApplication(account.getId());
-
-        InstructorApplication instructorApplication = new InstructorApplication(isApplied);
-
-        return ResponseEntity.ok().body(instructorApplication);
     }
 
     @GetMapping("/instructor/certificate/list")
