@@ -8,9 +8,7 @@ import com.diving.pungdong.account.Gender;
 import com.diving.pungdong.account.Role;
 import com.diving.pungdong.domain.lecture.Organization;
 import com.diving.pungdong.account.dto.delete.PasswordInfo;
-import com.diving.pungdong.account.dto.instructor.InstructorApplication;
 import com.diving.pungdong.account.dto.instructor.certificate.InstructorCertificateInfo;
-import com.diving.pungdong.account.dto.read.InstructorBasicInfo;
 import com.diving.pungdong.account.dto.restore.AccountRestoreInfo;
 import com.diving.pungdong.account.dto.update.AccountUpdateInfo;
 import com.diving.pungdong.account.dto.update.ForgotPasswordInfo;
@@ -124,65 +122,6 @@ class AccountControllerTest {
                                         fieldWithPath("phoneNumber").description("폰 번호"),
                                         fieldWithPath("birth").description("생년월일"),
                                         fieldWithPath("gender").description("성별"),
-                                        fieldWithPath("_links.self.href").description("해당 Api Url"),
-                                        fieldWithPath("_links.profile.href").description("해당 Api 문서 Url")
-                                )
-                        )
-                );
-    }
-
-    @Test
-    @DisplayName("강사 신청 여부 조회")
-    public void checkInstructorApplication() throws Exception {
-        Account account = createAccount(Role.INSTRUCTOR);
-        String accessToken = jwtTokenProvider.createAccessToken(String.valueOf(account.getId()), account.getRoles());
-
-        given(accountService.checkInstructorApplication(account.getId())).willReturn(true);
-
-        mockMvc.perform(get("/account/instructor-application")
-                .header(HttpHeaders.AUTHORIZATION, accessToken))
-                .andDo(print())
-                .andExpect(status().isOk())
-                .andDo(
-                        document("account-check-instructor-application",
-                                requestHeaders(
-                                        headerWithName(HttpHeaders.AUTHORIZATION).description("access token 값")
-                                ),
-                                responseFields(
-                                        fieldWithPath("applied").description("강사 지원 여부")
-                                )
-                        )
-                );
-    }
-
-    @Test
-    @DisplayName("강사 정보 조회")
-    public void readInstructorInfo() throws Exception {
-        Account account = createAccount(Role.INSTRUCTOR);
-        String accessToken = jwtTokenProvider.createAccessToken(String.valueOf(account.getId()), account.getRoles());
-
-        InstructorBasicInfo instructorBasicInfo = InstructorBasicInfo.builder()
-                .id(1L)
-                .organization(Organization.AIDA)
-                .selfIntroduction("강사 자기 소개")
-                .build();
-
-        given(accountService.mapToInstructorBasicInfo(any())).willReturn(instructorBasicInfo);
-
-        mockMvc.perform(get("/account/instructor")
-                .header(HttpHeaders.AUTHORIZATION, accessToken))
-                .andDo(print())
-                .andExpect(status().isOk())
-                .andDo(
-                        document(
-                                "account-instructor-read",
-                                requestHeaders(
-                                        headerWithName(HttpHeaders.AUTHORIZATION).description("access token 값")
-                                ),
-                                responseFields(
-                                        fieldWithPath("id").description("계정 식별자 값"),
-                                        fieldWithPath("organization").description("소속 단체"),
-                                        fieldWithPath("selfIntroduction").description("강사 자기 소개"),
                                         fieldWithPath("_links.self.href").description("해당 Api Url"),
                                         fieldWithPath("_links.profile.href").description("해당 Api 문서 Url")
                                 )

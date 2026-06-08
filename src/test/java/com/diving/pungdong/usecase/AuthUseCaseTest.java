@@ -174,10 +174,9 @@ class AuthUseCaseTest {
         Account student = stubAccount(1L, Role.STUDENT);
         String token = tokenFor(student);
 
-        mockMvc.perform(get("/sign/instructor/request/list")
+        mockMvc.perform(get("/admin/instructor-applications")
                 .header(HttpHeaders.AUTHORIZATION, token)
-                .param("page", "0")
-                .param("size", "10"))
+                .param("status", "SUBMITTED"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value(-1003));

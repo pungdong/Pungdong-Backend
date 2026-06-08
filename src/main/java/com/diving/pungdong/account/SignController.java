@@ -7,10 +7,6 @@ import com.diving.pungdong.global.security.JwtTokenProvider;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.dto.emailCheck.EmailInfo;
 import com.diving.pungdong.account.dto.emailCheck.EmailResult;
-import com.diving.pungdong.account.dto.instructor.InstructorConfirmInfo;
-import com.diving.pungdong.account.dto.instructor.InstructorConfirmResult;
-import com.diving.pungdong.account.dto.instructor.InstructorInfo;
-import com.diving.pungdong.account.dto.instructor.InstructorRequestInfo;
 import com.diving.pungdong.account.dto.FirebaseTokenDto;
 import com.diving.pungdong.account.dto.nickNameCheck.NickNameResult;
 import com.diving.pungdong.account.dto.signIn.SignInInfo;
@@ -55,7 +51,6 @@ public class SignController {
     private final AccountService accountService;
     private final JwtTokenProvider jwtTokenProvider;
     private final RedisTemplate<String, String> redisTemplate;
-    private final InstructorCertificateService instructorCertificateService;
     private final FirebaseTokenService firebaseTokenService;
 
     @PostMapping("/check/email")
@@ -196,61 +191,6 @@ public class SignController {
 
         return ResponseEntity.created(selfLinkBuilder.toUri()).body(model);
     }
-
-    @PostMapping(value = "/instructor/info")
-    public ResponseEntity<?> addInstructorInfo(@CurrentUser Account account,
-                                               @Valid @RequestBody InstructorInfo instructorInfo,
-                                               BindingResult result) {
-        if (result.hasErrors()) {
-            throw new BadRequestException();
-        }
-
-        SuccessResult successResult = accountService.saveInstructorInfo(account, instructorInfo);
-
-        EntityModel<SuccessResult> model = EntityModel.of(successResult);
-        model.add(linkTo(methodOn(SignController.class).addInstructorInfo(account, instructorInfo, result)).withSelfRel());
-        model.add(Link.of("/docs/api.html#resource-account-add-instructorInfo").withRel("profile"));
-
-        return ResponseEntity.ok().body(model);
-    }
-
-
-    @PostMapping(value = "/instructor/certificate")
-    public ResponseEntity<?> addInstructorCertificate(@CurrentUser Account account,
-                                                      @Valid @RequestParam("certificateImages") List<MultipartFile> certificateImages) throws IOException {
-        SuccessResult successResult = instructorCertificateService.saveInstructorCertificate(account, certificateImages);
-
-        EntityModel<SuccessResult> model = EntityModel.of(successResult);
-        model.add(linkTo(methodOn(SignController.class).addInstructorCertificate(account, certificateImages)).withSelfRel());
-        model.add(Link.of("/docs/api.html#resource-account-add-instructor-certificate").withRel("profile"));
-        return ResponseEntity.ok().body(model);
-    }
-
-    @GetMapping(value = "/instructor/request/list")
-    public ResponseEntity<?> getRequestOfInstructor(Pageable pageable,
-                                                    PagedResourcesAssembler<InstructorRequestInfo> assembler) {
-        Page<InstructorRequestInfo> infoPage = accountService.getRequestInstructor(pageable);
-
-        PagedModel<EntityModel<InstructorRequestInfo>> model = assembler.toModel(infoPage);
-        return ResponseEntity.ok().body(model);
-    }
-
-    @PutMapping(value = "/instructor/confirm")
-    public ResponseEntity<?> confirmInstructor(@Valid @RequestBody InstructorConfirmInfo instructorConfirmInfo,
-                                               BindingResult result) {
-        if (result.hasErrors()) {
-            throw new BadRequestException();
-        }
-
-        Account account = accountService.addInstructorRole(instructorConfirmInfo.getAccountId());
-        InstructorConfirmResult instructorConfirmResult = accountService.mapToInstructorConfirmResult(account);
-
-        EntityModel<InstructorConfirmResult> model = EntityModel.of(instructorConfirmResult);
-        model.add(linkTo(methodOn(SignController.class).confirmInstructor(instructorConfirmInfo, result)).withSelfRel());
-        model.add(Link.of("/docs/api.html#resource-account-instructor-confirm").withRel("profile"));
-        return ResponseEntity.ok().body(model);
-    }
-
 
     @PostMapping("/logout")
     public ResponseEntity logout(@RequestBody LogoutReq logoutReq) {

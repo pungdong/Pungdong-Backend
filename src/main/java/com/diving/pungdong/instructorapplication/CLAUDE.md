@@ -39,6 +39,6 @@
 
 ## 아직 안 한 것 (후속 PR)
 
-- 레거시 `/sign/instructor/*` + `account.InstructorCertificate` + `findAllRequestInstructor` 제거 (이관 완료 후)
+- 레거시 신청/전환 흐름(`/sign/instructor/*` + `Account.organization/income/isRequestCertified` + `findAllRequestInstructor`)은 **제거 완료**. 남은 `InstructorCertificate`(엔티티/서비스/`/account/instructor/certificate/list` 읽기 + `Account.selfIntroduction`)는 강사 프로필(instructor-profile) 기능 때 정리.
 - REST Docs `document(...)` 컨트롤러 테스트 + `api.adoc` include (현재 use-case 로만 검증)
 - 실 본인확인기관 연동 (CI/DI 암호화 + 비동기 푸시 흐름)
