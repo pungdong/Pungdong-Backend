@@ -43,3 +43,5 @@ src/main/resources/redis.yml
 .env.local
 .env*.local
 .direnv/
+# 로컬 dev 이미지 저장소 (LocalCertificateImageStorage) — 커밋 금지
+local-uploads/
