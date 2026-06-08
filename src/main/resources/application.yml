@@ -72,3 +72,16 @@ AdminMail:
 # CORS 허용 origin — 콤마 구분. 로컬 dev 기본값 (Vite/Next dev 서버). prod 는 env 로 override.
 cors:
   allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
+
+# 외부 연동 경계 (강사 신청). dev 기본값 = stub/local. prod 는 filesystem config / env 로 override:
+#   pungdong.storage.s3.enabled=true            (S3 실연동 — Phase 4 버킷 provision 후)
+#   pungdong.identity-verification.mode=disabled (실 본인확인기관 연동 전까지 fail-closed)
+pungdong:
+  storage:
+    s3:
+      enabled: ${STORAGE_S3_ENABLED:false}
+    local:
+      dir: ${STORAGE_LOCAL_DIR:local-uploads}
+      base-url: ${STORAGE_LOCAL_BASE_URL:http://localhost:8080}
+  identity-verification:
+    mode: ${IDENTITY_VERIFICATION_MODE:stub}   # stub | disabled (| real — 미구현)

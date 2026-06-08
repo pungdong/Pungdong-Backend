@@ -22,6 +22,7 @@
 | 일정 (schedule) | [schedule.md](schedule.md) | ✅ (baseline — 동시성 / 시간 충돌 / 수정 API 부재) |
 | 예약 (reservation) | [reservation.md](reservation.md) | ✅ (baseline — 알려진 간극 다수) |
 | 후기 (review) | [review.md](review.md) | ✅ (baseline — 통계 갱신 버그) |
+| 강사 신청 (instructor-application) | [instructor-application.md](instructor-application.md) | ✅ (본인확인 stub — 실연동 deferred) |
 | 검색 (search / Elasticsearch) | _TODO — Phase 3 정리 후_ | ⏸️ |
 
 ## 갱신 규칙
