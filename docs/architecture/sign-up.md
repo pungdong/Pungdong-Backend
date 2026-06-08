@@ -43,7 +43,7 @@ flowchart LR
     ProfileRepo --> DB
 ```
 
-이 그림에서 빠진 컴포넌트는 의도적: `SignController` 는 강사 등록 / Firebase 토큰 등록 / 로그아웃도 가지고 있지만 그건 다른 도메인 문서에서 다룬다 (예약 / 알림 / 인증).
+이 그림에서 빠진 컴포넌트는 의도적: `SignController` 는 Firebase 토큰 등록 / 로그아웃도 가지고 있지만 그건 다른 도메인 문서에서 다룬다 (알림 / 인증). 강사 신청은 [instructor-application](instructor-application.md) 도메인으로 분리됨.
 
 ---
 
@@ -234,10 +234,8 @@ erDiagram
         string birth "예약 시점에 채움 (가입 시 null)"
         Gender gender "예약 시점에 채움 (가입 시 null)"
         string phoneNumber "예약 시점에 채움 (가입 시 null)"
-        string organization "강사 신청 시"
-        string selfIntroduction "강사 신청 시"
-        bool isRequestCertified "강사 신청 여부"
-        bool isCertified "관리자 승인 여부"
+        string selfIntroduction "레거시 (강의 상세 표시용, 신규 미사용 — lecture 재설계 시 정리)"
+        bool isCertified "강사 승인 여부 (instructor-application 도메인이 설정)"
         bool isDeleted "default false"
         bigint profilePhoto_id FK
     }
@@ -254,7 +252,7 @@ erDiagram
     ACCOUNT ||--o{ ACCOUNT_ROLES : "@ElementCollection (EAGER)"
 ```
 
-**의도적인 nullable 필드**: birth / gender / phoneNumber / organization / selfIntroduction 은 **가입 단계에서 안 받는다**. 사용자가 "예약" 또는 "강사 등록" 같은 책임이 발생하는 게이트에 도달했을 때 채워진다 (progressive profiling).
+**의도적인 nullable 필드**: birth / gender / phoneNumber 는 **가입 단계에서 안 받는다**. 사용자가 "예약" 같은 책임이 발생하는 게이트에 도달했을 때 채워진다 (progressive profiling). 강사 신청 관련 데이터(본인확인·단체·자격증)는 별도 [instructor-application](instructor-application.md) 도메인으로 분리됨.
 
 **`(provider, socialId)` DB 유니크 제약**: 아직 없다. PR 2 (Kakao) 에서 같이 추가 예정 — 첫 OAuth row 가 들어가는 PR 에서 함께 들어가야 의미가 있어서.
 
@@ -283,19 +281,7 @@ erDiagram
 
 **CORS**: `SecurityConfiguration.corsConfigurationSource` 가 `${cors.allowed-origins}` (env: `CORS_ALLOWED_ORIGINS`) 의 origin 들만 허용. dev 기본값 `http://localhost:3000,http://localhost:5173` (Next.js / Vite). `Authorization` / `Location` 헤더 노출, credentials 허용, preflight 캐시 1h.
 
-**가입 시 부여되는 역할은 `STUDENT` 단 하나.** `INSTRUCTOR` 승격은 별도 흐름:
-
-```
-가입 (STUDENT)
-   ↓
-POST /sign/instructor/info        — 본인 소개 / 소속 단체 등록
-   ↓
-POST /sign/instructor/certificate — 자격증 이미지 업로드 (S3)
-   ↓
-GET  /sign/instructor/request/list  (ADMIN)  — 신청 목록 조회
-   ↓
-PUT  /sign/instructor/confirm        (ADMIN)  — 승인 → STUDENT + INSTRUCTOR 권한
-```
+**가입 시 부여되는 역할은 `STUDENT` 단 하나.** `INSTRUCTOR` 승격은 **[instructor-application](instructor-application.md) 도메인**이 담당한다 (신청 → 본인확인 → 어드민 승인 → INSTRUCTOR additive 부여 + isCertified=true). 레거시 `/sign/instructor/*` 흐름은 제거됨.
 
 ---
 

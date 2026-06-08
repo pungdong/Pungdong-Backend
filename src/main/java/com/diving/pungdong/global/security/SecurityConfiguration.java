@@ -51,7 +51,6 @@ public class SecurityConfiguration {
                         .antMatchers(HttpMethod.PUT, "/account/forgot-password").permitAll()
                         .antMatchers("/lectureImage/list").permitAll()
                         .antMatchers(HttpMethod.GET, "/exception/**").permitAll()
-                        .antMatchers("/sign/instructor/request/list", "/sign/instructor/confirm").hasRole("ADMIN")
                         .antMatchers("/admin/instructor-applications/**").hasRole("ADMIN")
                         .antMatchers("/instructor-applications/**").authenticated()
                         .antMatchers("/account/instructor/**").hasRole("INSTRUCTOR")

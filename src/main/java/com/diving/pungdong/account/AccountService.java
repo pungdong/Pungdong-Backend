@@ -4,17 +4,11 @@ import com.diving.pungdong.global.advice.exception.*;
 import com.diving.pungdong.global.security.UserAccount;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.AuthProvider;
-import com.diving.pungdong.account.InstructorCertificate;
 import com.diving.pungdong.account.ProfilePhoto;
 import com.diving.pungdong.account.Role;
 import com.diving.pungdong.domain.lecture.Lecture;
-import com.diving.pungdong.domain.lecture.Organization;
 import com.diving.pungdong.account.dto.emailCheck.EmailResult;
-import com.diving.pungdong.account.dto.instructor.InstructorConfirmResult;
-import com.diving.pungdong.account.dto.instructor.InstructorInfo;
-import com.diving.pungdong.account.dto.instructor.InstructorRequestInfo;
 import com.diving.pungdong.account.dto.nickNameCheck.NickNameResult;
-import com.diving.pungdong.account.dto.read.InstructorBasicInfo;
 import com.diving.pungdong.account.dto.restore.AccountRestoreInfo;
 import com.diving.pungdong.account.dto.signIn.SignInInfo;
 import com.diving.pungdong.account.dto.signUp.SignUpInfo;
@@ -136,71 +130,6 @@ public class AccountService implements UserDetailsService {
                 .build();
     }
 
-    public SuccessResult saveInstructorInfo(Account account, InstructorInfo instructorInfo) {
-        account.setOrganization(instructorInfo.getOrganization());
-        account.setSelfIntroduction(instructorInfo.getSelfIntroduction());
-        accountJpaRepo.save(account);
-
-        return SuccessResult.builder()
-                .success(true)
-                .build();
-    }
-
-    public void updateIsRequestCertificated(Account account) {
-        account.setIsRequestCertified(true);
-        accountJpaRepo.save(account);
-    }
-
-    @Transactional(readOnly = true)
-    public Page<InstructorRequestInfo> getRequestInstructor(Pageable pageable) {
-        Page<Account> accountPage = accountJpaRepo.findAllRequestInstructor(pageable);
-
-        List<InstructorRequestInfo> instructorRequestInfos = new ArrayList<>();
-        for (Account account : accountPage.getContent()) {
-            List<String> certificateImageUrls = mapToCertificateImageUrls(account);
-
-            InstructorRequestInfo requestInfo = InstructorRequestInfo.builder()
-                    .accountId(account.getId())
-                    .email(account.getEmail())
-                    .nickName(account.getNickName())
-                    .phoneNumber(account.getPhoneNumber())
-                    .organization(account.getOrganization())
-                    .selfIntroduction(account.getSelfIntroduction())
-                    .certificateImageUrls(certificateImageUrls)
-                    .build();
-
-            instructorRequestInfos.add(requestInfo);
-        }
-
-        return new PageImpl<>(instructorRequestInfos, pageable, accountPage.getTotalElements());
-    }
-
-    public List<String> mapToCertificateImageUrls(Account account) {
-        List<InstructorCertificate> instructorCertificates = account.getInstructorCertificates();
-        List<String> certificateImageUrls = new ArrayList<>();
-        for (InstructorCertificate instructorCertificate : instructorCertificates) {
-            certificateImageUrls.add(instructorCertificate.getFileURL());
-        }
-
-        return certificateImageUrls;
-    }
-
-    public Account addInstructorRole(Long accountId) {
-        Account account = findAccountById(accountId);
-
-        account.getRoles().add(Role.INSTRUCTOR);
-        accountJpaRepo.save(account);
-
-        return account;
-    }
-
-    public InstructorConfirmResult mapToInstructorConfirmResult(Account account) {
-        return InstructorConfirmResult.builder()
-                .email(account.getEmail())
-                .nickName(account.getNickName())
-                .build();
-    }
-
     public AccountBasicInfo mapToAccountBasicInfo(Account account) {
         return AccountBasicInfo.builder()
                 .id(account.getId())
@@ -209,14 +138,6 @@ public class AccountService implements UserDetailsService {
                 .birth(account.getBirth())
                 .phoneNumber(account.getPhoneNumber())
                 .gender(account.getGender())
-                .build();
-    }
-
-    public InstructorBasicInfo mapToInstructorBasicInfo(Account account) {
-        return InstructorBasicInfo.builder()
-                .id(account.getId())
-                .organization(account.getOrganization())
-                .selfIntroduction(account.getSelfIntroduction())
                 .build();
     }
 
@@ -260,13 +181,6 @@ public class AccountService implements UserDetailsService {
         account.setIsDeleted(false);
 
         return account;
-    }
-
-    @Transactional(readOnly = true)
-    public boolean checkInstructorApplication(Long applicantId) {
-        Account account = findAccountById(applicantId);
-
-        return account.getIsRequestCertified();
     }
 
     public void modifyForgetPassword(ForgotPasswordInfo forgotPasswordInfo) {
