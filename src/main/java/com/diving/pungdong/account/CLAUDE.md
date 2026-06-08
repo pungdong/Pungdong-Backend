@@ -7,7 +7,8 @@
 ## 무엇이 들어있나
 
 로그인 / 회원가입 / 토큰 / 계정·강사·프로필 관련 전부:
-- **컨트롤러**: `SignController`(가입·로그인·refresh·logout·중복체크·강사신청·firebase-token), `EmailController`(인증코드 발송/검증), `AccountController`, `ProfilePhotoController`
+- **컨트롤러**: `SignController`(가입·로그인·refresh·logout·중복체크·firebase-token), `EmailController`(인증코드 발송/검증), `AccountController`, `ProfilePhotoController`
+  - ⚠️ **강사 신청/전환은 이 도메인 아님** — 별도 [instructorapplication](../../instructorapplication/CLAUDE.md) 도메인. 레거시 `/sign/instructor/*` + `Account.organization/income/isRequestCertified` 는 제거됨. `InstructorCertificate`(엔티티/서비스/`/account/instructor/certificate/list` 읽기)만 잔존 — 강사 프로필 기능 나오면 정리.
 - **서비스**: `AccountService`, `FirebaseTokenService`, `ProfilePhotoService`, `EmailService`, `InstructorCertificateService`
 - **레포**: `AccountJpaRepo`, `FirebaseTokenJpaRepo`, `InstructorCertificateJpaRepo`, `ProfilePhotoJpaRepo`
 - **엔티티**: `Account`, `Role`, `Gender`, `AuthProvider`, `DeviceType`, `FirebaseToken`, `ProfilePhoto`, `InstructorCertificate`, `InstructorImgCategory`
