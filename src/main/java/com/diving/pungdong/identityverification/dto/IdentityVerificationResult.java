@@ -1,4 +1,4 @@
-package com.diving.pungdong.instructorapplication.dto;
+package com.diving.pungdong.identityverification.dto;
 
 import lombok.*;
 

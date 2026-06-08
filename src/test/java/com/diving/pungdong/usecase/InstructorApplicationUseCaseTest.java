@@ -6,8 +6,8 @@ import com.diving.pungdong.account.AdminAccountInitializer;
 import com.diving.pungdong.account.ProfilePhotoJpaRepo;
 import com.diving.pungdong.account.Role;
 import com.diving.pungdong.global.security.JwtTokenProvider;
+import com.diving.pungdong.identityverification.IdentityVerificationJpaRepo;
 import com.diving.pungdong.instructorapplication.ApplicationCertificateJpaRepo;
-import com.diving.pungdong.instructorapplication.IdentityVerificationJpaRepo;
 import com.diving.pungdong.instructorapplication.InstructorApplication;
 import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
 import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
@@ -124,11 +124,11 @@ class InstructorApplicationUseCaseTest {
 
     /** 본인확인 stub 을 거쳐 verificationId 를 받아온다. */
     private long verifyIdentity(String token) throws Exception {
-        MvcResult result = mockMvc.perform(post("/instructor-applications/identity-verification")
+        MvcResult result = mockMvc.perform(post("/identity-verifications")
                         .header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(identityBody()))
-                .andExpect(status().isOk())
+                .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.verified").value(true))
                 .andReturn();
         JsonNode node = objectMapper.readTree(result.getResponse().getContentAsString());

@@ -161,16 +161,16 @@ export interface RegisterFirebaseTokenRequest {
 }
 
 // ============================================================
-// 강사 신청 (instructor-application 도메인)
-// docs/architecture/instructor-application.md 참고
+// 본인확인 (identity-verification 도메인) — 계정 공유 자산
+// docs/architecture/identity-verification.md 참고
 //
-// 흐름(2-phase): 본인확인(stub) → 자격증 이미지 업로드 → 신청 제출.
-// 단체 목록(PADI/SSI/AIDA/.../OTHER) + 폼 안내문구는 Sanity 카탈로그가 출처 —
-// BE 는 선택된 organizationCode 문자열을 그대로 저장한다 (enum 아님).
+// 수강/강사 어느 플로우에서든 같은 본인확인 레코드를 만들고(POST) 조회한다(GET /me).
+// 강사 신청 진입 시 GET /me 로 기존 인증을 확인해 재인증을 건너뛰고(skip) verificationId 재사용.
+// 현재 stub(즉시 verified) — 실 본인확인기관 연동은 deferred.
 // ============================================================
 
 /**
- * POST /instructor-applications/identity-verification 요청 — 본인확인(간편인증 stub).
+ * POST /identity-verifications 요청 — 본인확인(간편인증 stub).
  * PII(실명·생년월일·휴대폰)는 POST body 로만 전송 (URL/쿼리 금지).
  */
 export interface IdentityVerificationRequest {
@@ -184,12 +184,33 @@ export interface IdentityVerificationRequest {
   agreedRequiredTerms: boolean;
 }
 
-/** 본인확인 결과 — 신청 제출 시 verificationId 를 참조. */
+/** POST /identity-verifications 응답(201). verificationId 를 강사 신청 제출에 재사용. */
 export interface IdentityVerificationResponse extends HalLinks {
   verificationId: number;
   verified: boolean;
   realName: string;
 }
+
+/**
+ * GET /identity-verifications/me — 내 최신 본인확인 상태 (계정 공유).
+ * 미인증도 200 `{ verified: false }` (404 아님). verified 면 verificationId 를 강사 신청에 재사용.
+ * verifiedAt 은 노출되지만 현재 만료 판단엔 안 씀(무만료) — 법적 재인증 주기 정해지면 TTL 추가.
+ */
+export interface MyIdentityVerificationResponse extends HalLinks {
+  verified: boolean;
+  verificationId?: number;
+  realName?: string;
+  provider?: IdentityProvider;
+  verifiedAt?: string;
+}
+
+// ============================================================
+// 강사 신청 (instructor-application 도메인)
+// docs/architecture/instructor-application.md 참고
+//
+// 흐름(2-phase): (본인확인은 위 identity-verification 도메인) → 자격증 이미지 업로드 → 제출.
+// 진입 시 GET /identity-verifications/me 로 skip 판단. 단체 목록/안내문구는 Sanity.
+// ============================================================
 
 /**
  * POST /instructor-applications/certificate-images 응답 (2-phase 1단계).

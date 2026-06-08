@@ -1,4 +1,4 @@
-package com.diving.pungdong.instructorapplication;
+package com.diving.pungdong.identityverification;
 
 /**
  * 간편인증 공급자 (본인확인기관을 통해 본인확인을 수행하는 인증서 제공자).

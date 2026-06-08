@@ -1,7 +1,7 @@
-package com.diving.pungdong.instructorapplication;
+package com.diving.pungdong.identityverification;
 
 import com.diving.pungdong.account.Account;
-import com.diving.pungdong.instructorapplication.dto.IdentityVerificationRequest;
+import com.diving.pungdong.identityverification.dto.IdentityVerificationRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
