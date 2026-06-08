@@ -15,4 +15,7 @@ public interface InstructorApplicationJpaRepo extends JpaRepository<InstructorAp
 
     /** 어드민 대기 목록 — 상태별 조회. SUBMITTED 만 넘기면 승인/반려된 건은 빠진다. */
     Page<InstructorApplication> findAllByStatus(InstructorApplicationStatus status, Pageable pageable);
+
+    /** 상태별 건수 — 어드민 탭 뱃지(검수중/통과/불통과)용. */
+    long countByStatus(InstructorApplicationStatus status);
 }

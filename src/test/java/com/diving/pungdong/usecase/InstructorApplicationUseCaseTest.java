@@ -2,6 +2,7 @@ package com.diving.pungdong.usecase;
 
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.AccountJpaRepo;
+import com.diving.pungdong.account.AdminAccountInitializer;
 import com.diving.pungdong.account.ProfilePhotoJpaRepo;
 import com.diving.pungdong.account.Role;
 import com.diving.pungdong.global.security.JwtTokenProvider;
@@ -64,6 +65,7 @@ class InstructorApplicationUseCaseTest {
     @Autowired InstructorApplicationJpaRepo applicationRepo;
     @Autowired ApplicationCertificateJpaRepo certificateRepo;
     @Autowired IdentityVerificationJpaRepo identityVerificationRepo;
+    @Autowired AdminAccountInitializer adminAccountInitializer;
 
     @MockBean CertificateImageStorage certificateImageStorage;
 
@@ -424,6 +426,90 @@ class InstructorApplicationUseCaseTest {
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(student)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.fileURL").value("https://s3.fake/instructorCertificate/x.png"));
+    }
+
+    @Test
+    @DisplayName("A2: 어드민 카운트 조회 시 검수중/통과/불통과 건수와 total 이 정확하다")
+    void adminCounts_areAccurate() throws Exception {
+        Account admin = createAccount("ac@test.com", "adminC", Role.ADMIN);
+        String adminToken = tokenFor(admin);
+
+        // SUBMITTED 1, APPROVED 1, REJECTED 1 구성
+        submitApplication(tokenFor(createAccount("c1@test.com", "diverC1", Role.STUDENT)), "PADI"); // SUBMITTED 유지
+        long toApprove = submitApplication(tokenFor(createAccount("c2@test.com", "diverC2", Role.STUDENT)), "AIDA");
+        long toReject = submitApplication(tokenFor(createAccount("c3@test.com", "diverC3", Role.STUDENT)), "SSI");
+        mockMvc.perform(post("/admin/instructor-applications/" + toApprove + "/approve")
+                        .header(HttpHeaders.AUTHORIZATION, adminToken)).andExpect(status().isOk());
+        mockMvc.perform(post("/admin/instructor-applications/" + toReject + "/reject")
+                        .header(HttpHeaders.AUTHORIZATION, adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(write(Map.of("reason", "x")))).andExpect(status().isOk());
+
+        mockMvc.perform(get("/admin/instructor-applications/counts")
+                        .header(HttpHeaders.AUTHORIZATION, adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.submitted").value(1))
+                .andExpect(jsonPath("$.approved").value(1))
+                .andExpect(jsonPath("$.rejected").value(1))
+                .andExpect(jsonPath("$.total").value(3));
+    }
+
+    @Test
+    @DisplayName("A3: status 를 생략하면 전체 신청이 나오고, 목록 항목에 email 이 포함된다")
+    void adminList_allStatuses_withEmail() throws Exception {
+        Account admin = createAccount("al@test.com", "adminL", Role.ADMIN);
+        String adminToken = tokenFor(admin);
+        submitApplication(tokenFor(createAccount("l1@test.com", "diverL1", Role.STUDENT)), "PADI");
+        long approveId = submitApplication(tokenFor(createAccount("l2@test.com", "diverL2", Role.STUDENT)), "AIDA");
+        mockMvc.perform(post("/admin/instructor-applications/" + approveId + "/approve")
+                        .header(HttpHeaders.AUTHORIZATION, adminToken)).andExpect(status().isOk());
+
+        // status 생략 → SUBMITTED + APPROVED 모두 (전체 2건)
+        MvcResult res = mockMvc.perform(get("/admin/instructor-applications")
+                        .header(HttpHeaders.AUTHORIZATION, adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(2))
+                .andReturn();
+
+        // email 노출 검증 (임베디드 키 이름에 의존하지 않게 첫 배열을 직접 집는다)
+        JsonNode embedded = objectMapper.readTree(res.getResponse().getContentAsString()).get("_embedded");
+        JsonNode firstItem = embedded.elements().next().get(0);
+        assertThat(firstItem.get("email").asText()).contains("@test.com");
+    }
+
+    @Test
+    @DisplayName("A4: 승인된 신청 상세를 보면 처리한 어드민 닉네임(reviewerNickName)과 접수일시(createdAt)가 보인다")
+    void adminDetail_showsReviewer() throws Exception {
+        Account student = createAccount("a4@test.com", "diver16", Role.STUDENT);
+        Account admin = createAccount("admin7@test.com", "심사관", Role.ADMIN);
+        String adminToken = tokenFor(admin);
+        long applicationId = submitApplication(tokenFor(student), "PADI");
+        mockMvc.perform(post("/admin/instructor-applications/" + applicationId + "/approve")
+                        .header(HttpHeaders.AUTHORIZATION, adminToken)).andExpect(status().isOk());
+
+        mockMvc.perform(get("/admin/instructor-applications/" + applicationId)
+                        .header(HttpHeaders.AUTHORIZATION, adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("APPROVED"))
+                .andExpect(jsonPath("$.reviewerNickName").value("심사관"))
+                .andExpect(jsonPath("$.createdAt").exists());
+    }
+
+    /* ════════════════ B — 어드민 부트스트랩 ════════════════ */
+
+    @Test
+    @DisplayName("B1: ADMIN_EMAILS allowlist 의 이메일 계정은 부트스트랩으로 ROLE_ADMIN 이 부여된다 (idempotent, 계정 없으면 no-op)")
+    void adminBootstrap_grantsRole() {
+        createAccount("boot@test.com", "bootuser", Role.STUDENT);
+
+        adminAccountInitializer.ensureAdmins(List.of("boot@test.com", "nonexistent@test.com"));
+
+        Account promoted = accountRepo.findByEmail("boot@test.com").orElseThrow();
+        assertThat(promoted.getRoles()).contains(Role.ADMIN, Role.STUDENT);
+
+        // 두 번 실행해도 안전 (idempotent) — 예외 없이 통과
+        adminAccountInitializer.ensureAdmins(List.of("boot@test.com"));
+        assertThat(accountRepo.findByEmail("boot@test.com").orElseThrow().getRoles()).contains(Role.ADMIN);
     }
 
     /* ─── helper ─── */
