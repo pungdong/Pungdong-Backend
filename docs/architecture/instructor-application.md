@@ -187,12 +187,17 @@ erDiagram
 | `/instructor-applications/certificate-images` | POST | 인증 | multipart (`image`) |
 | `/instructor-applications` | POST | 인증 | 제출. 중복/이미강사 → 400 |
 | `/instructor-applications/me` | PUT | 인증 | 수정·재제출 (APPROVED 는 거부) |
-| `/admin/instructor-applications` | GET | **ADMIN** | `?status=` (기본 SUBMITTED) |
-| `/admin/instructor-applications/{id}` | GET | **ADMIN** | PII 포함 상세 |
+| `/admin/instructor-applications` | GET | **ADMIN** | `?status=` 생략 시 전체, 지정 시 탭별. 기본 정렬 submittedAt desc |
+| `/admin/instructor-applications/counts` | GET | **ADMIN** | 탭 뱃지용 `{submitted, approved, rejected, total}` |
+| `/admin/instructor-applications/{id}` | GET | **ADMIN** | PII 포함 상세 (+ reviewerNickName / createdAt) |
 | `/admin/instructor-applications/{id}/approve` | POST | **ADMIN** | INSTRUCTOR 부여 + isCertified |
 | `/admin/instructor-applications/{id}/reject` | POST | **ADMIN** | 사유 필수 |
 
 매처는 `SecurityConfiguration`: `/admin/instructor-applications/**` → `hasRole(ADMIN)`, `/instructor-applications/**` → `authenticated`. 승인 후 역할 변경은 매 요청 DB 재계산이라 **재로그인 불필요** (use-case `R3` 가 검증).
+
+### 어드민 지정 (authorization = DB role)
+
+admin 권한은 **DB role 이 source of truth** (`Account.roles` 에 `ADMIN`) — Sanity 같은 CMS 에 두지 않는다(보안 경계). "누구를 admin 으로"의 **목록만 env allowlist** 로 관리: `pungdong.admin.emails`(env `ADMIN_EMAILS`, 콤마구분). 부팅 시 `account.AdminAccountInitializer`(ApplicationRunner)가 그 이메일 계정에 `ROLE_ADMIN` 보장(idempotent). admin 은 **일반 가입 후** 목록에 있으면 승격 — 가입 전이면 다음 기동 시 부여. (use-case `B1`)
 
 ---
 
