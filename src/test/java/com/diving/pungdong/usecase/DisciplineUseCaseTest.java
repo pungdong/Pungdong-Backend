@@ -41,19 +41,17 @@ class DisciplineUseCaseTest {
         // 임베디드 키 이름에 의존하지 않게 첫 배열을 직접 집는다
         JsonNode list = objectMapper.readTree(res.getResponse().getContentAsString())
                 .get("_embedded").elements().next();
-        assertThat(list).hasSizeGreaterThanOrEqualTo(4);
+        assertThat(list).hasSizeGreaterThanOrEqualTo(2); // 출시 seed = 프리다이빙·스쿠버
         // sortOrder 1 = 프리다이빙
         assertThat(list.get(0).get("code").asText()).isEqualTo("FREEDIVING");
         assertThat(list.get(0).get("requiresCertification").asBoolean()).isTrue();
     }
 
     @Test
-    @DisplayName("D2: 종목별 자격증 필요 여부 — 프리다이빙/스쿠버=true, 수영/서핑=false")
+    @DisplayName("D2: 출시 종목(프리다이빙/스쿠버)은 둘 다 자격증 필요(requiresCertification=true)")
     void requiresCertification_flags() {
         assertThat(disciplineRepo.findByCode("FREEDIVING").orElseThrow().isRequiresCertification()).isTrue();
         assertThat(disciplineRepo.findByCode("SCUBA").orElseThrow().isRequiresCertification()).isTrue();
-        assertThat(disciplineRepo.findByCode("SWIMMING").orElseThrow().isRequiresCertification()).isFalse();
-        assertThat(disciplineRepo.findByCode("SURFING").orElseThrow().isRequiresCertification()).isFalse();
     }
 
     @Test

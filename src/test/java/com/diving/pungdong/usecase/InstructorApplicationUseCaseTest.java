@@ -6,6 +6,8 @@ import com.diving.pungdong.account.AdminAccountInitializer;
 import com.diving.pungdong.account.ProfilePhotoJpaRepo;
 import com.diving.pungdong.account.Role;
 import com.diving.pungdong.global.security.JwtTokenProvider;
+import com.diving.pungdong.discipline.Discipline;
+import com.diving.pungdong.discipline.DisciplineJpaRepo;
 import com.diving.pungdong.identityverification.IdentityVerificationJpaRepo;
 import com.diving.pungdong.instructorapplication.ApplicationCertificateJpaRepo;
 import com.diving.pungdong.instructorapplication.InstructorApplication;
@@ -65,7 +67,16 @@ class InstructorApplicationUseCaseTest {
     @Autowired InstructorApplicationJpaRepo applicationRepo;
     @Autowired ApplicationCertificateJpaRepo certificateRepo;
     @Autowired IdentityVerificationJpaRepo identityVerificationRepo;
+    @Autowired DisciplineJpaRepo disciplineRepo;
     @Autowired AdminAccountInitializer adminAccountInitializer;
+
+    /** 출시 seed 엔 자격증 불필요 종목이 없어서, 그 코드 경로 검증용 테스트 종목을 보장한다. */
+    private void ensureNonCertDiscipline(String code) {
+        if (!disciplineRepo.existsByCode(code)) {
+            disciplineRepo.save(Discipline.builder()
+                    .code(code).name(code).requiresCertification(false).active(true).sortOrder(99).build());
+        }
+    }
 
     @MockBean CertificateImageStorage certificateImageStorage;
 
@@ -556,6 +567,7 @@ class InstructorApplicationUseCaseTest {
     @Test
     @DisplayName("DS1: 자격증 불필요 종목(수영)은 자격증·단체 없이 제출해도 201 + SUBMITTED")
     void submit_noCertDiscipline_succeedsWithoutCertificate() throws Exception {
+        ensureNonCertDiscipline("SWIMMING"); // 출시 seed 엔 없음 — 자격증 불필요 경로 검증용
         Account student = createAccount("ds1@test.com", "diverDS1", Role.STUDENT);
         String token = tokenFor(student);
         long verificationId = verifyIdentity(token);
