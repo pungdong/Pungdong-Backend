@@ -19,9 +19,9 @@ public class InstructorApplicationDetail {
     private String nickName;
     private InstructorApplicationStatus status;
 
-    private String organizationCode;
-    private String organizationOther;
-    private List<String> certificateImageUrls;
+    private String disciplineCode;
+    /** 자격증 목록 (단체+이미지). 여러 단체 가능. */
+    private List<ApplicationCertificateDto> certificates;
 
     // 본인확인 결과 (PII)
     private String realName;
