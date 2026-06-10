@@ -2,11 +2,13 @@ package com.diving.pungdong.discipline.dto;
 
 import com.diving.pungdong.discipline.Discipline;
 import lombok.*;
+import org.springframework.hateoas.server.core.Relation;
 
-/** GET /disciplines 응답 항목 — 홈 셀렉터 / 강사 신청 종목 선택용. */
+/** GET /disciplines 응답 항목 — 홈 셀렉터 / 강사 신청 종목 선택용. CollectionModel 키 = "disciplines". */
 @Getter @Setter
 @Builder
 @NoArgsConstructor @AllArgsConstructor
+@Relation(collectionRelation = "disciplines")
 public class DisciplineResponse {
     private String code;
     private String name;

@@ -21,10 +21,10 @@ public class DisciplineSeeder implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
+        // 출시 scope = 프리다이빙 · 스쿠버 (둘 다 자격증 필요).
+        // 수영/서핑 등은 출시 후 추가 — discipline 행 추가(seed 또는 어드민 엔드포인트).
         seed("FREEDIVING", "프리다이빙", true, 1);
         seed("SCUBA", "스쿠버다이빙", true, 2);
-        seed("SWIMMING", "수영", false, 3);
-        seed("SURFING", "서핑", false, 4);
     }
 
     private void seed(String code, String name, boolean requiresCertification, int sortOrder) {
