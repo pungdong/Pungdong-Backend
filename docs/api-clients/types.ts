@@ -220,14 +220,36 @@ export interface CertificateImageResponse extends HalLinks {
   fileURL: string;
 }
 
+// ── 종목 (discipline) — docs/architecture/discipline.md ──
+// 홈 셀렉터 · 강사 신청 종목 선택 공용. requiresCertification 으로 강사 신청 시 자격증 필수
+// 여부가 갈림 (스쿠버/프리다이빙=true, 수영/서핑=false). 종목별 단체 목록은 Sanity 카탈로그.
+
+/** GET /disciplines (공개) 항목 — CollectionModel(_embedded 배열)로 감싸짐. */
+export interface DisciplineResponse {
+  code: string; // "FREEDIVING" | "SCUBA" | "SWIMMING" | "SURFING" ...
+  name: string; // "프리다이빙"
+  requiresCertification: boolean;
+  sortOrder: number;
+}
+
+/**
+ * 자격증 1건 = 발급 단체 + 이미지. 한 종목 신청에 여러 단체(AIDA+PADI+...) 가능.
+ * 제출 요청과 조회 응답에 공용. (향후 레벨/등급 필드 추가 자리)
+ */
+export interface ApplicationCertificate {
+  organizationCode: string; // 'AIDA' | 'PADI' | 'OTHER' ... (Sanity 카탈로그, 종목별)
+  organizationOther?: string; // 'OTHER' 일 때
+  fileURL: string; // 2-phase 업로드로 받은 URL
+}
+
 /** POST /instructor-applications (제출) · PUT /instructor-applications/me (재제출) 요청. */
 export interface InstructorApplicationSubmitRequest {
+  /** GET /disciplines 의 code. */
+  disciplineCode: string;
+  /** GET /identity-verifications/me 에서 재사용 (없으면 POST /identity-verifications 로 생성). */
   verificationId: number;
-  /** Sanity 카탈로그의 단체 code. 'OTHER' 면 organizationOther 필수. */
-  organizationCode: string;
-  organizationOther?: string;
-  /** 1단계에서 업로드한 자격증 이미지 URL 목록 (1장 이상). */
-  certificateImageUrls: string[];
+  /** 자격증 목록(단체+이미지). 자격증 필요 종목은 1건 이상, 불필요 종목은 생략. */
+  certificates?: ApplicationCertificate[];
 }
 
 /** 신청 제출/재제출 결과. POST 는 201, PUT 은 200. */
@@ -237,14 +259,13 @@ export interface InstructorApplicationResponse extends HalLinks {
 }
 
 /**
- * GET /instructor-applications/me — 내 신청 상태 (프로필 탭 버튼/타임라인용).
- * 미신청이면 status: 'NONE' 으로 200 (404 아님).
+ * GET /instructor-applications/me — 내 신청 목록 (종목별 여러 건). CollectionModel(_embedded 배열).
+ * 미신청 종목은 항목 없음 → FE 가 선택된 종목으로 필터, 없으면 "신청하기" 노출.
  */
-export interface MyInstructorApplicationResponse extends HalLinks {
-  status: InstructorApplicationStatus | 'NONE';
-  organizationCode?: string;
-  organizationOther?: string;
-  certificateImageUrls?: string[];
+export interface MyInstructorApplicationResponse {
+  disciplineCode: string;
+  status: InstructorApplicationStatus;
+  certificates: ApplicationCertificate[];
   identityVerified: boolean;
   /** REJECTED 일 때 반려 사유. */
   rejectionReason?: string;
@@ -254,16 +275,17 @@ export interface MyInstructorApplicationResponse extends HalLinks {
 
 /**
  * 어드민 목록 (GET /admin/instructor-applications) 의 한 행. PagedModel 로 감싸짐.
- * `status` 쿼리 생략 시 전체, 지정 시 해당 상태만 (탭: 검수중 SUBMITTED / 통과 APPROVED /
- * 불통과 REJECTED). 기본 정렬 submittedAt desc.
+ * `status` 쿼리 생략 시 전체, 지정 시 탭별(검수중 SUBMITTED / 통과 APPROVED / 불통과 REJECTED).
+ * 기본 정렬 submittedAt desc.
  */
 export interface InstructorApplicationSummary extends HalLinks {
   applicationId: number;
   accountId: number;
   nickName: string;
   email: string;
-  organizationCode: string;
-  organizationOther?: string;
+  disciplineCode: string;
+  /** 첨부 자격증의 단체들(중복 제거). */
+  organizationCodes: string[];
   status: InstructorApplicationStatus;
   submittedAt: string;
 }
@@ -283,9 +305,8 @@ export interface InstructorApplicationDetailResponse extends HalLinks {
   email: string;
   nickName: string;
   status: InstructorApplicationStatus;
-  organizationCode: string;
-  organizationOther?: string;
-  certificateImageUrls: string[];
+  disciplineCode: string;
+  certificates: ApplicationCertificate[];
   realName: string;
   birth: string;
   phoneNumber: string;
@@ -295,6 +316,18 @@ export interface InstructorApplicationDetailResponse extends HalLinks {
   reviewedAt?: string;
   /** 처리한 어드민 닉네임 (승인/반려 후). */
   reviewerNickName?: string;
+}
+
+/**
+ * POST /instructor-applications/certificates — 자격증 관리 탭. 이미 승인된(APPROVED) 강사가
+ * 그 종목에 자격증 1건 추가. MVP 는 검수 없이 즉시 반영(상태 APPROVED 유지). 승인 전 신청은
+ * 제출/재제출(POST·PUT)로. 같은 종목 재신청(POST /instructor-applications)은 400.
+ */
+export interface AddCertificateRequest {
+  disciplineCode: string;
+  organizationCode: string;
+  organizationOther?: string;
+  fileURL: string;
 }
 
 /** POST /admin/instructor-applications/{id}/reject 요청. */

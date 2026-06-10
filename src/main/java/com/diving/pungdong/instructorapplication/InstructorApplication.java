@@ -10,16 +10,20 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 강사 신청 1건 (한 계정당 최대 1건 — {@code account_id} 유니크).
+ * 강사 신청 1건. <b>종목별</b> — 한 계정이 종목마다 1건씩 (프리다이빙 + 스쿠버 동시 가능).
+ * {@code (account_id, discipline_code)} 유니크.
  *
  * <p>레거시 {@code Account.isRequestCertified}/{@code isCertified} 플래그 방식을 대체한다.
  * 상태머신({@link InstructorApplicationStatus})으로 제출/승인/반려/재제출을 표현하고,
- * 심사 이력(reviewer/reviewedAt/rejectionReason)을 보유한다.
+ * 심사 이력(reviewer/reviewedAt/rejectionReason)을 보유한다. 승인된 신청 = 그 종목의 강사 자격.
  *
  * <p>소속 단체는 enum 이 아니라 {@code organizationCode} 문자열로 저장한다 — 단체 목록은
  * Sanity 카탈로그가 source of truth 라 BE enum 으로 박으면 단체 추가 때마다 배포가 필요해진다.
+ * 자격증 필수 여부는 종목({@link com.diving.pungdong.discipline.Discipline})의 requiresCertification.
  */
 @Entity
+@Table(uniqueConstraints = @UniqueConstraint(
+        name = "uk_application_account_discipline", columnNames = {"account_id", "discipline_code"}))
 @Getter @Setter
 @Builder
 @NoArgsConstructor @AllArgsConstructor
@@ -28,18 +32,16 @@ public class InstructorApplication {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "account_id", unique = true)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "account_id")
     private Account account;
+
+    /** 신청 종목 코드 ({@code discipline.code}, 예 "FREEDIVING"). 계정당 종목별 1신청. */
+    @Column(name = "discipline_code")
+    private String disciplineCode;
 
     @Enumerated(EnumType.STRING)
     private InstructorApplicationStatus status;
-
-    /** Sanity 자격증 카탈로그의 단체 code (예: "PADI", "AIDA", "OTHER"). */
-    private String organizationCode;
-
-    /** organizationCode 가 OTHER(기타) 일 때만 채워지는 직접입력 단체명. */
-    private String organizationOther;
 
     @ManyToOne(fetch = FetchType.LAZY)
     private IdentityVerification identityVerification;

@@ -3,6 +3,8 @@ package com.diving.pungdong.instructorapplication;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.account.Role;
+import com.diving.pungdong.discipline.Discipline;
+import com.diving.pungdong.discipline.DisciplineService;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.identityverification.IdentityVerification;
@@ -37,6 +39,7 @@ public class InstructorApplicationService {
     private final InstructorApplicationJpaRepo applicationRepo;
     private final IdentityVerificationJpaRepo identityVerificationRepo;
     private final AccountJpaRepo accountRepo;
+    private final DisciplineService disciplineService;
     private final CertificateImageStorage certificateImageStorage;
 
     /* ─── 자격증 이미지 업로드 (2-phase 1단계) ───────────────── */
@@ -59,23 +62,26 @@ public class InstructorApplicationService {
     @Transactional
     public InstructorApplicationResult submit(Account account, InstructorApplicationSubmitRequest request) {
         Account managed = loadAccount(account);
+        Discipline discipline = disciplineService.getActiveByCode(request.getDisciplineCode());
         IdentityVerification verification = resolveVerification(managed, request.getVerificationId());
-        validateOrganization(request.getOrganizationCode(), request.getOrganizationOther());
+        validateCertification(discipline, request);
 
-        InstructorApplication application = applicationRepo.findByAccountId(managed.getId())
+        InstructorApplication application = applicationRepo
+                .findByAccountIdAndDisciplineCode(managed.getId(), discipline.getCode())
                 .orElse(null);
 
         if (application == null) {
             application = InstructorApplication.builder()
                     .account(managed)
+                    .disciplineCode(discipline.getCode())
                     .createdAt(LocalDateTime.now())
                     .build();
         } else {
             switch (application.getStatus()) {
                 case SUBMITTED:
-                    throw new BadRequestException(); // 이미 심사 중 — 중복 신청 불가
+                    throw new BadRequestException(); // 이 종목 이미 심사 중 — 중복 신청 불가
                 case APPROVED:
-                    throw new BadRequestException(); // 이미 강사 — 재신청 불필요
+                    throw new BadRequestException(); // 이 종목 이미 강사 — 재신청 불필요
                 case REJECTED:
                     break;                            // 반려 건은 새 내용으로 재제출 허용
             }
@@ -90,21 +96,23 @@ public class InstructorApplicationService {
     }
 
     /**
-     * 내 신청 수정·재제출 (PUT /me). 반려된 건을 고쳐 다시 SUBMITTED 로 되돌리거나, 심사 전
-     * SUBMITTED 건의 내용을 갱신한다. 승인된 건은 수정 불가.
+     * 내 신청 수정·재제출 (PUT /me). 종목별로 — 해당 종목의 반려/심사전 건을 고쳐 SUBMITTED 로.
+     * 승인된 건은 수정 불가.
      */
     @Transactional
     public InstructorApplicationResult resubmit(Account account, InstructorApplicationSubmitRequest request) {
         Account managed = loadAccount(account);
-        InstructorApplication application = applicationRepo.findByAccountId(managed.getId())
-                .orElseThrow(BadRequestException::new); // 수정할 신청이 없음
+        Discipline discipline = disciplineService.getActiveByCode(request.getDisciplineCode());
+        InstructorApplication application = applicationRepo
+                .findByAccountIdAndDisciplineCode(managed.getId(), discipline.getCode())
+                .orElseThrow(BadRequestException::new); // 그 종목에 수정할 신청이 없음
 
         if (application.getStatus() == InstructorApplicationStatus.APPROVED) {
             throw new BadRequestException(); // 승인된 신청은 수정 불가
         }
 
         IdentityVerification verification = resolveVerification(managed, request.getVerificationId());
-        validateOrganization(request.getOrganizationCode(), request.getOrganizationOther());
+        validateCertification(discipline, request);
 
         applyFields(application, request, verification);
         InstructorApplication saved = applicationRepo.save(application);
@@ -114,12 +122,50 @@ public class InstructorApplicationService {
                 .build();
     }
 
+    /**
+     * 자격증 관리 — 이미 승인된(APPROVED) 강사가 그 종목에 자격증 1건을 추가한다. MVP 는 검수 없이
+     * 바로 append (상태 유지). 검수 중/반려 상태는 신청/재제출(submit/resubmit) 경로로 다룬다.
+     */
+    @Transactional
+    public InstructorApplicationResult addCertificate(Account account, AddCertificateRequest request) {
+        Account managed = loadAccount(account);
+        Discipline discipline = disciplineService.getActiveByCode(request.getDisciplineCode());
+        InstructorApplication application = applicationRepo
+                .findByAccountIdAndDisciplineCode(managed.getId(), discipline.getCode())
+                .orElseThrow(BadRequestException::new); // 그 종목 신청이 없음
+
+        if (application.getStatus() != InstructorApplicationStatus.APPROVED) {
+            throw new BadRequestException(); // 승인된 강사만 추가 가능 (검수중/반려는 submit/resubmit)
+        }
+        if (isBlank(request.getOrganizationCode()) || isBlank(request.getFileURL())) {
+            throw new BadRequestException();
+        }
+        if (ORGANIZATION_OTHER.equalsIgnoreCase(request.getOrganizationCode()) && isBlank(request.getOrganizationOther())) {
+            throw new BadRequestException();
+        }
+
+        application.addCertificate(ApplicationCertificate.builder()
+                .organizationCode(request.getOrganizationCode())
+                .organizationOther(ORGANIZATION_OTHER.equalsIgnoreCase(request.getOrganizationCode())
+                        ? request.getOrganizationOther() : null)
+                .fileURL(request.getFileURL())
+                .sortOrder(application.getCertificates().size())
+                .build());
+        application.setUpdatedAt(LocalDateTime.now());
+        InstructorApplication saved = applicationRepo.save(application);
+        return InstructorApplicationResult.builder()
+                .applicationId(saved.getId())
+                .status(saved.getStatus())
+                .build();
+    }
+
     /* ─── 내 신청 조회 (프로필 탭) ───────────────────────────── */
 
-    public MyInstructorApplicationResponse getMyApplication(Account account) {
-        return applicationRepo.findByAccountId(account.getId())
+    /** 내 신청 목록 — 종목별 여러 건. 미신청 종목은 리스트에 없음(FE 가 "신청하기" 노출). */
+    public List<MyInstructorApplicationResponse> getMyApplications(Account account) {
+        return applicationRepo.findByAccountIdOrderByIdDesc(account.getId()).stream()
                 .map(this::toMyResponse)
-                .orElseGet(MyInstructorApplicationResponse::none);
+                .collect(Collectors.toList());
     }
 
     /* ─── 어드민 ─────────────────────────────────────────────── */
@@ -203,20 +249,35 @@ public class InstructorApplicationService {
         return verification;
     }
 
-    private void validateOrganization(String organizationCode, String organizationOther) {
-        if (ORGANIZATION_OTHER.equalsIgnoreCase(organizationCode)
-                && (organizationOther == null || organizationOther.isBlank())) {
-            throw new BadRequestException(); // 기타 단체는 직접입력 필수
+    /**
+     * 종목의 자격증 필수 여부에 따른 조건부 검증. requiresCertification 종목은 자격증 1건 이상,
+     * 각 자격증마다 단체(+OTHER 직접입력)·이미지 필수. 그 외(수영/서핑)는 생략 가능.
+     */
+    private void validateCertification(Discipline discipline, InstructorApplicationSubmitRequest request) {
+        if (!discipline.isRequiresCertification()) {
+            return; // 자격증 불필요 종목 — 자격증/단체 생략 가능
+        }
+        List<ApplicationCertificateDto> certs = request.getCertificates();
+        if (certs == null || certs.isEmpty()) {
+            throw new BadRequestException(); // 자격증 1건 이상 필수
+        }
+        for (ApplicationCertificateDto cert : certs) {
+            if (isBlank(cert.getFileURL())) {
+                throw new BadRequestException(); // 자격증 이미지 필수
+            }
+            if (isBlank(cert.getOrganizationCode())) {
+                throw new BadRequestException(); // 발급 단체 필수
+            }
+            if (ORGANIZATION_OTHER.equalsIgnoreCase(cert.getOrganizationCode()) && isBlank(cert.getOrganizationOther())) {
+                throw new BadRequestException(); // 기타 단체는 직접입력 필수
+            }
         }
     }
 
     private void applyFields(InstructorApplication application, InstructorApplicationSubmitRequest request,
                              IdentityVerification verification) {
+        application.setDisciplineCode(request.getDisciplineCode());
         application.setIdentityVerification(verification);
-        application.setOrganizationCode(request.getOrganizationCode());
-        application.setOrganizationOther(
-                ORGANIZATION_OTHER.equalsIgnoreCase(request.getOrganizationCode())
-                        ? request.getOrganizationOther() : null);
         application.setStatus(InstructorApplicationStatus.SUBMITTED);
         application.setSubmittedAt(LocalDateTime.now());
         application.setUpdatedAt(LocalDateTime.now());
@@ -225,27 +286,41 @@ public class InstructorApplicationService {
         application.setRejectionReason(null);
 
         application.clearCertificates();
-        List<String> urls = request.getCertificateImageUrls();
-        IntStream.range(0, urls.size()).forEach(i ->
+        List<ApplicationCertificateDto> certs = request.getCertificates();
+        if (certs != null) {
+            IntStream.range(0, certs.size()).forEach(i -> {
+                ApplicationCertificateDto c = certs.get(i);
                 application.addCertificate(ApplicationCertificate.builder()
-                        .fileURL(urls.get(i))
+                        .organizationCode(c.getOrganizationCode())
+                        .organizationOther(ORGANIZATION_OTHER.equalsIgnoreCase(c.getOrganizationCode())
+                                ? c.getOrganizationOther() : null)
+                        .fileURL(c.getFileURL())
                         .sortOrder(i)
-                        .build()));
+                        .build());
+            });
+        }
     }
 
-    private List<String> certificateUrls(InstructorApplication application) {
+    private boolean isBlank(String s) {
+        return s == null || s.isBlank();
+    }
+
+    private List<ApplicationCertificateDto> certificateDtos(InstructorApplication application) {
         return application.getCertificates().stream()
                 .sorted((a, b) -> Integer.compare(a.getSortOrder(), b.getSortOrder()))
-                .map(ApplicationCertificate::getFileURL)
+                .map(c -> ApplicationCertificateDto.builder()
+                        .organizationCode(c.getOrganizationCode())
+                        .organizationOther(c.getOrganizationOther())
+                        .fileURL(c.getFileURL())
+                        .build())
                 .collect(Collectors.toList());
     }
 
     private MyInstructorApplicationResponse toMyResponse(InstructorApplication application) {
         return MyInstructorApplicationResponse.builder()
+                .disciplineCode(application.getDisciplineCode())
                 .status(application.getStatus().name())
-                .organizationCode(application.getOrganizationCode())
-                .organizationOther(application.getOrganizationOther())
-                .certificateImageUrls(certificateUrls(application))
+                .certificates(certificateDtos(application))
                 .identityVerified(application.getIdentityVerification() != null)
                 .rejectionReason(application.getRejectionReason())
                 .submittedAt(application.getSubmittedAt())
@@ -255,13 +330,18 @@ public class InstructorApplicationService {
 
     private InstructorApplicationSummary toSummary(InstructorApplication application) {
         Account applicant = application.getAccount();
+        List<String> orgCodes = application.getCertificates().stream()
+                .map(ApplicationCertificate::getOrganizationCode)
+                .filter(c -> c != null)
+                .distinct()
+                .collect(Collectors.toList());
         return InstructorApplicationSummary.builder()
                 .applicationId(application.getId())
                 .accountId(applicant.getId())
                 .nickName(applicant.getNickName())
                 .email(applicant.getEmail())
-                .organizationCode(application.getOrganizationCode())
-                .organizationOther(application.getOrganizationOther())
+                .disciplineCode(application.getDisciplineCode())
+                .organizationCodes(orgCodes)
                 .status(application.getStatus())
                 .submittedAt(application.getSubmittedAt())
                 .build();
@@ -276,9 +356,8 @@ public class InstructorApplicationService {
                 .email(applicant.getEmail())
                 .nickName(applicant.getNickName())
                 .status(application.getStatus())
-                .organizationCode(application.getOrganizationCode())
-                .organizationOther(application.getOrganizationOther())
-                .certificateImageUrls(certificateUrls(application))
+                .disciplineCode(application.getDisciplineCode())
+                .certificates(certificateDtos(application))
                 .realName(verification != null ? verification.getRealName() : null)
                 .birth(verification != null ? verification.getBirth() : null)
                 .phoneNumber(verification != null ? verification.getPhoneNumber() : null)
