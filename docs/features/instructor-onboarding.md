@@ -25,10 +25,11 @@
 ## 정책 (requirements)
 
 ### 종목 (discipline)
-- 종목 목록은 **BE 관리**(프리다이빙 · 스쿠버 · 수영 · 서핑 …). enum/Sanity 아님 — `requiresCertification` 이 비즈룰이라.
+- **종목 = BE `discipline` 테이블** (code · name · requiresCertification · active · sortOrder). **Sanity/enum 아님** — `requiresCertification`(자격증 필수 여부)이 BE 가 강사신청 때 강제하는 **비즈룰**이고, 강의/강사 필터·쿼리 대상이라서.
 - **자격증 필요 여부**: 프리다이빙 · 스쿠버 = 필요, 수영 · 서핑 = 불필요.
-- **종목별 단체 목록**은 Sanity 카탈로그(`disciplineCode` 키). 프리다이빙 → AIDA/SSI/Molchanovs, 스쿠버 → PADI/NAUI/CMAS, 수영/서핑 → 없음.
-- 종목 추가는 seed/어드민(코드 배포 없이).
+- **출시 scope = 프리다이빙 · 스쿠버만.** 수영/서핑은 후속. `GET /disciplines` 는 `active` 만 반환하므로, 출시 전 수영/서핑은 **seed 제외 또는 `active=false`** 로 둔다. (현재 seeder 는 4종 seed — 출시 전 정리 필요.)
+- **종목별 "단체 목록" 만 Sanity** 카탈로그(`disciplineCode` 키). 프리다이빙→AIDA/SSI/Molchanovs, 스쿠버→PADI/NAUI/CMAS, 수영/서핑→없음. ⚠️ **종목 자체는 BE, 단체만 Sanity** — 혼동 주의.
+- **종목 확장 (잦을 예정)**: "Sanity 에 추가" 가 아니라 **`discipline` 행 추가**다. 지금 = `DisciplineSeeder` 한 줄(코드+배포) 또는 SQL `INSERT`. 확장 빈도가 높아지면 **배포 없는 어드민 엔드포인트 `POST /admin/disciplines`** 로 (로드맵 — 미해결 섹션). 종목 아이콘/마케팅 카피 같은 순수 표현물이 필요하면 Sanity 로 `code` 키잉해 enrich 가능(코어는 BE).
 
 ### 본인확인 (identity verification)
 - **계정 공유 자산** — 수강(강의 신청 전) / 강사(전환 시) 공유. 한 번 하면 **재사용(skip)** — 강사 신청 진입 시 `GET /identity-verifications/me` 로 확인.
@@ -71,7 +72,7 @@
 - 🔴 **실 본인확인기관 연동** — CI/DI 암호화 저장 + 비동기 푸시/재발송/검증 흐름. 사업자등록 + 기관 계약 후. (QA 에서 stub↔실연동 차이 이슈 다수 예상)
 - 🟡 **자격 레벨/등급** — 자격증 `ratingCode` + 강의 생성 레벨 게이트. lecture 재설계와 함께.
 - 🟡 **강의 ↔ 종목 연결** — 현재 `Lecture.classKind`(느슨한 string) → `disciplineCode` 정리. lecture 재설계 때.
-- 🟢 **어드민 종목 관리 UI** — 활성/순서/이름 편집. 현재 seed.
+- 🟡 **어드민 종목 관리 (배포 없는 확장)** — `POST/PUT /admin/disciplines` (추가 · active · 순서 · 이름). **종목 확장이 잦을 예정이라 우선순위 ↑.** 현재는 `DisciplineSeeder`(코드+배포)/SQL. 종목은 계속 BE 테이블(비즈룰·쿼리 유지), 관리 surface 만 추가 — Sanity 로 옮기는 게 아님.
 
 ---
 

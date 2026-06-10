@@ -6,6 +6,8 @@ import com.diving.pungdong.account.AdminAccountInitializer;
 import com.diving.pungdong.account.ProfilePhotoJpaRepo;
 import com.diving.pungdong.account.Role;
 import com.diving.pungdong.global.security.JwtTokenProvider;
+import com.diving.pungdong.discipline.Discipline;
+import com.diving.pungdong.discipline.DisciplineJpaRepo;
 import com.diving.pungdong.identityverification.IdentityVerificationJpaRepo;
 import com.diving.pungdong.instructorapplication.ApplicationCertificateJpaRepo;
 import com.diving.pungdong.instructorapplication.InstructorApplication;
@@ -65,7 +67,16 @@ class InstructorApplicationUseCaseTest {
     @Autowired InstructorApplicationJpaRepo applicationRepo;
     @Autowired ApplicationCertificateJpaRepo certificateRepo;
     @Autowired IdentityVerificationJpaRepo identityVerificationRepo;
+    @Autowired DisciplineJpaRepo disciplineRepo;
     @Autowired AdminAccountInitializer adminAccountInitializer;
+
+    /** 출시 seed 엔 자격증 불필요 종목이 없어서, 그 코드 경로 검증용 테스트 종목을 보장한다. */
+    private void ensureNonCertDiscipline(String code) {
+        if (!disciplineRepo.existsByCode(code)) {
+            disciplineRepo.save(Discipline.builder()
+                    .code(code).name(code).requiresCertification(false).active(true).sortOrder(99).build());
+        }
+    }
 
     @MockBean CertificateImageStorage certificateImageStorage;
 
@@ -219,9 +230,9 @@ class InstructorApplicationUseCaseTest {
                         .header(HttpHeaders.AUTHORIZATION, token))
                 .andExpect(status().isOk())
                 .andReturn();
-        // 임베디드 키 이름에 의존하지 않게 첫 배열의 첫 항목을 직접 집는다
+        // 키는 @Relation(collectionRelation="applications") 로 고정
         JsonNode item = objectMapper.readTree(res.getResponse().getContentAsString())
-                .get("_embedded").elements().next().get(0);
+                .get("_embedded").get("applications").get(0);
         assertThat(item.get("disciplineCode").asText()).isEqualTo("FREEDIVING");
         assertThat(item.get("status").asText()).isEqualTo("SUBMITTED");
         assertThat(item.get("identityVerified").asBoolean()).isTrue();
@@ -510,9 +521,9 @@ class InstructorApplicationUseCaseTest {
                 .andExpect(jsonPath("$.page.totalElements").value(2))
                 .andReturn();
 
-        // email 노출 검증 (임베디드 키 이름에 의존하지 않게 첫 배열을 직접 집는다)
-        JsonNode embedded = objectMapper.readTree(res.getResponse().getContentAsString()).get("_embedded");
-        JsonNode firstItem = embedded.elements().next().get(0);
+        // email 노출 검증 (키는 @Relation 으로 "applications" 고정)
+        JsonNode firstItem = objectMapper.readTree(res.getResponse().getContentAsString())
+                .get("_embedded").get("applications").get(0);
         assertThat(firstItem.get("email").asText()).contains("@test.com");
     }
 
@@ -556,6 +567,7 @@ class InstructorApplicationUseCaseTest {
     @Test
     @DisplayName("DS1: 자격증 불필요 종목(수영)은 자격증·단체 없이 제출해도 201 + SUBMITTED")
     void submit_noCertDiscipline_succeedsWithoutCertificate() throws Exception {
+        ensureNonCertDiscipline("SWIMMING"); // 출시 seed 엔 없음 — 자격증 불필요 경로 검증용
         Account student = createAccount("ds1@test.com", "diverDS1", Role.STUDENT);
         String token = tokenFor(student);
         long verificationId = verifyIdentity(token);
