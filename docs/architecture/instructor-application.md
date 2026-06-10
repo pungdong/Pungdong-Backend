@@ -2,9 +2,11 @@
 
 ## 한 줄 요약
 
-수강생(STUDENT)이 **본인확인 → 자격증 이미지 업로드 → 단체 선택 후 제출**하면 `InstructorApplication` 1건이 SUBMITTED 로 생기고, 어드민이 **승인/반려**한다. 승인 시 해당 계정에 `INSTRUCTOR` 역할이 **추가**(STUDENT 유지)되고 `isCertified=true` 가 된다.
+수강생(STUDENT)이 **종목 선택 → 본인확인 → 자격증(단체+이미지) 등록 → 제출**하면 그 종목의 `InstructorApplication` 1건이 SUBMITTED 로 생기고, 어드민이 **승인/반려**한다. 승인 시 `INSTRUCTOR` 역할 **추가**(STUDENT 유지) + `isCertified=true`.
 
-레거시 `Account.isRequestCertified/isCertified` 플래그 + `/sign/instructor/*` 흐름을 대체하는 **신규 feature 패키지**(`instructorapplication/`). 한 계정당 신청 1건(`account_id` 유니크), 상태머신으로 제출/승인/반려/재제출을 표현한다.
+신청은 **종목별**이다 — 한 계정이 종목마다 1건(`(account_id, discipline_code)` 유니크), 프리다이빙+스쿠버 동시 가능. 자격증은 **한 종목에 여러 단체**(AIDA+PADI+...)를 담는다(단체는 자격증 단위). 종목의 `requiresCertification`(스쿠버/프리=필수, 수영/서핑=불필요)이 자격증 필수 여부를 가른다. 승인된 강사는 **자격증 관리 탭**(`POST /certificates`)에서 검수 없이 자격증을 추가한다(같은 종목 재신청은 차단).
+
+레거시 `Account.isRequestCertified/isCertified` 플래그 + `/sign/instructor/*` 흐름을 대체하는 **신규 feature 패키지**(`instructorapplication/`). 상태머신으로 제출/승인/반려/재제출을 표현. 종목은 [discipline](discipline.md), 본인확인은 [identity-verification](identity-verification.md) 도메인 참조.
 
 > **본인확인은 stub.** 디자인(강사신청 화면)은 간편인증(카카오/네이버/토스/PASS/KB/페이코 → CI/DI)을 전면에 두지만, 실제 본인확인기관 외부 연동은 deferred다. 현재는 `StubIdentityVerifier` 가 즉시 VERIFIED 처리한다 (memory: `identity-verification-model`).
 
@@ -132,18 +134,17 @@ sequenceDiagram
 
 ```mermaid
 erDiagram
-    Account ||--o| InstructorApplication : "신청 (account_id UNIQUE)"
+    Account ||--o{ InstructorApplication : "종목별 신청"
     Account ||--o{ IdentityVerification : "본인확인 이력"
     InstructorApplication }o--|| IdentityVerification : "참조한 본인확인"
-    InstructorApplication ||--o{ ApplicationCertificate : "자격증 이미지"
+    InstructorApplication ||--o{ ApplicationCertificate : "자격증 (단체+이미지) N건"
     Account ||--o| InstructorApplication : "reviewer (어드민)"
 
     InstructorApplication {
         Long id PK
-        Long account_id FK "UNIQUE"
+        Long account_id FK
+        String discipline_code "(account_id, discipline_code) UNIQUE"
         String status "SUBMITTED|APPROVED|REJECTED"
-        String organizationCode "Sanity code, enum 아님"
-        String organizationOther "OTHER 일 때만"
         Long identity_verification_id FK
         Long reviewer_id FK "nullable"
         String rejectionReason
@@ -153,6 +154,8 @@ erDiagram
     ApplicationCertificate {
         Long id PK
         Long application_id FK
+        String organizationCode "Sanity code (자격증 단위), enum 아님"
+        String organizationOther "OTHER 일 때만"
         String fileURL "S3"
         int sortOrder
     }
@@ -171,9 +174,9 @@ erDiagram
 ```
 
 설계 의도:
-- **`organizationCode` 는 문자열** — 단체 추가가 Sanity 편집만으로 되도록(배포 불필요). 레거시 `Account.organization`(Organization enum, ordinal 저장 버그)은 이 도메인에서 쓰지 않는다.
-- **자격증은 신청에 종속** — 재제출 시 신청과 함께 교체되는 스냅샷. 레거시 `account.InstructorCertificate`(Account 소유, 메타 없음)와 별개.
-- **본인확인은 별도 엔티티** — 신청과 분리해 두면 재제출 시 새 본인확인을 참조할 수 있고, 실연동 전환 시 적재 경로만 바뀐다.
+- **종목별 신청** — `(account_id, discipline_code)` 유니크. 한 사람이 프리다이빙+스쿠버 강사일 수 있어 종목마다 1건. 승인된 신청 = 그 종목의 강사 자격.
+- **단체는 자격증 단위** (`ApplicationCertificate.organizationCode`) — 한 종목에 여러 단체 자격(AIDA+PADI+Molchanovs)을 담는다. 신청 레벨에 단체 1개를 두던 초기안은 틀렸다. 문자열 code(Sanity 카탈로그, 종목별)라 BE enum 아님. (향후 레벨 `ratingCode` 추가 자리)
+- **본인확인은 [identity-verification](identity-verification.md) 도메인 참조** — 수강/강사 공유, verificationId 재사용(skip).
 
 ---
 
@@ -181,10 +184,11 @@ erDiagram
 
 | 엔드포인트 | 메서드 | 권한 | 비고 |
 |---|---|---|---|
-| `/instructor-applications/me` | GET | 인증 | 본인 신청만. 미신청 시 200 `{status:NONE}` |
-| `/instructor-applications/certificate-images` | POST | 인증 | multipart (`image`) |
-| `/instructor-applications` | POST | 인증 | 제출. 중복/이미강사 → 400 |
-| `/instructor-applications/me` | PUT | 인증 | 수정·재제출 (APPROVED 는 거부) |
+| `/instructor-applications/me` | GET | 인증 | 내 신청 **목록**(종목별). 미신청 종목은 항목 없음 |
+| `/instructor-applications/certificate-images` | POST | 인증 | multipart (`image`) → URL (2-phase 1단계) |
+| `/instructor-applications` | POST | 인증 | 제출. body 에 `disciplineCode`+자격증 목록. 종목별 중복/이미강사 → 400 |
+| `/instructor-applications/me` | PUT | 인증 | 수정·재제출 (해당 종목, APPROVED 는 거부) |
+| `/instructor-applications/certificates` | POST | 인증 | **자격증 관리** — 승인된 강사가 자격증 추가 (검수 없이) |
 | `/admin/instructor-applications` | GET | **ADMIN** | `?status=` 생략 시 전체, 지정 시 탭별. 기본 정렬 submittedAt desc |
 | `/admin/instructor-applications/counts` | GET | **ADMIN** | 탭 뱃지용 `{submitted, approved, rejected, total}` |
 | `/admin/instructor-applications/{id}` | GET | **ADMIN** | PII 포함 상세 (+ reviewerNickName / createdAt) |

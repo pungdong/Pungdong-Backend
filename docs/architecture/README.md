@@ -23,6 +23,7 @@
 | 예약 (reservation) | [reservation.md](reservation.md) | ✅ (baseline — 알려진 간극 다수) |
 | 후기 (review) | [review.md](review.md) | ✅ (baseline — 통계 갱신 버그) |
 | 본인확인 (identity-verification) | [identity-verification.md](identity-verification.md) | ✅ (계정 공유 자산 · stub — 실연동 deferred) |
+| 종목 (discipline) | [discipline.md](discipline.md) | ✅ (BE 테이블 · requiresCertification) |
 | 강사 신청 (instructor-application) | [instructor-application.md](instructor-application.md) | ✅ (본인확인은 identity-verification 도메인 참조) |
 | 검색 (search / Elasticsearch) | _TODO — Phase 3 정리 후_ | ⏸️ |
 
