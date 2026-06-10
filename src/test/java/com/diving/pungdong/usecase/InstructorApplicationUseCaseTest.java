@@ -105,12 +105,43 @@ class InstructorApplicationUseCaseTest {
         return write(body);
     }
 
+    /** 기본 종목 = FREEDIVING (자격증 필요). */
     private String submitBody(Long verificationId, String orgCode, String orgOther, List<String> urls) {
+        return submitBody("FREEDIVING", verificationId, orgCode, orgOther, urls);
+    }
+
+    /** url 마다 (orgCode, orgOther, fileURL) 자격증 1건. urls=null 이면 자격증 없음(불필요 종목용). */
+    private String submitBody(String disciplineCode, Long verificationId, String orgCode, String orgOther, List<String> urls) {
         Map<String, Object> body = new HashMap<>();
+        body.put("disciplineCode", disciplineCode);
         body.put("verificationId", verificationId);
-        body.put("organizationCode", orgCode);
-        body.put("organizationOther", orgOther);
-        body.put("certificateImageUrls", urls);
+        if (urls != null) {
+            List<Map<String, Object>> certs = new java.util.ArrayList<>();
+            for (String url : urls) {
+                Map<String, Object> c = new HashMap<>();
+                c.put("organizationCode", orgCode);
+                c.put("organizationOther", orgOther);
+                c.put("fileURL", url);
+                certs.add(c);
+            }
+            body.put("certificates", certs);
+        }
+        return write(body);
+    }
+
+    /** 여러 단체 자격증을 한 신청에 담는 제출 body — certs = [{org, fileURL}, ...]. */
+    private String submitBodyMultiCert(String disciplineCode, Long verificationId, List<String[]> orgUrlPairs) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("disciplineCode", disciplineCode);
+        body.put("verificationId", verificationId);
+        List<Map<String, Object>> certs = new java.util.ArrayList<>();
+        for (String[] pair : orgUrlPairs) {
+            Map<String, Object> c = new HashMap<>();
+            c.put("organizationCode", pair[0]);
+            c.put("fileURL", pair[1]);
+            certs.add(c);
+        }
+        body.put("certificates", certs);
         return write(body);
     }
 
@@ -151,29 +182,30 @@ class InstructorApplicationUseCaseTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("SUBMITTED"));
 
-        InstructorApplication saved = applicationRepo.findByAccountId(student.getId()).orElseThrow();
+        InstructorApplication saved = applicationRepo.findByAccountIdAndDisciplineCode(student.getId(), "FREEDIVING").orElseThrow();
         assertThat(saved.getStatus()).isEqualTo(InstructorApplicationStatus.SUBMITTED);
-        assertThat(saved.getOrganizationCode()).isEqualTo("PADI");
+        assertThat(saved.getDisciplineCode()).isEqualTo("FREEDIVING");
         // 자격증/본인확인은 LAZY 연관이라 트랜잭션 밖에서 직접 만지지 않고 별도 조회로 검증
         assertThat(certificateRepo.findAll()).hasSize(1);
         assertThat(certificateRepo.findAll().get(0).getFileURL()).isEqualTo("https://s3/cert1.png");
+        assertThat(certificateRepo.findAll().get(0).getOrganizationCode()).isEqualTo("PADI");
         assertThat(identityVerificationRepo.findAll()).hasSize(1);
     }
 
     @Test
-    @DisplayName("S2: 신청 이력이 없는 사용자가 내 신청을 조회하면 200 {status:NONE} (404 아님)")
-    void getMyApplication_returnsNone_whenNeverApplied() throws Exception {
+    @DisplayName("S2: 신청 이력이 없는 사용자가 내 신청을 조회하면 200 + 빈 목록 (404 아님)")
+    void getMyApplications_empty_whenNeverApplied() throws Exception {
         Account student = createAccount("s2@test.com", "diver2", Role.STUDENT);
 
         mockMvc.perform(get("/instructor-applications/me")
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(student)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("NONE"));
+                .andExpect(jsonPath("$._embedded").doesNotExist()); // 빈 컬렉션
     }
 
     @Test
-    @DisplayName("S3: 제출 후 내 신청을 조회하면 SUBMITTED + 선택한 단체·자격증·본인인증여부가 보인다")
-    void getMyApplication_reflectsSubmission() throws Exception {
+    @DisplayName("S3: 제출 후 내 신청 목록을 조회하면 그 종목 항목에 SUBMITTED + 단체·자격증·본인인증여부가 보인다")
+    void getMyApplications_reflectsSubmission() throws Exception {
         Account student = createAccount("s3@test.com", "diver3", Role.STUDENT);
         String token = tokenFor(student);
         long verificationId = verifyIdentity(token);
@@ -183,13 +215,18 @@ class InstructorApplicationUseCaseTest {
                         .content(submitBody(verificationId, "AIDA", null, List.of("https://s3/cert1.png", "https://s3/cert2.png"))))
                 .andExpect(status().isCreated());
 
-        mockMvc.perform(get("/instructor-applications/me")
+        MvcResult res = mockMvc.perform(get("/instructor-applications/me")
                         .header(HttpHeaders.AUTHORIZATION, token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("SUBMITTED"))
-                .andExpect(jsonPath("$.organizationCode").value("AIDA"))
-                .andExpect(jsonPath("$.identityVerified").value(true))
-                .andExpect(jsonPath("$.certificateImageUrls.length()").value(2));
+                .andReturn();
+        // 임베디드 키 이름에 의존하지 않게 첫 배열의 첫 항목을 직접 집는다
+        JsonNode item = objectMapper.readTree(res.getResponse().getContentAsString())
+                .get("_embedded").elements().next().get(0);
+        assertThat(item.get("disciplineCode").asText()).isEqualTo("FREEDIVING");
+        assertThat(item.get("status").asText()).isEqualTo("SUBMITTED");
+        assertThat(item.get("identityVerified").asBoolean()).isTrue();
+        assertThat(item.get("certificates")).hasSize(2);
+        assertThat(item.get("certificates").get(0).get("organizationCode").asText()).isEqualTo("AIDA");
     }
 
     /* ════════════════ V — 검증 거절 ════════════════ */
@@ -206,7 +243,7 @@ class InstructorApplicationUseCaseTest {
                         .content(submitBody(null, "PADI", null, List.of("https://s3/cert1.png"))))
                 .andExpect(status().is4xxClientError());
 
-        assertThat(applicationRepo.findByAccountId(student.getId())).isEmpty();
+        assertThat(applicationRepo.findByAccountIdOrderByIdDesc(student.getId())).isEmpty();
     }
 
     @Test
@@ -222,7 +259,7 @@ class InstructorApplicationUseCaseTest {
                         .content(submitBody(verificationId, "PADI", null, List.of())))
                 .andExpect(status().is4xxClientError());
 
-        assertThat(applicationRepo.findByAccountId(student.getId())).isEmpty();
+        assertThat(applicationRepo.findByAccountIdOrderByIdDesc(student.getId())).isEmpty();
     }
 
     @Test
@@ -238,7 +275,7 @@ class InstructorApplicationUseCaseTest {
                         .content(submitBody(verificationId, "OTHER", "  ", List.of("https://s3/cert1.png"))))
                 .andExpect(status().is4xxClientError());
 
-        assertThat(applicationRepo.findByAccountId(student.getId())).isEmpty();
+        assertThat(applicationRepo.findByAccountIdOrderByIdDesc(student.getId())).isEmpty();
     }
 
     /* ════════════════ D — 중복 ════════════════ */
@@ -377,8 +414,10 @@ class InstructorApplicationUseCaseTest {
 
         InstructorApplication resubmitted = applicationRepo.findById(applicationId).orElseThrow();
         assertThat(resubmitted.getStatus()).isEqualTo(InstructorApplicationStatus.SUBMITTED);
-        assertThat(resubmitted.getOrganizationCode()).isEqualTo("SSI");
         assertThat(resubmitted.getRejectionReason()).isNull();
+        // 재제출로 자격증이 새 단체(SSI)로 교체됨
+        assertThat(certificateRepo.findAll()).hasSize(1);
+        assertThat(certificateRepo.findAll().get(0).getOrganizationCode()).isEqualTo("SSI");
     }
 
     /* ════════════════ A — 어드민 목록 ════════════════ */
@@ -510,6 +549,126 @@ class InstructorApplicationUseCaseTest {
         // 두 번 실행해도 안전 (idempotent) — 예외 없이 통과
         adminAccountInitializer.ensureAdmins(List.of("boot@test.com"));
         assertThat(accountRepo.findByEmail("boot@test.com").orElseThrow().getRoles()).contains(Role.ADMIN);
+    }
+
+    /* ════════════════ DS — 종목(discipline) ════════════════ */
+
+    @Test
+    @DisplayName("DS1: 자격증 불필요 종목(수영)은 자격증·단체 없이 제출해도 201 + SUBMITTED")
+    void submit_noCertDiscipline_succeedsWithoutCertificate() throws Exception {
+        Account student = createAccount("ds1@test.com", "diverDS1", Role.STUDENT);
+        String token = tokenFor(student);
+        long verificationId = verifyIdentity(token);
+
+        mockMvc.perform(post("/instructor-applications")
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(submitBody("SWIMMING", verificationId, null, null, null)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("SUBMITTED"));
+
+        InstructorApplication saved = applicationRepo.findByAccountIdAndDisciplineCode(student.getId(), "SWIMMING").orElseThrow();
+        assertThat(saved.getDisciplineCode()).isEqualTo("SWIMMING");
+        assertThat(certificateRepo.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("DS2: 자격증 필요 종목(프리다이빙)을 자격증 없이 제출하면 400")
+    void submit_certDiscipline_rejectedWithoutCertificate() throws Exception {
+        Account student = createAccount("ds2@test.com", "diverDS2", Role.STUDENT);
+        String token = tokenFor(student);
+        long verificationId = verifyIdentity(token);
+
+        mockMvc.perform(post("/instructor-applications")
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(submitBody("FREEDIVING", verificationId, null, null, null)))
+                .andExpect(status().is4xxClientError());
+
+        assertThat(applicationRepo.findByAccountIdOrderByIdDesc(student.getId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("DS3: 같은 계정이 종목별로 따로 신청 가능 (프리다이빙+스쿠버 2건), 같은 종목 중복은 400")
+    void submit_perDiscipline_allowsMultipleDisciplines() throws Exception {
+        Account student = createAccount("ds3@test.com", "diverDS3", Role.STUDENT);
+        String token = tokenFor(student);
+        long verificationId = verifyIdentity(token); // 본인확인 1회 → 여러 종목에 재사용
+
+        mockMvc.perform(post("/instructor-applications").header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(submitBody("FREEDIVING", verificationId, "AIDA", null, List.of("https://s3/c1.png"))))
+                .andExpect(status().isCreated());
+        mockMvc.perform(post("/instructor-applications").header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(submitBody("SCUBA", verificationId, "PADI", null, List.of("https://s3/c2.png"))))
+                .andExpect(status().isCreated());
+
+        assertThat(applicationRepo.findByAccountIdOrderByIdDesc(student.getId())).hasSize(2);
+
+        // 같은 종목(프리다이빙) 재신청은 중복 → 400
+        mockMvc.perform(post("/instructor-applications").header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(submitBody("FREEDIVING", verificationId, "SSI", null, List.of("https://s3/c3.png"))))
+                .andExpect(status().is4xxClientError());
+
+        assertThat(applicationRepo.findByAccountIdOrderByIdDesc(student.getId())).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("DS4: 한 종목 신청에 여러 단체 자격증(AIDA+PADI+Molchanovs)을 등록할 수 있다")
+    void submit_multipleCertificatesAcrossOrgs() throws Exception {
+        Account student = createAccount("ds4@test.com", "diverDS4", Role.STUDENT);
+        String token = tokenFor(student);
+        long verificationId = verifyIdentity(token);
+
+        mockMvc.perform(post("/instructor-applications").header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(submitBodyMultiCert("FREEDIVING", verificationId, List.of(
+                                new String[]{"AIDA", "https://s3/aida.png"},
+                                new String[]{"PADI", "https://s3/padi.png"},
+                                new String[]{"MOLCHANOVS", "https://s3/mol.png"}))))
+                .andExpect(status().isCreated());
+
+        assertThat(certificateRepo.findAll()).hasSize(3);
+        assertThat(certificateRepo.findAll().stream()
+                .map(c -> c.getOrganizationCode()).collect(java.util.stream.Collectors.toSet()))
+                .containsExactlyInAnyOrder("AIDA", "PADI", "MOLCHANOVS");
+    }
+
+    @Test
+    @DisplayName("DS5: 승인된 강사는 같은 종목 재신청은 막히고(400), 자격증 관리 탭에서 자격증만 추가(검수 없이)된다")
+    void approvedInstructor_addsCertificate_andCannotReapply() throws Exception {
+        Account student = createAccount("ds5@test.com", "diverDS5", Role.STUDENT);
+        Account admin = createAccount("adminDS5@test.com", "adminDS5", Role.ADMIN);
+        String token = tokenFor(student);
+        long verificationId = verifyIdentity(token);
+        long applicationId = submitApplication(token, "AIDA"); // FREEDIVING + AIDA
+        mockMvc.perform(post("/admin/instructor-applications/" + applicationId + "/approve")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(admin))).andExpect(status().isOk());
+
+        // 같은 종목 재신청 → 400 (이미 강사)
+        long v2 = verifyIdentity(token);
+        mockMvc.perform(post("/instructor-applications").header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(submitBody("FREEDIVING", v2, "SSI", null, List.of("https://s3/x.png"))))
+                .andExpect(status().is4xxClientError());
+
+        // 자격증 관리 탭: 자격증만 추가 (검수 없이 즉시) → 200, status APPROVED 유지
+        Map<String, Object> addBody = new HashMap<>();
+        addBody.put("disciplineCode", "FREEDIVING");
+        addBody.put("organizationCode", "PADI");
+        addBody.put("fileURL", "https://s3/padi-new.png");
+        mockMvc.perform(post("/instructor-applications/certificates").header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(write(addBody)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("APPROVED"));
+
+        // 이제 자격증 2건 (AIDA + PADI), 신청은 여전히 1건 APPROVED
+        assertThat(certificateRepo.findAll()).hasSize(2);
+        assertThat(applicationRepo.findById(applicationId).orElseThrow().getStatus())
+                .isEqualTo(InstructorApplicationStatus.APPROVED);
     }
 
     /* ─── helper ─── */

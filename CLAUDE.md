@@ -203,16 +203,22 @@ API 컨슈머는 모바일 + 웹 TypeScript 클라이언트들. 그들의 단일
 
 자동화 (springdoc-openapi) 는 출시 이후 검토 — 현재는 솔로 dev + 출시 임박이라 수동 유지.
 
-### Architectural changes update README + domain docs
+### Architectural changes update README + domain docs + feature docs
 
-Two layers of architecture documentation, both versioned in the repo:
+Three layers of documentation, all versioned in the repo:
 
 1. **Root [README.md](README.md)** — single Mermaid diagram of the whole system. Update when the *system topology* changes (external dependencies, deployment shape, storage backends).
-2. **[docs/architecture/<domain>.md](docs/architecture/)** — per-domain zoom-in. 7-section template. Update when *that domain's* components, flow, model, or permission matrix changes.
+2. **[docs/architecture/<domain>.md](docs/architecture/)** — per-domain zoom-in (*어떻게* — 구현). 7-section template. Update when *that domain's* components, flow, model, or permission matrix changes.
+3. **[docs/features/<feature>.md](docs/features/)** — 여러 도메인에 걸친 **피처 단위 문서** (*무엇을 / 왜* — 정책·컨텍스트·결정 히스토리). 도메인 문서가 *구현*을 다룬다면 이건 *제품 정책*을 다룬다.
 
-When a PR materially changes either layer, update the relevant doc(s) **in the same PR**. The docs are the orientation surface for human reviewers (the user is a Spring beginner — diagrams help them grok the change).
+When a PR materially changes layer 1 or 2, update the relevant doc(s) **in the same PR**. The docs are the orientation surface for human reviewers (the user is a Spring beginner — diagrams help them grok the change).
 
-세부 작성 규약 (7-섹션 템플릿 / Mermaid fence 균형 검증 / 인덱스 충돌 resolve / 톤·스타일 / use-case 테스트 부재 처리) 은 [`docs/architecture/CLAUDE.md`](docs/architecture/CLAUDE.md) — 그 디렉토리에서 작업할 때 자동 로드되는 좁은 컨텍스트.
+**피처 단위 문서 (layer 3) 는 필수 규약 (set 2026-06-10):** 한 피처가 **여러 도메인에 걸치거나** 비자명한 **정책·요구사항·구현 특이점**을 가지면, 그 **피처 개발이 완료될 때 `docs/features/<feature>.md` 를 반드시 작성/갱신**한다 (대화·결정으로만 남고 코드 도메인별로 흩어져 context 가 유실되는 걸 막는 게 목적). 피처 문서는 **"정책·왜·히스토리"를 소유**하고 **"어떻게(ER·엔드포인트)"는 도메인 문서로 링크만** — 메커니즘을 복붙하지 않아 single-source/drift 방지. 첫 예시: [강사 자격·온보딩](docs/features/instructor-onboarding.md) (discipline + identity-verification + instructor-application). 단일 도메인에 갇힌 소규모 변경은 도메인 문서/CLAUDE.md 로 충분 — 피처 문서는 *교차·정책성* 일 때.
+
+세부 작성 규약:
+- 아키텍처 도메인 문서 (7-섹션 템플릿 / Mermaid fence 균형 / 인덱스 / 톤) 은 [`docs/architecture/CLAUDE.md`](docs/architecture/CLAUDE.md).
+- 피처 문서 (구조 / 역할 분담 / drift 방지) 은 [`docs/features/CLAUDE.md`](docs/features/CLAUDE.md).
+둘 다 해당 디렉토리에서 작업할 때 자동 로드되는 좁은 컨텍스트.
 
 Examples that warrant a **root README** diagram update:
 - Removing Kafka (Phase 2-C will do this)
