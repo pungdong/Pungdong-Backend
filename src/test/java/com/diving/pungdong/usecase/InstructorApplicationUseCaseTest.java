@@ -230,9 +230,9 @@ class InstructorApplicationUseCaseTest {
                         .header(HttpHeaders.AUTHORIZATION, token))
                 .andExpect(status().isOk())
                 .andReturn();
-        // 임베디드 키 이름에 의존하지 않게 첫 배열의 첫 항목을 직접 집는다
+        // 키는 @Relation(collectionRelation="applications") 로 고정
         JsonNode item = objectMapper.readTree(res.getResponse().getContentAsString())
-                .get("_embedded").elements().next().get(0);
+                .get("_embedded").get("applications").get(0);
         assertThat(item.get("disciplineCode").asText()).isEqualTo("FREEDIVING");
         assertThat(item.get("status").asText()).isEqualTo("SUBMITTED");
         assertThat(item.get("identityVerified").asBoolean()).isTrue();
@@ -521,9 +521,9 @@ class InstructorApplicationUseCaseTest {
                 .andExpect(jsonPath("$.page.totalElements").value(2))
                 .andReturn();
 
-        // email 노출 검증 (임베디드 키 이름에 의존하지 않게 첫 배열을 직접 집는다)
-        JsonNode embedded = objectMapper.readTree(res.getResponse().getContentAsString()).get("_embedded");
-        JsonNode firstItem = embedded.elements().next().get(0);
+        // email 노출 검증 (키는 @Relation 으로 "applications" 고정)
+        JsonNode firstItem = objectMapper.readTree(res.getResponse().getContentAsString())
+                .get("_embedded").get("applications").get(0);
         assertThat(firstItem.get("email").asText()).contains("@test.com");
     }
 

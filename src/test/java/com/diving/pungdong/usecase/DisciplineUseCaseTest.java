@@ -38,9 +38,9 @@ class DisciplineUseCaseTest {
                 .andExpect(status().isOk())
                 .andReturn();
 
-        // 임베디드 키 이름에 의존하지 않게 첫 배열을 직접 집는다
+        // 키는 @Relation(collectionRelation="disciplines") 로 고정
         JsonNode list = objectMapper.readTree(res.getResponse().getContentAsString())
-                .get("_embedded").elements().next();
+                .get("_embedded").get("disciplines");
         assertThat(list).hasSizeGreaterThanOrEqualTo(2); // 출시 seed = 프리다이빙·스쿠버
         // sortOrder 1 = 프리다이빙
         assertThat(list.get(0).get("code").asText()).isEqualTo("FREEDIVING");

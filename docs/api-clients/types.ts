@@ -224,7 +224,7 @@ export interface CertificateImageResponse extends HalLinks {
 // 홈 셀렉터 · 강사 신청 종목 선택 공용. requiresCertification 으로 강사 신청 시 자격증 필수
 // 여부가 갈림 (스쿠버/프리다이빙=true, 수영/서핑=false). 종목별 단체 목록은 Sanity 카탈로그.
 
-/** GET /disciplines (공개) 항목 — CollectionModel(_embedded 배열)로 감싸짐. */
+/** GET /disciplines (공개) 항목 — 배열은 `_embedded.disciplines` 에 들어옴 (CollectionModel). */
 export interface DisciplineResponse {
   code: string; // "FREEDIVING" | "SCUBA" | "SWIMMING" | "SURFING" ...
   name: string; // "프리다이빙"
@@ -259,8 +259,8 @@ export interface InstructorApplicationResponse extends HalLinks {
 }
 
 /**
- * GET /instructor-applications/me — 내 신청 목록 (종목별 여러 건). CollectionModel(_embedded 배열).
- * 미신청 종목은 항목 없음 → FE 가 선택된 종목으로 필터, 없으면 "신청하기" 노출.
+ * GET /instructor-applications/me — 내 신청 목록 (종목별 여러 건). 배열은 `_embedded.applications`
+ * (CollectionModel). 미신청 종목은 항목 없음 → FE 가 선택된 종목으로 필터, 없으면 "신청하기" 노출.
  */
 export interface MyInstructorApplicationResponse {
   disciplineCode: string;
@@ -274,8 +274,8 @@ export interface MyInstructorApplicationResponse {
 }
 
 /**
- * 어드민 목록 (GET /admin/instructor-applications) 의 한 행. PagedModel 로 감싸짐.
- * `status` 쿼리 생략 시 전체, 지정 시 탭별(검수중 SUBMITTED / 통과 APPROVED / 불통과 REJECTED).
+ * 어드민 목록 (GET /admin/instructor-applications) 의 한 행. PagedModel — 배열은
+ * `_embedded.applications`, 페이지 메타는 `page`. `status` 쿼리 생략 시 전체, 지정 시 탭별.
  * 기본 정렬 submittedAt desc.
  */
 export interface InstructorApplicationSummary extends HalLinks {
