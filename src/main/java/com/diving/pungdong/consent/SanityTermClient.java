@@ -13,8 +13,12 @@ import java.util.Optional;
  */
 public interface SanityTermClient {
 
-    /** {@code (key, version)} 으로 약관 1건을 조회. 해당 버전이 없으면 {@code empty}. */
-    Optional<FetchedTerm> fetchTerm(String key, String version);
+    /**
+     * {@code key} 로 <b>현재 활성(active)</b> 약관 1건을 조회한다. 반환되는 {@code version} 이
+     * 그 약관의 <b>현재 버전</b>(권위 값) — 동의 기록에 쓸 버전은 클라이언트가 아니라 여기서 온다.
+     * 해당 key 의 활성 약관이 없으면 {@code empty}.
+     */
+    Optional<FetchedTerm> fetchCurrentTerm(String key);
 
     /** Sanity 에서 가져온 약관 1건 (박제 직전 형태). body 는 Portable Text JSON 문자열. */
     record FetchedTerm(String key, String version, String title, String body, boolean required) {

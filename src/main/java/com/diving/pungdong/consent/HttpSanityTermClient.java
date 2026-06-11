@@ -20,15 +20,16 @@ import java.util.Optional;
  * public dataset 읽기라 토큰 불필요(CDN 엔드포인트). 추가 의존성 없이 JDK 내장
  * {@link HttpClient} + Jackson 사용.
  *
- * <p>구분: <b>해당 버전이 없음</b>(result=null) → {@code empty} (호출부가 400 으로 변환).
- * <b>전송 실패</b>(Sanity 도달 불가/응답 오류) → 예외(500) — 증빙 freeze 를 조용히 건너뛰지 않는다.
+ * <p>{@code key} 로 <b>현재 활성</b> 약관을 조회 — 동의에 기록할 version 은 클라이언트가 아니라
+ * 이 응답에서 온다(다운그레이드/위조 방지). 구분: <b>활성 약관 없음</b>(result=null) → {@code empty}
+ * (호출부가 400). <b>전송 실패</b>(Sanity 도달 불가/응답 오류) → 예외(500, 조용히 건너뛰지 않음).
  */
 @Slf4j
 @Component
 public class HttpSanityTermClient implements SanityTermClient {
 
     private static final String QUERY =
-            "*[_type == \"term\" && key == $key && version == $version][0]" +
+            "*[_type == \"term\" && key == $key && active == true][0]" +
                     "{key, version, title, required, body}";
 
     private final String projectId;
@@ -52,11 +53,11 @@ public class HttpSanityTermClient implements SanityTermClient {
     }
 
     @Override
-    public Optional<FetchedTerm> fetchTerm(String key, String version) {
+    public Optional<FetchedTerm> fetchCurrentTerm(String key) {
         URI uri = URI.create(String.format(
-                "https://%s.apicdn.sanity.io/v%s/data/query/%s?query=%s&$key=%s&$version=%s",
+                "https://%s.apicdn.sanity.io/v%s/data/query/%s?query=%s&$key=%s",
                 projectId, apiVersion, dataset,
-                enc(QUERY), enc(jsonString(key)), enc(jsonString(version))));
+                enc(QUERY), enc(jsonString(key))));
 
         HttpRequest httpRequest = HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofSeconds(8))
@@ -71,14 +72,14 @@ public class HttpSanityTermClient implements SanityTermClient {
             }
             JsonNode result = objectMapper.readTree(response.body()).get("result");
             if (result == null || result.isNull()) {
-                log.warn("[consent] no Sanity term for key={} version={}", key, version);
+                log.warn("[consent] no active Sanity term for key={}", key);
                 return Optional.empty();
             }
             JsonNode bodyNode = result.get("body");
             String bodyJson = (bodyNode == null || bodyNode.isNull()) ? null : objectMapper.writeValueAsString(bodyNode);
             return Optional.of(new FetchedTerm(
                     result.path("key").asText(key),
-                    result.path("version").asText(version),
+                    result.path("version").asText(null),
                     result.path("title").asText(null),
                     bodyJson,
                     result.path("required").asBoolean(false)));

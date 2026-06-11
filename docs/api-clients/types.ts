@@ -209,9 +209,9 @@ export interface MyIdentityVerificationResponse extends HalLinks {
 // docs/architecture/consent.md · docs/features/consent-and-terms.md 참고
 //
 // 약관 콘텐츠(전문/요약/버전)는 Sanity 가 소유 — FE 가 화면(context) 기준으로 직접 읽어 보여준다.
-// BE 는 "누가 어떤 약관 버전에 동의했나"만 기록한다. 동의 시 처음 보는 (key,version) 은 BE 가
-// Sanity 에서 전문을 받아 불변 박제(증빙), 이후는 참조만 → 유저별 전문 복사 X. 따라서 FE 는
-// 본문을 BE 에 보내지 않고 (key,version) 만 전송한다 (전문은 Sanity 에서 읽음, 위변조 방지).
+// BE 는 "누가 어떤 약관 버전에 동의했나"만 기록한다. 동의에 기록할 version 은 BE 가 key 로 Sanity
+// 현재 버전을 직접 조회해 정한다(클라이언트 값 비신뢰). 그 버전을 처음 보면 전문을 받아 불변
+// 박제(증빙), 이후는 참조만 → 유저별 전문 복사 X. FE 는 본문을 보내지 않고 (key, version) 만 전송.
 // ============================================================
 
 /** 동의를 수집한 화면. Sanity term.contexts 와 같은 어휘 (lowercase snake). */
@@ -224,13 +224,18 @@ export type ConsentContext =
 /** 동의한 약관 1건 참조 — 전문은 BE 가 Sanity 에서 직접 박제하므로 식별자만 보낸다. */
 export interface AgreementRef {
   key: string; // Sanity term.key (예: privacy_collect)
-  version: string; // 화면에서 본 그 버전 (예: v1)
+  /**
+   * 화면에서 본(=Sanity 에서 읽은) 그 버전 (예: v1). BE 는 이 값을 신뢰하지 않고, key 로 현재
+   * 버전을 조회해 일치하는지만 검증한다. 다르면(옛/위조 버전, 또는 세션 중 약관 개정) 400 →
+   * 약관을 다시 읽어(현재 버전) 재동의해야 한다. 기록되는 버전은 항상 Sanity 의 현재 버전.
+   */
+  version: string;
 }
 
 /** POST /consents 요청 — 한 화면에서 체크한 약관들을 한 번에 기록. */
 export interface RecordConsentRequest {
   context: ConsentContext;
-  /** 최소 1건. 빈 배열이면 400. */
+  /** 최소 1건. 빈 배열이면 400. 하나라도 version 이 현재와 다르면 전체 400(아무것도 기록 안 됨). */
   agreements: AgreementRef[];
 }
 

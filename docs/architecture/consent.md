@@ -54,27 +54,28 @@ sequenceDiagram
     participant DB
 
     Note over FE: 사용자가 화면에서 약관 체크 (전문은 Sanity 에서 읽어 표시)
-    FE->>C: POST /consents { context, agreements:[{key,version}] }
-    loop 각 (key, version)
-        S->>DB: SELECT archive WHERE (term_key, version)
-        alt 이미 박제됨
-            DB-->>S: archive 행 (재사용)
-        else 처음 보는 버전
-            S->>Sanity: GROQ term[key==$key && version==$version]
-            alt 존재
-                Sanity-->>S: { title, body, required }
-                S->>DB: INSERT archive (전문 불변 박제)
-            else 없음
-                Sanity-->>S: result=null
-                S-->>FE: 400 BadRequest (없는 약관/버전)
+    FE->>C: POST /consents { context, agreements:[{key, version}] }
+    loop 각 agreement (key + 화면에서 본 version)
+        S->>Sanity: GROQ term[key==$key && active==true] (현재 버전 조회)
+        alt 활성 약관 없음
+            Sanity-->>S: result=null
+            S-->>FE: 400 (없는/비활성 약관)
+        else 현재 버전 ≠ 클라이언트 version
+            Note over S: 옛·위조 버전 또는 세션 중 개정
+            S-->>FE: 400 (약관 갱신됨 — 재확인)
+        else 현재 버전 == 클라이언트 version
+            S->>DB: SELECT archive WHERE (term_key, 현재version)
+            opt 처음 보는 버전
+                S->>DB: INSERT archive (현재 전문 불변 박제)
             end
+            S->>DB: INSERT consent (account, archive, context, agreedAt)
         end
-        S->>DB: INSERT consent (account, archive, context, agreedAt)
     end
     C-->>FE: 201 { recorded, agreements[] }
 ```
 
-분쟁 조회: `consent → agreement_term_id → AgreementTermArchive.body` 로 그 사용자가 동의한 시점의 전문을 그대로 꺼낸다 (박제 행은 불변).
+- **version 은 BE 가 정한다** — `key` 로 Sanity 현재 버전을 조회하고, 클라이언트 version 은 일치검증만(다르면 400). 기록·박제 version 은 항상 Sanity 현재 값 → 옛 버전을 보내 다운그레이드하는 위조 차단. 박제 재사용 여부와 무관하게 현재 버전 조회는 매 동의 수행.
+- 분쟁 조회: `consent → agreement_term_id → AgreementTermArchive.body` 로 그 사용자가 동의한 시점의 전문을 그대로 꺼낸다 (박제 행은 불변).
 
 ---
 
@@ -114,7 +115,7 @@ erDiagram
 
 | 엔드포인트 | 메서드 | 권한 | 비고 |
 |---|---|---|---|
-| `/consents` | POST | 인증 | 동의 기록. body 의 `(key,version)` 만 신뢰, 전문은 BE 가 Sanity 에서 직접. 201 |
+| `/consents` | POST | 인증 | 동의 기록. version·전문은 BE 가 Sanity 현재값으로 정함(클라이언트 version 은 일치검증만). 201 |
 | `/consents/me` | GET | 인증 | 내 동의 이력(최신순). `_embedded.consents` |
 
 매처: `/consents/**` → `authenticated`. 동의는 본인 것만 — 토큰 계정 기준, 임의 계정 조회 엔드포인트 없음. 약관 콘텐츠 자체(전문 읽기)는 BE 엔드포인트가 아니라 Sanity 직접 조회(public dataset).
@@ -126,12 +127,12 @@ erDiagram
 - 🟡 **boolean 게이트와 공존** — 기존 본인확인/강사신청의 `agreedRequiredTerms` boolean(진행 게이트)은 그대로. consent 는 그 위의 감사 이력. 둘을 수렴/대체할지는 후속. (지금은 FE 가 동의 시점에 `POST /consents` 를 별도 호출)
 - 🟡 **개정 시 재동의 유도 미구현** — 필수 약관 version 이 오르면 "현재 active version vs 사용자가 동의한 version" 비교로 재동의를 유도해야 함. 비교 정책/엔드포인트 미정.
 - 🟡 **첫-동의 lazy freeze** — Sanity publish 웹훅으로 사전 freeze 하면 더 견고하나 MVP 는 첫 동의 시 fetch+freeze. 동시 첫-동의 경합은 UNIQUE 제약이 막고 500 → FE 재시도로 성공(출시 시 동시성 미미라 허용).
-- 🟢 **version 무결성은 운영 규율** — Sanity 에서 의미가 바뀌는 수정 시 반드시 `version` bump 해야 박제와 화면이 일치. 자동 강제 장치는 없음(운영 규약).
+- 🟢 **다운그레이드 위조는 차단됨** — BE 가 `key` 로 현재 버전을 조회해 기록하고 클라이언트 version 은 일치검증만 하므로, 옛/위조 버전을 보내 다운그레이드할 수 없다(현재와 다르면 400). 단 **"의미가 바뀌는 수정 시 `version` bump"** 는 여전히 운영 규율(자동 강제 장치 없음) — bump 를 빠뜨리면 새 전문이 옛 버전명으로 박제될 수 있다.
 
 ---
 
 ## 더 깊게: use-case 테스트로 보기
 
 - **[`usecase/ConsentUseCaseTest`](../../src/test/java/com/diving/pungdong/usecase/ConsentUseCaseTest.java)** — 실제 H2 + 시큐리티, `SanityTermClient` 만 `@MockBean`:
-  - `C1` 첫 동의 → 버전당 박제 + 이력 / `C2` 다른 계정 같은 버전 → 박제 재사용(freeze 1회) / `C3` 다른 version → 별도 박제 / `V1` Sanity 에 없는 약관 → 400(이력·박제 0) / `V2` 빈 agreements → 400 / `C4` GET /me 이력(`_embedded.consents`)
-- 후속 권장 시나리오: `R*` 타인 동의 조회 차단(현재 구조상 불가하지만 명시), `S*` 동시 첫-동의 경합, `X*` Sanity 도달 불가 시 500(전송 오류 vs 없음 구분)
+  - `C1` 첫 동의 → 버전당 박제 + 이력 / `C2` 다른 계정 같은 버전 → 박제 재사용 / `C3` 개정(v1→v2) → 별도 박제 / `V1` 활성 약관 없음 → 400(이력·박제 0) / `V2` 빈 agreements → 400 / `V3` 옛·위조 version → 400(다운그레이드 차단) / `C4` GET /me 이력(`_embedded.consents`)
+- 후속 권장 시나리오: `S*` 동시 첫-동의 경합, `X*` Sanity 도달 불가 시 500(전송 오류 vs 없음 구분)

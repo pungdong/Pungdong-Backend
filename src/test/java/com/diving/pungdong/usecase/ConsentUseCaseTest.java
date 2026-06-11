@@ -83,9 +83,9 @@ class ConsentUseCaseTest {
         return jwtTokenProvider.createAccessToken(String.valueOf(a.getId()), a.getRoles());
     }
 
-    /** Sanity 가 그 (key,version) 약관을 돌려주도록 stub. */
-    private void stubTerm(String key, String version, String title, String body) {
-        when(sanityTermClient.fetchTerm(key, version))
+    /** Sanity 의 그 key 현재 약관이 (version, 전문) 이도록 stub. 동의에 기록될 version 의 권위 출처. */
+    private void stubCurrent(String key, String version, String title, String body) {
+        when(sanityTermClient.fetchCurrentTerm(key))
                 .thenReturn(Optional.of(new SanityTermClient.FetchedTerm(key, version, title, body, true)));
     }
 
@@ -108,8 +108,8 @@ class ConsentUseCaseTest {
     @DisplayName("C1: 강사신청 화면에서 약관 2건에 동의하면 201 + 각 버전이 처음이라 박제되고 동의 이력 2건이 남는다")
     void record_firstTime_freezesArchive() throws Exception {
         Account student = createStudent("c1@test.com", "diverC1");
-        stubTerm("privacy_collect", "v1", "개인정보 수집·이용 동의", "[{\"_type\":\"block\"}]");
-        stubTerm("unique_id_ci_di", "v1", "고유식별정보 처리 동의", "[{\"_type\":\"block\"}]");
+        stubCurrent("privacy_collect", "v1", "개인정보 수집·이용 동의", "[{\"_type\":\"block\"}]");
+        stubCurrent("unique_id_ci_di", "v1", "고유식별정보 처리 동의", "[{\"_type\":\"block\"}]");
 
         mockMvc.perform(post("/consents")
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(student))
@@ -128,11 +128,11 @@ class ConsentUseCaseTest {
     }
 
     @Test
-    @DisplayName("C2: 다른 계정이 같은 (key,version) 에 동의하면 박제는 재사용되고(1행) Sanity 는 한 번만 조회된다")
+    @DisplayName("C2: 다른 계정이 같은 약관 현재 버전에 동의하면 박제는 재사용되고(1행) 이력만 계정마다 쌓인다")
     void record_sameVersion_reusesArchive() throws Exception {
         Account a = createStudent("c2a@test.com", "diverC2a");
         Account b = createStudent("c2b@test.com", "diverC2b");
-        stubTerm("privacy_collect", "v1", "개인정보 수집·이용 동의", "[]");
+        stubCurrent("privacy_collect", "v1", "개인정보 수집·이용 동의", "[]");
 
         mockMvc.perform(post("/consents").header(HttpHeaders.AUTHORIZATION, tokenFor(a))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -145,20 +145,22 @@ class ConsentUseCaseTest {
 
         assertThat(archiveRepo.findAll()).hasSize(1);          // 재사용 — 전문은 1번만 저장
         assertThat(consentRepo.findAll()).hasSize(2);          // 이력은 계정마다
-        verify(sanityTermClient, times(1)).fetchTerm("privacy_collect", "v1"); // freeze 1회
+        // 현재 버전은 동의마다 Sanity 에서 권위 조회 (박제 재사용과 무관)
+        verify(sanityTermClient, times(2)).fetchCurrentTerm("privacy_collect");
     }
 
     @Test
-    @DisplayName("C3: 같은 약관이라도 버전이 다르면 새 버전으로 별도 박제된다 (개정 = 새 행)")
+    @DisplayName("C3: 약관이 개정되어 현재 버전이 오르면(v1→v2) 새 버전으로 별도 박제된다 (개정 = 새 행)")
     void record_newVersion_freezesSeparately() throws Exception {
         Account student = createStudent("c3@test.com", "diverC3");
-        stubTerm("privacy_collect", "v1", "개인정보 동의 v1", "[]");
-        stubTerm("privacy_collect", "v2", "개인정보 동의 v2", "[]");
 
+        stubCurrent("privacy_collect", "v1", "개인정보 동의 v1", "[]");
         mockMvc.perform(post("/consents").header(HttpHeaders.AUTHORIZATION, tokenFor(student))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("signup", "privacy_collect", "v1")))
                 .andExpect(status().isCreated());
+
+        stubCurrent("privacy_collect", "v2", "개인정보 동의 v2", "[]");  // Sanity 에서 개정 + version bump
         mockMvc.perform(post("/consents").header(HttpHeaders.AUTHORIZATION, tokenFor(student))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("signup", "privacy_collect", "v2")))
@@ -169,7 +171,7 @@ class ConsentUseCaseTest {
     }
 
     @Test
-    @DisplayName("V1: Sanity 에 없는 약관/버전에 동의하면 400 이고 박제·이력 모두 남지 않는다")
+    @DisplayName("V1: Sanity 에 활성 약관이 없는 key 에 동의하면 400 이고 박제·이력 모두 남지 않는다")
     void record_unknownTerm_rejected() throws Exception {
         Account student = createStudent("v1@test.com", "diverV1");
         // stub 없음 → Mockito 기본 Optional.empty()
@@ -177,6 +179,21 @@ class ConsentUseCaseTest {
         mockMvc.perform(post("/consents").header(HttpHeaders.AUTHORIZATION, tokenFor(student))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("signup", "ghost_term", "v9")))
+                .andExpect(status().isBadRequest());
+
+        assertThat(archiveRepo.findAll()).isEmpty();
+        assertThat(consentRepo.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("V3: 현재 버전이 v2인데 클라이언트가 v1(옛/위조 버전)을 보내면 400 — 다운그레이드 차단, 아무것도 기록 안 됨")
+    void record_staleOrSpoofedVersion_rejected() throws Exception {
+        Account student = createStudent("v3@test.com", "diverV3");
+        stubCurrent("privacy_collect", "v2", "개인정보 동의 v2", "[]");   // 현재 버전 = v2
+
+        mockMvc.perform(post("/consents").header(HttpHeaders.AUTHORIZATION, tokenFor(student))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body("instructor_application", "privacy_collect", "v1"))) // 화면이 본/조작한 v1
                 .andExpect(status().isBadRequest());
 
         assertThat(archiveRepo.findAll()).isEmpty();
@@ -200,7 +217,7 @@ class ConsentUseCaseTest {
     @DisplayName("C4: GET /consents/me 는 내 동의 이력을 최신순으로 (_embedded.consents) 돌려준다")
     void getMine_listsMyConsents() throws Exception {
         Account student = createStudent("c4@test.com", "diverC4");
-        stubTerm("privacy_collect", "v1", "개인정보 수집·이용 동의", "[]");
+        stubCurrent("privacy_collect", "v1", "개인정보 수집·이용 동의", "[]");
 
         mockMvc.perform(post("/consents").header(HttpHeaders.AUTHORIZATION, tokenFor(student))
                         .contentType(MediaType.APPLICATION_JSON)

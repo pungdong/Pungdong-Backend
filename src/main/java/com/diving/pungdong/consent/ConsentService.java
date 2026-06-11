@@ -33,7 +33,14 @@ public class ConsentService {
     private final ConsentJpaRepo consentRepo;
     private final AccountJpaRepo accountRepo;
 
-    /** 한 화면에서 체크한 약관들을 동의 이력으로 기록. 박제가 없던 버전은 먼저 freeze. */
+    /**
+     * 한 화면에서 체크한 약관들을 동의 이력으로 기록.
+     *
+     * <p><b>버전은 BE 가 정한다</b> — 각 약관의 현재 버전을 Sanity 에서 key 로 직접 조회하고,
+     * 클라이언트가 보낸 version 은 "화면에서 본 버전" 으로 간주해 현재 버전과 <b>일치하는지만</b>
+     * 검증한다. 다르면(옛/위조 버전, 또는 세션 중 약관 개정) 400 → FE 가 재확인 후 재동의.
+     * 기록·박제에 쓰는 version 은 절대 클라이언트 값이 아니라 Sanity 의 현재 값이다.
+     */
     @Transactional
     public List<AgreementRef> record(Account account, RecordConsentRequest request) {
         Account managed = accountRepo.findById(account.getId())
@@ -41,9 +48,17 @@ public class ConsentService {
 
         List<AgreementRef> recorded = new ArrayList<>();
         for (AgreementRef ref : request.getAgreements()) {
+            SanityTermClient.FetchedTerm current = sanityTermClient.fetchCurrentTerm(ref.getKey())
+                    .orElseThrow(BadRequestException::new);   // 없는/비활성 약관
+
+            if (!current.version().equals(ref.getVersion())) {
+                // 클라이언트가 본 버전 ≠ 현재 버전 — 다운그레이드/위조 또는 세션 중 개정
+                throw new BadRequestException("약관이 갱신되었습니다. 다시 확인 후 동의해 주세요.");
+            }
+
             AgreementTermArchive archive = archiveRepo
-                    .findByTermKeyAndVersion(ref.getKey(), ref.getVersion())
-                    .orElseGet(() -> freeze(ref.getKey(), ref.getVersion()));
+                    .findByTermKeyAndVersion(current.key(), current.version())
+                    .orElseGet(() -> freeze(current));
 
             consentRepo.save(Consent.builder()
                     .account(managed)
@@ -61,16 +76,12 @@ public class ConsentService {
     }
 
     /**
-     * 약관 버전을 BE DB 에 불변 박제. 전문은 권위 소스(Sanity)에서 직접 받는다(위변조 방지).
-     * 해당 버전이 Sanity 에 없으면 잘못된 요청(400).
+     * 현재 약관 버전을 BE DB 에 불변 박제 (이미 Sanity 에서 받아온 전문 그대로).
      *
      * <p>동시에 같은 새 버전을 박제하는 극히 드문 경합은 UNIQUE 제약이 막고 500 이 난다 →
      * FE 재시도 시 이미 존재하므로 성공. (MVP 허용 — 출시 시 동시성 미미.)
      */
-    private AgreementTermArchive freeze(String key, String version) {
-        SanityTermClient.FetchedTerm term = sanityTermClient.fetchTerm(key, version)
-                .orElseThrow(BadRequestException::new);
-
+    private AgreementTermArchive freeze(SanityTermClient.FetchedTerm term) {
         return archiveRepo.save(AgreementTermArchive.builder()
                 .termKey(term.key())
                 .version(term.version())
