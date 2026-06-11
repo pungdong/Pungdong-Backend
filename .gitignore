@@ -45,3 +45,8 @@ src/main/resources/redis.yml
 .direnv/
 # 로컬 dev 이미지 저장소 (LocalCertificateImageStorage) — 커밋 금지
 local-uploads/
+
+### Sanity Studio (어드민 CMS, sanity/) — JS 산출물만 무시, 소스/락은 커밋 ###
+sanity/node_modules/
+sanity/dist/
+sanity/.sanity/

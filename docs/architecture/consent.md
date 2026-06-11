@@ -125,7 +125,7 @@ erDiagram
 - 🟡 **개정 시 재동의 유도 미구현** — 필수 약관 version 이 오르면 "현재 active version vs 사용자가 동의한 version" 비교로 재동의를 유도해야 함. 비교 정책/엔드포인트 미정.
 - 🟡 **첫-동의 lazy freeze** — Sanity publish 웹훅으로 사전 freeze 하면 더 견고하나 MVP 는 첫 동의 시 fetch+freeze. 동시 첫-동의 경합은 UNIQUE 제약이 막고 500 → FE 재시도로 성공(출시 시 동시성 미미라 허용).
 - 🟢 **다운그레이드 위조 불가** — FE 는 `key` 만 보내고 version 은 BE 가 현재값으로 정하므로, 옛/위조 버전으로 기록할 입력 경로 자체가 없다. (대신 세션 중 약관이 개정돼도 BE 는 현재 버전으로 기록 — "유저가 본 버전 == 기록 버전" 의 미세 틈은 단일 admin·드문 개정에서 무시. drift 재확인이 필요해지면 응답의 version 으로 FE 가 비교.)
-- 🟢 **bump 깜빡은 Studio 단에서 방어** — "의미가 바뀐 수정 시 `version` bump" 규율을 빠뜨리면 새 전문이 옛 버전명으로 박제될 수 있다. 이건 *악용*이 아니라 신뢰 주체(관리자)의 *실수* 이므로 방어 레이어는 Studio — FE `sanity/schemas/term.ts` 의 `version` custom validation 이 "직전 발행본 대비 body 변경 + version 동일" 이면 publish 를 막는다. (BE content-hash 키잉은 단일 admin 단계에선 과함 — 비기술 운영자 여럿 생기면 재검토.)
+- 🟢 **bump 깜빡은 Studio 단에서 방어** — "의미가 바뀐 수정 시 `version` bump" 규율을 빠뜨리면 새 전문이 옛 버전명으로 박제될 수 있다. 이건 *악용*이 아니라 신뢰 주체(관리자)의 *실수* 이므로 방어 레이어는 Studio — `sanity/schemas/term.ts`(이 레포) 의 `version` custom validation 이 "직전 발행본 대비 body 변경 + version 동일" 이면 publish 를 막는다. (BE content-hash 키잉은 단일 admin 단계에선 과함 — 비기술 운영자 여럿 생기면 재검토.)
 
 ---
 

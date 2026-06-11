@@ -203,6 +203,10 @@ API 컨슈머는 모바일 + 웹 TypeScript 클라이언트들. 그들의 단일
 
 자동화 (springdoc-openapi) 는 출시 이후 검토 — 현재는 솔로 dev + 출시 임박이라 수동 유지.
 
+### Sanity Studio (어드민 CMS) — `sanity/`
+
+자격증 단체 카탈로그 + 약관 콘텐츠는 **Sanity**(호스티드 headless CMS)가 관리하고, 그 **Studio(스키마)는 이 BE 레포 [`sanity/`](sanity/) 가 소유**한다 (FE 아님 — 스키마 계약을 BE 도메인이 정하고 BE 가 `term` 을 서버사이드로 읽기 때문, 성격상 back-office). Node 폴더지만 **Gradle 빌드와 무관**하고 `pnpm deploy` 로 Sanity 클라우드에 독립 배포된다 (`sanity/node_modules` 는 gitignore, 소스+lock 은 커밋). FE 는 projectId + GROQ(`sanity/queries.ts`) 만 복사해 `@sanity/client` 로 직접 읽는다. 스키마 계약(`term` key/version/contexts, `certOrganization.code`, `disciplines`)을 바꾸면 [`sanity/CLAUDE.md`](sanity/CLAUDE.md) 의 "계약" 항목대로 consent 도메인 / `types.ts` 도 같이 점검. (결정 히스토리: 2026-06-12 FE→BE 이관, 이유는 [`docs/features/consent-and-terms.md`](docs/features/consent-and-terms.md).)
+
 ### Architectural changes update README + domain docs + feature docs
 
 Three layers of documentation, all versioned in the repo:
