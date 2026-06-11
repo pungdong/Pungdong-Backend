@@ -22,10 +22,9 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -89,18 +88,11 @@ class ConsentUseCaseTest {
                 .thenReturn(Optional.of(new SanityTermClient.FetchedTerm(key, version, title, body, true)));
     }
 
-    /** context + (key,version) 쌍들로 POST body 생성. pairs = key1, ver1, key2, ver2 ... */
-    private String body(String context, String... pairs) throws Exception {
-        List<Map<String, String>> agreements = new ArrayList<>();
-        for (int i = 0; i < pairs.length; i += 2) {
-            Map<String, String> ag = new HashMap<>();
-            ag.put("key", pairs[i]);
-            ag.put("version", pairs[i + 1]);
-            agreements.add(ag);
-        }
+    /** context + 약관 key 들로 POST body 생성 (version 은 요청에 없음 — BE 가 정함). */
+    private String body(String context, String... keys) throws Exception {
         Map<String, Object> root = new HashMap<>();
         root.put("context", context);
-        root.put("agreements", agreements);
+        root.put("keys", Arrays.asList(keys));
         return objectMapper.writeValueAsString(root);
     }
 
@@ -114,10 +106,10 @@ class ConsentUseCaseTest {
         mockMvc.perform(post("/consents")
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(student))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body("instructor_application",
-                                "privacy_collect", "v1", "unique_id_ci_di", "v1")))
+                        .content(body("instructor_application", "privacy_collect", "unique_id_ci_di")))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.recorded").value(2));
+                .andExpect(jsonPath("$.recorded").value(2))
+                .andExpect(jsonPath("$.agreements[0].version").value("v1")); // BE 가 정한 버전을 응답
 
         assertThat(archiveRepo.findAll()).hasSize(2);          // 버전당 1행 박제
         assertThat(consentRepo.findAll()).hasSize(2);          // 동의 이력 2건
@@ -136,11 +128,11 @@ class ConsentUseCaseTest {
 
         mockMvc.perform(post("/consents").header(HttpHeaders.AUTHORIZATION, tokenFor(a))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body("signup", "privacy_collect", "v1")))
+                        .content(body("signup", "privacy_collect")))
                 .andExpect(status().isCreated());
         mockMvc.perform(post("/consents").header(HttpHeaders.AUTHORIZATION, tokenFor(b))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body("signup", "privacy_collect", "v1")))
+                        .content(body("signup", "privacy_collect")))
                 .andExpect(status().isCreated());
 
         assertThat(archiveRepo.findAll()).hasSize(1);          // 재사용 — 전문은 1번만 저장
@@ -157,14 +149,16 @@ class ConsentUseCaseTest {
         stubCurrent("privacy_collect", "v1", "개인정보 동의 v1", "[]");
         mockMvc.perform(post("/consents").header(HttpHeaders.AUTHORIZATION, tokenFor(student))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body("signup", "privacy_collect", "v1")))
-                .andExpect(status().isCreated());
+                        .content(body("signup", "privacy_collect")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.agreements[0].version").value("v1"));
 
         stubCurrent("privacy_collect", "v2", "개인정보 동의 v2", "[]");  // Sanity 에서 개정 + version bump
         mockMvc.perform(post("/consents").header(HttpHeaders.AUTHORIZATION, tokenFor(student))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body("signup", "privacy_collect", "v2")))
-                .andExpect(status().isCreated());
+                        .content(body("signup", "privacy_collect")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.agreements[0].version").value("v2")); // BE 가 현재 버전(v2) 기록
 
         assertThat(archiveRepo.findAll()).hasSize(2);          // v1, v2 각각 박제
         assertThat(consentRepo.findAll()).hasSize(2);
@@ -178,7 +172,7 @@ class ConsentUseCaseTest {
 
         mockMvc.perform(post("/consents").header(HttpHeaders.AUTHORIZATION, tokenFor(student))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body("signup", "ghost_term", "v9")))
+                        .content(body("signup", "ghost_term")))
                 .andExpect(status().isBadRequest());
 
         assertThat(archiveRepo.findAll()).isEmpty();
@@ -186,22 +180,7 @@ class ConsentUseCaseTest {
     }
 
     @Test
-    @DisplayName("V3: 현재 버전이 v2인데 클라이언트가 v1(옛/위조 버전)을 보내면 400 — 다운그레이드 차단, 아무것도 기록 안 됨")
-    void record_staleOrSpoofedVersion_rejected() throws Exception {
-        Account student = createStudent("v3@test.com", "diverV3");
-        stubCurrent("privacy_collect", "v2", "개인정보 동의 v2", "[]");   // 현재 버전 = v2
-
-        mockMvc.perform(post("/consents").header(HttpHeaders.AUTHORIZATION, tokenFor(student))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body("instructor_application", "privacy_collect", "v1"))) // 화면이 본/조작한 v1
-                .andExpect(status().isBadRequest());
-
-        assertThat(archiveRepo.findAll()).isEmpty();
-        assertThat(consentRepo.findAll()).isEmpty();
-    }
-
-    @Test
-    @DisplayName("V2: agreements 가 비어 있으면 400 (적어도 1건 동의 필요)")
+    @DisplayName("V2: keys 가 비어 있으면 400 (적어도 1건 동의 필요)")
     void record_emptyAgreements_rejected() throws Exception {
         Account student = createStudent("v2@test.com", "diverV2");
 
@@ -221,7 +200,7 @@ class ConsentUseCaseTest {
 
         mockMvc.perform(post("/consents").header(HttpHeaders.AUTHORIZATION, tokenFor(student))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body("instructor_application", "privacy_collect", "v1")))
+                        .content(body("instructor_application", "privacy_collect")))
                 .andExpect(status().isCreated());
 
         mockMvc.perform(get("/consents/me")

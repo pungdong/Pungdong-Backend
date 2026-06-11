@@ -12,7 +12,7 @@
 |---|---|---|
 | consent 도메인 | [architecture/consent.md](../architecture/consent.md) | 동의 기록 · 약관 버전 박제(증빙) · 조회 |
 | Sanity `term` | FE 레포 `sanity/schemas/term.ts` | 약관 콘텐츠(전문/요약/`key`/`version`/`contexts`) authoring·저장 |
-| FE | apps/web · mobile | 화면(context)별 약관을 Sanity 에서 읽어 표시 + 동의 `(key,version)` 을 BE 로 전송 |
+| FE | apps/web · mobile | 화면(context)별 약관을 Sanity 에서 읽어 표시 + 동의한 약관 `keys` 를 BE 로 전송 |
 | identity-verification / instructor-application | 각 도메인 문서 | 동의를 수집하는 화면들. 진행 게이트 boolean 과 consent 이력이 공존 |
 
 ## 정책 (requirements)
@@ -20,7 +20,7 @@
 ### 저장소 분담 — 콘텐츠는 Sanity, 동의는 BE
 - 약관 **콘텐츠**(전문·요약·버전·노출화면)는 **Sanity 가 단일 출처**. 비개발자가 편집, 재배포 불필요.
 - **동의 이력**은 법적/트랜잭션 데이터 → **BE DB**. FK 무결성·불변성 필요.
-- FE 는 약관 전문을 **Sanity 에서** 읽는다. BE 엔 `(key, version)` 만 보낸다 — 본문을 BE 로 보내지 않음(위변조 방지). 박제할 전문은 **BE 가 Sanity 에서 직접** 받는다.
+- FE 는 약관 전문을 **Sanity 에서** 읽는다. BE 엔 약관 **`keys` 만** 보낸다 — 본문도 version 도 보내지 않음. 박제할 전문·version 은 **BE 가 Sanity 에서 직접** 받는다.
 
 ### 박제(snapshot) + 참조 — 유저별 전문 복사 금지
 - `(key, version)` 당 **1행만** `AgreementTermArchive` 에 박제. 동의 이력 `Consent` 는 그 행을 **참조(FK)**.
@@ -40,9 +40,9 @@
 - `key` = 논리적 약관 1개당 고유(버전 무관 동일). `(key, version)` 쌍이 "정확히 어떤 약관의 어떤 버전" 을 지목.
 
 ### 버전 권위는 BE (다운그레이드 위조 차단)
-- 동의에 기록할 **version 은 BE 가 정한다** — `key` 로 Sanity 의 **현재 활성 버전**을 조회해 그 값으로 박제·기록.
-- 클라이언트가 보낸 `version` 은 "화면에서 본 버전" 으로 보고 **현재와 일치하는지만** 검증 → 다르면 400(옛/위조 버전, 또는 세션 중 개정 → 재확인 유도).
-- 이유: 클라이언트 version 을 그대로 믿으면, 옛 버전이 이미 박제돼 있을 때 그 옛 버전명을 보내 **더 약한 옛 약관에 동의한 것으로 다운그레이드**할 수 있다. version 출처를 서버로 고정해 막는다.
+- **FE 는 약관 `key` 만 보낸다** (version 아님). 동의에 기록할 **version 은 BE 가 전적으로 정한다** — `key` 로 Sanity 의 **현재 활성 버전**을 조회해 그 값으로 박제·기록. 기록된 version 은 응답으로 돌려준다.
+- 이유: FE 가 version 을 보내면 ① "FE 가 버전을 정한다" 는 **오해**를 부르고, ② 옛 버전을 보내 **더 약한 옛 약관에 동의한 것으로 다운그레이드**할 여지가 생긴다. 요청 계약에서 version 을 아예 빼 둘 다 차단.
+- 트레이드오프: 세션 중 약관이 개정돼도 BE 는 현재 버전으로 기록 → "유저가 본 버전 == 기록 버전" 의 미세 틈이 남지만, 단일 admin·드문 개정에서 무시. 필요해지면 응답 version 으로 FE 가 비교해 재확인.
 
 ## 결정 히스토리
 
@@ -53,7 +53,7 @@
 | 2026-06-12 | 유저별 전문 복사 거부 → **버전당 1행 박제 + id 참조** | 정규화·효율 |
 | 2026-06-12 | 저장소: **콘텐츠=Sanity(편집 UI) + 동의/박제=BE DB** 하이브리드 | BE 전부 끌어오면 약관 수정마다 admin/재배포 필요 → Sanity 가 그 역할 |
 | 2026-06-12 | **첫-동의 lazy freeze** (웹훅 사전 freeze 아님) | MVP — 웹훅 셋업 불필요 |
-| 2026-06-12 | **버전 권위 = BE** (key 로 현재 버전 조회, 클라이언트 version 은 일치검증만) | 다운그레이드 위조 차단. 사용자 지적으로 초기 short-circuit 허점 발견·수정 |
+| 2026-06-12 | **버전 권위 = BE, 요청은 key-only** | 초기엔 (key,version) 받아 일치검증했으나, FE 가 version 을 보내면 오해/다운그레이드 여지 → 요청에서 version 제거. BE 가 key 로 현재 버전 조회·기록 |
 | 2026-06-12 | **bump 깜빡 = Studio validation 으로 방어** (BE content-hash 키잉은 보류) | 신뢰 주체(관리자)의 실수라 방어는 FE 레이어. 단일 admin 단계엔 hash 과함 — 비기술 운영자 여럿 생기면 재검토 |
 | 2026-06-12 | 기존 `agreedRequiredTerms` boolean 게이트와 **공존** | consent 는 그 위의 감사 이력. 수렴은 후속 |
 

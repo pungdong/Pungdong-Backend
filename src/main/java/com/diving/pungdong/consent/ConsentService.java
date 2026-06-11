@@ -34,12 +34,11 @@ public class ConsentService {
     private final AccountJpaRepo accountRepo;
 
     /**
-     * 한 화면에서 체크한 약관들을 동의 이력으로 기록.
+     * 한 화면에서 체크한 약관들(key)을 동의 이력으로 기록.
      *
-     * <p><b>버전은 BE 가 정한다</b> — 각 약관의 현재 버전을 Sanity 에서 key 로 직접 조회하고,
-     * 클라이언트가 보낸 version 은 "화면에서 본 버전" 으로 간주해 현재 버전과 <b>일치하는지만</b>
-     * 검증한다. 다르면(옛/위조 버전, 또는 세션 중 약관 개정) 400 → FE 가 재확인 후 재동의.
-     * 기록·박제에 쓰는 version 은 절대 클라이언트 값이 아니라 Sanity 의 현재 값이다.
+     * <p><b>버전은 BE 가 전적으로 정한다</b> — 각 key 로 Sanity 의 현재 활성 버전을 조회해 그
+     * 버전으로 박제·기록한다. FE 는 version 을 보내지 않는다(계약에 없음) → 옛/위조 버전으로
+     * 기록될 여지 자체가 없다. 기록된 version 은 반환값으로 알려준다.
      */
     @Transactional
     public List<AgreementRef> record(Account account, RecordConsentRequest request) {
@@ -47,14 +46,9 @@ public class ConsentService {
                 .orElseThrow(ResourceNotFoundException::new);
 
         List<AgreementRef> recorded = new ArrayList<>();
-        for (AgreementRef ref : request.getAgreements()) {
-            SanityTermClient.FetchedTerm current = sanityTermClient.fetchCurrentTerm(ref.getKey())
+        for (String key : request.getKeys()) {
+            SanityTermClient.FetchedTerm current = sanityTermClient.fetchCurrentTerm(key)
                     .orElseThrow(BadRequestException::new);   // 없는/비활성 약관
-
-            if (!current.version().equals(ref.getVersion())) {
-                // 클라이언트가 본 버전 ≠ 현재 버전 — 다운그레이드/위조 또는 세션 중 개정
-                throw new BadRequestException("약관이 갱신되었습니다. 다시 확인 후 동의해 주세요.");
-            }
 
             AgreementTermArchive archive = archiveRepo
                     .findByTermKeyAndVersion(current.key(), current.version())
