@@ -55,6 +55,7 @@ public class SecurityConfiguration {
                         .antMatchers("/admin/instructor-applications/**").hasRole("ADMIN")
                         .antMatchers("/instructor-applications/**").authenticated()
                         .antMatchers("/identity-verifications/**").authenticated()
+                        .antMatchers("/consents/**").authenticated()
                         .antMatchers("/account/instructor/**").hasRole("INSTRUCTOR")
                         .antMatchers("/lecture/create", "/lecture/update", "/lecture/delete", "/lecture/manage/list",
                                 "/location/create", "/lectureImage/create/list", "/equipment/create/list").authenticated()

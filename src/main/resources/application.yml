@@ -89,3 +89,9 @@ pungdong:
   # 권한은 DB role 이 출처 — 이 목록은 "누구를 admin 으로"만 정함. 가입 후 재기동 시 반영.
   admin:
     emails: ${ADMIN_EMAILS:}
+  # 약관 콘텐츠 소스 (Sanity). 동의 기록 시 BE 가 (key,version) 으로 전문을 직접 받아 박제한다.
+  # public dataset 읽기라 토큰 불필요. projectId 는 공개값 — FE 와 동일.
+  sanity:
+    project-id: ${SANITY_PROJECT_ID:rc448mwo}
+    dataset: ${SANITY_DATASET:production}
+    api-version: ${SANITY_API_VERSION:2024-01-01}
