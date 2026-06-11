@@ -205,6 +205,52 @@ export interface MyIdentityVerificationResponse extends HalLinks {
 }
 
 // ============================================================
+// 동의 / 약관 (consent 도메인) — 계정 공유 자산
+// docs/architecture/consent.md · docs/features/consent-and-terms.md 참고
+//
+// 약관 콘텐츠(전문/요약/버전)는 Sanity 가 소유 — FE 가 화면(context) 기준으로 직접 읽어 보여준다.
+// BE 는 "누가 어떤 약관 버전에 동의했나"만 기록한다. ★ FE 는 약관 key 만 보낸다(version 아님) —
+// 어떤 버전으로 기록할지는 BE 가 key 로 Sanity 현재 버전을 조회해 전적으로 정한다. 그 버전을 처음
+// 보면 전문을 받아 불변 박제(증빙), 이후는 참조만 → 유저별 전문 복사 X. 기록된 version 은 응답으로 받는다.
+// ============================================================
+
+/** 동의를 수집한 화면. Sanity term.contexts 와 같은 어휘 (lowercase snake). */
+export type ConsentContext =
+  | 'signup'
+  | 'identity_verification'
+  | 'instructor_application'
+  | 'payment';
+
+/** POST /consents 요청 — 한 화면에서 체크한 약관 key 들. version 은 보내지 않는다(BE 가 정함). */
+export interface RecordConsentRequest {
+  context: ConsentContext;
+  /** 동의한 약관 key 들 (예: ["privacy_collect", "unique_id_ci_di"]). 최소 1건, 빈 배열이면 400. */
+  keys: string[];
+}
+
+/** 기록된 동의 1건 (응답 전용) — BE 가 key 로 정한 현재 version 을 함께 돌려준다. */
+export interface AgreementRef {
+  key: string; // Sanity term.key (예: privacy_collect)
+  version: string; // BE 가 기록한 버전 (Sanity 현재값)
+}
+
+/** POST /consents 응답(201). agreements 로 "각 key 가 어떤 version 으로 기록됐는지" 확인. */
+export interface RecordConsentResponse extends HalLinks {
+  recorded: number;
+  agreements: AgreementRef[];
+}
+
+/** GET /consents/me 항목 — 내 동의 이력 1건. 배열은 `_embedded.consents` (CollectionModel). */
+export interface MyConsentResponse {
+  key: string;
+  version: string;
+  title: string;
+  context: ConsentContext;
+  /** ISO-8601 */
+  agreedAt: string;
+}
+
+// ============================================================
 // 강사 신청 (instructor-application 도메인)
 // docs/architecture/instructor-application.md 참고
 //

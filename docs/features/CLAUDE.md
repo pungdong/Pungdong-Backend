@@ -38,6 +38,7 @@
 ## 인덱스
 
 - [강사 자격·온보딩](instructor-onboarding.md) — discipline + identity-verification + instructor-application
+- [동의·약관](consent-and-terms.md) — consent + Sanity term (회원가입/본인확인/강사신청/결제 공통)
 
 ## 톤
 

@@ -1,0 +1,136 @@
+# 동의 / 약관 (consent)
+
+## 한 줄 요약
+
+사용자의 **약관 동의 이력**을 계정 공유 자산으로 기록한다. `POST /consents` 로 "이 계정이, 이 약관 버전에, 어느 화면에서 동의" 를 남기고 `GET /consents/me` 로 조회한다. 약관 **콘텐츠(전문/요약/버전)는 Sanity 가 소유** — FE 가 화면(context) 기준으로 직접 읽어 보여준다. BE 는 콘텐츠를 호스팅하지 않고, 동의 시점에 그 버전을 **불변 박제(증빙)** + 동의를 기록한다.
+
+> **핵심 invariant** — 약관 전문은 유저별로 복사하지 않는다. `(key, version)` 당 1행만 `AgreementTermArchive` 에 박제하고, `Consent` 는 그 행을 FK 참조한다. 박제 행은 **append-only(불변)** — 분쟁 시 "그 사용자가 본 정확한 전문" 의 증빙.
+
+하이브리드 결정(2026-06-12): Sanity 를 약관 편집 UI 로(수정 시 `version` bump), BE 는 동의 시점에 그 버전을 박제 → 편집 편함 + 법적 증빙 둘 다. 자세한 정책은 [features/consent-and-terms.md](../features/consent-and-terms.md).
+
+---
+
+## 컴포넌트 지도
+
+```mermaid
+flowchart TB
+    subgraph CONSENT["consent 도메인"]
+        Ctl["ConsentController<br/>POST /consents<br/>GET /consents/me"]
+        Svc["ConsentService"]
+        Client["SanityTermClient (interface)"]
+        Http["HttpSanityTermClient<br/>(JDK HttpClient → Sanity GROQ)"]
+        Archive["AgreementTermArchive<br/>(term_key, version) UNIQUE · 불변"]
+        Consent["Consent<br/>(account_id, agreement_term FK)"]
+        ARepo["AgreementTermArchiveJpaRepo"]
+        CRepo["ConsentJpaRepo"]
+    end
+
+    Account["account.Account / AccountJpaRepo"]
+    Sanity["Sanity (term 콘텐츠 소스)"]
+    FE["FE (약관은 Sanity 에서 직접 읽음)"]
+
+    Ctl --> Svc
+    Svc --> Client --> Http --> Sanity
+    Svc --> ARepo --> Archive
+    Svc --> CRepo --> Consent
+    Consent --> Account
+    Consent --> Archive
+    FE -.term 전문/요약 읽기.-> Sanity
+    FE -.동의는 약관 keys 만 전송.-> Ctl
+```
+
+FE 는 약관 **전문을 Sanity 에서** 읽고, BE 엔 약관 **`keys` 만** 보낸다(version 은 BE 가 정함). BE 는 박제할 전문을 **Sanity 에서 직접** 받는다(FE 본문 신뢰 안 함 — 위변조 방지). 단방향: consent → account, consent → archive.
+
+---
+
+## 흐름 — 첫 동의 freeze + 이후 재사용
+
+```mermaid
+sequenceDiagram
+    participant FE
+    participant C as ConsentController
+    participant S as ConsentService
+    participant Sanity
+    participant DB
+
+    Note over FE: 사용자가 화면에서 약관 체크 (전문은 Sanity 에서 읽어 표시)
+    FE->>C: POST /consents { context, keys:[...] }
+    loop 각 key
+        S->>Sanity: GROQ term[key==$key && active==true] (현재 버전 + 전문)
+        alt 활성 약관 없음
+            Sanity-->>S: result=null
+            S-->>FE: 400 (없는/비활성 약관)
+        else 현재 약관 존재
+            S->>DB: SELECT archive WHERE (term_key, 현재version)
+            opt 처음 보는 버전
+                S->>DB: INSERT archive (현재 전문 불변 박제)
+            end
+            S->>DB: INSERT consent (account, archive, context, agreedAt)
+        end
+    end
+    C-->>FE: 201 { recorded, agreements:[{key, version}] }
+```
+
+- **version 은 BE 가 전적으로 정한다** — FE 는 `key` 만 보낸다. BE 가 `key` 로 Sanity 현재 버전을 조회해 그 버전으로 박제·기록 → 옛/위조 버전으로 기록될 입력 자체가 없다. 기록된 version 은 응답으로 알려준다. 박제 재사용 여부와 무관하게 현재 버전 조회는 매 동의 수행.
+- 분쟁 조회: `consent → agreement_term_id → AgreementTermArchive.body` 로 그 사용자가 동의한 시점의 전문을 그대로 꺼낸다 (박제 행은 불변).
+
+---
+
+## 데이터 모델
+
+```mermaid
+erDiagram
+    Account ||--o{ Consent : "동의 이력 (account_id)"
+    AgreementTermArchive ||--o{ Consent : "참조 (agreement_term_id)"
+
+    AgreementTermArchive {
+        Long id PK
+        String term_key "Sanity term.key (예: privacy_collect)"
+        String version "예: v1 — 의미 변경 시 bump = 새 행"
+        String title "박제 시점 제목"
+        String body "박제 시점 전문 (Portable Text JSON)"
+        boolean required
+        LocalDateTime archivedAt
+    }
+
+    Consent {
+        Long id PK
+        Long account_id FK
+        Long agreement_term_id FK
+        ConsentContext context "SIGNUP|IDENTITY_VERIFICATION|INSTRUCTOR_APPLICATION|PAYMENT"
+        LocalDateTime agreedAt
+    }
+```
+
+- `(term_key, version)` **UNIQUE** — 버전당 1행. 박제는 append-only(수정 안 함).
+- `Consent` 는 전문을 복사하지 않고 archive 를 **참조만** → 유저 N명이 같은 버전 동의해도 전문 1번 저장.
+- `context` 는 Sanity `term.contexts` 와 같은 어휘 (DB=enum명, JSON=lowercase snake).
+
+---
+
+## 보안 / 권한 매트릭스
+
+| 엔드포인트 | 메서드 | 권한 | 비고 |
+|---|---|---|---|
+| `/consents` | POST | 인증 | 동의 기록. FE 는 `keys` 만 전송, version·전문은 BE 가 Sanity 현재값으로 정함. 201 |
+| `/consents/me` | GET | 인증 | 내 동의 이력(최신순). `_embedded.consents` |
+
+매처: `/consents/**` → `authenticated`. 동의는 본인 것만 — 토큰 계정 기준, 임의 계정 조회 엔드포인트 없음. 약관 콘텐츠 자체(전문 읽기)는 BE 엔드포인트가 아니라 Sanity 직접 조회(public dataset).
+
+---
+
+## 알려진 설계 간극
+
+- 🟡 **boolean 게이트와 공존** — 기존 본인확인/강사신청의 `agreedRequiredTerms` boolean(진행 게이트)은 그대로. consent 는 그 위의 감사 이력. 둘을 수렴/대체할지는 후속. (지금은 FE 가 동의 시점에 `POST /consents` 를 별도 호출)
+- 🟡 **개정 시 재동의 유도 미구현** — 필수 약관 version 이 오르면 "현재 active version vs 사용자가 동의한 version" 비교로 재동의를 유도해야 함. 비교 정책/엔드포인트 미정.
+- 🟡 **첫-동의 lazy freeze** — Sanity publish 웹훅으로 사전 freeze 하면 더 견고하나 MVP 는 첫 동의 시 fetch+freeze. 동시 첫-동의 경합은 UNIQUE 제약이 막고 500 → FE 재시도로 성공(출시 시 동시성 미미라 허용).
+- 🟢 **다운그레이드 위조 불가** — FE 는 `key` 만 보내고 version 은 BE 가 현재값으로 정하므로, 옛/위조 버전으로 기록할 입력 경로 자체가 없다. (대신 세션 중 약관이 개정돼도 BE 는 현재 버전으로 기록 — "유저가 본 버전 == 기록 버전" 의 미세 틈은 단일 admin·드문 개정에서 무시. drift 재확인이 필요해지면 응답의 version 으로 FE 가 비교.)
+- 🟢 **bump 깜빡은 Studio 단에서 방어** — "의미가 바뀐 수정 시 `version` bump" 규율을 빠뜨리면 새 전문이 옛 버전명으로 박제될 수 있다. 이건 *악용*이 아니라 신뢰 주체(관리자)의 *실수* 이므로 방어 레이어는 Studio — FE `sanity/schemas/term.ts` 의 `version` custom validation 이 "직전 발행본 대비 body 변경 + version 동일" 이면 publish 를 막는다. (BE content-hash 키잉은 단일 admin 단계에선 과함 — 비기술 운영자 여럿 생기면 재검토.)
+
+---
+
+## 더 깊게: use-case 테스트로 보기
+
+- **[`usecase/ConsentUseCaseTest`](../../src/test/java/com/diving/pungdong/usecase/ConsentUseCaseTest.java)** — 실제 H2 + 시큐리티, `SanityTermClient` 만 `@MockBean`:
+  - `C1` 첫 동의 → 버전당 박제 + 이력(+응답 version) / `C2` 다른 계정 같은 버전 → 박제 재사용 / `C3` 개정(v1→v2) → 별도 박제(응답 version 반영) / `V1` 활성 약관 없음 → 400(이력·박제 0) / `V2` 빈 keys → 400 / `C4` GET /me 이력(`_embedded.consents`)
+- 후속 권장 시나리오: `S*` 동시 첫-동의 경합, `X*` Sanity 도달 불가 시 500(전송 오류 vs 없음 구분)
