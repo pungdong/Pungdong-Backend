@@ -54,6 +54,7 @@
 | 2026-06-12 | 저장소: **콘텐츠=Sanity(편집 UI) + 동의/박제=BE DB** 하이브리드 | BE 전부 끌어오면 약관 수정마다 admin/재배포 필요 → Sanity 가 그 역할 |
 | 2026-06-12 | **첫-동의 lazy freeze** (웹훅 사전 freeze 아님) | MVP — 웹훅 셋업 불필요 |
 | 2026-06-12 | **버전 권위 = BE** (key 로 현재 버전 조회, 클라이언트 version 은 일치검증만) | 다운그레이드 위조 차단. 사용자 지적으로 초기 short-circuit 허점 발견·수정 |
+| 2026-06-12 | **bump 깜빡 = Studio validation 으로 방어** (BE content-hash 키잉은 보류) | 신뢰 주체(관리자)의 실수라 방어는 FE 레이어. 단일 admin 단계엔 hash 과함 — 비기술 운영자 여럿 생기면 재검토 |
 | 2026-06-12 | 기존 `agreedRequiredTerms` boolean 게이트와 **공존** | consent 는 그 위의 감사 이력. 수렴은 후속 |
 
 ## 미해결 / 확장
@@ -61,7 +62,7 @@
 - 🟡 **개정 시 재동의 유도** — 필수 약관 version 상승 시 "active version vs 동의한 version" 비교로 재동의 요구. 비교 정책/엔드포인트 미정.
 - 🟡 **boolean 게이트 수렴** — `agreedRequiredTerms` 를 consent 로 대체/수렴할지. 현재 공존(FE 가 동의 시점에 `POST /consents` 별도 호출).
 - 🟡 **사전 freeze(웹훅)** — Sanity publish 시 미리 박제하면 첫-동의 경합·런타임 Sanity 의존 제거. 현재 lazy.
-- 🟢 **버전 bump 자동 강제** — Sanity 에서 의미 변경 시 version bump 를 강제하는 장치 없음(운영 규율). 필요 시 Sanity 워크플로/검증 추가.
+- 🟢 **버전 bump 강제** — Studio `term.version` custom validation 으로 "body 변경 + version 동일" publish 차단(1차 방어, 관리자 실수 방지). BE content-hash 키잉(규율 비의존)은 비기술 운영자 여럿일 때 재검토.
 - 🟢 **결제(payment) context** — enum/어휘엔 있으나 결제 피처 자체가 미구현.
 
 ## 관련 메모리
