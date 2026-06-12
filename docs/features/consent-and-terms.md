@@ -11,7 +11,7 @@
 | 구성요소 | 위치 | 역할 |
 |---|---|---|
 | consent 도메인 | [architecture/consent.md](../architecture/consent.md) | 동의 기록 · 약관 버전 박제(증빙) · 조회 |
-| Sanity `term` | FE 레포 `sanity/schemas/term.ts` | 약관 콘텐츠(전문/요약/`key`/`version`/`contexts`) authoring·저장 |
+| Sanity `term` | 이 레포 `sanity/schemas/term.ts` (Studio) | 약관 콘텐츠(전문/요약/`key`/`version`/`contexts`) authoring·저장 |
 | FE | apps/web · mobile | 화면(context)별 약관을 Sanity 에서 읽어 표시 + 동의한 약관 `keys` 를 BE 로 전송 |
 | identity-verification / instructor-application | 각 도메인 문서 | 동의를 수집하는 화면들. 진행 게이트 boolean 과 consent 이력이 공존 |
 
@@ -56,6 +56,7 @@
 | 2026-06-12 | **버전 권위 = BE, 요청은 key-only** | 초기엔 (key,version) 받아 일치검증했으나, FE 가 version 을 보내면 오해/다운그레이드 여지 → 요청에서 version 제거. BE 가 key 로 현재 버전 조회·기록 |
 | 2026-06-12 | **bump 깜빡 = Studio validation 으로 방어** (BE content-hash 키잉은 보류) | 신뢰 주체(관리자)의 실수라 방어는 FE 레이어. 단일 admin 단계엔 hash 과함 — 비기술 운영자 여럿 생기면 재검토 |
 | 2026-06-12 | 기존 `agreedRequiredTerms` boolean 게이트와 **공존** | consent 는 그 위의 감사 이력. 수렴은 후속 |
+| 2026-06-12 | Sanity Studio 를 **FE 레포 → BE 레포 `sanity/`** 로 이관 | 스키마 계약을 BE 도메인이 소유 + BE 가 term 서버사이드로 읽음 + back-office 성격. 독립 레포(C안)는 프로젝트 커지면 재검토. queries 도 BE 단일 출처(FE 복사) |
 
 ## 미해결 / 확장
 

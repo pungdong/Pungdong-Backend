@@ -33,7 +33,7 @@
 - **[docs/features/consent-and-terms.md](../../../../../../../docs/features/consent-and-terms.md)** — 정책·왜·히스토리 (교차 도메인 피처 문서)
 - **[docs/architecture/consent.md](../../../../../../../docs/architecture/consent.md)** — 흐름/모델/권한
 - 컨트롤러 시그니처/응답/enum 바꾸면 **같은 PR 에서 [types.ts](../../../../../../../docs/api-clients/types.ts) 갱신**
-- FE 약관 스키마(Sanity `term`)는 FE 레포 `sanity/schemas/term.ts` — `key`/`version`/`contexts` 가 이 도메인 계약
+- 약관 스키마(Sanity `term`)는 **이 레포** [`sanity/schemas/term.ts`](../../../../../../../sanity/schemas/term.ts) (Studio = 어드민 CMS, BE 레포 소유) — `key`/`version`/`contexts` 가 이 도메인 계약. FE 는 projectId + GROQ 만 복사해 읽음.
 
 ## 결정 히스토리 (왜 이렇게 됐나)
 
