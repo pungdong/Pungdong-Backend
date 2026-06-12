@@ -1,0 +1,18 @@
+{
+  "name": "@pungdong/sanity",
+  "private": true,
+  "version": "0.0.0",
+  "description": "풍덩 Sanity Studio (자격증 단체 카탈로그 + 약관)",
+  "scripts": {
+    "dev": "sanity dev",
+    "build": "sanity build",
+    "deploy": "sanity deploy"
+  },
+  "dependencies": {
+    "@sanity/vision": "^3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "sanity": "^3",
+    "styled-components": "^6.1.0"
+  }
+}
