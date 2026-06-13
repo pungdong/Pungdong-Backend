@@ -63,8 +63,8 @@ export type InstructorApplicationStatus = 'SUBMITTED' | 'APPROVED' | 'REJECTED';
 /** 간편인증 공급자 (본인확인). 실제 본인확인기관 연동은 deferred — 현재 stub. */
 export type IdentityProvider = 'KAKAO' | 'NAVER' | 'TOSS' | 'PASS' | 'KB' | 'PAYCO';
 
-/** 위치 유형 — 얕은풀장(10m 이하) / 딥풀 / 해양(다이빙 포인트). 정확한 깊이는 maxDepth 로 별도. */
-export type VenueType = 'SHALLOW_POOL' | 'DEEP_POOL' | 'OCEAN';
+/** 위치 유형 — 일반 수영장 / 잠수풀 / 딥풀 / 해양(다이빙 포인트). 정확한 깊이는 maxDepth 로 별도. */
+export type VenueType = 'SWIMMING_POOL' | 'DIVING_POOL' | 'DEEP_POOL' | 'OCEAN';
 
 /** 위치 소유/공개 범위 — 어드민 정식(공식 카탈로그) / 강사 커스텀(비공개·종목 잠금). */
 export type VenueScope = 'OFFICIAL' | 'CUSTOM';

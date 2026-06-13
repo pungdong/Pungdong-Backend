@@ -178,7 +178,8 @@ export const venue = defineType({
     defineField({
       name: 'type', title: '유형', type: 'string',
       options: {list: [
-        {title: '얕은풀장 (10m 이하)', value: 'SHALLOW_POOL'},
+        {title: '일반 수영장', value: 'SWIMMING_POOL'},
+        {title: '잠수풀', value: 'DIVING_POOL'},
         {title: '딥풀', value: 'DEEP_POOL'},
         {title: '해양', value: 'OCEAN'},
       ]},
