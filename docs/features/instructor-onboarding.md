@@ -29,6 +29,7 @@
 - **자격증 필요 여부**: 프리다이빙 · 스쿠버 = 필요, 수영 · 서핑 = 불필요.
 - **출시 scope = 프리다이빙 · 스쿠버만.** 수영/서핑은 후속. `GET /disciplines` 는 `active` 만 반환하므로, 출시 전 수영/서핑은 **seed 제외 또는 `active=false`** 로 둔다. (현재 seeder 는 4종 seed — 출시 전 정리 필요.)
 - **종목별 "단체 목록" 만 Sanity** 카탈로그(`disciplineCode` 키). 프리다이빙→AIDA/SSI/Molchanovs, 스쿠버→PADI/NAUI/CMAS, 수영/서핑→없음. ⚠️ **종목 자체는 BE, 단체만 Sanity** — 혼동 주의.
+- **단체별 자격증(등급) 카탈로그도 Sanity** (`certOrganization.certifications[]`): 종목별 등급을 평탄화 레벨(LEVEL_1~4/INSTRUCTOR) + 단체 명칭(displayName)으로 정의. 본인 자격 레벨 선택(향후 `ratingCode` 로드맵)과 코스 작성 "단체→레벨" 이 같은 카탈로그를 읽는다. BE 는 `level` 만 enum(`course.CertLevel`)으로 안다.
 - **종목 확장 (잦을 예정)**: "Sanity 에 추가" 가 아니라 **`discipline` 행 추가**다. 지금 = `DisciplineSeeder` 한 줄(코드+배포) 또는 SQL `INSERT`. 확장 빈도가 높아지면 **배포 없는 어드민 엔드포인트 `POST /admin/disciplines`** 로 (로드맵 — 미해결 섹션). 종목 아이콘/마케팅 카피 같은 순수 표현물이 필요하면 Sanity 로 `code` 키잉해 enrich 가능(코어는 BE).
 
 ### 본인확인 (identity verification)
