@@ -21,6 +21,11 @@
 - **하지 말 것**: 공개 표시까지 BE 로 프록시 통일. Sanity CDN 이 하던 일을 BE compute/bandwidth + 캐시 유지로 옮기는 꼴(= CDN 재발명, 비용·운영 증가).
 - 필수: FE 직접 읽기는 **`useCdn: true`**. (queries.ts 예시 참고.)
 
+### freshness — 두 캐시, 두 주인
+변경(어드민 publish) 반영 속도 처리는 **읽기 경로마다 캐시 주인이 달라** 따로 간다:
+- **FE-direct CDN (공개 표시)** → **Sanity 가 자동 처리.** CDN 캐시는 **publish mutation 시 flush(purge-on-publish)** → 다음 읽기는 새 내용(보통 수 초, stale-while-revalidate 로 잠깐 직전값 후 수렴). **우리가 할 일 0.** "보장된 즉시"가 필요하면 그 읽기만 `useCdn:false`(origin·느림·차감·10×) 또는 Live Content API(실시간 push) — venue 엔 과함.
+- **BE Redis (통합/검증)** → **우리가 처리.** read-side `_rev` 대조 reconcile(정합성 바닥) + 선택 webhook + **reconcile 잡 liveness alert 필수**. ([../docs/features/venue.md](../docs/features/venue.md) "캐싱·동기화·모니터링 설계".)
+
 이 원칙은 cert org/term/venue 모두에 적용. venue 통합 read(BE 머지)·official 캐싱·동기화 상세는 [../docs/features/venue.md](../docs/features/venue.md).
 
 ## 계약 — 바꿀 때 같이 갱신할 곳
