@@ -449,13 +449,16 @@ export interface VenueTicket {
   dayparts: VenueDaypart[];
 }
 
-/** 정기 휴무 1규칙 (위치 공통 · 권종 무관). 매주 + 월간 동시 가능 → 리스트. */
+/**
+ * 정기 휴무 1규칙. 월간은 atomic — "N째 주 X요일" 1건(`nth`+`monthlyWeekday`).
+ * "2·4주 화" 나 "2주 화 + 4주 목"은 MONTHLY 항목을 여러 개로(grouping 은 UI 표현, 저장은 원자 단위).
+ */
 export interface VenueClosure {
   type: VenueClosureType;
   /** WEEKLY — 매주 휴무 요일들. */
   weekdays?: Weekday[];
-  /** MONTHLY — 몇째 주(1~5, 다중). */
-  nths?: number[];
+  /** MONTHLY — 몇째 주(1~5, 1건). */
+  nth?: number;
   /** MONTHLY — 요일 1개. */
   monthlyWeekday?: Weekday;
 }

@@ -196,13 +196,11 @@ public class VenueService {
             }
             closure.setWeekdays(new LinkedHashSet<>(c.getWeekdays()));
         } else {
-            if (c.getNths() == null || c.getNths().isEmpty() || c.getMonthlyWeekday() == null) {
-                throw new BadRequestException(); // 월간 휴무는 N째 주 + 요일
-            }
-            if (c.getNths().stream().anyMatch(n -> n < 1 || n > 5)) {
+            // 월간은 atomic — "N째 주 X요일" 1건. 여러 주/요일은 MONTHLY 항목을 여러 개로.
+            if (c.getNth() == null || c.getNth() < 1 || c.getNth() > 5 || c.getMonthlyWeekday() == null) {
                 throw new BadRequestException();
             }
-            closure.setNths(new LinkedHashSet<>(c.getNths()));
+            closure.setNth(c.getNth());
             closure.setMonthlyWeekday(c.getMonthlyWeekday());
         }
         return closure;

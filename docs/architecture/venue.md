@@ -119,7 +119,7 @@ erDiagram
   VenueClosure {
     enum type "WEEKLY|MONTHLY"
     Set weekdays "WEEKLY DayOfWeek"
-    Set nths "MONTHLY 1~5"
+    Integer nth "MONTHLY 1~5 (atomic)"
     DayOfWeek monthlyWeekday "MONTHLY"
   }
 ```

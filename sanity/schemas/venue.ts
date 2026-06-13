@@ -107,9 +107,10 @@ export const venueClosure = defineType({
       of: [{type: 'string'}], options: {list: WEEKDAY_LIST},
       hidden: ({parent}) => parent?.type !== 'WEEKLY',
     }),
+    // 월간은 atomic — "N째 주 X요일" 1건. "2·4주" 나 "2주 화 + 4주 목"은 휴무 항목을 여러 개 추가.
     defineField({
-      name: 'nths', title: '몇째 주(1~5) — 매월', type: 'array',
-      of: [{type: 'number'}], options: {list: [1, 2, 3, 4, 5]},
+      name: 'nth', title: '몇째 주(1~5) — 매월', type: 'number',
+      options: {list: [1, 2, 3, 4, 5]}, validation: (r) => r.min(1).max(5),
       hidden: ({parent}) => parent?.type !== 'MONTHLY',
     }),
     defineField({

@@ -149,14 +149,14 @@ public class VenueResponse {
     public static class Closure {
         private ClosureType type;
         private Set<DayOfWeek> weekdays;
-        private Set<Integer> nths;
+        private Integer nth;
         private DayOfWeek monthlyWeekday;
 
         static Closure from(VenueClosure c) {
             return Closure.builder()
                     .type(c.getType())
                     .weekdays(c.getWeekdays())
-                    .nths(c.getNths())
+                    .nth(c.getNth())
                     .monthlyWeekday(c.getMonthlyWeekday())
                     .build();
         }

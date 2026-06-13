@@ -128,8 +128,12 @@ class VenueUseCaseTest {
         return VenueCreateRequest.builder()
                 .name(name).type(VenueType.OCEAN).address("경북 울릉군 죽도")
                 .lockedDisciplineCode(lockedCode)
-                .closures(List.of(VenueCreateRequest.Closure.builder().type(ClosureType.WEEKLY)
-                        .weekdays(List.of(DayOfWeek.MONDAY)).build()))
+                .closures(List.of(
+                        VenueCreateRequest.Closure.builder().type(ClosureType.WEEKLY)
+                                .weekdays(List.of(DayOfWeek.MONDAY)).build(),
+                        // 월간 atomic — "2째 주 수요일" 1건
+                        VenueCreateRequest.Closure.builder().type(ClosureType.MONTHLY)
+                                .nth(2).monthlyWeekday(DayOfWeek.WEDNESDAY).build()))
                 .tickets(List.of(VenueCreateRequest.Ticket.builder()
                         .disciplineCodes(ticketDisciplines).dayparts(dayparts).build()))
                 .build();
@@ -156,7 +160,8 @@ class VenueUseCaseTest {
                 .andExpect(jsonPath("$.ownerId").value(inst.getId().intValue()))
                 .andExpect(jsonPath("$.lockedDisciplineCode").value("FREEDIVING"))
                 .andExpect(jsonPath("$.tickets[0].disciplineCodes[0]").value("FREEDIVING"))
-                .andExpect(jsonPath("$.closures.length()").value(1));
+                .andExpect(jsonPath("$.closures.length()").value(2))
+                .andExpect(jsonPath("$.closures[1].nth").value(2));
 
         org.assertj.core.api.Assertions.assertThat(venueRepo.count()).isEqualTo(1);
     }

@@ -93,12 +93,12 @@ public class VenueCreateRequest {
     public static class Closure {
         @NotNull
         private ClosureType type;
-        /** WEEKLY. */
+        /** WEEKLY — 매주 X·Y요일. */
         @Builder.Default
         private List<DayOfWeek> weekdays = new ArrayList<>();
-        /** MONTHLY. */
-        @Builder.Default
-        private List<Integer> nths = new ArrayList<>();
+        /** MONTHLY — 몇째 주 1건 (1~5). "2·4주"는 MONTHLY 항목 2개로. */
+        private Integer nth;
+        /** MONTHLY — 요일 1개. */
         private DayOfWeek monthlyWeekday;
     }
 }

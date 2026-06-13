@@ -6,7 +6,7 @@ package com.diving.pungdong.venue;
  *
  * <ul>
  *   <li>{@code WEEKLY} — 매주 X·Y요일 ({@code weekdays}).</li>
- *   <li>{@code MONTHLY} — 매월 N째 주 X요일 ({@code nths} + {@code monthlyWeekday}).</li>
+ *   <li>{@code MONTHLY} — 매월 N째 주 X요일 (atomic: {@code nth} + {@code monthlyWeekday} 1건).</li>
  * </ul>
  */
 public enum ClosureType {
