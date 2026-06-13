@@ -70,7 +70,7 @@ juso `errorCode != "0"`(검색어 짧음·키 오류 등) → `BadRequestExcepti
 | `GeocodeKey`/`GeocodeRequest` | admCd·rnMgtSn·udrtYn·buldMnnm·buldSlno | juso 좌표제공 요청과 1:1 |
 | `Coordinate` | latitude·longitude | **WGS84**(변환 후) |
 
-juso 응답 `entX/entY` 는 한국 격자좌표(기본 EPSG:5179 가정) → proj4j 로 WGS84 변환. **좌표계는 명세 미기재 → 실응답 검증 후 `source-crs` 확정**(§6).
+juso 응답 `entX/entY` 는 한국 격자좌표(**EPSG:5179**, 실호출 검증 완료 §6) → proj4j 로 WGS84 변환.
 
 ## 5. 보안 / 권한 매트릭스
 
@@ -83,8 +83,8 @@ juso 응답 `entX/entY` 는 한국 격자좌표(기본 EPSG:5179 가정) → pro
 
 ## 6. 알려진 설계 간극
 
-- 🔴 **좌표계(source-crs) 미확정** — juso 좌표제공 명세 페이지에 entX/entY 좌표계가 안 적힘. 기본 EPSG:5179(GRS80 UTM-K)로 뒀으나, **아는 주소로 실응답 → 어떤 EPSG 변환이 WGS84 와 맞는지 검증 후 `pungdong.address.juso.source-crs` 확정** 필요. (proj4j 라 한 줄 교체.)
-- 🟡 **실 juso 미검증** — 좌표제공은 개발용 승인키가 없어 로컬 실호출 불가. staging 키(+referer)로 실호출 스모크 필요.
+- 🟢 **좌표계 = EPSG:5179 (검증 완료, 2026-06-13)** — 서울시청(세종대로 110) 실호출 `entX/entY`(953875, 1951999)를 EPSG:5179→WGS84 변환 시 37.5662/126.9777 로 일치(pyproj·proj4j 둘 다 확인). 기본 `source-crs` 그대로. (다른 후보 5174/5181/5186 은 만주로 튐.)
+- 🟢 **실 juso 검증됨 (로컬, 2026-06-13)** — staging 키 + `Referer: <등록 URL>` 로 **로컬에서 검색·좌표 둘 다 errorCode 0**. 좌표제공은 개발키가 없어도 **referer 헤더면 로컬 실호출 가능**(`JusoAddressApiClient` 가 referer 세팅). 운영 배포 시 prod 키로 동일.
 - 🟢 **캐싱 없음** — 같은 주소 반복 좌표 요청 시 juso 재호출. 필요해지면 캐시.
 - 🟢 **rate limit / IP 차단** — juso 가 과다 호출/특수문자에 IP 차단(E0007). 검색어 필터링·호출 빈도 주의.
 
@@ -96,4 +96,4 @@ juso 응답 `entX/entY` 는 한국 격자좌표(기본 EPSG:5179 가정) → pro
 - `V1`·`V2` 빈 검색어 / 좌표 필수필드 누락 → 400
 - `T1` 인증 없이 → 401
 
-> ⚠️ Authorization 헤더는 **raw JWT**(Bearer prefix 없음). 실 juso 검증은 staging(`geocode-mode=juso`)에서.
+> ⚠️ Authorization 헤더는 **raw JWT**(Bearer prefix 없음). 실 juso(검색+좌표+EPSG:5179 변환)는 staging 키 + referer 로 **로컬 검증 완료**(§6).

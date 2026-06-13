@@ -26,7 +26,7 @@
 - **juso 통합 = BE 소유, FE 는 BE 경유** — FE 직접 호출은 승인키 노출(앱은 BFF 도 없음). 좌표 변환은 서버에서. (사용자 결정 2026-06-13)
 - **승인키 2개** — 검색({@code search-key})과 좌표({@code coord-key})가 별개. 좌표 API 는 검색 키를 거부(juso E0001). 둘 다 env.
 - **좌표제공은 개발용 승인키 없음 → 로컬 stub 기본** — `geocode-mode=stub`(default)이라 로컬은 외부 호출 0(고정 좌표). 실호출 검증은 staging/prod(`geocode-mode=juso`). 검색은 개발키 있어 실호출 가능하지만 일관성/외부의존 회피로 stub 통일.
-- **좌표계 변환** — 좌표제공 `entX/entY` 는 WGS84 가 아니라 한국 격자좌표. proj4j 로 `source-crs`(기본 EPSG:5179 GRS80 UTM-K) → WGS84. ⚠️ **정확한 좌표계는 명세 페이지에 미기재** — 아는 주소로 실응답 검증 후 `source-crs` 확정.
+- **좌표계 변환** — 좌표제공 `entX/entY` 는 WGS84 가 아니라 한국 격자좌표. proj4j 로 `source-crs`(**EPSG:5179** GRS80 UTM-K) → WGS84. ✅ **검증 완료(2026-06-13)**: 서울시청 실호출 entX/entY → 37.566/126.978 일치(pyproj·proj4j). 명세엔 미기재였으나 실호출로 확정.
 - **referer** — 운영 키 등록 URL 제한 대응, 서버 호출에 `Referer` 헤더(등록 URL) 세팅(설정 비면 생략).
 - **소비자** — 강사 커스텀 위치(`venue` `/venues`)·공식 위치(admin BFF→Sanity write 전 좌표)·향후 주소 입력 화면. 그래서 venue 전용이 아니라 공용 도메인.
 
@@ -34,7 +34,7 @@
 
 `src/test/.../usecase/AddressUseCaseTest` — 실 H2 + 시큐리티 체인, stub 모드(외부 juso 미호출, 결정적). S(검색·좌표)/V(검증)/T(인증). ⚠️ Authorization 헤더 raw JWT.
 
-## 아직 안 한 것 (후속)
+## 검증됨 / 아직 안 한 것
 
-- 실제 juso 좌표계 검증(아는 주소로 실응답 → `source-crs` 확정). staging 키로 실호출 스모크.
-- 캐싱(동일 주소 좌표 재요청) — 필요 시. REST Docs `document(...)`.
+- ✅ **실 juso 검증(2026-06-13)** — staging 키 + `Referer` 로 **로컬에서** 검색·좌표 errorCode 0, 좌표계 EPSG:5179 확정(서울시청). 좌표제공도 referer 헤더면 로컬 호출 가능.
+- 후속: 캐싱(동일 주소 좌표 재요청) · REST Docs `document(...)` · 소비자 연동(venue 주소→좌표).
