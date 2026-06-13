@@ -34,8 +34,13 @@ public class VenueResponse {
     private Double longitude;
     /** 최대수심(m, 선택). */
     private Integer maxDepth;
-    /** 항상 "CUSTOM" — Sanity 에서 온 OFFICIAL 과 구분. */
+    /** "CUSTOM"(BE) | "OFFICIAL"(Sanity). 코스 빌더 통합 목록에서 출처 구분. */
     private String scope;
+    /**
+     * 위치 참조 토큰 — 코스가 저장하는 안정 식별자. {@code "CUSTOM:<pk>"} | {@code "OFFICIAL:<sanityId>"}.
+     * custom 은 PK 가 재사용되지 않는 한 안정, official 은 Sanity 문서 _id.
+     */
+    private String venueRefId;
     private Long ownerId;
     private String lockedDisciplineCode;
     private List<Closure> closures;
@@ -54,6 +59,7 @@ public class VenueResponse {
                 .longitude(v.getLongitude())
                 .maxDepth(v.getMaxDepth())
                 .scope("CUSTOM")
+                .venueRefId("CUSTOM:" + v.getId())
                 .ownerId(v.getOwner() == null ? null : v.getOwner().getId())
                 .lockedDisciplineCode(v.getLockedDisciplineCode())
                 .closures(v.getClosures().stream().map(Closure::from).collect(Collectors.toList()))
