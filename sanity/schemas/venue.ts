@@ -57,7 +57,10 @@ export const venueDaypart = defineType({
       name: 'sold', title: '판매', type: 'boolean', initialValue: true,
       description: '주말에 운영 안 하면 끔(평일은 항상 켜둠).',
     }),
-    defineField({name: 'fee', title: '입장료(원)', type: 'number', validation: (r) => r.min(0)}),
+    defineField({
+      name: 'fee', title: '입장료(원)', type: 'number', validation: (r) => r.min(0),
+      hidden: ({parent}) => parent?.sold === false,
+    }),
     defineField({
       name: 'timeMode', title: '시간 방식', type: 'string',
       options: {list: [
@@ -66,11 +69,25 @@ export const venueDaypart = defineType({
         {title: '평일과 동일 (주말 전용)', value: 'SAME'},
       ]},
       description: 'FIXED=부 리스트 / OPEN=오픈~클로즈+키반납 / SAME=주말이 평일 구성 따름',
+      hidden: ({parent}) => parent?.sold === false,
     }),
-    defineField({name: 'blocks', title: '시간대(부) — FIXED', type: 'array', of: [{type: 'venueTimeBlock'}]}),
-    defineField({name: 'open', title: '오픈 — OPEN', type: 'string', validation: (r) => r.regex(HHMM, {name: 'HH:mm'})}),
-    defineField({name: 'close', title: '클로즈 — OPEN', type: 'string', validation: (r) => r.regex(HHMM, {name: 'HH:mm'})}),
-    defineField({name: 'holdHours', title: '키반납(시간) — OPEN', type: 'number', validation: (r) => r.min(1)}),
+    // 아래 3종은 timeMode 에 따라서만 노출 (FIXED→블록 / OPEN→오픈·클로즈·키반납 / SAME→없음).
+    defineField({
+      name: 'blocks', title: '시간대(부)', type: 'array', of: [{type: 'venueTimeBlock'}],
+      hidden: ({parent}) => parent?.sold === false || parent?.timeMode !== 'FIXED',
+    }),
+    defineField({
+      name: 'open', title: '오픈', type: 'string', validation: (r) => r.regex(HHMM, {name: 'HH:mm'}),
+      hidden: ({parent}) => parent?.sold === false || parent?.timeMode !== 'OPEN',
+    }),
+    defineField({
+      name: 'close', title: '클로즈', type: 'string', validation: (r) => r.regex(HHMM, {name: 'HH:mm'}),
+      hidden: ({parent}) => parent?.sold === false || parent?.timeMode !== 'OPEN',
+    }),
+    defineField({
+      name: 'holdHours', title: '키반납(시간)', type: 'number', validation: (r) => r.min(1),
+      hidden: ({parent}) => parent?.sold === false || parent?.timeMode !== 'OPEN',
+    }),
   ],
 })
 
@@ -88,13 +105,16 @@ export const venueClosure = defineType({
     defineField({
       name: 'weekdays', title: '요일 — 매주', type: 'array',
       of: [{type: 'string'}], options: {list: WEEKDAY_LIST},
+      hidden: ({parent}) => parent?.type !== 'WEEKLY',
     }),
     defineField({
       name: 'nths', title: '몇째 주(1~5) — 매월', type: 'array',
       of: [{type: 'number'}], options: {list: [1, 2, 3, 4, 5]},
+      hidden: ({parent}) => parent?.type !== 'MONTHLY',
     }),
     defineField({
       name: 'monthlyWeekday', title: '요일 — 매월', type: 'string', options: {list: WEEKDAY_LIST},
+      hidden: ({parent}) => parent?.type !== 'MONTHLY',
     }),
   ],
   preview: {select: {t: 'type'}, prepare: ({t}) => ({title: t === 'WEEKLY' ? '매주 휴무' : '매월 휴무'})},
