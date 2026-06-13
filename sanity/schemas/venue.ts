@@ -156,8 +156,8 @@ export const venue = defineType({
     }),
     defineField({name: 'address', title: '주소', type: 'string'}),
     defineField({name: 'location', title: '지도 핀', type: 'geopoint'}),
+    // 정보 제공용 — 이미지만. 영상은 의도적으로 제외(트랜스코딩/스트리밍 서드파티 회피). type:'image' 라 이미지 자산만 허용.
     defineField({name: 'photos', title: '장소 사진', type: 'array', of: [{type: 'image'}], options: {layout: 'grid'}}),
-    defineField({name: 'videoUrls', title: '장소 영상 URL', type: 'array', of: [{type: 'url'}]}),
     defineField({
       name: 'equipInfo', title: '장비 대여 정보', type: 'text', rows: 3,
       description: '대여 가능 장비·슈트·요금 등 자유 서술(멀티라인).',
