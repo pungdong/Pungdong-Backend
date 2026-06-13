@@ -37,6 +37,7 @@ public class VenueService {
     private final VenueJpaRepo venueRepo;
     private final DisciplineService disciplineService;
     private final InstructorApplicationJpaRepo applicationRepo;
+    private final com.diving.pungdong.venue.sync.OfficialVenueCache officialVenueCache;
 
     @Transactional
     public VenueResponse create(Account owner, VenueCreateRequest req) {
@@ -47,13 +48,32 @@ public class VenueService {
         return VenueResponse.from(venueRepo.save(venue));
     }
 
-    /** 코스 빌더 소비용 — 내 커스텀 위치, 종목/유형으로 좁힘. (OFFICIAL 은 FE 가 Sanity 에서 합침.) */
+    /** 내 커스텀 위치만 — 종목/유형으로 좁힘 (관리용 {@code GET /venues}). */
     public List<VenueResponse> listMine(Account me, String disciplineCode, VenueType type) {
         return venueRepo.findAllByOwnerIdOrderByIdDesc(me.getId()).stream()
                 .filter(v -> type == null || v.getType() == type)
                 .filter(v -> !StringUtils.hasText(disciplineCode) || offersDiscipline(v, disciplineCode))
                 .map(VenueResponse::from)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 코스 빌더 통합 목록 — OFFICIAL(Sanity 캐시) + 내 CUSTOM(DB), 종목/유형 필터. "강사는 그냥
+     * 위치목록 요청" → BE 가 출처를 합쳐 돌려준다(FE 는 소스 무지). official 먼저, 그다음 내 커스텀.
+     */
+    public List<VenueResponse> listForBuilder(Account me, String disciplineCode, VenueType type) {
+        List<VenueResponse> merged = officialVenueCache.getAll().stream()
+                .filter(v -> type == null || v.getType() == type)
+                .filter(v -> !StringUtils.hasText(disciplineCode) || offersDiscipline(v, disciplineCode))
+                .collect(Collectors.toList());
+        merged.addAll(listMine(me, disciplineCode, type));
+        return merged;
+    }
+
+    /** OFFICIAL DTO 의 종목 보유 여부 — 이용권 중 하나라도 그 종목을 다루면 true. */
+    private boolean offersDiscipline(VenueResponse v, String code) {
+        return v.getTickets() != null && v.getTickets().stream()
+                .anyMatch(t -> t.getDisciplineCodes() != null && t.getDisciplineCodes().contains(code));
     }
 
     public VenueResponse getMine(Account me, Long id) {
