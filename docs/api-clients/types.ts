@@ -63,6 +63,25 @@ export type InstructorApplicationStatus = 'SUBMITTED' | 'APPROVED' | 'REJECTED';
 /** 간편인증 공급자 (본인확인). 실제 본인확인기관 연동은 deferred — 현재 stub. */
 export type IdentityProvider = 'KAKAO' | 'NAVER' | 'TOSS' | 'PASS' | 'KB' | 'PAYCO';
 
+/** 위치 유형 — 5m 풀 / 딥풀 / 해양(다이빙 포인트). */
+export type VenueType = 'POOL_5M' | 'DEEP_POOL' | 'OCEAN';
+
+/** 위치 소유/공개 범위 — 어드민 정식(공식 카탈로그) / 강사 커스텀(비공개·종목 잠금). */
+export type VenueScope = 'OFFICIAL' | 'CUSTOM';
+
+/** 하루 파트 — 평일 / 주말·공휴일. */
+export type DaypartKind = 'WEEKDAY' | 'WEEKEND';
+
+/** 시간 제공 방식 — 고정 시간대 / 상시 입장 / (주말 전용) 평일과 동일. */
+export type VenueTimeMode = 'FIXED' | 'OPEN' | 'SAME';
+
+/** 정기 휴무 종류 — 매주 / 매월 N째 주. */
+export type VenueClosureType = 'WEEKLY' | 'MONTHLY';
+
+/** java.time.DayOfWeek 직렬화 — 풀 대문자 영문. */
+export type Weekday =
+  | 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY' | 'SUNDAY';
+
 // ============================================================
 // 인증 / 토큰
 // ============================================================
@@ -379,6 +398,109 @@ export interface AddCertificateRequest {
 /** POST /admin/instructor-applications/{id}/reject 요청. */
 export interface RejectInstructorApplicationRequest {
   reason: string;
+}
+
+// ── 위치 (venue) — docs/features/venue.md ──
+// 수영장(딥풀)·해양 포인트 = 강의가 진행되는 장소. 입장료·운영 시간대·이용권·정기휴무가 위치에 종속.
+// ⚠️ 소유 분담:
+//   - 공식(OFFICIAL) 수영장 = Sanity authoring. FE 가 Sanity 를 GROQ(`sanity/queries.ts`
+//     officialVenuesByDiscipline / venueById)로 직접 읽음 — 이 파일의 BE 엔드포인트 아님.
+//   - 커스텀(CUSTOM) = 강사가 만든 비공개·종목잠금 위치 → 아래 BE 엔드포인트.
+// 코스 빌더 official+custom 통합은 후속 **BE 단일 머지 엔드포인트**(예: GET /venues/for-course)가
+//   official(Sanity 서버사이드)+custom(DB)을 합쳐 반환 — FE 는 데이터 소스를 모른다. course 생성과 함께 구축.
+// 현재 GET /venues = 내 custom 목록(관리용). 공식 위치 공개 표시는 FE 가 Sanity 직접 읽기.
+// 시간은 "HH:mm:ss" 문자열. BE 엔드포인트(모두 인증 — 강사 트랙):
+//   POST /venues · GET /venues?disciplineCode=&type= · GET/PUT/DELETE /venues/{id}
+// 아래 인터페이스는 BE CUSTOM 응답 기준(Sanity OFFICIAL 도 모양은 유사).
+
+/** 시간블록 1구간 (FIXED 모드의 "부"). 수강생이 이 중 하나를 고른다. */
+export interface VenueTimeBlock {
+  startTime: string; // "08:00:00"
+  endTime: string; // "11:00:00"
+  sortOrder: number;
+}
+
+/**
+ * 평일/주말 하루 파트. 한 이용권에 WEEKDAY 1개 + (선택) WEEKEND 1개.
+ * - WEEKDAY: 항상 sold=true, timeMode ∈ FIXED|OPEN
+ * - WEEKEND: sold=false(주말 불가) 가능, timeMode ∈ SAME(평일과 동일)|FIXED|OPEN
+ * - FIXED → timeBlocks 사용 / OPEN → openStart~openEnd + holdHours(키반납 N시간, 수강생이 시작 시각 선택)
+ */
+export interface VenueDaypart {
+  kind: DaypartKind;
+  sold: boolean;
+  fee?: number; // 입장료(원). 평일/주말 독립. sold=false 면 생략
+  timeMode?: VenueTimeMode;
+  openStart?: string; // OPEN "09:00:00"
+  openEnd?: string; // OPEN "22:00:00"
+  holdHours?: number; // OPEN 키반납 시간
+  timeBlocks: VenueTimeBlock[];
+  /** 응답 전용 — 파생 이용시간(시간). FIXED=첫 블록 길이, OPEN=키반납, SAME=null. 요청 시 무시. */
+  durationHours?: number | null;
+}
+
+/** 이용권 1종 = 한 카드(일반권/하프권/종일권 …). 권종은 카드를 추가하는 것 — 이용시간은 파생. */
+export interface VenueTicket {
+  id?: number; // 응답 전용
+  name?: string;
+  sortOrder?: number;
+  /** 적용 종목 코드(disciplines.code). CUSTOM 은 lockedDisciplineCode 1개로 강제(OFFICIAL/Sanity 는 멀티 가능). */
+  disciplineCodes: string[];
+  dayparts: VenueDaypart[];
+}
+
+/**
+ * 정기 휴무 1규칙. 월간은 atomic — "N째 주 X요일" 1건(`nth`+`monthlyWeekday`).
+ * "2·4주 화" 나 "2주 화 + 4주 목"은 MONTHLY 항목을 여러 개로(grouping 은 UI 표현, 저장은 원자 단위).
+ */
+export interface VenueClosure {
+  type: VenueClosureType;
+  /** WEEKLY — 매주 휴무 요일들. */
+  weekdays?: Weekday[];
+  /** MONTHLY — 몇째 주(1~5, 1건). */
+  nth?: number;
+  /** MONTHLY — 요일 1개. */
+  monthlyWeekday?: Weekday;
+}
+
+/**
+ * 커스텀 위치 생성/수정 요청 — POST /venues · PUT /venues/{id}. owner 는 현재 계정(바디 아님).
+ * lockedDisciplineCode 필수 — 그 종목 강사신청 보유 시에만 생성(PENDING 포함). 모든 티켓이 그 종목으로 강제.
+ * (공식 위치는 BE 아님 — Sanity Studio authoring.)
+ */
+export interface VenueCreateRequest {
+  name: string;
+  type: VenueType;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+  /** 위치가 잠길 종목 코드 (필수). */
+  lockedDisciplineCode: string;
+  closures?: VenueClosure[];
+  /** 최소 1개. 각 티켓은 WEEKDAY daypart 필수. 티켓 disciplineCodes 는 lockedDisciplineCode 와 일치해야 함. */
+  tickets: VenueTicket[];
+}
+
+/**
+ * 커스텀 위치 응답(상세/목록). 목록은 `_embedded.venues`(CollectionModel) — GET /venues 는 내 커스텀만.
+ * `scope` 는 항상 'CUSTOM'(FE 가 Sanity OFFICIAL 과 합쳐 통합 리스트 만들 때 구분용).
+ * 공식(OFFICIAL) 위치 모양은 Sanity GROQ 결과(`sanity/queries.ts`)를 FE 가 유사 형태로 매핑.
+ */
+export interface VenueResponse extends HalLinks {
+  id: number;
+  name: string;
+  type: VenueType;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+  scope: 'CUSTOM';
+  /** 소유 강사 id. */
+  ownerId: number;
+  lockedDisciplineCode: string;
+  closures: VenueClosure[];
+  tickets: VenueTicket[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 // ============================================================

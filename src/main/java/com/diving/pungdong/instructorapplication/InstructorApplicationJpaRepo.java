@@ -12,6 +12,12 @@ public interface InstructorApplicationJpaRepo extends JpaRepository<InstructorAp
     /** 종목별 신청 1건 — 제출/재제출 시 중복·대상 조회. (account_id, disciplineCode) UNIQUE. */
     Optional<InstructorApplication> findByAccountIdAndDisciplineCode(Long accountId, String disciplineCode);
 
+    /**
+     * 그 종목 강사 트랙에 들어왔는가 — 신청 보유 여부(상태 무관, PENDING 포함). 커스텀 위치 생성 게이트.
+     * 승인 전(리뷰 대기)에도 draft 준비를 막지 않는다는 정책 — 커스텀 위치는 비공개라 reject 돼도 노출 없음.
+     */
+    boolean existsByAccountIdAndDisciplineCode(Long accountId, String disciplineCode);
+
     /** 내 신청 목록 (종목별 여러 건) — 최신순. GET /me 의 출처. */
     List<InstructorApplication> findByAccountIdOrderByIdDesc(Long accountId);
 
