@@ -31,6 +31,13 @@ flowchart TB
     SCH --> REC
     WH --> REC
     HI -. lastReconciledAt .-> OVC
+    subgraph equip["venue.equipment (장비 가격표 = venue-extension)"]
+      VEQ[VenueEquipmentController<br/>/venue-equipment] --> VEQS[VenueEquipmentService]
+      VEQS --> VEQR[VenueEquipmentProfileJpaRepo]
+      VEQR --> VEQE[(Profile + Item<br/>owner × venueRefId)]
+    end
+    VEQS -. "참조검증: 내 custom?" .-> VS
+    VEQS -. "참조검증: 공식 존재?" .-> OVC
   end
   VS -. owner 단방향 .-> ACC[account.Account]
   OVC -. JSON+_rev .-> RD[(Redis)]
@@ -42,6 +49,7 @@ flowchart TB
   FE["클라이언트"] -- "공개 표시: GROQ 직접" --> SV
   FE -- "내 custom 관리: GET /venues" --> VC
   FE -- "코스 빌더 통합: GET /venues/builder" --> VC
+  FE -- "장비 가격표: GET/PUT /venue-equipment" --> VEQ
 
   classDef ext fill:#eef
   class DS,AR,ACC,SV,RD ext
@@ -154,6 +162,30 @@ erDiagram
   }
 ```
 
+**대여 장비 가격표 (venue-extension)** — 위치와는 별도 aggregate. 강사 × 위치 1장, 모든 코스 공유:
+
+```mermaid
+erDiagram
+  VenueEquipmentProfile ||--o{ VenueEquipmentItem : items
+  VenueEquipmentProfile }o--|| Account : "owner (필수)"
+
+  VenueEquipmentProfile {
+    Long id
+    Long owner_id "필수"
+    String venueRefId "CUSTOM:<pk> | OFFICIAL:<sanityId> — (owner,venueRefId) UNIQUE"
+  }
+  VenueEquipmentItem {
+    String name
+    int price "0=무료"
+    enum sizeFormat "NONE|SHOE_MM|APPAREL_SXL|CUSTOM"
+    List sizeOptions "프리셋 자동 / override"
+    int sortOrder
+  }
+```
+
+- **장비료는 위치별·강사 전역** — 코스에 복제하지 않고 `venueRefId` 로 위치를 가리켜 코스 읽을 때 합성. 가격이 위치마다 다른 현실(딥스테이션 무료포함↔5m풀 유료)을 코스가 아니라 여기서 흡수.
+- 저장 시 `venueRefId` 검증 — CUSTOM=내 소유 위치(`VenueService.ownsCustomVenue`), OFFICIAL=Sanity 캐시 존재(`OfficialVenueCache.contains`). 아니면 400.
+
 설계 의도:
 - **이용시간(3/5/9h)은 저장 안 함** — 시간블록/키반납에서 파생(`VenueResponse.Daypart.durationHours`). 권종은 티켓 카드 추가.
 - **종목 = 코드 문자열 soft-ref**(`discipline.code`). CUSTOM 은 `lockedDisciplineCode` 1개로 강제.
@@ -171,6 +203,8 @@ erDiagram
 | `GET /venues/builder?disciplineCode=&type=` | 필요 | OFFICIAL(전체 공개) + 내 CUSTOM(남의 것 제외) 머지 |
 | `GET /venues/{id}` | 필요 | 내 커스텀만 — 아니면 400(존재 숨김) |
 | `PUT/DELETE /venues/{id}` | 필요 | 내 커스텀만 — 아니면 400 |
+| `GET /venue-equipment?venueRefId=` | 필요 | 내 가격표만 (owner=현재 계정) |
+| `PUT /venue-equipment` | 필요 | 내 가격표 upsert — venueRefId 가 내 custom 또는 캐시된 official 이어야 (아니면 400) |
 | `GET /actuator/health` | permitAll | reconcile heartbeat (외부 모니터용, 상태코드만) |
 | `POST /webhooks/sanity/venue` | permitAll | HMAC 서명 검증(JWT 아님) — 시크릿 없으면 fail-closed |
 
@@ -197,5 +231,8 @@ erDiagram
 - `B1`~`B5` `GET /venues/builder` = OFFICIAL 매핑(수심·이용시간 파생)·종목/유형 필터·custom 머지, `R1`(builder) 남의 custom 비가시
 - `C1`~`C4` reconcile 초기적재 / 무변경 재fetch 안 함 / `_rev` 변경 refetch / 삭제 evict
 - `W1`~`W3` 웹훅 유효서명 200+reconcile / 위조 401 / 재전송 dedup
+- `VenueEquipmentUseCaseTest`: `E1` 커스텀 저장+사이즈 프리셋 / `E2` 스냅샷 교체 / `E3` 공식 위치 저장 / `V1`·`V2` 비소유 custom·없는 official·깨진 토큰 400 / `R1` 소유 격리
+
+> 공식 위치 캐시는 임베디드 Redis(process-전역)라, 캐시를 읽는 테스트는 `@BeforeEach` 로 `venue:official:*` flush 해 순서 의존을 없앤다.
 
 > ⚠️ 이 레포의 `Authorization` 헤더는 **raw JWT**(`Bearer ` prefix 없음 — `JwtTokenProvider.resolveToken`). prefix 붙이면 401.
