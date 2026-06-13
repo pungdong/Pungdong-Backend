@@ -550,6 +550,35 @@ export interface Coordinate {
 }
 
 // ============================================================
+// 코스 작성 (course-create 도메인) — 강사 강의 개설
+// docs/features/course-create.md 참고 (구현은 단계적: PR1 = 자격증 카탈로그 + 이미지 업로드)
+// ============================================================
+
+// ── 자격증 카탈로그 (Sanity certOrganization.certifications) ──
+// 단체마다 명칭은 달라도(예: "Advanced Freediver") 평탄화 레벨로 정규화. FE 가 Sanity 를 GROQ
+// (`sanity/queries.ts` certificationsByOrgAndDiscipline)로 직접 읽음 — BE 엔드포인트 아님.
+// 코스 작성 "단체 → 레벨" 선택 + 강사 신청 본인 레벨 선택이 같은 카탈로그를 읽는다.
+
+/** 단체 명칭과 무관한 공통 사다리. BE 는 이 값만 enum 으로 저장(displayName 은 표시 전용). */
+export type CertLevel = 'LEVEL_1' | 'LEVEL_2' | 'LEVEL_3' | 'LEVEL_4' | 'INSTRUCTOR';
+
+/** Sanity 자격증 1종. 저장/비교는 level, UI 노출은 displayName. */
+export interface Certification {
+  disciplineCode: string; // 단체 disciplines 안의 값 (FREEDIVING / SCUBA / MERMAID)
+  level: CertLevel;
+  displayName: string; // 단체가 부르는 이름 (예: "AIDA 2", "PADI Advanced Open Water")
+}
+
+/**
+ * POST /course-images 응답 (2-phase 1단계). 요청은 multipart/form-data, 파트 이름 `image`
+ * (단일 파일, 여러 장이면 반복 호출). 받은 URL 을 코스 생성 JSON 의 media 에 넣는다.
+ * 이번 단계는 사진만 — 영상 업로드는 후속.
+ */
+export interface CourseImageResponse extends HalLinks {
+  fileURL: string;
+}
+
+// ============================================================
 // 인증 실패 응답 코드 (참고용)
 // docs/architecture/sign-up.md 의 "보안 / 권한 매트릭스" 참고
 // ============================================================

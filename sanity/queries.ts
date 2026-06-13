@@ -13,6 +13,17 @@ export const orgsByDiscipline = `
 `
 
 /**
+ * 한 단체가 한 종목에서 발급하는 자격증(등급) 목록 — 코스 작성 "단체 → 레벨" / 강사 신청 본인 레벨.
+ * params: { code, disciplineCode }. `level`(평탄화)·`displayName`(단체 명칭) 둘 다 반환 →
+ * UI 는 displayName 노출, 저장/비교는 level. BE 는 level 만 enum 으로 안다.
+ */
+export const certificationsByOrgAndDiscipline = `
+*[_type == "certOrganization" && code == $code && active == true][0]
+  .certifications[active == true && disciplineCode == $disciplineCode]
+  | order(sortOrder asc) { level, displayName, disciplineCode }
+`
+
+/**
  * 특정 화면의 약관 목록. params: { context }
  *   예: 'signup' | 'identity_verification' | 'instructor_application' | 'payment'
  * (전체동의 + 개별 [필수] + 자세히 UI 에 사용)
