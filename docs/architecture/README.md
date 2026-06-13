@@ -28,6 +28,7 @@
 | 종목 (discipline) | [discipline.md](discipline.md) | ✅ (BE 테이블 · requiresCertification) |
 | 강사 신청 (instructor-application) | [instructor-application.md](instructor-application.md) | ✅ (본인확인은 identity-verification 도메인 참조) |
 | 동의 / 약관 (consent) | [consent.md](consent.md) | ✅ (Sanity authoring + BE 박제 · 동의 이력) |
+| 위치 (venue) | [venue.md](venue.md) | ✅ (정식/커스텀 두 표면 · 이용권/시간/휴무 · availability 교차는 후속) |
 | 검색 (search / Elasticsearch) | _TODO — Phase 3 정리 후_ | ⏸️ |
 
 ## 갱신 규칙

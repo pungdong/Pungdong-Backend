@@ -70,6 +70,7 @@ The local Docker stack (`docker compose up -d`) provides MySQL 8 (port 3306, db 
 Settled feature packages (each auto-loads its own `CLAUDE.md` when you work in it):
 - `account/` — auth/계정 (sign/email/account/profilePhoto controllers, AccountService etc., Account + Role/Gender/AuthProvider/DeviceType/FirebaseToken/ProfilePhoto/InstructorCertificate entities, `dto/`). Auth **infra** (`JwtTokenProvider`, `SecurityConfiguration`, `@CurrentUser`, `UserAccount`) lives in `global/security/`, not here — it's cross-cutting.
 - `notification/` — domain events → outbox → FCM pipeline.
+- `venue/` — 위치(수영장·딥풀·해양 포인트). 장소 종속 정보(입장료·시간대·이용권·정기휴무)를 1급으로. **강사 커스텀(CUSTOM·비공개·종목잠금) 위치만 BE 소유** — 공식(OFFICIAL) 수영장은 Sanity authoring(`sanity/schemas/venue.ts`), FE 가 둘을 합침. 코스가 위치를 참조(강사 availability 교차·BE 의 OFFICIAL 읽기/동기화는 후속). 도메인 개념·동기화 설계는 `docs/features/venue.md`.
 - `global/` — domain-agnostic shared: `global/config/`, `global/security/`, `global/advice/`, `global/model/` (CommonResult envelope), `global/ResponseService`.
 
 Cross-domain coupling is expected in this monolith — e.g. `Account` is imported by ~35 files in other domains (lecture/reservation reference it as creator/applicant). That's fine; just keep the dependency direction one-way (account doesn't import lecture).
