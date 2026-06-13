@@ -503,6 +503,52 @@ export interface VenueResponse extends HalLinks {
   updatedAt?: string;
 }
 
+// ── 주소 검색 + 좌표 변환 (address) — docs/architecture/address.md ──
+// juso(주소기반산업지원서비스) 통합은 BE 한 곳에만 — FE(웹·앱)는 juso 직접 호출 X(승인키 은닉 +
+// 모바일 BFF 부재). 항상 BE 를 거친다. 모두 인증 필요.
+//   GET  /address-search?keyword=&page=&size=   → 도로명주소 검색(후보 목록)
+//   POST /geocode { admCd,rnMgtSn,udrtYn,buldMnnm,buldSlno } → WGS84 위경도
+
+/** 검색 결과 1건. 표시용(roadAddr 등) + 좌표 변환에 넘길 키(admCd/rnMgtSn/udrtYn/buldMnnm/buldSlno). */
+export interface AddressItem {
+  roadAddr: string;
+  jibunAddr: string;
+  zipNo: string;
+  bdNm?: string;
+  siNm?: string;
+  sggNm?: string;
+  emdNm?: string;
+  // 좌표 변환용 키 (선택 후 그대로 POST /geocode 로):
+  admCd: string;
+  rnMgtSn: string;
+  udrtYn: string;
+  buldMnnm: string;
+  buldSlno: string;
+}
+
+/** GET /address-search 응답. */
+export interface AddressSearchResult {
+  totalCount: number;
+  page: number;
+  countPerPage: number;
+  items: AddressItem[];
+}
+
+/** POST /geocode 요청 — 검색 결과에서 고른 항목의 키 5개. */
+export interface GeocodeRequest {
+  admCd: string;
+  rnMgtSn: string;
+  udrtYn: string;
+  buldMnnm: string;
+  buldSlno?: string;
+}
+
+/** POST /geocode 응답 — WGS84 위경도(구글맵 등 표준). */
+export interface Coordinate {
+  latitude: number;
+  longitude: number;
+}
+
 // ============================================================
 // 인증 실패 응답 코드 (참고용)
 // docs/architecture/sign-up.md 의 "보안 / 권한 매트릭스" 참고

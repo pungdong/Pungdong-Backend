@@ -95,3 +95,12 @@ pungdong:
     project-id: ${SANITY_PROJECT_ID:rc448mwo}
     dataset: ${SANITY_DATASET:production}
     api-version: ${SANITY_API_VERSION:2024-01-01}
+  # 주소 검색 + 좌표 변환 (juso). 좌표제공 API 는 개발용 승인키가 없어 로컬은 stub 기본.
+  # staging/prod 만 juso 실호출: ADDRESS_GEOCODE_MODE=juso + 키 2개(검색/좌표) + 등록 URL referer.
+  address:
+    geocode-mode: ${ADDRESS_GEOCODE_MODE:stub}   # stub | juso
+    juso:
+      search-key: ${JUSO_SEARCH_KEY:}             # 도로명주소 검색 승인키
+      coord-key: ${JUSO_COORD_KEY:}               # 좌표제공 승인키 (검색 키와 별개)
+      referer: ${JUSO_REFERER:}                   # 운영 키 등록 URL (서버 호출 referer)
+      # source-crs: 좌표제공 entX/entY 의 좌표계(기본 EPSG:5179). 실응답 검증 후 필요 시 override.
