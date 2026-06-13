@@ -10,7 +10,7 @@
 
 - **컨트롤러**: `VenueController`(`/venues/**` — 커스텀 생성/관리 + 내 커스텀 목록 읽기). 어드민 컨트롤러 없음.
 - **서비스**: `VenueService`(검증 + 종목 잠금 강제 + 커스텀 생성 게이트). 응답은 **트랜잭션 안에서 DTO 매핑**(LAZY 자식 보호).
-- **엔티티**: `Venue`(owner·lockedDisciplineCode 필수) → `VenueTicket`(이용권) → `VenueDaypart`(평일/주말) → `VenueTimeBlock` · `Venue` → `VenueClosure`. enum: `VenueType`/`DaypartKind`/`TimeMode`/`ClosureType`. 요일은 `java.time.DayOfWeek`.
+- **엔티티**: `Venue`(owner·lockedDisciplineCode 필수) → `VenueTicket`(이용 옵션) → `VenueDaypart`(평일/주말) → `VenueTimeBlock` · `Venue` → `VenueClosure`. enum: `VenueType`/`DaypartKind`/`TimeMode`/`ClosureType`. 요일은 `java.time.DayOfWeek`.
 - **레포**: `VenueJpaRepo.findAllByOwnerIdOrderByIdDesc` (+ `discipline.DisciplineService`, `instructorapplication.InstructorApplicationJpaRepo` 참조)
 - **dto/**: `VenueCreateRequest`(중첩 Ticket/Daypart/TimeBlock/Closure), `VenueResponse`(`scope`="CUSTOM" 고정, 파생 `durationHours`)
 
