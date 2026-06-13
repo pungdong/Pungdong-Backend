@@ -406,12 +406,13 @@ export interface RejectInstructorApplicationRequest {
 //   - 공식(OFFICIAL) 수영장 = Sanity authoring. FE 가 Sanity 를 GROQ(`sanity/queries.ts`
 //     officialVenuesByDiscipline / venueById)로 직접 읽음 — 이 파일의 BE 엔드포인트 아님.
 //   - 커스텀(CUSTOM) = 강사가 만든 비공개·종목잠금 위치 → 아래 BE 엔드포인트.
-// 코스 빌더 official+custom 통합은 후속 **BE 단일 머지 엔드포인트**(예: GET /venues/for-course)가
-//   official(Sanity 서버사이드)+custom(DB)을 합쳐 반환 — FE 는 데이터 소스를 모른다. course 생성과 함께 구축.
+// 코스 빌더 official+custom 통합 = GET /venues/builder — BE 가 official(Sanity 서버사이드+Redis 캐시)
+//   + 내 custom(DB)을 합쳐 반환. FE 는 데이터 소스를 모른다 — 항목의 scope/venueRefId 로 구분.
 // 현재 GET /venues = 내 custom 목록(관리용). 공식 위치 공개 표시는 FE 가 Sanity 직접 읽기.
 // 시간은 "HH:mm:ss" 문자열. BE 엔드포인트(모두 인증 — 강사 트랙):
-//   POST /venues · GET /venues?disciplineCode=&type= · GET/PUT/DELETE /venues/{id}
-// 아래 인터페이스는 BE CUSTOM 응답 기준(Sanity OFFICIAL 도 모양은 유사).
+//   POST /venues · GET /venues?disciplineCode=&type= · GET /venues/builder?disciplineCode=&type=
+//   · GET/PUT/DELETE /venues/{id}
+// VenueResponse 는 custom(scope=CUSTOM)·official(scope=OFFICIAL) 공용 — builder 는 둘이 섞여 온다.
 
 /** 시간블록 1구간 (FIXED 모드의 "부"). 수강생이 이 중 하나를 고른다. */
 export interface VenueTimeBlock {
@@ -487,12 +488,15 @@ export interface VenueCreateRequest {
 }
 
 /**
- * 커스텀 위치 응답(상세/목록). 목록은 `_embedded.venues`(CollectionModel) — GET /venues 는 내 커스텀만.
- * `scope` 는 항상 'CUSTOM'(FE 가 Sanity OFFICIAL 과 합쳐 통합 리스트 만들 때 구분용).
- * 공식(OFFICIAL) 위치 모양은 Sanity GROQ 결과(`sanity/queries.ts`)를 FE 가 유사 형태로 매핑.
+ * 위치 응답 — 목록은 `_embedded.venues`(CollectionModel). custom·official 공용.
+ * - GET /venues : 내 custom 만 (scope 항상 'CUSTOM').
+ * - GET /venues/builder : OFFICIAL(Sanity 캐시) + 내 CUSTOM 머지 (scope 섞임).
+ * 코스는 `venueRefId`("CUSTOM:<pk>"|"OFFICIAL:<sanityId>")를 저장한다(안정 참조 토큰).
+ * OFFICIAL 항목은 id=null·ownerId=null·lockedDisciplineCode=null.
  */
 export interface VenueResponse extends HalLinks {
-  id: number;
+  /** BE custom PK. OFFICIAL 은 null. */
+  id: number | null;
   name: string;
   type: VenueType;
   /** 정식 도로명주소 (위/경도 기준). */
@@ -503,10 +507,13 @@ export interface VenueResponse extends HalLinks {
   longitude?: number;
   /** 최대수심(m, 선택). */
   maxDepth?: number;
-  scope: 'CUSTOM';
-  /** 소유 강사 id. */
-  ownerId: number;
-  lockedDisciplineCode: string;
+  scope: 'CUSTOM' | 'OFFICIAL';
+  /** 코스가 저장하는 안정 참조 토큰. "CUSTOM:<pk>" | "OFFICIAL:<sanityId>". */
+  venueRefId: string;
+  /** 소유 강사 id. OFFICIAL 은 null. */
+  ownerId: number | null;
+  /** CUSTOM 만. OFFICIAL 은 null(이용권이 멀티 종목). */
+  lockedDisciplineCode: string | null;
   closures: VenueClosure[];
   tickets: VenueTicket[];
   createdAt?: string;

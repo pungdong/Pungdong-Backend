@@ -2,7 +2,7 @@
 
 > 피처 문서 — **정책·왜·히스토리를 소유**한다. ER·엔드포인트·필드 같은 *구현(어떻게)* 은 [docs/architecture/venue.md](../architecture/venue.md) 로 링크만 (복붙 금지, drift 방지).
 >
-> **구현 상태 (2026-06-13)**: OFFICIAL(공식 수영장) = **Sanity authoring**(`sanity/schemas/venue.ts`), CUSTOM(강사) = **BE**(`venue` 도메인) — 둘 다 구현됨. **후속**은 BE 가 OFFICIAL 을 서버사이드로 읽는 인프라(캐시·reconcile·webhook)뿐 — availability/부킹이 필요로 할 때. 설계는 아래 "캐싱·동기화·모니터링 설계".
+> **구현 상태 (2026-06-14)**: OFFICIAL(공식 수영장) = **Sanity authoring**(`sanity/schemas/venue.ts`), CUSTOM(강사) = **BE**(`venue` 도메인). **코스 빌더 통합 read(`GET /venues/builder`) + BE 의 OFFICIAL 서버사이드 읽기·Redis 캐시·`_rev` reconcile·웹훅·liveness heartbeat 모두 구현됨**(`venue.sync` 패키지). 아래 "캐싱·동기화·모니터링 설계" 가 그 구현의 근거. 남은 후속은 availability 교차 + 어드민 오버사이트.
 
 ## 한 줄
 
@@ -108,11 +108,12 @@ BE 는 OFFICIAL venue 를 Sanity 에서 읽어 **Redis 에 캐싱**(availability
 | 2026-06-13 | **OFFICIAL = Sanity authoring, CUSTOM = BE** | 수영장 정적 정보는 CMS 패턴(certOrg·term)에 맞고 사진=Sanity 에셋. 어드민 CRUD 불필요 |
 | 2026-06-13 | **동기화 = read-side `_rev` 대조(정합성 바닥) + 선택 webhook, TTL 폐기, write-back ack 안 함** | `_rev` 대조가 ground-truth·바이트 단위. webhook 은 지연 최적화. ack 플래그는 BE 모니터링과 중복 |
 | 2026-06-13 | **reconcile 잡 liveness heartbeat alert 필수** | reconcile 가 정합성의 바닥 — 잡이 죽으면 무한 stale |
+| 2026-06-14 | **통합 read + 동기화 인프라 구현**(`GET /venues/builder` · `venue.sync`: HttpSanityVenueClient + Redis cache-aside + `_rev` reconcile + 웹훅 + actuator heartbeat) | 위 설계대로. 캐시 cache-aside lazy-load 라 cold start·테스트도 동작. 실 페이징은 Phase 4 |
 
 ## 미해결 / 확장
 
-- 🟡 **BE 의 OFFICIAL(Sanity) 읽기 인프라** — `HttpSanityVenueClient`(읽기/Redis 캐시) + reconcile 잡 + (선택)webhook endpoint. availability/부킹이 OFFICIAL 운영 데이터를 BE 에서 쓸 때 추가(지금은 FE 가 Sanity 직접 읽기로 충분). (BE 커스텀 도메인 + Sanity venue 스키마는 구현 완료.)
-- 🟡 **코스 생성 연동 + availability 교차** — 위치 선택 → 티켓×daypart flatten, availability ∩ Venue. availability 도메인과 함께.
+- ✅ **BE 의 OFFICIAL(Sanity) 읽기 인프라 + 통합 read — 구현됨**(2026-06-14, `venue.sync`): `GET /venues/builder`(official+custom 머지) · `HttpSanityVenueClient`+Redis cache-aside · `_rev` reconcile(`@Scheduled`) · 웹훅(HMAC) · liveness heartbeat(`/actuator/health`). 구현 상세는 [docs/architecture/venue.md](../architecture/venue.md) §2·§3.2·§6.
+- 🟡 **코스 생성 연동 + availability 교차** — 위치 선택(`venueRefId`) → 티켓×daypart flatten, availability ∩ Venue. availability 도메인과 함께.
 - 🟢 **부킹 민감도↑ 시 Sanity Live Content API 승급** — 지속 구독 실시간.
 - 🟢 학생/공개 Venue 읽기(코스 상세) · 투어 상품화.
 
