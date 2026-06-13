@@ -29,6 +29,8 @@ const DISCIPLINE_LIST = [
   {title: '프리다이빙', value: 'FREEDIVING'},
   {title: '스쿠버다이빙', value: 'SCUBA'},
 ]
+/** 요일 코드 → 한글 (휴무 미리보기 title 용). */
+const KO_DAY: Record<string, string> = Object.fromEntries(WEEKDAY_LIST.map((d) => [d.value, d.title]))
 
 /** 고정 시간대(FIXED)의 한 구간 = "부" (예: 08:00–11:00). */
 export const venueTimeBlock = defineType({
@@ -118,7 +120,16 @@ export const venueClosure = defineType({
       hidden: ({parent}) => parent?.type !== 'MONTHLY',
     }),
   ],
-  preview: {select: {t: 'type'}, prepare: ({t}) => ({title: t === 'WEEKLY' ? '매주 휴무' : '매월 휴무'})},
+  preview: {
+    select: {type: 'type', weekdays: 'weekdays', nth: 'nth', mw: 'monthlyWeekday'},
+    prepare: ({type, weekdays, nth, mw}) => {
+      if (type === 'WEEKLY') {
+        const days = (weekdays || []).map((d: string) => KO_DAY[d] || d).join('·')
+        return {title: days ? `매주 ${days}요일` : '매주 (요일 미정)'}
+      }
+      return {title: nth && mw ? `매월 ${nth}째 주 ${KO_DAY[mw] || mw}요일` : '매월 (미정)'}
+    },
+  },
 })
 
 /** 이용권 1종 = 한 카드(일반권/하프권/종일권). 이용시간은 시간블록/키반납에서 파생(저장 안 함). */
@@ -144,6 +155,8 @@ export const venue = defineType({
   name: 'venue',
   title: '위치(공식 수영장)',
   type: 'document',
+  // 위도·경도를 한 줄(2열)로 묶어 세로 길이/간격 축소.
+  fieldsets: [{name: 'geo', title: '좌표 (위도·경도)', options: {columns: 2}}],
   fields: [
     defineField({name: 'name', title: '장소 이름', type: 'string', validation: (r) => r.required()}),
     defineField({
@@ -156,14 +169,16 @@ export const venue = defineType({
       validation: (r) => r.required(),
     }),
     defineField({name: 'address', title: '주소', type: 'string'}),
-    defineField({name: 'location', title: '지도 핀', type: 'geopoint'}),
+    // 지도 핀 — geopoint(위/경/고도 스택)이 너무 길어 위도·경도 숫자 2칸으로(고도 불필요). 구글맵에서 좌표 복사.
+    defineField({name: 'latitude', title: '위도', type: 'number', fieldset: 'geo'}),
+    defineField({name: 'longitude', title: '경도', type: 'number', fieldset: 'geo'}),
     // 정보 제공용 — 이미지만. 영상은 의도적으로 제외(트랜스코딩/스트리밍 서드파티 회피). type:'image' 라 이미지 자산만 허용.
     defineField({name: 'photos', title: '장소 사진', type: 'array', of: [{type: 'image'}], options: {layout: 'grid'}}),
+    // 장비 대여료는 위치에 두지 않는다 — 코스 개설 시 강사가 지정. 위치엔 '장비 대여 정보'(자유 텍스트)만.
     defineField({
       name: 'equipInfo', title: '장비 대여 정보', type: 'text', rows: 3,
       description: '대여 가능 장비·슈트·요금 등 자유 서술(멀티라인).',
     }),
-    defineField({name: 'equipFee', title: '장비 대여료(1인당, 원)', type: 'number', validation: (r) => r.min(0)}),
     defineField({name: 'closures', title: '정기 휴무', type: 'array', of: [{type: 'venueClosure'}]}),
     defineField({
       name: 'tickets', title: '이용권(운영 세션)', type: 'array', of: [{type: 'venueTicket'}],
