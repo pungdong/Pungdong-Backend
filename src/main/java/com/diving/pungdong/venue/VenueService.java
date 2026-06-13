@@ -89,7 +89,7 @@ public class VenueService {
 
         venue.clearChildren();
         if (req.getTickets() == null || req.getTickets().isEmpty()) {
-            throw new BadRequestException(); // 이용권 최소 1개
+            throw new BadRequestException(); // 이용 옵션 최소 1개
         }
         for (VenueCreateRequest.Ticket t : req.getTickets()) {
             venue.addTicket(buildTicket(t, lockedCode));
@@ -128,7 +128,7 @@ public class VenueService {
         return ticket;
     }
 
-    /** 커스텀은 lockedCode 1개로 강제 — 잠긴 종목과 다른 종목을 이용권에 넣으면 400. */
+    /** 커스텀은 lockedCode 1개로 강제 — 잠긴 종목과 다른 종목을 이용 옵션에 넣으면 400. */
     private Set<String> resolveDisciplines(VenueCreateRequest.Ticket t, String lockedCode) {
         List<String> provided = t.getDisciplineCodes();
         if (provided != null && provided.stream().anyMatch(c -> StringUtils.hasText(c) && !c.equals(lockedCode))) {
