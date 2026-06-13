@@ -291,7 +291,7 @@ export interface CertificateImageResponse extends HalLinks {
 
 /** GET /disciplines (공개) 항목 — 배열은 `_embedded.disciplines` 에 들어옴 (CollectionModel). */
 export interface DisciplineResponse {
-  code: string; // "FREEDIVING" | "SCUBA" | "SWIMMING" | "SURFING" ...
+  code: string; // "FREEDIVING" | "SCUBA" | "MERMAID" | "SWIMMING" | "SURFING" ...
   name: string; // "프리다이빙"
   requiresCertification: boolean;
   sortOrder: number;
@@ -401,7 +401,7 @@ export interface RejectInstructorApplicationRequest {
 }
 
 // ── 위치 (venue) — docs/features/venue.md ──
-// 수영장(딥풀)·해양 포인트 = 강의가 진행되는 장소. 입장료·운영 시간대·이용권·정기휴무가 위치에 종속.
+// 수영장(딥풀)·해양 포인트 = 강의가 진행되는 장소. 입장료·운영 시간대·이용 옵션·정기휴무가 위치에 종속.
 // ⚠️ 소유 분담:
 //   - 공식(OFFICIAL) 수영장 = Sanity authoring. FE 가 Sanity 를 GROQ(`sanity/queries.ts`
 //     officialVenuesByDiscipline / venueById)로 직접 읽음 — 이 파일의 BE 엔드포인트 아님.
@@ -421,7 +421,7 @@ export interface VenueTimeBlock {
 }
 
 /**
- * 평일/주말 하루 파트. 한 이용권에 WEEKDAY 1개 + (선택) WEEKEND 1개.
+ * 평일/주말 하루 파트. 한 이용 옵션에 WEEKDAY 1개 + (선택) WEEKEND 1개.
  * - WEEKDAY: 항상 sold=true, timeMode ∈ FIXED|OPEN
  * - WEEKEND: sold=false(주말 불가) 가능, timeMode ∈ SAME(평일과 동일)|FIXED|OPEN
  * - FIXED → timeBlocks 사용 / OPEN → openStart~openEnd + holdHours(키반납 N시간, 수강생이 시작 시각 선택)
@@ -439,7 +439,7 @@ export interface VenueDaypart {
   durationHours?: number | null;
 }
 
-/** 이용권 1종 = 한 카드(일반권/하프권/종일권 …). 권종은 카드를 추가하는 것 — 이용시간은 파생. */
+/** 이용 옵션 1종 = 한 카드(일반권/하프권/종일권 …). 권종은 카드를 추가하는 것 — 이용시간은 파생. */
 export interface VenueTicket {
   id?: number; // 응답 전용
   name?: string;

@@ -1,7 +1,7 @@
 package com.diving.pungdong.venue;
 
 /**
- * 시간 제공 방식 (이용권 daypart 의 시간 축).
+ * 시간 제공 방식 (이용 옵션 daypart 의 시간 축).
  *
  * <ul>
  *   <li>{@code FIXED} — 고정 시간대. 정해진 "부" 리스트({@link VenueTimeBlock}) 중 수강생이 하나 선택.</li>

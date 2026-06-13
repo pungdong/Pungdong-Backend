@@ -16,7 +16,7 @@ import java.util.List;
  * 주입한다. 조건부 규칙(FIXED→블록, 종목 잠금 일치 등)은 bean validation 으로 다 못 잡으므로
  * {@code VenueService} 에서 검증한다. (공식 위치는 BE 아님 — Sanity authoring.)
  *
- * <p>중첩 DTO 를 한 파일에 모은 건, Spring 초심자가 요청 모양(이용권 = 평일/주말 daypart = 시간블록)을
+ * <p>중첩 DTO 를 한 파일에 모은 건, Spring 초심자가 요청 모양(이용 옵션 = 평일/주말 daypart = 시간블록)을
  * 한눈에 스펙처럼 읽게 하기 위함.
  */
 @Getter @Setter
@@ -34,7 +34,7 @@ public class VenueCreateRequest {
     private Double latitude;
     private Double longitude;
 
-    /** 위치가 잠길 종목 코드 (필수). 모든 이용권이 이 종목으로 고정된다. */
+    /** 위치가 잠길 종목 코드 (필수). 모든 이용 옵션이 이 종목으로 고정된다. */
     private String lockedDisciplineCode;
 
     @Valid

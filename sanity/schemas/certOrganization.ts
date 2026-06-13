@@ -44,6 +44,7 @@ export const certOrganization = defineType({
         list: [
           {title: '프리다이빙', value: 'FREEDIVING'},
           {title: '스쿠버다이빙', value: 'SCUBA'},
+          {title: '머메이드', value: 'MERMAID'},
         ],
       },
       validation: (r) => r.min(1),
@@ -54,5 +55,13 @@ export const certOrganization = defineType({
   orderings: [
     {title: '정렬순', name: 'sortOrderAsc', by: [{field: 'sortOrder', direction: 'asc'}]},
   ],
-  preview: {select: {title: 'name', subtitle: 'code'}},
+  // 리스트에서 단체명 + 어떤 종목 단체인지 같이 보이게: "프리다이빙·머메이드 · PADI".
+  preview: {
+    select: {title: 'name', code: 'code', disciplines: 'disciplines'},
+    prepare: ({title, code, disciplines}) => {
+      const KO: Record<string, string> = {FREEDIVING: '프리다이빙', SCUBA: '스쿠버다이빙', MERMAID: '머메이드'}
+      const discs = (disciplines || []).map((d: string) => KO[d] || d).join('·')
+      return {title, subtitle: discs ? `${discs} · ${code}` : code}
+    },
+  },
 })

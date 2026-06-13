@@ -12,7 +12,7 @@ import {defineType, defineField} from 'sanity'
  * 동기화(미래, BE 가 availability/부킹에서 읽을 때): BE 가 read-side `_rev` 대조로 캐시 정합성 유지
  * + 선택 webhook. 상세는 docs/features/venue.md "캐싱·동기화·모니터링 설계".
  *
- * 시간은 "HH:mm" 문자열(예: "08:00"). 권종(일반/하프/종일)은 새 축이 아니라 이용권 카드를 나눠 등록.
+ * 시간은 "HH:mm" 문자열(예: "08:00"). 권종(일반/하프/종일)은 새 축이 아니라 이용 옵션 카드를 나눠 등록.
  */
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
@@ -25,12 +25,16 @@ const WEEKDAY_LIST = [
   {title: '토', value: 'SATURDAY'},
   {title: '일', value: 'SUNDAY'},
 ]
+// BE discipline.code 와 1:1 (DisciplineSeeder). 추가 시 BE seed + 여기 + certOrganization.ts 동기화.
 const DISCIPLINE_LIST = [
   {title: '프리다이빙', value: 'FREEDIVING'},
   {title: '스쿠버다이빙', value: 'SCUBA'},
+  {title: '머메이드', value: 'MERMAID'},
 ]
 /** 요일 코드 → 한글 (휴무 미리보기 title 용). */
 const KO_DAY: Record<string, string> = Object.fromEntries(WEEKDAY_LIST.map((d) => [d.value, d.title]))
+/** 종목 코드 → 한글 (이용 옵션 미리보기 title 의 종목 prefix 용). */
+const KO_DISC: Record<string, string> = Object.fromEntries(DISCIPLINE_LIST.map((d) => [d.value, d.title]))
 
 /** 고정 시간대(FIXED)의 한 구간 = "부" (예: 08:00–11:00). */
 export const venueTimeBlock = defineType({
@@ -132,10 +136,10 @@ export const venueClosure = defineType({
   },
 })
 
-/** 이용권 1종 = 한 카드(일반권/하프권/종일권). 이용시간은 시간블록/키반납에서 파생(저장 안 함). */
+/** 이용 옵션 1종 = 한 카드(일반권/하프권/종일권). 이용시간은 시간블록/키반납에서 파생(저장 안 함). */
 export const venueTicket = defineType({
   name: 'venueTicket',
-  title: '이용권',
+  title: '이용 옵션',
   type: 'object',
   fields: [
     defineField({name: 'name', title: '이름', type: 'string', description: '예: 일반권, 하프권, 종일권'}),
@@ -148,7 +152,15 @@ export const venueTicket = defineType({
     defineField({name: 'weekday', title: '평일', type: 'venueDaypart', validation: (r) => r.required()}),
     defineField({name: 'weekend', title: '주말·공휴일', type: 'venueDaypart'}),
   ],
-  preview: {select: {title: 'name'}, prepare: ({title}) => ({title: title || '이용권'})},
+  // 같은 이름(예: 일반권 3시간)이 종목별로 겹칠 수 있어 종목명을 앞에 붙인다: "프리다이빙·머메이드 / 일반권 (3시간)".
+  preview: {
+    select: {name: 'name', disciplines: 'disciplines'},
+    prepare: ({name, disciplines}) => {
+      const discs = (disciplines || []).map((d: string) => KO_DISC[d] || d).join('·')
+      const label = name || '이용 옵션'
+      return {title: discs ? `${discs} / ${label}` : label}
+    },
+  },
 })
 
 export const venue = defineType({
@@ -181,8 +193,8 @@ export const venue = defineType({
     }),
     defineField({name: 'closures', title: '정기 휴무', type: 'array', of: [{type: 'venueClosure'}]}),
     defineField({
-      name: 'tickets', title: '이용권(운영 세션)', type: 'array', of: [{type: 'venueTicket'}],
-      validation: (r) => r.min(1).error('이용권 최소 1개'),
+      name: 'tickets', title: '이용 옵션(운영 세션)', type: 'array', of: [{type: 'venueTicket'}],
+      validation: (r) => r.min(1).error('이용 옵션 최소 1개'),
     }),
     defineField({name: 'sortOrder', title: '정렬', type: 'number', initialValue: 0}),
     defineField({name: 'active', title: '노출', type: 'boolean', initialValue: true}),

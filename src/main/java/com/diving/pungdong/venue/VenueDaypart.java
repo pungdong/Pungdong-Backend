@@ -8,7 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 한 이용권의 평일/주말 하루 파트. 3축 중 ①가격(fee) ②시간({@link TimeMode}) ③주말(kind=WEEKEND 의
+ * 한 이용 옵션의 평일/주말 하루 파트. 3축 중 ①가격(fee) ②시간({@link TimeMode}) ③주말(kind=WEEKEND 의
  * mode) 이 여기 모인다.
  *
  * <ul>

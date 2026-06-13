@@ -44,7 +44,7 @@ public class Venue {
     @JoinColumn(name = "owner_id")
     private Account owner;
 
-    /** 잠긴 종목 코드 ({@code discipline.code}) — 이 위치의 모든 이용권이 이 종목으로 고정. */
+    /** 잠긴 종목 코드 ({@code discipline.code}) — 이 위치의 모든 이용 옵션이 이 종목으로 고정. */
     private String lockedDisciplineCode;
 
     @OneToMany(mappedBy = "venue", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
