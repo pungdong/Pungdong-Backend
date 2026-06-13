@@ -10,26 +10,45 @@
 
 ```mermaid
 flowchart TB
-  subgraph venue["venue 패키지 (BE — CUSTOM 만)"]
-    VC[VenueController<br/>/venues/**] --> VS[VenueService]
+  subgraph venue["venue 패키지 (BE)"]
+    VC[VenueController<br/>/venues/** · /venues/builder] --> VS[VenueService]
     VS --> VR[VenueJpaRepo]
     VS --> DS[DisciplineService<br/>종목 코드 검증]
     VS --> AR[InstructorApplicationJpaRepo<br/>생성 게이트]
     VR --> VE[(Venue + Ticket + Daypart<br/>+ TimeBlock + Closure)]
+    subgraph sync["venue.sync (OFFICIAL 읽기·캐시·동기화)"]
+      OVC[OfficialVenueCache<br/>cache-aside]
+      SVCL[SanityVenueClient<br/>Http/Stub]
+      REC[OfficialVenueReconciler<br/>_rev 대조]
+      SCH[ReconcileScheduler<br/>@Scheduled !test]
+      WH[SanityWebhookController<br/>POST /webhooks/sanity/venue]
+      HI[ReconcileHealthIndicator<br/>/actuator/health]
+    end
+    VS --> OVC
+    OVC --> SVCL
+    REC --> SVCL
+    REC --> OVC
+    SCH --> REC
+    WH --> REC
+    HI -. lastReconciledAt .-> OVC
   end
   VS -. owner 단방향 .-> ACC[account.Account]
+  OVC -. JSON+_rev .-> RD[(Redis)]
   subgraph sanity["Sanity (OFFICIAL authoring)"]
     SV[venue 스키마<br/>공식 수영장]
   end
+  SVCL -- "GROQ 서버사이드 읽기" --> SV
+  SV -. publish 웹훅 .-> WH
   FE["클라이언트"] -- "공개 표시: GROQ 직접" --> SV
   FE -- "내 custom 관리: GET /venues" --> VC
+  FE -- "코스 빌더 통합: GET /venues/builder" --> VC
 
   classDef ext fill:#eef
-  class DS,AR,ACC,SV ext
+  class DS,AR,ACC,SV,RD ext
 ```
 
-- BE 는 **커스텀만** 소유. 공식 위치 **공개 표시**는 FE 가 Sanity 에서 직접 읽는다(certOrganization·term 과 동일).
-- **코스 빌더 official+custom 통합**은 후속 **BE 머지 엔드포인트**가 official(Sanity 서버사이드 읽기+캐시)+custom(DB)을 합쳐 반환 — FE 는 소스를 모른다. course 저장 시 official 검증과 같은 인프라라 course 생성과 함께(§3.2, §6).
+- BE 는 **커스텀을 소유**하고 **공식을 캐시**(Sanity 서버사이드 읽기). 공식 위치 **공개 표시**는 여전히 FE 가 Sanity 직접 읽기(certOrganization·term 과 동일).
+- **코스 빌더 official+custom 통합** = `GET /venues/builder` — BE 가 official(캐시)+custom(DB)을 합쳐 반환(FE 소스 무지, §3.2). 신선도는 `_rev` 대조 reconcile + 웹훅이 유지, 잡 생존은 health heartbeat 가 감시(§6 → 구현됨).
 
 ## 3. 핵심 흐름
 
@@ -66,19 +85,28 @@ sequenceDiagram
   participant FE as 클라이언트
   participant SAN as Sanity (GROQ)
   participant VC as VenueController (BE)
+  participant OVC as OfficialVenueCache
+  participant RD as Redis
 
   rect rgb(238,238,255)
-    Note over FE,SAN: ① 공식 위치 공개 표시 (share/브라우즈) — 현재
+    Note over FE,SAN: ① 공식 위치 공개 표시 (share/브라우즈)
     FE->>SAN: officialVenuesByDiscipline / venueById
     SAN-->>FE: 공식 수영장 (OFFICIAL, CDN fresh)
   end
   rect rgb(235,245,235)
-    Note over FE,VC: ② 코스 빌더 official+custom 통합 — 후속(BE 머지)
-    FE->>VC: GET /venues/for-course?disciplineCode= (예정)
-    Note over VC: official=Sanity 서버사이드 읽기+캐시 / custom=DB<br/>FE 는 소스 모름 (BE 가 합쳐 반환)
+    Note over FE,RD: ② 코스 빌더 official+custom 통합 — GET /venues/builder
+    FE->>VC: GET /venues/builder?disciplineCode=&type=
+    VC->>OVC: getAll() (official)
+    alt 캐시 비어있음(cold)
+      OVC->>SAN: fetchAll (cache-aside lazy-load)
+      OVC->>RD: 적재(JSON+_rev)
+    else 적재됨
+      OVC->>RD: 읽기
+    end
+    Note over VC: official(캐시) + 내 custom(DB) 머지·종목/유형 필터<br/>FE 는 소스 모름 — scope/venueRefId 로 구분
     VC-->>FE: 통합 위치 리스트
   end
-  Note over FE,VC: 현재 GET /venues = 내 custom 목록(관리용)
+  Note over OVC,SAN: 신선도: reconcile(_rev 대조, 주기) + 웹훅(publish 즉시) — TTL 없음
 ```
 
 ## 4. 데이터 모델 (BE — CUSTOM)
@@ -140,15 +168,17 @@ erDiagram
 |---|---|---|
 | `POST /venues` | 필요(authenticated) | 그 종목 강사신청 보유(상태 무관) 게이트 — 서비스 강제 |
 | `GET /venues?disciplineCode=&type=` | 필요 | 내 커스텀만 (남의 것 제외) |
+| `GET /venues/builder?disciplineCode=&type=` | 필요 | OFFICIAL(전체 공개) + 내 CUSTOM(남의 것 제외) 머지 |
 | `GET /venues/{id}` | 필요 | 내 커스텀만 — 아니면 400(존재 숨김) |
 | `PUT/DELETE /venues/{id}` | 필요 | 내 커스텀만 — 아니면 400 |
+| `GET /actuator/health` | permitAll | reconcile heartbeat (외부 모니터용, 상태코드만) |
+| `POST /webhooks/sanity/venue` | permitAll | HMAC 서명 검증(JWT 아님) — 시크릿 없으면 fail-closed |
 
 `/venues/**` 를 `INSTRUCTOR` 역할이 아니라 `authenticated` 로 둔 이유: 리뷰 대기(SUBMITTED) 강사신청자는 아직 `STUDENT`. 근거는 [docs/features/venue.md](../features/venue.md). 없음/비소유는 **400**(`ResourceNotFoundException`) 통일.
 
 ## 6. 알려진 설계 간극 / 확장 자리
 
-- 🟡 **코스 빌더 통합 read 엔드포인트(BE 머지) 미구현** — `GET /venues/for-course` 류로 official(Sanity 서버사이드 읽기)+custom(DB)을 BE 가 합쳐 반환(FE 소스 무지). course 저장 시 official 검증과 같은 인프라를 쓰므로 **course 생성과 함께** 구축. 지금 `GET /venues` 는 내 custom 목록(관리용)이고, 공식 위치 공개 표시는 FE 가 Sanity 직접 읽기로 충분.
-- 🟡 **BE 의 OFFICIAL(Sanity) 읽기·캐시·동기화** — 위 통합 엔드포인트/availability 가 필요로 할 때: `HttpSanityVenueClient`(읽기) + Redis 캐시 + **read-side `_rev` 대조 reconcile**(정합성 바닥) + 선택 webhook. **reconcile 잡 liveness alert 필수.** 설계 상세는 [docs/features/venue.md](../features/venue.md) "캐싱·동기화·모니터링 설계".
+- ✅ **코스 빌더 통합 read 엔드포인트 + BE 의 OFFICIAL(Sanity) 읽기·캐시·동기화 — 구현됨** — `GET /venues/builder` 가 official(Sanity 서버사이드 읽기, Redis cache-aside)+custom(DB)을 합쳐 반환(FE 소스 무지). 신선도 = `OfficialVenueReconciler`(`_rev` 대조, `@Scheduled !test`) + `SanityWebhookController`(publish 즉시, HMAC) + `OfficialVenueReconcileHealthIndicator`(잡 생존 heartbeat, `/actuator/health`). TTL 없음. `venue.sync` 패키지. (실 알림 페이징은 Phase 4 ops.)
 - 🟡 **어드민 custom 오버사이트 엔드포인트** — 어드민이 custom 위치를 조회·검색(빠진 수영장 official 승격·투어 패턴). custom 은 BE DB(private)라 Sanity 가 아니라 BE admin 에서 본다.
 - 🟡 **코스 생성 연동 + availability 교차** — 위치 선택 → 티켓×daypart flatten, availability ∩ Venue. availability 도메인과 함께.
 - 🟢 **종목 필터 in-memory** — `disciplineCodes` 가 `@ElementCollection` 이라 내 커스텀 목록을 메모리에서 좁힌다(개수 작음).
@@ -156,13 +186,16 @@ erDiagram
 
 ## 7. 더 깊게: 테스트로 보기
 
-`usecase/VenueUseCaseTest` (실 H2 + 시큐리티 체인, Redis 불필요) 가 단일 출처. `@DisplayName` 위→아래 = 사양:
+커스텀 CRUD 는 `usecase/VenueUseCaseTest` (실 H2 + 시큐리티, Redis 불필요), 통합·동기화는 `usecase/VenueBuilderUseCaseTest` · `VenueReconcileTest` · `SanityWebhookUseCaseTest` (임베디드 Redis + stub Sanity). `@DisplayName` 위→아래 = 사양:
 
-- `S1` 강사가 리뷰 대기(SUBMITTED) 중 커스텀 생성 → owner=본인·종목 잠금·휴무 박힘
+- `S1` 강사가 리뷰 대기(SUBMITTED) 중 커스텀 생성 → owner=본인·종목 잠금·휴무·주소(도로명+세부)·최대수심 박힘
 - `S2` 상시 입장(OPEN) → 응답 `durationHours` = 키반납 시간 파생
 - `G1` 그 종목 신청 없는 계정 → 400 (게이트)
 - `V1`~`V3` 종목 잠금 누락 / FIXED 블록 0개 / 잠긴 종목 불일치 → 400
 - `R1`·`R2` 남의 커스텀 비가시(400) / 남의 커스텀 수정·삭제(400)
-- `L1` `GET /venues` = 내 커스텀만(남의 것 제외) + 종목 필터(다른 종목이면 빈 목록)
+- `L1` `GET /venues` = 내 커스텀만(남의 것 제외) + 종목 필터
+- `B1`~`B5` `GET /venues/builder` = OFFICIAL 매핑(수심·이용시간 파생)·종목/유형 필터·custom 머지, `R1`(builder) 남의 custom 비가시
+- `C1`~`C4` reconcile 초기적재 / 무변경 재fetch 안 함 / `_rev` 변경 refetch / 삭제 evict
+- `W1`~`W3` 웹훅 유효서명 200+reconcile / 위조 401 / 재전송 dedup
 
 > ⚠️ 이 레포의 `Authorization` 헤더는 **raw JWT**(`Bearer ` prefix 없음 — `JwtTokenProvider.resolveToken`). prefix 붙이면 401.

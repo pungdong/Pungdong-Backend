@@ -25,7 +25,7 @@ flowchart LR
 
     subgraph Data["데이터"]
         MySQL[("MySQL<br/>core domain")]
-        Redis[("Redis<br/>이메일 인증 코드 ·<br/>토큰 블랙리스트")]
+        Redis[("Redis<br/>이메일 인증 · 토큰 블랙리스트 ·<br/>공식 위치 캐시")]
         ES[("Elasticsearch<br/>강의 검색<br/>※ Phase 3 검토")]
     end
 
@@ -33,6 +33,7 @@ flowchart LR
         FCM["Firebase<br/>Cloud Messaging"]
         S3["AWS S3<br/>이미지 저장"]
         SMTP["Gmail SMTP<br/>이메일 발송"]
+        Sanity["Sanity CMS<br/>약관·자격증·공식 위치<br/>(GROQ 읽기)"]
     end
 
     App -- "HTTPS REST<br/>+ JWT (자체 발급)" --> Controller
@@ -41,6 +42,8 @@ flowchart LR
     Service --> ES
     Service --> S3
     Service --> SMTP
+    Service -- "GROQ 서버사이드 읽기<br/>+ _rev reconcile" --> Sanity
+    Sanity -. "publish 웹훅<br/>(공식 위치)" .-> Controller
     Notif -- "FcmGateway<br/>(키리스 ADC)" --> FCM
 ```
 

@@ -61,6 +61,22 @@ public class VenueController {
         return ResponseEntity.ok().body(model);
     }
 
+    /**
+     * 코스 빌더 통합 목록 — OFFICIAL(Sanity 캐시) + 내 CUSTOM(DB) 을 BE 가 합쳐 반환. 강사는 "위치목록"
+     * 하나만 요청하면 출처가 섞여 온다(FE 소스 무지). 응답 항목의 {@code scope}/{@code venueRefId} 로 구분.
+     */
+    @GetMapping("/builder")
+    public ResponseEntity<?> builder(@CurrentUser Account account,
+                                     @RequestParam(required = false) String disciplineCode,
+                                     @RequestParam(required = false) VenueType type) {
+        List<VenueResponse> venues = venueService.listForBuilder(account, disciplineCode, type);
+
+        CollectionModel<VenueResponse> model = CollectionModel.of(venues);
+        model.add(linkTo(methodOn(VenueController.class).builder(account, disciplineCode, type)).withSelfRel());
+        model.add(Link.of("/docs/api.html#resource-venues-builder").withRel("profile"));
+        return ResponseEntity.ok().body(model);
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<?> detail(@CurrentUser Account account, @PathVariable Long id) {
         return ResponseEntity.ok().body(model(venueService.getMine(account, id)));

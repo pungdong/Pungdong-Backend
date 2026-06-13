@@ -104,3 +104,21 @@ pungdong:
       coord-key: ${JUSO_COORD_KEY:}               # 좌표제공 승인키 (검색 키와 별개)
       referer: ${JUSO_REFERER:}                   # 운영 키 등록 URL (서버 호출 referer)
       # source-crs: 좌표제공 entX/entY 의 좌표계(기본 EPSG:5179). 실응답 검증 후 필요 시 override.
+  # 공식(OFFICIAL) 위치 Sanity 캐시 reconcile. venue.md "캐싱·동기화·모니터링 설계".
+  venue:
+    reconcile:
+      interval-ms: ${VENUE_RECONCILE_INTERVAL_MS:600000}        # _rev 대조 주기 (기본 10분)
+      stale-threshold-ms: ${VENUE_RECONCILE_STALE_MS:1800000}   # 이보다 오래 미실행이면 health DOWN (기본 30분 = 3주기)
+    # Sanity GROQ 웹훅 — 어드민 publish 시 즉시 캐시 무효화(지연 최적화). 시크릿 없으면 검증 거부.
+    webhook:
+      secret: ${SANITY_WEBHOOK_SECRET:}
+
+# Actuator — reconcile 잡 liveness heartbeat 노출(/actuator/health). 실 알림(페이징) 연동은 Phase 4 ops.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
