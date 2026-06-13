@@ -26,9 +26,14 @@ public class VenueResponse {
     private Long id;
     private String name;
     private VenueType type;
+    /** 정식 도로명주소 (위/경도 기준). */
     private String address;
+    /** 세부주소 (동·호수 등, 선택). */
+    private String addressDetail;
     private Double latitude;
     private Double longitude;
+    /** 최대수심(m, 선택). */
+    private Integer maxDepth;
     /** 항상 "CUSTOM" — Sanity 에서 온 OFFICIAL 과 구분. */
     private String scope;
     private Long ownerId;
@@ -44,8 +49,10 @@ public class VenueResponse {
                 .name(v.getName())
                 .type(v.getType())
                 .address(v.getAddress())
+                .addressDetail(v.getAddressDetail())
                 .latitude(v.getLatitude())
                 .longitude(v.getLongitude())
+                .maxDepth(v.getMaxDepth())
                 .scope("CUSTOM")
                 .ownerId(v.getOwner() == null ? null : v.getOwner().getId())
                 .lockedDisciplineCode(v.getLockedDisciplineCode())

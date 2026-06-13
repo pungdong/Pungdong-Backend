@@ -94,8 +94,10 @@ erDiagram
   Venue {
     Long id
     String name
-    enum type "POOL_5M|DEEP_POOL|OCEAN"
-    String address
+    enum type "SWIMMING_POOL|DIVING_POOL|DEEP_POOL|OCEAN"
+    Integer maxDepth "최대수심(m), 선택"
+    String address "도로명(좌표 기준)"
+    String addressDetail "세부주소, 선택"
     Double latitude
     Double longitude
     Long owner_id "필수"

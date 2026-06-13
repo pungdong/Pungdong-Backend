@@ -126,7 +126,8 @@ class VenueUseCaseTest {
     private VenueCreateRequest customVenue(String name, String lockedCode, List<String> ticketDisciplines,
                                            List<VenueCreateRequest.Daypart> dayparts) {
         return VenueCreateRequest.builder()
-                .name(name).type(VenueType.OCEAN).address("경북 울릉군 죽도")
+                .name(name).type(VenueType.OCEAN)
+                .address("경북 울릉군 죽도").addressDetail("죽도 선착장 입구").maxDepth(30)
                 .lockedDisciplineCode(lockedCode)
                 .closures(List.of(
                         VenueCreateRequest.Closure.builder().type(ClosureType.WEEKLY)
@@ -159,6 +160,9 @@ class VenueUseCaseTest {
                 .andExpect(jsonPath("$.scope").value("CUSTOM"))
                 .andExpect(jsonPath("$.ownerId").value(inst.getId().intValue()))
                 .andExpect(jsonPath("$.lockedDisciplineCode").value("FREEDIVING"))
+                .andExpect(jsonPath("$.address").value("경북 울릉군 죽도"))
+                .andExpect(jsonPath("$.addressDetail").value("죽도 선착장 입구"))
+                .andExpect(jsonPath("$.maxDepth").value(30))
                 .andExpect(jsonPath("$.tickets[0].disciplineCodes[0]").value("FREEDIVING"))
                 .andExpect(jsonPath("$.closures.length()").value(2))
                 .andExpect(jsonPath("$.closures[1].nth").value(2));

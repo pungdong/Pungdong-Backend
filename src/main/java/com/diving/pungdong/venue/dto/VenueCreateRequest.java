@@ -30,9 +30,14 @@ public class VenueCreateRequest {
     @NotNull
     private VenueType type;
 
+    /** 정식 도로명주소 (위/경도 기준). */
     private String address;
+    /** 세부주소 (동·호수 등, 선택). geocoding 대상 아님. */
+    private String addressDetail;
     private Double latitude;
     private Double longitude;
+    /** 최대수심(m, 선택). */
+    private Integer maxDepth;
 
     /** 위치가 잠길 종목 코드 (필수). 모든 이용 옵션이 이 종목으로 고정된다. */
     private String lockedDisciplineCode;

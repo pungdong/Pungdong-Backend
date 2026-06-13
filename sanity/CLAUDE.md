@@ -32,7 +32,7 @@
 
 - `term` 의 `key`/`version`/`contexts` ↔ **consent 도메인** ([../src/main/java/com/diving/pungdong/consent/CLAUDE.md](../src/main/java/com/diving/pungdong/consent/CLAUDE.md), `ConsentContext` enum, `HttpSanityTermClient` GROQ).
 - `certOrganization.code` ↔ **instructor-application** 의 `organizationCode`(문자열, 한 번 정하면 불변 — 제출 데이터가 가리킴).
-- `venue.tickets[].disciplines` / `venue.type`(POOL_5M/DEEP_POOL/OCEAN) / daypart·closure 모양 ↔ **venue 도메인**([../docs/features/venue.md](../docs/features/venue.md), [../docs/architecture/venue.md](../docs/architecture/venue.md), BE `VenueResponse` 통합 응답). 미래 BE 동기화 시 `venueRevs`(`_rev` 대조) 사용.
+- `venue.tickets[].disciplines` / `venue.type`(SWIMMING_POOL/DIVING_POOL/DEEP_POOL/OCEAN) / `maxDepth`(최대수심) / `address`(도로명)·`addressDetail`(세부) / daypart·closure 모양 ↔ **venue 도메인**([../docs/features/venue.md](../docs/features/venue.md), [../docs/architecture/venue.md](../docs/architecture/venue.md), BE `VenueResponse` 통합 응답). 미래 BE 동기화 시 `venueRevs`(`_rev` 대조) 사용.
 - `disciplines` 값 ↔ BE `discipline.code`(FREEDIVING/SCUBA…) 1:1.
 - 필드/쿼리 모양 바꾸면 FE 가 복사하는 `queries.ts` 와 [../docs/api-clients/types.ts](../docs/api-clients/types.ts) 영향 — 같은 변경에서 점검.
 
