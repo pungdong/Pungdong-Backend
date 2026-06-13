@@ -167,8 +167,12 @@ export const venue = defineType({
   name: 'venue',
   title: '위치(공식 수영장)',
   type: 'document',
-  // 위도·경도를 한 줄(2열)로 묶어 세로 길이/간격 축소.
-  fieldsets: [{name: 'geo', title: '좌표 (위도·경도)', options: {columns: 2}}],
+  fieldsets: [
+    // 도로명+세부를 한 묶음으로 — 한 위치의 주소라 떨어뜨리지 않고 바짝 붙인다.
+    {name: 'addr', title: '주소', options: {columns: 1}},
+    // 위도·경도를 한 줄(2열)로 묶어 세로 길이/간격 축소.
+    {name: 'geo', title: '좌표 (위도·경도)', options: {columns: 2}},
+  ],
   fields: [
     defineField({name: 'name', title: '장소 이름', type: 'string', validation: (r) => r.required()}),
     defineField({
@@ -186,11 +190,11 @@ export const venue = defineType({
       description: '해양 등 미상이면 비워둠. 유형과 별개의 정확값.',
     }),
     defineField({
-      name: 'address', title: '도로명주소', type: 'string',
+      name: 'address', title: '도로명주소', type: 'string', fieldset: 'addr',
       description: '위/경도 기준이 되는 정식 도로명주소.',
     }),
     defineField({
-      name: 'addressDetail', title: '세부주소', type: 'string',
+      name: 'addressDetail', title: '세부주소', type: 'string', fieldset: 'addr',
       description: '동·호수 등 도로명주소로 안 잡히는 직접입력분(선택).',
     }),
     // 지도 핀 — geopoint(위/경/고도 스택)이 너무 길어 위도·경도 숫자 2칸으로(고도 불필요). 구글맵에서 좌표 복사.
