@@ -83,8 +83,10 @@ public class VenueService {
         venue.setName(req.getName().trim());
         venue.setType(req.getType());
         venue.setAddress(req.getAddress());
+        venue.setAddressDetail(req.getAddressDetail());
         venue.setLatitude(req.getLatitude());
         venue.setLongitude(req.getLongitude());
+        venue.setMaxDepth(req.getMaxDepth());
         venue.setLockedDisciplineCode(lockedCode);
 
         venue.clearChildren();

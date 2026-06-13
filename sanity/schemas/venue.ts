@@ -167,20 +167,37 @@ export const venue = defineType({
   name: 'venue',
   title: '위치(공식 수영장)',
   type: 'document',
-  // 위도·경도를 한 줄(2열)로 묶어 세로 길이/간격 축소.
-  fieldsets: [{name: 'geo', title: '좌표 (위도·경도)', options: {columns: 2}}],
+  fieldsets: [
+    // 도로명+세부를 한 묶음으로 — 한 위치의 주소라 떨어뜨리지 않고 바짝 붙인다.
+    {name: 'addr', title: '주소', options: {columns: 1}},
+    // 위도·경도를 한 줄(2열)로 묶어 세로 길이/간격 축소.
+    {name: 'geo', title: '좌표 (위도·경도)', options: {columns: 2}},
+  ],
   fields: [
     defineField({name: 'name', title: '장소 이름', type: 'string', validation: (r) => r.required()}),
     defineField({
       name: 'type', title: '유형', type: 'string',
       options: {list: [
-        {title: '5m 풀', value: 'POOL_5M'},
+        {title: '일반 수영장', value: 'SWIMMING_POOL'},
+        {title: '잠수풀', value: 'DIVING_POOL'},
         {title: '딥풀', value: 'DEEP_POOL'},
         {title: '해양', value: 'OCEAN'},
       ]},
+      description: '거친 분류. 정확한 깊이는 아래 "최대수심" 으로 별도 입력.',
       validation: (r) => r.required(),
     }),
-    defineField({name: 'address', title: '주소', type: 'string'}),
+    defineField({
+      name: 'maxDepth', title: '최대수심(m)', type: 'number', validation: (r) => r.min(0),
+      description: '해양 등 미상이면 비워둠. 유형과 별개의 정확값.',
+    }),
+    defineField({
+      name: 'address', title: '도로명주소', type: 'string', fieldset: 'addr',
+      description: '위/경도 기준이 되는 정식 도로명주소.',
+    }),
+    defineField({
+      name: 'addressDetail', title: '세부주소', type: 'string', fieldset: 'addr',
+      description: '동·호수 등 도로명주소로 안 잡히는 직접입력분(선택).',
+    }),
     // 지도 핀 — geopoint(위/경/고도 스택)이 너무 길어 위도·경도 숫자 2칸으로(고도 불필요). 구글맵에서 좌표 복사.
     defineField({name: 'latitude', title: '위도', type: 'number', fieldset: 'geo'}),
     defineField({name: 'longitude', title: '경도', type: 'number', fieldset: 'geo'}),
