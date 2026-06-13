@@ -63,8 +63,8 @@ export type InstructorApplicationStatus = 'SUBMITTED' | 'APPROVED' | 'REJECTED';
 /** 간편인증 공급자 (본인확인). 실제 본인확인기관 연동은 deferred — 현재 stub. */
 export type IdentityProvider = 'KAKAO' | 'NAVER' | 'TOSS' | 'PASS' | 'KB' | 'PAYCO';
 
-/** 위치 유형 — 5m 풀 / 딥풀 / 해양(다이빙 포인트). */
-export type VenueType = 'POOL_5M' | 'DEEP_POOL' | 'OCEAN';
+/** 위치 유형 — 일반 수영장 / 잠수풀 / 딥풀 / 해양(다이빙 포인트). 정확한 깊이는 maxDepth 로 별도. */
+export type VenueType = 'SWIMMING_POOL' | 'DIVING_POOL' | 'DEEP_POOL' | 'OCEAN';
 
 /** 위치 소유/공개 범위 — 어드민 정식(공식 카탈로그) / 강사 커스텀(비공개·종목 잠금). */
 export type VenueScope = 'OFFICIAL' | 'CUSTOM';
@@ -471,9 +471,14 @@ export interface VenueClosure {
 export interface VenueCreateRequest {
   name: string;
   type: VenueType;
+  /** 정식 도로명주소 (위/경도 기준 — address 도메인 검색→좌표 결과). */
   address?: string;
+  /** 세부주소 (동·호수 등, 선택). geocoding 대상 아님. */
+  addressDetail?: string;
   latitude?: number;
   longitude?: number;
+  /** 최대수심(m, 선택). */
+  maxDepth?: number;
   /** 위치가 잠길 종목 코드 (필수). */
   lockedDisciplineCode: string;
   closures?: VenueClosure[];
@@ -490,9 +495,14 @@ export interface VenueResponse extends HalLinks {
   id: number;
   name: string;
   type: VenueType;
+  /** 정식 도로명주소 (위/경도 기준). */
   address?: string;
+  /** 세부주소 (동·호수 등, 선택). */
+  addressDetail?: string;
   latitude?: number;
   longitude?: number;
+  /** 최대수심(m, 선택). */
+  maxDepth?: number;
   scope: 'CUSTOM';
   /** 소유 강사 id. */
   ownerId: number;

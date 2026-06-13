@@ -44,7 +44,7 @@ const VENUE_DAYPART = `{ sold, fee, timeMode, blocks[]{ start, end }, open, clos
 export const officialVenuesByDiscipline = `
 *[_type == "venue" && active == true && $disciplineCode in tickets[].disciplines]
   | order(sortOrder asc) {
-    _id, name, type, address, latitude, longitude, "photos": photos[].asset->url,
+    _id, name, type, maxDepth, address, addressDetail, latitude, longitude, "photos": photos[].asset->url,
     equipInfo,
     closures[]{ type, weekdays, nth, monthlyWeekday },
     tickets[]{ name, disciplines, weekday ${VENUE_DAYPART}, weekend ${VENUE_DAYPART} }
@@ -54,7 +54,7 @@ export const officialVenuesByDiscipline = `
 /** 위치 1건 상세. params: { id } */
 export const venueById = `
 *[_type == "venue" && _id == $id][0] {
-  _id, name, type, address, latitude, longitude, "photos": photos[].asset->url,
+  _id, name, type, maxDepth, address, addressDetail, latitude, longitude, "photos": photos[].asset->url,
   equipInfo,
   closures[]{ type, weekdays, nth, monthlyWeekday },
   tickets[]{ name, disciplines, weekday ${VENUE_DAYPART}, weekend ${VENUE_DAYPART} }

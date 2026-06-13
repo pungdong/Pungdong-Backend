@@ -35,9 +35,15 @@ public class Venue {
     @Enumerated(EnumType.STRING)
     private VenueType type;
 
+    /** 정식 도로명주소 — 위/경도 획득(geocoding) 기준. (address 도메인 검색→좌표 결과를 그대로.) */
     private String address;
+    /** 세부주소 — 동·호수 등 도로명주소로 안 잡히는 직접입력분(선택). geocoding 대상 아님. */
+    private String addressDetail;
     private Double latitude;
     private Double longitude;
+
+    /** 최대수심(m) — 유형(얕은풀/딥풀/해양)과 별개의 정확값. 해양 등 미상이면 null. */
+    private Integer maxDepth;
 
     /** 소유 강사 (커스텀 위치는 항상 owner 가 있다). */
     @ManyToOne(fetch = FetchType.LAZY)
