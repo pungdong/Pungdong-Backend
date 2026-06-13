@@ -103,6 +103,14 @@ public class OfficialVenueCache {
         return Boolean.TRUE.equals(redisTemplate.hasKey(LOADED));
     }
 
+    /** 공식 위치 id 가 캐시(=Sanity)에 존재하는가 — 장비 가격표가 official 참조를 검증할 때. */
+    public boolean contains(String officialId) {
+        if (!isLoaded()) {
+            loadFromSource();
+        }
+        return Boolean.TRUE.equals(redisTemplate.opsForSet().isMember(IDS, officialId));
+    }
+
     /** reconcile 성공 시각(heartbeat) 기록 — liveness 판정용. */
     public void markReconciled(long epochMillis) {
         redisTemplate.opsForValue().set(RECONCILE_AT, String.valueOf(epochMillis));

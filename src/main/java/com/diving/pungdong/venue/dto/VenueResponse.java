@@ -59,7 +59,7 @@ public class VenueResponse {
                 .longitude(v.getLongitude())
                 .maxDepth(v.getMaxDepth())
                 .scope("CUSTOM")
-                .venueRefId("CUSTOM:" + v.getId())
+                .venueRefId(VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId())))
                 .ownerId(v.getOwner() == null ? null : v.getOwner().getId())
                 .lockedDisciplineCode(v.getLockedDisciplineCode())
                 .closures(v.getClosures().stream().map(Closure::from).collect(Collectors.toList()))
