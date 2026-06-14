@@ -1,6 +1,7 @@
 package com.diving.pungdong.course;
 
 import com.diving.pungdong.account.Account;
+import com.diving.pungdong.venue.Region;
 import lombok.*;
 
 import javax.persistence.*;
@@ -63,6 +64,21 @@ public class Course {
 
     @Enumerated(EnumType.STRING)
     private CourseStatus status;
+
+    /**
+     * 둘러보기 지역 필터용 비정규화 facet — 회차 위치들이 속한 지역 묶음 집합. 저장 시점에 위치 주소에서
+     * 파생({@link com.diving.pungdong.venue.VenueRefResolver}). OFFICIAL 위치 주소는 Sanity 캐시라
+     * 쿼리 타임 JOIN 불가 → 스냅샷이 단일 해법. (위치 이사 시 코스 재저장 전까지 stale — 드물어 MVP 허용.)
+     */
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "course_region", joinColumns = @JoinColumn(name = "course_id"))
+    @Column(name = "region")
+    @Enumerated(EnumType.STRING)
+    @Builder.Default
+    private Set<Region> regions = new LinkedHashSet<>();
+
+    /** 카드 표시용 대표 위치 이름(첫 회차 첫 위치) — 읽기 시 N+1 위치 해석 회피용 비정규화. */
+    private String primaryLocationName;
 
     @OneToMany(mappedBy = "course", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @OrderBy("sortOrder asc, id asc")

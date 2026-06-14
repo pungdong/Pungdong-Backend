@@ -68,7 +68,7 @@
 
 ## 미해결 / 확장
 
-- 🟡 **공개 코스 조회·검색** — 수강생 브라우즈/상세(OPEN), legacy `/lecture/list` 대체.
+- 🟢 **공개 코스 조회·검색** — 둘러보기 목록/필터 구현([course-discovery.md](course-discovery.md), `GET /courses/browse`). 공개 **상세**는 부킹과 함께 후속.
 - 🟡 **부킹 연동** — 회차×위치×이용권 → availability ∩ Venue 교차로 수강생 선택지, 가격·시간 해석, 장비/입장료 스냅샷 동결.
 - 🟡 **자격증 (org,disc,level) 권위 검증** · **영상 업로드** · **내 강의 메트릭**(수강생·평점).
 - 🟢 **legacy `Lecture` → Course 마이그레이션** (현재 공존).
