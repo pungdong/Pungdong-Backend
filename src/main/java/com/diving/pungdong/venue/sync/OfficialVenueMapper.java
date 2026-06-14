@@ -97,23 +97,7 @@ final class OfficialVenueMapper {
                 .openEnd(openEnd)
                 .holdHours(holdHours)
                 .timeBlocks(blocks)
-                .durationHours(durationHours(timeMode, holdHours, blocks))
                 .build();
-    }
-
-    private static Double durationHours(TimeMode timeMode, Integer holdHours, List<VenueResponse.TimeBlock> blocks) {
-        if (timeMode == TimeMode.OPEN) {
-            return holdHours == null ? null : (double) holdHours;
-        }
-        if (timeMode == TimeMode.FIXED && !blocks.isEmpty()) {
-            VenueResponse.TimeBlock first = blocks.get(0);
-            if (first.getStartTime() == null || first.getEndTime() == null) {
-                return null;
-            }
-            long minutes = Duration.between(first.getStartTime(), first.getEndTime()).toMinutes();
-            return Math.round(minutes / 60.0 * 10) / 10.0;
-        }
-        return null; // SAME 또는 블록 없음
     }
 
     private static List<VenueResponse.Closure> closures(JsonNode arr) {

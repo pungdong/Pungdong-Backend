@@ -183,7 +183,7 @@ class VenueUseCaseTest {
                         .contentType(MediaType.APPLICATION_JSON).content(json(req)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.tickets[0].dayparts[0].timeMode").value("OPEN"))
-                .andExpect(jsonPath("$.tickets[0].dayparts[0].durationHours").value(3.0));
+                .andExpect(jsonPath("$.tickets[0].dayparts[0].holdHours").value(3));
     }
 
     @Test

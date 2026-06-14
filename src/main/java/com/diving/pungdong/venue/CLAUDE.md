@@ -12,7 +12,7 @@
 - **서비스**: `VenueService`(검증 + 종목 잠금 강제 + 커스텀 생성 게이트). 응답은 **트랜잭션 안에서 DTO 매핑**(LAZY 자식 보호).
 - **엔티티**: `Venue`(owner·lockedDisciplineCode 필수) → `VenueTicket`(이용 옵션) → `VenueDaypart`(평일/주말) → `VenueTimeBlock` · `Venue` → `VenueClosure`. enum: `VenueType`/`DaypartKind`/`TimeMode`/`ClosureType`. 요일은 `java.time.DayOfWeek`.
 - **레포**: `VenueJpaRepo.findAllByOwnerIdOrderByIdDesc` (+ `discipline.DisciplineService`, `instructorapplication.InstructorApplicationJpaRepo` 참조)
-- **dto/**: `VenueCreateRequest`(중첩 Ticket/Daypart/TimeBlock/Closure), `VenueResponse`(`scope`="CUSTOM" 고정, 파생 `durationHours`)
+- **dto/**: `VenueCreateRequest`(중첩 Ticket/Daypart/TimeBlock/Closure), `VenueResponse`(`scope`="CUSTOM" 고정)
 
 보안 매처(`/venues/**` → authenticated)는 **`global/security/SecurityConfiguration`**. 역할이 아니라 인증인 이유: 리뷰 대기(SUBMITTED) 강사신청자는 아직 STUDENT 라서.
 
@@ -27,7 +27,7 @@
 
 - **OFFICIAL = Sanity, CUSTOM = BE** (2026-06-13) — 공식 수영장의 시간/입장료/휴무는 잘 안 바뀌는 정적 카탈로그 + 사진 多 → CMS 패턴(certOrganization·term)에 맞음. 어드민 CRUD 를 BE 에 안 만들어도 됨. 강사 커스텀은 per-instructor 동적·비공개라 BE DB.
 - **커스텀 생성 게이트 = 승인 아님, 그 종목 신청 보유**(SUBMITTED 포함) — 리뷰 동안 draft 준비를 막지 않음. 비공개라 reject 무해. → [[instructor-review-window-allows-prep]].
-- **이용시간·권종 파생** — 권종은 티켓 카드 추가, 이용시간은 시간블록/키반납에서 파생(`durationHours`), 저장 안 함.
+- **권종 = 티켓 카드** — 이용시간 표기는 이용권 name 의 "(N시간)"(어드민 입력)을 쓴다. 시간블록 자동 파생(`durationHours`)은 **제거됨**(6h 블록·5h 이용 같은 운영 사례로 신뢰 불가 — 딥스테이션 하프권).
 - **종목 잠금** — CUSTOM 은 `lockedDisciplineCode` 1개로 모든 티켓 강제(불일치 입력 400). 종목 코드는 `discipline.code` soft-ref.
 - **없음/비소유 = 400 통일**(`ResourceNotFoundException`) — 레포에 404/409 인프라 없음. 남의 커스텀 존재를 숨김.
 - **(미래) BE 가 OFFICIAL 을 읽을 때 동기화** — availability/부킹이 OFFICIAL 운영 데이터를 쓸 때 `HttpSanityVenueClient`+Redis 캐시+**read-side `_rev` 대조 reconcile**(정합성 바닥)+선택 webhook. **reconcile 잡 liveness alert 필수.** 상세 [[venue-sanity-sync-design]].
