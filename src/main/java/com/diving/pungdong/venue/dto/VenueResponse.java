@@ -106,8 +106,6 @@ public class VenueResponse {
         private LocalTime openEnd;
         private Integer holdHours;
         private List<TimeBlock> timeBlocks;
-        /** 파생 이용시간(시간). FIXED=첫 블록 길이, OPEN=키반납 시간, SAME=null(평일 따름). */
-        private Double durationHours;
 
         static Daypart from(VenueDaypart d) {
             return Daypart.builder()
@@ -119,27 +117,7 @@ public class VenueResponse {
                     .openEnd(d.getOpenEnd())
                     .holdHours(d.getHoldHours())
                     .timeBlocks(d.getTimeBlocks().stream().map(TimeBlock::from).collect(Collectors.toList()))
-                    .durationHours(durationHours(d))
                     .build();
-        }
-
-        private static Double durationHours(VenueDaypart d) {
-            if (d.getTimeMode() == TimeMode.OPEN) {
-                return d.getHoldHours() == null ? null : (double) d.getHoldHours();
-            }
-            if (d.getTimeMode() == TimeMode.FIXED && !d.getTimeBlocks().isEmpty()) {
-                VenueTimeBlock first = d.getTimeBlocks().get(0);
-                return hoursBetween(first.getStartTime(), first.getEndTime());
-            }
-            return null; // SAME(주말=평일 따름) 또는 블록 없음
-        }
-
-        private static Double hoursBetween(LocalTime start, LocalTime end) {
-            if (start == null || end == null) {
-                return null;
-            }
-            long minutes = Duration.between(start, end).toMinutes();
-            return Math.round(minutes / 60.0 * 10) / 10.0;
         }
     }
 
