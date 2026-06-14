@@ -7,7 +7,7 @@ import com.diving.pungdong.global.security.JwtTokenProvider;
 import com.diving.pungdong.venue.Venue;
 import com.diving.pungdong.venue.VenueJpaRepo;
 import com.diving.pungdong.venue.VenueType;
-import com.diving.pungdong.venue.equipment.VenueEquipmentProfileJpaRepo;
+import com.diving.pungdong.venue.equipment.VenueEquipmentExtensionJpaRepo;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -52,7 +52,7 @@ class VenueEquipmentUseCaseTest {
     @Autowired JwtTokenProvider jwtTokenProvider;
     @Autowired AccountJpaRepo accountRepo;
     @Autowired VenueJpaRepo venueRepo;
-    @Autowired VenueEquipmentProfileJpaRepo profileRepo;
+    @Autowired VenueEquipmentExtensionJpaRepo extensionRepo;
     @Autowired RedisTemplate<String, String> redisTemplate;
 
     /** 공식 위치 캐시는 임베디드 Redis 에 process-전역으로 남는다 — 다른 테스트(@MockBean 리컨사일)의
@@ -67,7 +67,7 @@ class VenueEquipmentUseCaseTest {
 
     @AfterEach
     void cleanUp() {
-        profileRepo.deleteAll();
+        extensionRepo.deleteAll();
         venueRepo.deleteAll();
         accountRepo.deleteAll();
     }
@@ -118,15 +118,15 @@ class VenueEquipmentUseCaseTest {
         mockMvc.perform(get("/venue-equipment").param("venueRefId", ref)
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$._embedded.profiles[0].venueRefId").value(ref))
-                .andExpect(jsonPath("$._embedded.profiles[0].items").value(hasSize(3)))
+                .andExpect(jsonPath("$._embedded.extensions[0].venueRefId").value(ref))
+                .andExpect(jsonPath("$._embedded.extensions[0].items").value(hasSize(3)))
                 // 롱핀: SHOE_MM 프리셋 자동
-                .andExpect(jsonPath("$._embedded.profiles[0].items[0].sizeOptions").value(hasItem("250")))
+                .andExpect(jsonPath("$._embedded.extensions[0].items[0].sizeOptions").value(hasItem("250")))
                 // 마스크: NONE → 빈 옵션
-                .andExpect(jsonPath("$._embedded.profiles[0].items[1].sizeOptions").value(hasSize(0)))
+                .andExpect(jsonPath("$._embedded.extensions[0].items[1].sizeOptions").value(hasSize(0)))
                 // 슈트: CUSTOM → 준 값 그대로
-                .andExpect(jsonPath("$._embedded.profiles[0].items[2].sizeOptions").value(contains("3mm", "5mm")))
-                .andExpect(jsonPath("$._embedded.profiles[0].items[0].price").value(5000));
+                .andExpect(jsonPath("$._embedded.extensions[0].items[2].sizeOptions").value(contains("3mm", "5mm")))
+                .andExpect(jsonPath("$._embedded.extensions[0].items[0].price").value(5000));
     }
 
     @Test
@@ -144,8 +144,8 @@ class VenueEquipmentUseCaseTest {
         mockMvc.perform(get("/venue-equipment").param("venueRefId", ref)
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$._embedded.profiles[0].items").value(hasSize(1)))
-                .andExpect(jsonPath("$._embedded.profiles[0].items[0].name").value("마스크"));
+                .andExpect(jsonPath("$._embedded.extensions[0].items").value(hasSize(1)))
+                .andExpect(jsonPath("$._embedded.extensions[0].items[0].name").value("마스크"));
     }
 
     @Test
@@ -201,6 +201,6 @@ class VenueEquipmentUseCaseTest {
 
         mockMvc.perform(get("/venue-equipment").header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$._embedded.profiles").doesNotExist());
+                .andExpect(jsonPath("$._embedded.extensions").doesNotExist());
     }
 }

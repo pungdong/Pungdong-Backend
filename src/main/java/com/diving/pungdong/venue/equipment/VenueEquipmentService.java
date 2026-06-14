@@ -26,24 +26,24 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class VenueEquipmentService {
 
-    private final VenueEquipmentProfileJpaRepo profileRepo;
+    private final VenueEquipmentExtensionJpaRepo extensionRepo;
     private final VenueRefValidator venueRefValidator;
 
     /** 내 가격표 목록 — venueRefId 주면 그 위치만(없으면 빈 목록), 안 주면 전체. */
     public List<VenueEquipmentResponse> listMine(Account me, String venueRefId) {
-        List<VenueEquipmentProfile> profiles;
+        List<VenueEquipmentExtension> extensions;
         if (StringUtils.hasText(venueRefId)) {
-            profiles = profileRepo.findByOwnerIdAndVenueRefId(me.getId(), venueRefId)
+            extensions = extensionRepo.findByOwnerIdAndVenueRefId(me.getId(), venueRefId)
                     .map(List::of).orElseGet(List::of);
         } else {
-            profiles = profileRepo.findAllByOwnerIdOrderByIdDesc(me.getId());
+            extensions = extensionRepo.findAllByOwnerIdOrderByIdDesc(me.getId());
         }
-        return profiles.stream().map(VenueEquipmentResponse::from).collect(Collectors.toList());
+        return extensions.stream().map(VenueEquipmentResponse::from).collect(Collectors.toList());
     }
 
     /** 한 위치의 내 가격표(코스 읽기 시 위치별 장비 합성용). 없으면 empty. */
     public Optional<VenueEquipmentResponse> findMine(Account me, String venueRefId) {
-        return profileRepo.findByOwnerIdAndVenueRefId(me.getId(), venueRefId).map(VenueEquipmentResponse::from);
+        return extensionRepo.findByOwnerIdAndVenueRefId(me.getId(), venueRefId).map(VenueEquipmentResponse::from);
     }
 
     /** 한 위치의 가격표 저장(upsert) — items 전량 교체 스냅샷. */
@@ -51,19 +51,19 @@ public class VenueEquipmentService {
     public VenueEquipmentResponse upsert(Account me, VenueEquipmentRequest req) {
         validateVenueRef(me, req.getVenueRefId());
 
-        VenueEquipmentProfile profile = profileRepo
+        VenueEquipmentExtension extension = extensionRepo
                 .findByOwnerIdAndVenueRefId(me.getId(), req.getVenueRefId())
-                .orElseGet(() -> VenueEquipmentProfile.builder()
+                .orElseGet(() -> VenueEquipmentExtension.builder()
                         .owner(me).venueRefId(req.getVenueRefId())
                         .createdAt(LocalDateTime.now()).build());
 
-        profile.clearItems();
+        extension.clearItems();
         List<VenueEquipmentRequest.Item> items = req.getItems() == null ? List.of() : req.getItems();
         for (int i = 0; i < items.size(); i++) {
-            profile.addItem(buildItem(items.get(i), i));
+            extension.addItem(buildItem(items.get(i), i));
         }
-        profile.setUpdatedAt(LocalDateTime.now());
-        return VenueEquipmentResponse.from(profileRepo.save(profile));
+        extension.setUpdatedAt(LocalDateTime.now());
+        return VenueEquipmentResponse.from(extensionRepo.save(extension));
     }
 
     private VenueEquipmentItem buildItem(VenueEquipmentRequest.Item dto, int sortOrder) {
