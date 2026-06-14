@@ -2,11 +2,9 @@ package com.diving.pungdong.venue.equipment;
 
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
-import com.diving.pungdong.venue.VenueScope;
-import com.diving.pungdong.venue.VenueService;
+import com.diving.pungdong.venue.VenueRefValidator;
 import com.diving.pungdong.venue.equipment.dto.VenueEquipmentRequest;
 import com.diving.pungdong.venue.equipment.dto.VenueEquipmentResponse;
-import com.diving.pungdong.venue.sync.OfficialVenueCache;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,6 +13,7 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -28,8 +27,7 @@ import java.util.stream.Collectors;
 public class VenueEquipmentService {
 
     private final VenueEquipmentProfileJpaRepo profileRepo;
-    private final VenueService venueService;
-    private final OfficialVenueCache officialVenueCache;
+    private final VenueRefValidator venueRefValidator;
 
     /** 내 가격표 목록 — venueRefId 주면 그 위치만(없으면 빈 목록), 안 주면 전체. */
     public List<VenueEquipmentResponse> listMine(Account me, String venueRefId) {
@@ -41,6 +39,11 @@ public class VenueEquipmentService {
             profiles = profileRepo.findAllByOwnerIdOrderByIdDesc(me.getId());
         }
         return profiles.stream().map(VenueEquipmentResponse::from).collect(Collectors.toList());
+    }
+
+    /** 한 위치의 내 가격표(코스 읽기 시 위치별 장비 합성용). 없으면 empty. */
+    public Optional<VenueEquipmentResponse> findMine(Account me, String venueRefId) {
+        return profileRepo.findByOwnerIdAndVenueRefId(me.getId(), venueRefId).map(VenueEquipmentResponse::from);
     }
 
     /** 한 위치의 가격표 저장(upsert) — items 전량 교체 스냅샷. */
@@ -90,21 +93,6 @@ public class VenueEquipmentService {
     }
 
     private void validateVenueRef(Account me, String venueRefId) {
-        VenueScope.Ref ref = VenueScope.parse(venueRefId); // 형식 어긋나면 400
-        if (ref.getScope() == VenueScope.CUSTOM) {
-            long pk;
-            try {
-                pk = Long.parseLong(ref.getId());
-            } catch (NumberFormatException e) {
-                throw new BadRequestException();
-            }
-            if (!venueService.ownsCustomVenue(me, pk)) {
-                throw new BadRequestException();
-            }
-        } else { // OFFICIAL
-            if (!officialVenueCache.contains(ref.getId())) {
-                throw new BadRequestException();
-            }
-        }
+        venueRefValidator.validate(me, venueRefId);
     }
 }
