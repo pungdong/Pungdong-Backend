@@ -61,6 +61,7 @@ public class SecurityConfiguration {
                         .antMatchers("/venues/**").authenticated()
                         .antMatchers("/venue-equipment/**").authenticated()
                         .antMatchers("/course-images").authenticated()
+                        .antMatchers("/courses/**").authenticated()
                         .antMatchers("/address-search", "/geocode").authenticated()
                         .antMatchers("/account/instructor/**").hasRole("INSTRUCTOR")
                         .antMatchers("/lecture/create", "/lecture/update", "/lecture/delete", "/lecture/manage/list",
