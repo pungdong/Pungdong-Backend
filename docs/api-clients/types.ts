@@ -833,6 +833,56 @@ export interface CourseBrowseResponse extends HalLinks {
   page: { size: number; totalElements: number; totalPages: number; number: number };
 }
 
+// ── 공개 강의 상세 (course public detail) — 카드 → 상세 ──
+// docs/features/course-discovery.md (정책) · docs/architecture/course.md (구현)
+// GET /courses/{id}/detail — 공개(비로그인 가능). OPEN 코스만(비OPEN/없음 400, 존재 숨김).
+//   강사 편집용 GET /courses/{id}(CourseResponse, 원본 ticketRef·daypart) 와 달리 venue 를 합성:
+//   위치명·type·주소(area)·입장료(이용권×평일/주말 daypart fee)·장비.
+
+/**
+ * 공개 상세. CourseResponse(강사용)와 차이: ① venue 합성 — venues[]에 위치명/주소/입장료(이용권×daypart
+ * fee)/장비가 풀려 옴(강사용은 ticketRef·daypart 원본만). ② instructorName 만(경력·자격·평점은 강사 프로필/
+ * 리뷰 통합 후속). ③ status 없음(항상 OPEN). 입장료·장비는 회차별 변동이라 표시/안내용 — 확정 결제는 부킹.
+ */
+export interface CourseDetailResponse extends HalLinks {
+  id: number;
+  title: string;
+  kind: CourseKind;
+  organizationCode: string | null;
+  levels: CertLevel[];
+  isPackage: boolean;
+  disciplineCode: string;
+  totalRounds: number;
+  price: number; // 수강료(원)
+  description?: string;
+  media: { kind: MediaKind; url: string; sortOrder: number }[];
+  instructorId: number | null;
+  instructorName: string | null; // 강사 nickName
+  rounds: CourseDetailRoundResponse[];
+  venues: CourseDetailVenueResponse[]; // 회차 가로질러 dedupe + 합성 (진행 위치 섹션)
+}
+export interface CourseDetailRoundResponse {
+  roundKind: RoundKind;
+  roundIndex: number | null; // REGULAR 1..N, EXTRA null
+  description?: string;
+  freeCount?: number | null; // EXTRA 전용
+  perSessionPrice?: number | null; // EXTRA 전용
+  venueRefIds: string[]; // 이 회차 진행 위치(들) — venues[].venueRefId 참조
+}
+export interface CourseDetailVenueResponse {
+  venueRefId: string;
+  name: string;
+  type: VenueType;
+  area: string | null; // 도로명주소
+  tickets: CourseDetailTicketResponse[]; // 코스가 그 위치에서 쓰는 이용권 + 입장료
+  equipment: VenueEquipmentResponse | null;
+}
+export interface CourseDetailTicketResponse {
+  ticketRef: string;
+  ticketName: string; // 이용권 이름 (예: "일반권 (3시간)")
+  fees: { daypart: DaypartKind; fee: number }[]; // 평일/주말 입장료 — 시안의 단일 entry 아님
+}
+
 // ============================================================
 // 인증 실패 응답 코드 (참고용)
 // docs/architecture/sign-up.md 의 "보안 / 권한 매트릭스" 참고

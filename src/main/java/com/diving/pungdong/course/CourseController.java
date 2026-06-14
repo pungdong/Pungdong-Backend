@@ -6,6 +6,7 @@ import com.diving.pungdong.global.security.CurrentUser;
 import com.diving.pungdong.course.dto.CourseBrowseCondition;
 import com.diving.pungdong.course.dto.CourseCardResponse;
 import com.diving.pungdong.course.dto.CourseCreateRequest;
+import com.diving.pungdong.course.dto.CourseDetailResponse;
 import com.diving.pungdong.course.dto.CourseResponse;
 import com.diving.pungdong.course.dto.CourseStatusRequest;
 import com.diving.pungdong.course.dto.LevelLabelResponse;
@@ -124,6 +125,17 @@ public class CourseController {
     @GetMapping("/{id}")
     public ResponseEntity<?> detail(@CurrentUser Account account, @PathVariable Long id) {
         return ResponseEntity.ok().body(model(courseService.get(account, id)));
+    }
+
+    /**
+     * 공개 강의 상세(수강생) — 둘러보기 카드 → 상세. OPEN 코스만, 비로그인 가능. venue 합성으로 위치명·
+     * <b>입장료(이용권×평일/주말 daypart fee)</b>·장비 포함. 비OPEN/없음은 400(존재 숨김).
+     */
+    @GetMapping("/{id}/detail")
+    public ResponseEntity<?> publicDetail(@PathVariable Long id) {
+        EntityModel<CourseDetailResponse> model = EntityModel.of(courseService.publicDetail(id));
+        model.add(Link.of("/docs/api.html#resource-courses-detail").withRel("profile"));
+        return ResponseEntity.ok().body(model);
     }
 
     @PutMapping("/{id}")

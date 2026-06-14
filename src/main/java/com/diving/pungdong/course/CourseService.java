@@ -7,6 +7,7 @@ import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.course.dto.CourseBrowseCondition;
 import com.diving.pungdong.course.dto.CourseCardResponse;
 import com.diving.pungdong.course.dto.CourseCreateRequest;
+import com.diving.pungdong.course.dto.CourseDetailResponse;
 import com.diving.pungdong.course.dto.CourseResponse;
 import com.diving.pungdong.venue.Region;
 import com.diving.pungdong.venue.VenueRefResolver;
@@ -68,6 +69,24 @@ public class CourseService {
     public CourseResponse get(Account me, Long id) {
         Course course = requireOwned(me, id);
         return CourseResponse.from(course, equipmentMap(me, course));
+    }
+
+    /**
+     * 공개 강의 상세 — 둘러보기 카드 → 상세(OPEN 코스 누구나). 강사용 {@link #get} 과 달리 venue 를 합성:
+     * 위치 이름·type·주소, <b>입장료(이용권×daypart fee)</b>, 위치별 장비. 비OPEN/없음은 400(존재 숨김).
+     */
+    public CourseDetailResponse publicDetail(Long id) {
+        Course course = courseRepo.findById(id)
+                .filter(c -> c.getStatus() == CourseStatus.OPEN)
+                .orElseThrow(ResourceNotFoundException::new);
+        List<String> refs = course.getRounds().stream()
+                .flatMap(r -> r.getVenues().stream())
+                .map(RoundVenue::getVenueRefId)
+                .collect(Collectors.toList());
+        Map<String, com.diving.pungdong.venue.dto.VenueResponse> venueByRef = venueRefResolver.resolveVenues(refs);
+        // 장비는 강사×위치 가격표 — 공개 상세도 그 코스 강사의 가격표를 합성.
+        Map<String, VenueEquipmentResponse> equipByRef = equipmentMap(course.getInstructor(), course);
+        return CourseDetailResponse.from(course, venueByRef, equipByRef);
     }
 
     /** 내 강의 목록 — 카드용. 위치별 장비 합성은 상세에서만(목록은 빈 맵). */
