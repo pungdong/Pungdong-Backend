@@ -28,9 +28,11 @@ sanity/
    cd sanity
    pnpm install        # sanity/node_modules 에 설치 (Gradle 빌드와 무관)
    pnpm dev            # http://localhost:3333 Studio
-   pnpm deploy         # <project>.sanity.studio 로 배포 (운영이 여기서 콘텐츠 입력)
+   pnpm run deploy     # plopcool.sanity.studio 로 배포 (운영이 여기서 콘텐츠 입력)
    ```
-   > **독립 배포**: Studio 배포(`pnpm deploy` → `*.sanity.studio`)는 BE/FE 앱 배포와 **완전 별개**. BE 의 `./gradlew build` 는 이 폴더를 안 건드리고, FE 도 런타임에 `@sanity/client` 로 읽기만 한다.
+   > **명령은 `pnpm run deploy`** — 그냥 `pnpm deploy` 는 pnpm v9 가 내장 명령으로 가로채니 `run` 필수.
+   > 배포 주소(studioHost)는 `sanity.cli.ts` 에 `plopcool` 로 박혀 있어 프롬프트 없이 배포된다(첫 배포만 hostname 입력).
+   > **독립 배포**: Studio 배포(`pnpm run deploy` → `*.sanity.studio`)는 BE/FE 앱 배포와 **완전 별개**. BE 의 `./gradlew build` 는 이 폴더를 안 건드리고, FE 도 런타임에 `@sanity/client` 로 읽기만 한다.
 4. **데이터 입력** (Studio 에서):
    - 단체(certOrganization): `name`(굵은 표시명, 예 PADI) + `fullName`(부제 정식명칭, 예 Professional Association of Diving Instructors) + `code`(BE 전송값) + `disciplines`(예 AIDA→FREEDIVING,SCUBA / PADI→SCUBA,FREEDIVING). SSI/NAUI/CMAS/MOLCHANOVS/기타(`code: OTHER`)
    - 약관(term): 예) 개인정보 수집·이용(`key: privacy_collect`), 고유식별정보 CI/DI(`unique_id_ci_di`), 서비스/통신사 약관(`service_terms`).
