@@ -47,7 +47,7 @@ export const officialVenuesByDiscipline = `
     _id, name, type, maxDepth, address, addressDetail, latitude, longitude, "photos": photos[].asset->url,
     equipInfo,
     closures[]{ type, weekdays, nth, monthlyWeekday },
-    tickets[]{ name, disciplines, weekday ${VENUE_DAYPART}, weekend ${VENUE_DAYPART} }
+    tickets[]{ "_key": _key, name, disciplines, weekday ${VENUE_DAYPART}, weekend ${VENUE_DAYPART} }
   }
 `
 
@@ -57,7 +57,7 @@ export const venueById = `
   _id, name, type, maxDepth, address, addressDetail, latitude, longitude, "photos": photos[].asset->url,
   equipInfo,
   closures[]{ type, weekdays, nth, monthlyWeekday },
-  tickets[]{ name, disciplines, weekday ${VENUE_DAYPART}, weekend ${VENUE_DAYPART} }
+  tickets[]{ "_key": _key, name, disciplines, weekday ${VENUE_DAYPART}, weekend ${VENUE_DAYPART} }
 }
 `
 

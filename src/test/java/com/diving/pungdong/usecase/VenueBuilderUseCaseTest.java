@@ -147,6 +147,32 @@ class VenueBuilderUseCaseTest {
                 .andExpect(jsonPath("$._embedded.venues[?(@.name=='딥스테이션')]").value(empty()));
     }
 
+    /* ════════════════ F — 이용권 종목 필터 · ticketRef ════════════════ */
+
+    @Test
+    @DisplayName("F1 FREEDIVING 빌더 — 딥스테이션의 프리 이용권만, 스쿠버 전용 일반권은 빠진다(ticket 종목 필터)")
+    void f1_ticket_filtered_by_discipline() throws Exception {
+        Account me = account("f1@pungdong.com");
+
+        mockMvc.perform(get("/venues/builder").param("disciplineCode", "FREEDIVING")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.venues[?(@.name=='딥스테이션')].tickets[*].name", hasItem("일반권")))
+                .andExpect(jsonPath("$._embedded.venues[?(@.name=='딥스테이션')].tickets[*].name", not(hasItem("스쿠버 일반권"))));
+    }
+
+    @Test
+    @DisplayName("F2 SCUBA 빌더 — 딥스테이션의 프리·스쿠버 이용권 모두, 각 ticket 에 안정 ticketRef(=Sanity _key)")
+    void f2_scuba_tickets_and_ticketref() throws Exception {
+        Account me = account("f2@pungdong.com");
+
+        mockMvc.perform(get("/venues/builder").param("disciplineCode", "SCUBA")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.venues[?(@.name=='딥스테이션')].tickets[*].name", hasItems("일반권", "스쿠버 일반권")))
+                .andExpect(jsonPath("$._embedded.venues[?(@.name=='딥스테이션')].tickets[*].ticketRef", hasItems("deep-tk-1", "deep-tk-2")));
+    }
+
     /* ════════════════ R — 소유 격리 ════════════════ */
 
     @Test

@@ -458,7 +458,12 @@ export interface VenueDaypart {
 
 /** 이용 옵션 1종 = 한 카드(일반권/하프권/종일권 …). 권종은 카드를 추가하는 것 — 이용시간은 파생. */
 export interface VenueTicket {
-  id?: number; // 응답 전용
+  /**
+   * 이용권 안정 식별자 — 코스 저장 시 CourseVenueRequest.tickets[].ticketRef 로 그대로 보낸다.
+   * CUSTOM = DB pk 문자열, OFFICIAL = Sanity 배열 _key. ★ 예전 `id`(number) 가정 폐기 — OFFICIAL 은
+   * id 가 없어 ticketRef 를 써야 한다.
+   */
+  ticketRef: string;
   name?: string;
   sortOrder?: number;
   /** 적용 종목 코드(disciplines.code). CUSTOM 은 lockedDisciplineCode 1개로 강제(OFFICIAL/Sanity 는 멀티 가능). */

@@ -57,6 +57,7 @@ flowchart TB
 
 - BE 는 **커스텀을 소유**하고 **공식을 캐시**(Sanity 서버사이드 읽기). 공식 위치 **공개 표시**는 여전히 FE 가 Sanity 직접 읽기(certOrganization·term 과 동일).
 - **코스 빌더 official+custom 통합** = `GET /venues/builder` — BE 가 official(캐시)+custom(DB)을 합쳐 반환(FE 소스 무지, §3.2). 신선도는 `_rev` 대조 reconcile + 웹훅이 유지, 잡 생존은 health heartbeat 가 감시(§6 → 구현됨).
+- **이용권 종목 필터 + ticketRef** — 빌더는 venue 뿐 아니라 **그 venue 의 이용권(ticket)도 `disciplineCode` 로 필터**(한 위치가 종목별 ticket 보유 가능 — 예: 딥스테이션 스쿠버 일반권 vs 프리 일반권). 각 ticket 은 코스 저장에 쓸 **안정 `ticketRef`**(CUSTOM=DB pk / OFFICIAL=Sanity `_key`)를 가진다 — FE 는 `id`(OFFICIAL 은 없음) 대신 이걸 쓴다. (관리용 `GET /venues` 는 ticket 필터 안 함.)
 
 ## 3. 핵심 흐름
 

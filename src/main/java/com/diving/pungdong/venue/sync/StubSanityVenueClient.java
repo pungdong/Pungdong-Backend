@@ -40,9 +40,12 @@ public class StubSanityVenueClient implements SanityVenueClient {
                 + "\"address\":\"경기도 용인시 처인구 포곡읍 성산로 523\",\"addressDetail\":\"딥스테이션\","
                 + "\"latitude\":37.25,\"longitude\":127.21,\"equipInfo\":\"풀세트 입장료 포함\","
                 + "\"closures\":[{\"type\":\"WEEKLY\",\"weekdays\":[\"MONDAY\"]}],"
-                + "\"tickets\":[{\"name\":\"일반권\",\"disciplines\":[\"FREEDIVING\",\"SCUBA\"],"
+                + "\"tickets\":["
+                + "{\"_key\":\"deep-tk-1\",\"name\":\"일반권\",\"disciplines\":[\"FREEDIVING\",\"SCUBA\"],"
                 + "\"weekday\":{\"sold\":true,\"fee\":48000,\"timeMode\":\"FIXED\",\"blocks\":[{\"start\":\"06:00\",\"end\":\"09:00\"}]},"
-                + "\"weekend\":{\"sold\":true,\"fee\":55000,\"timeMode\":\"SAME\"}}]"
+                + "\"weekend\":{\"sold\":true,\"fee\":55000,\"timeMode\":\"SAME\"}},"
+                + "{\"_key\":\"deep-tk-2\",\"name\":\"스쿠버 일반권\",\"disciplines\":[\"SCUBA\"],"
+                + "\"weekday\":{\"sold\":true,\"fee\":55000,\"timeMode\":\"FIXED\",\"blocks\":[{\"start\":\"06:00\",\"end\":\"09:00\"}]}}]"
                 + "}");
     }
 
@@ -54,7 +57,7 @@ public class StubSanityVenueClient implements SanityVenueClient {
                 + "\"address\":\"강원특별자치도 양양군 현남면\",\"addressDetail\":null,"
                 + "\"latitude\":38.0,\"longitude\":128.6,\"equipInfo\":null,"
                 + "\"closures\":[],"
-                + "\"tickets\":[{\"name\":\"종일권\",\"disciplines\":[\"SCUBA\"],"
+                + "\"tickets\":[{\"_key\":\"yang-tk-1\",\"name\":\"종일권\",\"disciplines\":[\"SCUBA\"],"
                 + "\"weekday\":{\"sold\":true,\"fee\":30000,\"timeMode\":\"OPEN\",\"open\":\"09:00\",\"close\":\"18:00\",\"holdHours\":3},"
                 + "\"weekend\":{\"sold\":false}}]"
                 + "}");
