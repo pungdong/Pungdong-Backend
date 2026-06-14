@@ -10,6 +10,7 @@ const CERT_LEVELS = [
   {title: '레벨 3', value: 'LEVEL_3'},
   {title: '레벨 4', value: 'LEVEL_4'},
   {title: '강사 (Instructor)', value: 'INSTRUCTOR'},
+  {title: '강사 양성 (Instructor Trainer)', value: 'INSTRUCTOR_TRAINER'},
 ]
 const LEVEL_KO: Record<string, string> = Object.fromEntries(CERT_LEVELS.map((l) => [l.value, l.title]))
 
