@@ -3,14 +3,21 @@ package com.diving.pungdong.course;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.security.CurrentUser;
+import com.diving.pungdong.course.dto.CourseBrowseCondition;
+import com.diving.pungdong.course.dto.CourseCardResponse;
 import com.diving.pungdong.course.dto.CourseCreateRequest;
 import com.diving.pungdong.course.dto.CourseResponse;
 import com.diving.pungdong.course.dto.CourseStatusRequest;
+import com.diving.pungdong.venue.Region;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PagedResourcesAssembler;
 import org.springframework.hateoas.CollectionModel;
 import org.springframework.hateoas.EntityModel;
 import org.springframework.hateoas.Link;
 import org.springframework.hateoas.MediaTypes;
+import org.springframework.hateoas.PagedModel;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
@@ -26,7 +33,7 @@ import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
  * 합성, 사진은 {@code POST /course-images} 로 선업로드한 url.
  *
  * <p>매처 {@code /courses/**} → authenticated (강사 트랙; 리뷰 대기 STUDENT 도 draft 준비 — venue 동일).
- * 공개(수강생) 조회 엔드포인트는 후속. PII 없음 → GET 무방.
+ * 단 {@code GET /courses/browse} 만 공개(permitAll) — 수강생 메인 홈/둘러보기. PII 없음 → GET 무방.
  */
 @RestController
 @RequestMapping(value = "/courses", produces = MediaTypes.HAL_JSON_VALUE)
@@ -42,6 +49,46 @@ public class CourseController {
             throw new BadRequestException();
         }
         return ResponseEntity.status(201).body(model(courseService.create(account, request)));
+    }
+
+    /**
+     * 공개 둘러보기(수강생 메인 홈) — OPEN 코스만, 종목/지역/레벨·종류/단체/가격 필터 + 정렬, 페이지네이션.
+     * 빈 결과는 200(빈 페이지). "결과 N개"는 PagedModel 의 totalElements. 레벨 칩 분배 규칙은
+     * {@link CourseBrowseCondition} 참고.
+     *
+     * <p>{@code disciplineCode} 는 <b>필수</b> — 종목별로 카탈로그가 크게 달라 화면이 항상 한 종목으로
+     * 진입(메인 상단 종목 select). 누락은 400. (UI 필터엔 노출 안 하지만 호출엔 항상 채워 보낸다.)
+     */
+    @GetMapping("/browse")
+    public ResponseEntity<?> browse(@RequestParam(required = false) String disciplineCode,
+                                    @RequestParam(required = false) String keyword,
+                                    @RequestParam(required = false) Region region,
+                                    @RequestParam(required = false) List<CourseKind> kinds,
+                                    @RequestParam(required = false) List<CertLevel> levels,
+                                    @RequestParam(required = false) List<String> organizationCodes,
+                                    @RequestParam(required = false) Integer minPrice,
+                                    @RequestParam(required = false) Integer maxPrice,
+                                    @RequestParam(required = false) CourseBrowseCondition.Sort sort,
+                                    Pageable pageable,
+                                    PagedResourcesAssembler<CourseCardResponse> assembler) {
+        if (!org.springframework.util.StringUtils.hasText(disciplineCode)) {
+            throw new BadRequestException(); // 종목 필수 — 종목 없는 둘러보기는 없음
+        }
+        CourseBrowseCondition condition = CourseBrowseCondition.builder()
+                .disciplineCode(disciplineCode)
+                .keyword(keyword)
+                .region(region)
+                .kinds(kinds)
+                .levels(levels)
+                .organizationCodes(organizationCodes)
+                .minPrice(minPrice)
+                .maxPrice(maxPrice)
+                .sort(sort)
+                .build();
+        Page<CourseCardResponse> page = courseService.browse(condition, pageable);
+        PagedModel<EntityModel<CourseCardResponse>> model = assembler.toModel(page);
+        model.add(Link.of("/docs/api.html#resource-courses-browse").withRel("profile"));
+        return ResponseEntity.ok().body(model);
     }
 
     /** 내 강의 목록(카드). */
