@@ -3,36 +3,32 @@ package com.diving.pungdong.global.config;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import redis.embedded.RedisServer;
 
-import java.io.IOException;
-import java.net.ServerSocket;
-
 /**
- * 테스트용 embedded Redis. 클래스 로딩 시점에 OS 가 비어있는 포트를 선택해
- * {@code spring.redis.port} 시스템 프로퍼티에 박아두면, Spring 의 Redis
- * auto-config 이 그 포트로 LettuceConnectionFactory 를 만든다.
- * <p>
- * 등록 방식: {@code src/test/resources/META-INF/spring/
- * org.springframework.boot.autoconfigure.AutoConfiguration.imports} 에
- * FQCN 을 적어두면 {@code @SpringBootTest} 가 자동 로드. 개별 테스트의
- * {@code @Import} 가 필요 없음 (이전에는 필요했음).
- * <p>
- * 동기 (2026-05-19 Phase 0 deferred #2 후속): 이전에는 application-test.yml 의
- * 6379 고정 포트를 썼는데 Spring 의 컨텍스트 캐시가 분리되면 두 컨텍스트가
- * 동시에 6379 를 바인딩하려다 충돌. 임의 포트 + auto-config 으로 바꾸면
- * 모든 테스트 컨텍스트가 자동으로 같은 RedisServer (JVM 하나에 ClassLoader
- * 하나, 정적 블록 1회) 를 공유한다. 컨트롤러 테스트가 {@code @Import} 안 해도
- * 인증 필터가 의존하는 Redis 가 살아있음.
+ * 테스트용 embedded Redis. <b>docker Redis(6379)와 분리된 고정 포트 {@value #TEST_REDIS_PORT}</b> 로
+ * 띄워, 테스트가 로컬 dev 의 docker Redis 를 오염시키지 않게 한다. {@code application-test.yml} 의
+ * {@code spring.redis.port} 도 같은 값이라, RedisProperties 바인딩 타이밍과 무관하게 항상 이 임베디드
+ * 인스턴스를 쓴다.
+ *
+ * <p>등록 방식: {@code src/test/resources/META-INF/spring/
+ * org.springframework.boot.autoconfigure.AutoConfiguration.imports} 에 FQCN 을 적어두면
+ * {@code @SpringBootTest} 가 자동 로드. static 블록 1회(JVM 하나, ClassLoader 하나)라 모든 테스트
+ * 컨텍스트가 같은 RedisServer 를 공유한다.
+ *
+ * <p>히스토리: 이전엔 {@code findFreePort()} 임의 포트 + {@code System.setProperty} 였는데, 이 static
+ * 블록이 {@code RedisAutoConfiguration} 의 바인딩보다 <b>늦게</b> 적용돼 결국 yml 의 6379(=docker Redis)에
+ * 붙어, 테스트(stub 프로필)가 docker Redis 에 stub venue 캐시를 누설했다(로컬 dev 빌더가 그걸 읽어 OFFICIAL
+ * 위치가 stub 으로 보임). 고정 포트 + yml 일치로 그 타이밍 의존을 제거.
  */
 @AutoConfiguration
 public class EmbeddedRedisConfig {
 
+    /** docker Redis(6379)와 안 겹치는 테스트 전용 포트 — {@code application-test.yml} 과 반드시 일치시킬 것. */
+    public static final int TEST_REDIS_PORT = 16379;
+
     static {
         try {
-            int port = findFreePort();
-            // RedisProperties (`@ConfigurationProperties("spring.redis")`) 가 binding 될 때
-            // system property 가 application-test.yml 의 값보다 우선이라 이 한 줄로 충분.
-            System.setProperty("spring.redis.port", String.valueOf(port));
-            RedisServer server = new RedisServer(port);
+            System.setProperty("spring.redis.port", String.valueOf(TEST_REDIS_PORT));
+            RedisServer server = new RedisServer(TEST_REDIS_PORT);
             server.start();
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 try {
@@ -40,14 +36,8 @@ public class EmbeddedRedisConfig {
                 } catch (Exception ignored) {
                 }
             }));
-        } catch (IOException e) {
-            throw new IllegalStateException("Failed to start embedded Redis on a free port", e);
-        }
-    }
-
-    private static int findFreePort() throws IOException {
-        try (ServerSocket socket = new ServerSocket(0)) {
-            return socket.getLocalPort();
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to start embedded Redis on port " + TEST_REDIS_PORT, e);
         }
     }
 }

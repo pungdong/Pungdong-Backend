@@ -8,7 +8,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * 공식 위치 reconcile 주기 트리거 — {@code @Profile("!test")} (테스트는 reconcile() 직접 호출).
- * 주기는 {@code pungdong.venue.reconcile.interval-ms}(기본 10분). 잡이 조용히 죽으면
+ * 첫 실행은 부팅 후 {@code pungdong.venue.reconcile.initial-delay-ms}(기본 30초 — 캐시를 빨리 실 Sanity 와
+ * 맞춤), 이후 주기는 {@code interval-ms}(기본 10분). 잡이 조용히 죽으면
  * {@link OfficialVenueReconcileHealthIndicator} 가 staleness 로 감지(heartbeat).
  *
  * <p>{@code @EnableScheduling} 은 {@code PungdongApplication} 에 이미 있음(notification 잡들과 공유).
@@ -22,7 +23,7 @@ public class OfficialVenueReconcileScheduler {
     private final OfficialVenueReconciler reconciler;
 
     @Scheduled(
-            initialDelayString = "${pungdong.venue.reconcile.interval-ms:600000}",
+            initialDelayString = "${pungdong.venue.reconcile.initial-delay-ms:30000}",
             fixedDelayString = "${pungdong.venue.reconcile.interval-ms:600000}")
     public void tick() {
         try {
