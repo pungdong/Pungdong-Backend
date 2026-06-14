@@ -2,7 +2,7 @@
 
 이 폴더를 열면 자동 로드되는 좁은 컨텍스트. 전체 컨벤션은 루트 [CLAUDE.md](../CLAUDE.md). 셋업/사용은 [README.md](README.md).
 
-> **이 BE 레포가 소유**. Sanity 는 별도 호스티드 CMS(3rd-party 클라우드, "우리 DB" 아님). Studio(스키마+config)는 어드민 편집 정의 + 독립 배포(`pnpm deploy` → `*.sanity.studio`)일 뿐 — **BE Gradle 빌드도 FE 도 이 폴더를 런타임에 안 건드린다**. FE 가 아니라 여기 있는 이유: 스키마 계약을 BE 도메인이 소유하고(아래), BE 가 `term` 을 서버사이드로 읽음(동의 박제).
+> **이 BE 레포가 소유**. Sanity 는 별도 호스티드 CMS(3rd-party 클라우드, "우리 DB" 아님). Studio(스키마+config)는 어드민 편집 정의 + 독립 배포(`pnpm run deploy` → `*.sanity.studio`)일 뿐 — **BE Gradle 빌드도 FE 도 이 폴더를 런타임에 안 건드린다**. FE 가 아니라 여기 있는 이유: 스키마 계약을 BE 도메인이 소유하고(아래), BE 가 `term` 을 서버사이드로 읽음(동의 박제).
 
 ## 무엇이 들어있나
 
