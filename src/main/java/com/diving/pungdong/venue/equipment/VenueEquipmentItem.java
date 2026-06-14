@@ -22,8 +22,8 @@ public class VenueEquipmentItem {
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "profile_id")
-    private VenueEquipmentProfile profile;
+    @JoinColumn(name = "extension_id")
+    private VenueEquipmentExtension extension;
 
     /** 예: 롱핀, 마스크·스노클, 슈트. */
     private String name;

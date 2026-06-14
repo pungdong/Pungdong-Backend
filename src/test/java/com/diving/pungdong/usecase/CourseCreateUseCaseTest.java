@@ -8,7 +8,7 @@ import com.diving.pungdong.global.security.JwtTokenProvider;
 import com.diving.pungdong.venue.Venue;
 import com.diving.pungdong.venue.VenueJpaRepo;
 import com.diving.pungdong.venue.VenueType;
-import com.diving.pungdong.venue.equipment.VenueEquipmentProfileJpaRepo;
+import com.diving.pungdong.venue.equipment.VenueEquipmentExtensionJpaRepo;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,7 +54,7 @@ class CourseCreateUseCaseTest {
     @Autowired JwtTokenProvider jwtTokenProvider;
     @Autowired AccountJpaRepo accountRepo;
     @Autowired VenueJpaRepo venueRepo;
-    @Autowired VenueEquipmentProfileJpaRepo profileRepo;
+    @Autowired VenueEquipmentExtensionJpaRepo extensionRepo;
     @Autowired CourseJpaRepo courseRepo;
     @Autowired RedisTemplate<String, String> redisTemplate;
 
@@ -69,7 +69,7 @@ class CourseCreateUseCaseTest {
     @AfterEach
     void cleanUp() {
         courseRepo.deleteAll();
-        profileRepo.deleteAll();
+        extensionRepo.deleteAll();
         venueRepo.deleteAll();
         accountRepo.deleteAll();
     }

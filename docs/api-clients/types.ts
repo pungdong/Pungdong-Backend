@@ -520,7 +520,7 @@ export interface VenueResponse extends HalLinks {
   updatedAt?: string;
 }
 
-// ── 대여 장비 가격표 (venue-extension) — docs/architecture/venue.md ──
+// ── 대여 장비 가격표 (equipment extension) — docs/architecture/venue.md ──
 // 장비 대여료는 위치별로 다름(딥스테이션 무료포함 ↔ 5m풀 유료) → 강사 × 위치 단위 가격표(강사 전역,
 // 모든 코스 공유, "어디서 바꿔도 신규 접수부터 적용"). 위치는 venueRefId(빌더 목록이 준 토큰)로 가리킴.
 // 모두 인증(강사 트랙). GET /venue-equipment(?venueRefId= 단건/전체) · PUT /venue-equipment(upsert).
@@ -547,7 +547,7 @@ export interface VenueEquipmentRequest {
   items: VenueEquipmentItem[];
 }
 
-/** 가격표 응답. 목록은 `_embedded.profiles`(CollectionModel). */
+/** 가격표 응답. 목록은 `_embedded.extensions`(CollectionModel). */
 export interface VenueEquipmentResponse extends HalLinks {
   id: number;
   venueRefId: string;

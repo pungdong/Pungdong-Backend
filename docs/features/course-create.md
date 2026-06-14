@@ -14,7 +14,7 @@
 |---|---|---|
 | 코스 | [course.md](../architecture/course.md) | Course aggregate · 생성/조회 API · 회차·추가세션 |
 | 위치 | [venue.md](venue.md) · [architecture/venue.md](../architecture/venue.md) | `GET /venues/builder`(official+custom) · `venueRefId` 참조·검증 |
-| 장비 | [architecture/venue.md](../architecture/venue.md) | 강사×위치 가격표(venue-extension) → 코스 읽기 시 합성 |
+| 장비 | [architecture/venue.md](../architecture/venue.md) | 강사×위치 가격표(equipment extension) → 코스 읽기 시 합성 |
 | 종목 | [discipline.md](../architecture/discipline.md) | disciplineCode 검증 |
 | 자격증 카탈로그 | [Sanity](../../sanity/CLAUDE.md) | 단체·평탄화 레벨(FE 직접 읽기, BE 는 `CertLevel` enum) |
 | 사진 | [course.md](../architecture/course.md) | `POST /course-images` (S3/로컬 stub, 2-phase) |
@@ -34,7 +34,7 @@
 
 ### 위치 · 장비 (venue 도메인 소유, 코스는 참조)
 - 강사는 **"위치목록"** 하나만 요청(`GET /venues/builder`)하면 official(Sanity)+custom(내 DB)이 합쳐 온다. 코스는 고른 위치를 **`venueRefId`**("CUSTOM:&lt;pk&gt;"/"OFFICIAL:&lt;sanityId&gt;")로 가리키고, 저장 시 검증(내 custom / 캐시된 official).
-- **위치별 대여 장비**는 코스가 아니라 강사×위치 가격표(venue-extension). 코스 상세는 그 가격표를 **읽기 시점 합성**해 보여준다 — 가격 바꾸면 모든 코스에 반영(코스에 복제 안 함).
+- **위치별 대여 장비**는 코스가 아니라 강사×위치 가격표(equipment extension). 코스 상세는 그 가격표를 **읽기 시점 합성**해 보여준다 — 가격 바꾸면 모든 코스에 반영(코스에 복제 안 함).
 - 코스는 위치의 **이용권 선택**(ticketRef × 평일/주말)만 보관. 실제 가격·시간 해석은 부킹 시점(후속).
 
 ### 상태 · 검수
@@ -50,7 +50,7 @@
 | 2026-06-14 | 코스 작성 4-PR로 분할(기반부터 단계적) | #46~#49 + 본 PR |
 | 2026-06-14 | **자격증 평탄화 레벨 카탈로그 = Sanity, 사진 = S3/로컬 stub** | #46 |
 | 2026-06-14 | **위치 = `GET /venues/builder` 통합(official+custom) + Sanity 동기화 인프라** | #48 |
-| 2026-06-14 | **장비 = 강사×위치 가격표(venue-extension), 코스 비소유** | #49 |
+| 2026-06-14 | **장비 = 강사×위치 가격표(equipment extension), 코스 비소유** | #49 |
 | 2026-06-14 | **Course 본 도메인** — 회차/추가세션(EXTRA)/상태(검수 없음)/CourseKind 로 체험·트레이닝 분리 | 본 PR |
 
 ## 미해결 / 확장
