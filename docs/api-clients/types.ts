@@ -165,6 +165,22 @@ export interface CheckNickNameResponse extends HalLinks {
   exists: boolean;
 }
 
+// ── 계정 조회 (account) — docs/architecture/sign-up.md ──
+// GET /account (인증) — 현재 계정 기본 정보. `roles` 로 강사/수강생 화면 분기(권위 소스).
+// ★ JWT 의 roles 클레임이 아니라 이 값으로 분기 — role 은 additive 이고 서버가 매 요청 재계산하므로
+//   강사 승인 직후에도 정확(토큰은 발급 시점 고정이라 stale). (프로필 탭용 통합 조회 API 는 후속.)
+
+export interface AccountBasicInfo extends HalLinks {
+  id: number;
+  email: string;
+  nickName: string;
+  birth?: string;
+  gender?: Gender;
+  phoneNumber?: string;
+  /** 강사면 'INSTRUCTOR' 포함(STUDENT 와 함께). FE 탭 분기는 roles.includes('INSTRUCTOR'). */
+  roles: Role[];
+}
+
 // ============================================================
 // 알림 / 디바이스 토큰 (notification 도메인)
 // docs/architecture/notification.md 참고
