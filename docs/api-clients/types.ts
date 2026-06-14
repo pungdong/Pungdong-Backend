@@ -884,6 +884,112 @@ export interface CourseDetailTicketResponse {
 }
 
 // ============================================================
+// 강사 가용시간 캘린더 (availability 도메인)
+// docs/architecture/availability.md · docs/features/instructor-availability.md 참고
+// ============================================================
+// 2층 모델: 가용시간 window(이론적 가능성) + 점유 hold(외부/수동). 5상태는 저장값 아니라 점유에서 파생.
+// v1 미연동: 풍덩 수강생 점유(pending/confirmed/applicants[])는 enrollment 도메인 산물 — 항상 0/빈 배열.
+
+/** 가용시간 생성 반복 모드 — "이 날만 / 주 / 4주". */
+export type RecurrenceMode = 'ONCE' | 'WEEKLY' | 'FOUR_WEEKS';
+
+/** 슬롯 표시 상태 — 저장값 아님, 점유에서 파생. v1 은 AVAILABLE↔EXTERNAL/FULL 만 실제로 그려짐. */
+export type SlotStatus = 'AVAILABLE' | 'PENDING' | 'CONFIRMED' | 'EXTERNAL' | 'FULL';
+
+/**
+ * 가용시간 생성 — POST /instructor/availability. instructor 는 현재 계정(바디 아님).
+ * ONCE = date 하루. WEEKLY/FOUR_WEEKS = dayOfWeeks 요일들을 1주/4주에 전개(기준 주부터, 과거일 제외).
+ * 응답은 전개된 window 들의 CollectionModel(_embedded.windows), 201.
+ */
+export interface AvailabilityCreateRequest {
+  mode: RecurrenceMode;
+  /** 기준 날짜 (ISO "YYYY-MM-DD"). */
+  date: string;
+  /** WEEKLY/FOUR_WEEKS 에서 열 요일(ISO DayOfWeek 대문자). ONCE 면 무시. */
+  dayOfWeeks?: Weekday[];
+  /** "HH:mm" 또는 "HH:mm:ss". */
+  startTime: string;
+  endTime: string;
+  /** 정원 — 1 이상. */
+  capacity: number;
+  /** 위치 토큰(선택) — "CUSTOM:<pk>"|"OFFICIAL:<sanityId>". 빈 가용시간이면 생략. */
+  venueRefId?: string;
+  /** 세션 라벨(선택) — "1부"/"오후". */
+  sessionLabel?: string;
+}
+
+/** 가용시간 수정 — PUT /instructor/availability/{id}. 정원을 현재 점유 미만으로 낮추면 400. */
+export interface AvailabilityUpdateRequest {
+  date: string;
+  startTime: string;
+  endTime: string;
+  capacity: number;
+  venueRefId?: string;
+  sessionLabel?: string;
+}
+
+/**
+ * 점유 추가 — POST /instructor/availability/{id}/holds (201). 단일 hold 테이블에 row 1개.
+ * memo 없음 = ± 빠른조정 / memo 있음 = 외부예약. filled+count > capacity 면 정원 자동 확장.
+ */
+export interface HoldRequest {
+  /** 인원 — 1 이상. */
+  count: number;
+  /** 외부예약 메모(선택). 생략/공백이면 ± 빠른조정. */
+  memo?: string;
+}
+
+/** 점유 hold 1건 — window 응답 안 holds[]. */
+export interface HoldResponse {
+  id: number;
+  count: number;
+  /** null=±빠른조정, 값=외부예약. */
+  memo: string | null;
+}
+
+/**
+ * 슬롯 안 학생 요약 — 이름·단체레벨·대여장비. **v1 은 항상 빈 배열**(enrollment 미연동, 모양만).
+ * kind='external' 이면 외부 점유 행, 없으면 풍덩 학생.
+ */
+export interface ApplicantSummaryResponse {
+  name: string;
+  courseTag: string;
+  gear: string[];
+  kind?: 'external';
+}
+
+/**
+ * 가용시간 window 응답 — 캘린더 한 블록. 목록은 `_embedded.windows`(CollectionModel).
+ * - GET /instructor/availability?from&to : 범위 조회(일/주/월 뷰는 FE 가 범위로).
+ * - POST /instructor/availability : 전개된 windows 컬렉션(201).
+ * - GET/PUT/POST {id}(/holds...) : 단건.
+ * status·filled·*Count 는 BE 가 점유에서 파생(저장값 아님). confirmedCount/pendingCount/applicants 는 v1 0/빈.
+ */
+export interface AvailabilityWindowResponse extends HalLinks {
+  id: number;
+  date: string;
+  startTime: string;
+  endTime: string;
+  capacity: number;
+  status: SlotStatus;
+  /** 찬 자리 = confirmedCount + externalCount. */
+  filled: number;
+  /** 풍덩 확정 점유 — v1 항상 0. */
+  confirmedCount: number;
+  /** 외부/수동 hold 점유 합. */
+  externalCount: number;
+  /** 풍덩 대기 신청 — v1 항상 0. */
+  pendingCount: number;
+  venueRefId: string | null;
+  /** venueRefId 해석 표시명(미지정/미존재면 null). */
+  venueName: string | null;
+  sessionLabel: string | null;
+  holds: HoldResponse[];
+  /** v1 빈 배열 — enrollment 가 붙으면 채워짐. */
+  applicants: ApplicantSummaryResponse[];
+}
+
+// ============================================================
 // 인증 실패 응답 코드 (참고용)
 // docs/architecture/sign-up.md 의 "보안 / 권한 매트릭스" 참고
 // ============================================================
