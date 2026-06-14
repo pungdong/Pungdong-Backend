@@ -452,8 +452,8 @@ export interface VenueDaypart {
   openEnd?: string; // OPEN "22:00:00"
   holdHours?: number; // OPEN 키반납 시간
   timeBlocks: VenueTimeBlock[];
-  /** 응답 전용 — 파생 이용시간(시간). FIXED=첫 블록 길이, OPEN=키반납, SAME=null. 요청 시 무시. */
-  durationHours?: number | null;
+  // (durationHours 자동 파생 제거 — 시간블록과 실제 이용시간이 다른 운영 사례(예: 6h 블록·5h 이용)가
+  //  있어 신뢰 불가. 이용시간 표기는 이용권 name 의 "(N시간)"(어드민 입력)을 쓴다.)
 }
 
 /** 이용 옵션 1종 = 한 카드(일반권/하프권/종일권 …). 권종은 카드를 추가하는 것 — 이용시간은 파생. */

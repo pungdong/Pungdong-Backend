@@ -84,7 +84,7 @@ sequenceDiagram
   end
   Note over VS: 모든 티켓 disciplineCodes 를 locked 1개로 강제(불일치 400)<br/>검증(평일 daypart 필수·FIXED 블록·OPEN 키반납)
   VS->>DB: save(Venue owner=me)
-  VS-->>FE: 201 VenueResponse (scope="CUSTOM", durationHours 파생)
+  VS-->>FE: 201 VenueResponse (scope="CUSTOM")
 ```
 
 ### 3.2 읽기 경로 — 목적별 둘 (FE 는 데이터 소스를 모른다)
@@ -188,7 +188,7 @@ erDiagram
 - 저장 시 `venueRefId` 검증 — CUSTOM=내 소유 위치(`VenueService.ownsCustomVenue`), OFFICIAL=Sanity 캐시 존재(`OfficialVenueCache.contains`). 아니면 400.
 
 설계 의도:
-- **이용시간(3/5/9h)은 저장 안 함** — 시간블록/키반납에서 파생(`VenueResponse.Daypart.durationHours`). 권종은 티켓 카드 추가.
+- **이용시간 표기 = 이용권 name 의 "(N시간)"** (어드민 입력). 시간블록 자동 파생(`durationHours`)은 **제거** — 6h 블록·5h 이용 같은 운영 사례(딥스테이션 하프권)로 타임 계산이 name 과 어긋나 혼선. 권종은 티켓 카드 추가.
 - **종목 = 코드 문자열 soft-ref**(`discipline.code`). CUSTOM 은 `lockedDisciplineCode` 1개로 강제.
 - **수정 = 전량 교체 스냅샷**(`clearChildren()` + 재구성, orphanRemoval) — instructor-application 재제출과 동일.
 - OFFICIAL(Sanity) 도 동형 모델(이용 옵션·daypart·휴무) — 스키마는 `sanity/schemas/venue.ts`.
@@ -224,7 +224,7 @@ erDiagram
 커스텀 CRUD 는 `usecase/VenueUseCaseTest` (실 H2 + 시큐리티, Redis 불필요), 통합·동기화는 `usecase/VenueBuilderUseCaseTest` · `VenueReconcileTest` · `SanityWebhookUseCaseTest` (임베디드 Redis + stub Sanity). `@DisplayName` 위→아래 = 사양:
 
 - `S1` 강사가 리뷰 대기(SUBMITTED) 중 커스텀 생성 → owner=본인·종목 잠금·휴무·주소(도로명+세부)·최대수심 박힘
-- `S2` 상시 입장(OPEN) → 응답 `durationHours` = 키반납 시간 파생
+- `S2` 상시 입장(OPEN) → 응답 `holdHours` = 키반납 시간
 - `G1` 그 종목 신청 없는 계정 → 400 (게이트)
 - `V1`~`V3` 종목 잠금 누락 / FIXED 블록 0개 / 잠긴 종목 불일치 → 400
 - `R1`·`R2` 남의 커스텀 비가시(400) / 남의 커스텀 수정·삭제(400)

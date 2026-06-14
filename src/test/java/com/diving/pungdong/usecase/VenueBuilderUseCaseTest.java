@@ -92,10 +92,7 @@ class VenueBuilderUseCaseTest {
                 .andExpect(jsonPath("$._embedded.venues[?(@.name=='딥스테이션')].venueRefId")
                         .value(hasItem("OFFICIAL:official-deepstation")))
                 .andExpect(jsonPath("$._embedded.venues[?(@.name=='딥스테이션')].maxDepth").value(hasItem(36)))
-                .andExpect(jsonPath("$._embedded.venues[?(@.name=='딥스테이션')].type").value(hasItem("DEEP_POOL")))
-                // 평일 FIXED 06:00–09:00 → durationHours 3.0 파생
-                .andExpect(jsonPath("$._embedded.venues[?(@.name=='딥스테이션')].tickets[0].dayparts[0].durationHours")
-                        .value(hasItem(3.0)));
+                .andExpect(jsonPath("$._embedded.venues[?(@.name=='딥스테이션')].type").value(hasItem("DEEP_POOL")));
     }
 
     @Test
