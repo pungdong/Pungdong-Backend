@@ -8,6 +8,7 @@ import com.diving.pungdong.course.dto.CourseCardResponse;
 import com.diving.pungdong.course.dto.CourseCreateRequest;
 import com.diving.pungdong.course.dto.CourseResponse;
 import com.diving.pungdong.course.dto.CourseStatusRequest;
+import com.diving.pungdong.course.dto.LevelLabelResponse;
 import com.diving.pungdong.venue.Region;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -19,6 +20,7 @@ import org.springframework.hateoas.Link;
 import org.springframework.hateoas.MediaTypes;
 import org.springframework.hateoas.PagedModel;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
 
@@ -41,6 +43,22 @@ import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
 public class CourseController {
 
     private final CourseService courseService;
+
+    /**
+     * 종목별 자격 레벨 표시 라벨(공개) — 수강생 둘러보기 필터 칩용. 평탄화 코드 + 종목 통용 명칭(스쿠버
+     * "Open Water Diver" 등, 프리다이빙은 alias 없음). 강사 작성 화면은 단체 골랐으니 이걸 안 쓰고 Sanity
+     * displayName 병기({@link LevelLabelResponse} 참고). disciplineCode 필수(누락 400).
+     */
+    @GetMapping("/level-labels")
+    public ResponseEntity<?> levelLabels(@RequestParam(required = false) String disciplineCode) {
+        if (!StringUtils.hasText(disciplineCode)) {
+            throw new BadRequestException();
+        }
+        CollectionModel<LevelLabelResponse> model =
+                CollectionModel.of(CertLevelLabels.forDiscipline(disciplineCode));
+        model.add(Link.of("/docs/api.html#resource-courses-level-labels").withRel("profile"));
+        return ResponseEntity.ok().body(model);
+    }
 
     @PostMapping
     public ResponseEntity<?> create(@CurrentUser Account account,
