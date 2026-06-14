@@ -635,14 +635,31 @@ export interface Coordinate {
 // (`sanity/queries.ts` certificationsByOrgAndDiscipline)로 직접 읽음 — BE 엔드포인트 아님.
 // 코스 작성 "단체 → 레벨" 선택 + 강사 신청 본인 레벨 선택이 같은 카탈로그를 읽는다.
 
-/** 단체 명칭과 무관한 공통 사다리. BE 는 이 값만 enum 으로 저장(displayName 은 표시 전용). */
-export type CertLevel = 'LEVEL_1' | 'LEVEL_2' | 'LEVEL_3' | 'LEVEL_4' | 'INSTRUCTOR';
+/**
+ * 단체 명칭과 무관한 공통 사다리. BE 는 이 값만 enum 으로 저장(displayName 은 표시 전용).
+ * INSTRUCTOR_TRAINER = 강사 양성 등급(예: Course Director, Instructor Trainer) — INSTRUCTOR 위 한 칸.
+ */
+export type CertLevel = 'LEVEL_1' | 'LEVEL_2' | 'LEVEL_3' | 'LEVEL_4' | 'INSTRUCTOR' | 'INSTRUCTOR_TRAINER';
 
 /** Sanity 자격증 1종. 저장/비교는 level, UI 노출은 displayName. */
 export interface Certification {
   disciplineCode: string; // 단체 disciplines 안의 값 (FREEDIVING / SCUBA / MERMAID)
   level: CertLevel;
   displayName: string; // 단체가 부르는 이름 (예: "AIDA 2", "PADI Advanced Open Water")
+}
+
+// ── 종목별 레벨 표시 라벨 (course /level-labels) ──
+// GET /courses/level-labels?disciplineCode=SCUBA (공개) — 수강생 둘러보기 필터 칩용.
+// 평탄화 코드(level)는 필터 쿼리값(levels=...), label 은 종목 무관 공통 단계명("레벨 1"),
+// alias 는 종목 통용 명칭(스쿠버 "Open Water Diver", 프리다이빙은 null). 표기: alias ? `${label} (${alias})` : label.
+// ★ 입문자(단계)+경험자(명칭) 동시 충족 위해 약어(OWD) 아닌 풀네임 사용.
+// ★ 강사 코스 작성 화면은 이걸 안 씀 — 거긴 단체 선택됨 → Certification.displayName(단체 공식명) 병기.
+//   여긴 단체 무관(필터가 단체 가로지름)이라 종목 공통 명칭. 응답은 CollectionModel(_embedded.levelLabels).
+
+export interface LevelLabel {
+  level: CertLevel; // 필터 쿼리값
+  label: string; // 공통 단계명 (예: "레벨 1", "강사")
+  alias: string | null; // 종목 통용 명칭 (스쿠버 "Open Water Diver"), 없으면 null
 }
 
 /**
