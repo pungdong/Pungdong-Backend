@@ -5,7 +5,7 @@ Studio 에서 하나씩 손으로 넣기 불편한 카탈로그를 ndjson 으로
 
 ## certifications.ndjson — 자격증 발급 단체 + 등급 카탈로그
 
-6개 단체(`certOrganization`)와 종목별 등급(`certifications[]`):
+7개 단체(`certOrganization`)와 종목별 등급(`certifications[]`):
 
 | code | 종목 | 등급 |
 |---|---|---|
@@ -15,6 +15,9 @@ Studio 에서 하나씩 손으로 넣기 불편한 카탈로그를 ndjson 으로
 | PADI | 프리다이빙 + 스쿠버 | (각 종목 L1~4 · Instructor · Course Director) |
 | SDI | 스쿠버 | Open Water ~ Divemaster · Instructor · Instructor Trainer |
 | NAUI | 스쿠버 | Open Water ~ Divemaster · Instructor · Course Director |
+| **OTHER** | 프리다이빙 + 스쿠버 | **표준 6레벨을 종목 공통명(`레벨 1`·`강사` 등)으로** |
+
+> **OTHER(기타·직접입력) 계약**: 목록에 없는 단체용 폴백. `certificationsByOrgAndDiscipline` 가 표준 6레벨을 `displayName` = 종목 공통 단계명(`레벨 1`~`강사 양성`, `level-labels` 의 label 과 동일)으로 반환한다. → FE 는 OTHER 를 특별 분기 없이 다른 단체와 똑같은 cascade(단체→레벨)로 처리. 단체 고유 명칭은 없고 단계만.
 
 평탄화 `level` 은 6종(`LEVEL_1~4 / INSTRUCTOR / INSTRUCTOR_TRAINER`) — Sanity `certOrganization.ts` ·
 BE `CertLevel` enum · `types.ts` `CertLevel` 3중 계약(sanity/CLAUDE.md "계약").
