@@ -629,6 +629,90 @@ export interface CourseImageResponse extends HalLinks {
   fileURL: string;
 }
 
+// ── 코스 본체 (course) ──
+// 기본정보 + 회차(설명·위치·이용권 변형) + (선택)추가세션. 위치는 venueRefId(GET /venues/builder 토큰),
+// 위치별 장비는 강사×위치 가격표에서 읽기 시점 합성(응답에만, 저장 안 함). 모두 인증(강사 트랙).
+//   POST /courses · GET /courses/mine · GET /courses/{id} · PUT /courses/{id} · PATCH /courses/{id}/status
+
+/** 코스 종류 — CERTIFICATION 만 levels(단체+레벨) 사용. TRIAL/TRAINING 은 자격 아님. */
+export type CourseKind = 'TRIAL' | 'CERTIFICATION' | 'TRAINING';
+
+/** 코스 상태 — 검수 없음. DRAFT 임시저장 / OPEN 노출중 / CLOSED 마감. */
+export type CourseStatus = 'DRAFT' | 'OPEN' | 'CLOSED';
+
+export type MediaKind = 'PHOTO' | 'VIDEO';
+export type RoundKind = 'REGULAR' | 'EXTRA';
+
+/** POST/PUT 요청. 회차 개수는 totalRounds 와 일치해야. CERTIFICATION 은 organizationCode+levels 필수. */
+export interface CourseCreateRequest {
+  title: string;
+  kind: CourseKind;
+  organizationCode?: string; // CERTIFICATION 필수
+  disciplineCode: string;
+  levels?: CertLevel[]; // CERTIFICATION 필수(>=1, >=2 ⇒ 패키지)
+  totalRounds: number;
+  price: number; // 부가세 포함 최종가
+  description?: string;
+  media?: { kind: MediaKind; url: string }[]; // url = POST /course-images 결과
+  rounds: CourseRoundRequest[];
+  extraSession?: CourseExtraSessionRequest; // 없으면 추가세션 없는 강의
+}
+export interface CourseRoundRequest {
+  description?: string;
+  venues: CourseVenueRequest[];
+}
+export interface CourseExtraSessionRequest {
+  description?: string;
+  freeCount: number; // N회까지 무료(0=처음부터 유료)
+  perSessionPrice: number; // 무료 소진 후 회당
+  venues: CourseVenueRequest[];
+}
+export interface CourseVenueRequest {
+  venueRefId: string; // "CUSTOM:<pk>" | "OFFICIAL:<sanityId>"
+  tickets: { ticketRef: string; daypart: DaypartKind }[];
+}
+
+/** 응답. 목록(GET /mine)은 `_embedded.courses`; 상세는 venue.equipment 합성 포함(목록은 null). */
+export interface CourseResponse extends HalLinks {
+  id: number;
+  instructorId: number;
+  title: string;
+  kind: CourseKind;
+  organizationCode: string | null;
+  disciplineCode: string;
+  levels: CertLevel[];
+  isPackage: boolean;
+  totalRounds: number;
+  price: number;
+  description?: string;
+  status: CourseStatus;
+  media: { id: number; kind: MediaKind; url: string; sortOrder: number }[];
+  rounds: CourseRoundResponse[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+export interface CourseRoundResponse {
+  id: number;
+  roundKind: RoundKind;
+  roundIndex: number | null; // REGULAR 1..N, EXTRA null
+  platformConfirmed: boolean;
+  description?: string;
+  freeCount?: number | null; // EXTRA 전용
+  perSessionPrice?: number | null;
+  venues: CourseVenueResponse[];
+}
+export interface CourseVenueResponse {
+  venueRefId: string;
+  tickets: { ticketRef: string; daypart: DaypartKind }[];
+  /** 강사×위치 가격표에서 합성. 미설정 위치면 null. */
+  equipment: VenueEquipmentResponse | null;
+}
+
+/** PATCH /courses/{id}/status 요청. */
+export interface CourseStatusRequest {
+  status: CourseStatus;
+}
+
 // ============================================================
 // 인증 실패 응답 코드 (참고용)
 // docs/architecture/sign-up.md 의 "보안 / 권한 매트릭스" 참고
