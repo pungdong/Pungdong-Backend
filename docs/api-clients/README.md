@@ -6,8 +6,7 @@
 
 | 파일 | 역할 |
 |---|---|
-| [`types.ts`](types.ts) | **BE API** request / response / 공통 envelope 타입. **FE Claude 가 처음 읽는 파일.** |
-| [`course-create-handoff.md`](course-create-handoff.md) | **강의 생성 연동 흐름·오리엔테이션**(종목→단체→자격증 캐스케이드, 4-step, role 분기, venueRefId, gotcha). 필드는 types.ts 링크. |
+| [`types.ts`](types.ts) | **BE API** request / response / 공통 envelope 타입. **FE Claude 가 처음 읽는 파일.** 도메인별 섹션 주석에 호출 흐름/순서도 포함(예: 코스 작성 = 종목→단체→자격증 캐스케이드). |
 | [`../../sanity/queries.ts`](../../sanity/queries.ts) | **공개 카탈로그를 FE 가 Sanity 에서 직접 읽는 GROQ** (cert org·약관·공식 위치). types.ts 와 **별개의 두 번째 소스** — 아래 "Sanity 직접 읽기". |
 | `../architecture/<domain>.md` | 사람이 도메인을 이해하는 그림 / 흐름. Claude 가 동작 의미를 파악할 때 참고. |
 

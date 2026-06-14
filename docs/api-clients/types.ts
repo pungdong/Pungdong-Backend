@@ -618,7 +618,16 @@ export interface Coordinate {
 
 // ============================================================
 // 코스 작성 (course-create 도메인) — 강사 강의 개설
-// docs/features/course-create.md 참고 (구현은 단계적: PR1 = 자격증 카탈로그 + 이미지 업로드)
+// docs/features/course-create.md (정책) · docs/architecture/course.md (구현)
+//
+// FE 호출 흐름 (순서·소스가 types 만으론 안 보여서 여기 박음):
+//   0. 로그인 후 GET /account 의 roles 로 강사/수강생 분기 (JWT 클레임 아님 — additive+서버 재계산이라 stale)
+//   1. GET /disciplines (종목) → 그 값으로 ↓ 를 필터 (종목 없이는 코스 생성 400)
+//   2. [Sanity 직접] orgsByDiscipline (단체) → 3. [Sanity 직접] certificationsByOrgAndDiscipline (자격증/레벨)
+//   4. POST /course-images (사진 → fileURL)  5. GET /venues/builder (위치 + venueRefId)
+//   6. PUT /venue-equipment (위치별 장비, 선택)  7. POST /courses
+// ★ 단체/자격증/공식위치공개표시는 BE 아니라 Sanity 직접(useCdn:true, GROQ=sanity/queries.ts).
+//   코스의 위치 선택만은 GET /venues/builder(official+custom 머지, venueRefId 부여)로.
 // ============================================================
 
 // ── 자격증 카탈로그 (Sanity certOrganization.certifications) ──
