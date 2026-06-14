@@ -61,7 +61,7 @@ final class OfficialVenueMapper {
                 dayparts.add(daypart(weekend, DaypartKind.WEEKEND));
             }
             out.add(VenueResponse.Ticket.builder()
-                    .id(null)
+                    .ticketRef(text(t, "_key"))
                     .name(text(t, "name"))
                     .sortOrder(i++)
                     .disciplineCodes(stringSet(t.get("disciplines")))

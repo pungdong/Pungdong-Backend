@@ -36,7 +36,7 @@ public class HttpSanityVenueClient implements SanityVenueClient {
             "*[_type == \"venue\" && active == true] | order(sortOrder asc) {" +
                     " _id, _rev, name, type, maxDepth, address, addressDetail, latitude, longitude," +
                     " equipInfo, closures[]{ type, weekdays, nth, monthlyWeekday }," +
-                    " tickets[]{ name, disciplines, weekday " + DAYPART + ", weekend " + DAYPART + " } }";
+                    " tickets[]{ \"_key\": _key, name, disciplines, weekday " + DAYPART + ", weekend " + DAYPART + " } }";
 
     /** 리비전 토큰만 — 바이트 단위, reconcile 의 변경 감지 게이트. */
     private static final String REVS_QUERY = "*[_type == \"venue\"]{ _id, _rev }";

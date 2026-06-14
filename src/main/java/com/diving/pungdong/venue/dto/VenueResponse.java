@@ -73,7 +73,11 @@ public class VenueResponse {
     @Builder
     @NoArgsConstructor @AllArgsConstructor
     public static class Ticket {
-        private Long id;
+        /**
+         * 이용권 안정 식별자 — 코스 저장의 {@code RoundVenueTicket.ticketRef} 로 그대로 사용한다.
+         * CUSTOM = DB pk 문자열, OFFICIAL = Sanity 배열 {@code _key}. (FE 는 이 값을 쓰고 {@code id} 가정 금지.)
+         */
+        private String ticketRef;
         private String name;
         private int sortOrder;
         private Set<String> disciplineCodes;
@@ -81,7 +85,7 @@ public class VenueResponse {
 
         static Ticket from(VenueTicket t) {
             return Ticket.builder()
-                    .id(t.getId())
+                    .ticketRef(String.valueOf(t.getId()))
                     .name(t.getName())
                     .sortOrder(t.getSortOrder())
                     .disciplineCodes(t.getDisciplineCodes())

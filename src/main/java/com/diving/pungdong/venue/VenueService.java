@@ -65,8 +65,11 @@ public class VenueService {
         List<VenueResponse> merged = officialVenueCache.getAll().stream()
                 .filter(v -> type == null || v.getType() == type)
                 .filter(v -> !StringUtils.hasText(disciplineCode) || offersDiscipline(v, disciplineCode))
+                .map(v -> filterTicketsByDiscipline(v, disciplineCode))
                 .collect(Collectors.toList());
-        merged.addAll(listMine(me, disciplineCode, type));
+        listMine(me, disciplineCode, type).stream()
+                .map(v -> filterTicketsByDiscipline(v, disciplineCode))
+                .forEach(merged::add);
         return merged;
     }
 
@@ -74,6 +77,21 @@ public class VenueService {
     private boolean offersDiscipline(VenueResponse v, String code) {
         return v.getTickets() != null && v.getTickets().stream()
                 .anyMatch(t -> t.getDisciplineCodes() != null && t.getDisciplineCodes().contains(code));
+    }
+
+    /**
+     * 빌더 응답에서 <b>그 종목 이용권만</b> 남긴다 — venue 는 종목 보유로 통과해도 다른 종목 ticket 이 섞이지
+     * 않게(한 위치가 종목별 ticket 을 가질 수 있음, 예: 딥스테이션의 스쿠버 일반권 vs 프리 일반권).
+     * disciplineCode 없으면 전체 유지. (관리용 {@code listMine}/{@code GET /venues} 는 필터 안 함.)
+     */
+    private VenueResponse filterTicketsByDiscipline(VenueResponse v, String disciplineCode) {
+        if (!StringUtils.hasText(disciplineCode) || v.getTickets() == null) {
+            return v;
+        }
+        v.setTickets(v.getTickets().stream()
+                .filter(t -> t.getDisciplineCodes() != null && t.getDisciplineCodes().contains(disciplineCode))
+                .collect(Collectors.toList()));
+        return v;
     }
 
     public VenueResponse getMine(Account me, Long id) {
