@@ -30,3 +30,7 @@ npx sanity dataset import seed/certifications.ndjson production --replace
 ```
 
 (로그인 필요 — `npx sanity login`. projectId `rc448mwo` / dataset `production`.)
+
+> ⚠️ **`_id` 에 점(`.`) 쓰지 말 것.** Sanity 는 `_id` 의 점을 `drafts.`/`versions.` 예약 네임스페이스로
+> 해석해서, `certOrg.aida` 같은 문서를 **public(published) 결과에서 제외**한다 — 인증 CLI 에선 보이지만
+> FE(`useCdn:true`, 비인증)에선 안 보여 디버깅이 까다롭다. **대시(`certOrg-aida`) 사용.** (실제로 한 번 밟음.)
