@@ -659,7 +659,12 @@ export interface CourseImageResponse extends HalLinks {
 // 위치별 장비는 강사×위치 가격표에서 읽기 시점 합성(응답에만, 저장 안 함). 모두 인증(강사 트랙).
 //   POST /courses · GET /courses/mine · GET /courses/{id} · PUT /courses/{id} · PATCH /courses/{id}/status
 
-/** 코스 종류 — CERTIFICATION 만 levels(단체+레벨) 사용. TRIAL/TRAINING 은 자격 아님. */
+/**
+ * 코스 종류 — CERTIFICATION 만 levels(단체+레벨) 사용. TRIAL/TRAINING 은 자격 아님.
+ * ★ FE: 종류는 **상호배타 세그먼트**(평탄화 X). CERTIFICATION 일 때만 단체→자격증(레벨) 노출
+ *   (멀티선택=패키지), TRIAL/TRAINING 이면 단체·자격증 칸 숨김. "묶음" 욕구는 레벨에 섞지 말 것 —
+ *   패키지=자격증 멀티 / 트레이닝 포함=추가세션(무료 N회) / 체험 프레이밍=제목·설명.
+ */
 export type CourseKind = 'TRIAL' | 'CERTIFICATION' | 'TRAINING';
 
 /** 코스 상태 — 검수 없음. DRAFT 임시저장 / OPEN 노출중 / CLOSED 마감. */
