@@ -31,10 +31,10 @@ flowchart TB
     SCH --> REC
     WH --> REC
     HI -. lastReconciledAt .-> OVC
-    subgraph equip["venue.equipment (장비 가격표 = venue-extension)"]
+    subgraph equip["venue.equipment (장비 가격표 = equipment extension)"]
       VEQ[VenueEquipmentController<br/>/venue-equipment] --> VEQS[VenueEquipmentService]
-      VEQS --> VEQR[VenueEquipmentProfileJpaRepo]
-      VEQR --> VEQE[(Profile + Item<br/>owner × venueRefId)]
+      VEQS --> VEQR[VenueEquipmentExtensionJpaRepo]
+      VEQR --> VEQE[(Extension + Item<br/>owner × venueRefId)]
     end
     VEQS -. "참조검증: 내 custom?" .-> VS
     VEQS -. "참조검증: 공식 존재?" .-> OVC
@@ -162,14 +162,14 @@ erDiagram
   }
 ```
 
-**대여 장비 가격표 (venue-extension)** — 위치와는 별도 aggregate. 강사 × 위치 1장, 모든 코스 공유:
+**대여 장비 가격표 (equipment extension)** — 위치와는 별도 aggregate. 강사 × 위치 1장, 모든 코스 공유:
 
 ```mermaid
 erDiagram
-  VenueEquipmentProfile ||--o{ VenueEquipmentItem : items
-  VenueEquipmentProfile }o--|| Account : "owner (필수)"
+  VenueEquipmentExtension ||--o{ VenueEquipmentItem : items
+  VenueEquipmentExtension }o--|| Account : "owner (필수)"
 
-  VenueEquipmentProfile {
+  VenueEquipmentExtension {
     Long id
     Long owner_id "필수"
     String venueRefId "CUSTOM:<pk> | OFFICIAL:<sanityId> — (owner,venueRefId) UNIQUE"

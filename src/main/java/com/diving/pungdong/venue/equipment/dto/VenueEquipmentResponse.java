@@ -2,7 +2,7 @@ package com.diving.pungdong.venue.equipment.dto;
 
 import com.diving.pungdong.venue.equipment.SizeFormat;
 import com.diving.pungdong.venue.equipment.VenueEquipmentItem;
-import com.diving.pungdong.venue.equipment.VenueEquipmentProfile;
+import com.diving.pungdong.venue.equipment.VenueEquipmentExtension;
 import lombok.*;
 import org.springframework.hateoas.server.core.Relation;
 
@@ -10,19 +10,20 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * 한 위치의 대여 장비 가격표 응답. 목록({@code GET /venue-equipment})의 CollectionModel 키 = "profiles".
+ * 한 위치의 대여 장비 가격표(equipment extension) 응답. 목록({@code GET /venue-equipment})의
+ * CollectionModel 키 = "extensions".
  */
 @Getter @Setter
 @Builder
 @NoArgsConstructor @AllArgsConstructor
-@Relation(collectionRelation = "profiles")
+@Relation(collectionRelation = "extensions")
 public class VenueEquipmentResponse {
 
     private Long id;
     private String venueRefId;
     private List<Item> items;
 
-    public static VenueEquipmentResponse from(VenueEquipmentProfile p) {
+    public static VenueEquipmentResponse from(VenueEquipmentExtension p) {
         return VenueEquipmentResponse.builder()
                 .id(p.getId())
                 .venueRefId(p.getVenueRefId())

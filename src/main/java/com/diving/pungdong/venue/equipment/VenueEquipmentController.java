@@ -37,9 +37,9 @@ public class VenueEquipmentController {
     @GetMapping
     public ResponseEntity<?> list(@CurrentUser Account account,
                                   @RequestParam(required = false) String venueRefId) {
-        List<VenueEquipmentResponse> profiles = equipmentService.listMine(account, venueRefId);
+        List<VenueEquipmentResponse> extensions = equipmentService.listMine(account, venueRefId);
 
-        CollectionModel<VenueEquipmentResponse> model = CollectionModel.of(profiles);
+        CollectionModel<VenueEquipmentResponse> model = CollectionModel.of(extensions);
         model.add(linkTo(methodOn(VenueEquipmentController.class).list(account, venueRefId)).withSelfRel());
         model.add(Link.of("/docs/api.html#resource-venue-equipment").withRel("profile"));
         return ResponseEntity.ok().body(model);

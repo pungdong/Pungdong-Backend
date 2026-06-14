@@ -28,7 +28,7 @@
 | 종목 (discipline) | [discipline.md](discipline.md) | ✅ (BE 테이블 · requiresCertification) |
 | 강사 신청 (instructor-application) | [instructor-application.md](instructor-application.md) | ✅ (본인확인은 identity-verification 도메인 참조) |
 | 동의 / 약관 (consent) | [consent.md](consent.md) | ✅ (Sanity authoring + BE 박제 · 동의 이력) |
-| 위치 (venue) | [venue.md](venue.md) | ✅ (정식/커스텀 · builder 통합 머지 · Sanity 동기화 · 장비 venue-extension) |
+| 위치 (venue) | [venue.md](venue.md) | ✅ (정식/커스텀 · builder 통합 머지 · Sanity 동기화 · 장비 equipment extension) |
 | 코스 (course) | [course.md](course.md) | ✅ (강사 작성 · 회차/추가세션 · 위치 venueRefId 참조 · 장비 합성 · 공개조회 후속) |
 | 주소·위치정보 (address) | [address.md](address.md) | ✅ (juso 검색+좌표변환 BE 경유 · 로컬 stub · 좌표계 검증 후속) |
 | 검색 (search / Elasticsearch) | _TODO — Phase 3 정리 후_ | ⏸️ |
