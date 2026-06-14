@@ -101,6 +101,7 @@ class AccountControllerTest {
                 .phoneNumber("010-1111-2222")
                 .birth("1997-08-15")
                 .gender(Gender.MALE)
+                .roles(Set.of(Role.STUDENT, Role.INSTRUCTOR))
                 .build();
 
         given(accountService.mapToAccountBasicInfo(any())).willReturn(accountBasicInfo);
@@ -122,6 +123,7 @@ class AccountControllerTest {
                                         fieldWithPath("phoneNumber").description("폰 번호"),
                                         fieldWithPath("birth").description("생년월일"),
                                         fieldWithPath("gender").description("성별"),
+                                        fieldWithPath("roles").description("계정 보유 role 목록 — FE 강사/수강생 화면 분기(권위 소스)"),
                                         fieldWithPath("_links.self.href").description("해당 Api Url"),
                                         fieldWithPath("_links.profile.href").description("해당 Api 문서 Url")
                                 )
