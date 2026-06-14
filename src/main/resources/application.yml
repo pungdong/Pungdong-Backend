@@ -107,6 +107,7 @@ pungdong:
   # 공식(OFFICIAL) 위치 Sanity 캐시 reconcile. venue.md "캐싱·동기화·모니터링 설계".
   venue:
     reconcile:
+      initial-delay-ms: ${VENUE_RECONCILE_INITIAL_DELAY_MS:30000}  # 부팅 후 첫 reconcile 까지 (기본 30초 — 캐시를 빨리 실 Sanity 와 동기화)
       interval-ms: ${VENUE_RECONCILE_INTERVAL_MS:600000}        # _rev 대조 주기 (기본 10분)
       stale-threshold-ms: ${VENUE_RECONCILE_STALE_MS:1800000}   # 이보다 오래 미실행이면 health DOWN (기본 30분 = 3주기)
     # Sanity GROQ 웹훅 — 어드민 publish 시 즉시 캐시 무효화(지연 최적화). 시크릿 없으면 검증 거부.

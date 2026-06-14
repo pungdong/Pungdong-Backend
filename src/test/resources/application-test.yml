@@ -20,7 +20,9 @@ spring:
         dialect: org.hibernate.dialect.H2Dialect
   redis:
     host: localhost
-    port: 6379
+    # docker Redis(6379)와 분리된 테스트 전용 포트 — EmbeddedRedisConfig.TEST_REDIS_PORT 와 일치.
+    # (테스트가 dev 의 docker Redis 를 오염시키지 않게.)
+    port: 16379
 
 elasticsearch:
   uri: http://localhost:9200
