@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.diving.pungdong.venue.ClosureType;
 import com.diving.pungdong.venue.DaypartKind;
 import com.diving.pungdong.venue.TimeMode;
+import com.diving.pungdong.venue.VenueScope;
 import com.diving.pungdong.venue.VenueType;
 import com.diving.pungdong.venue.dto.VenueResponse;
 
@@ -35,7 +36,7 @@ final class OfficialVenueMapper {
                 .longitude(dbl(v, "longitude"))
                 .maxDepth(integer(v, "maxDepth"))
                 .scope("OFFICIAL")
-                .venueRefId("OFFICIAL:" + official.getId())
+                .venueRefId(VenueScope.token(VenueScope.OFFICIAL, official.getId()))
                 .ownerId(null)
                 .lockedDisciplineCode(null)
                 .closures(closures(v.get("closures")))

@@ -85,6 +85,11 @@ BE 는 OFFICIAL venue 를 Sanity 에서 읽어 **Redis 에 캐싱**(availability
 - 한 이용 옵션 카드(일반권/하프권/종일권)에 3축: ① 평일/주말 입장료 ② 시간 — 고정 시간대 vs **상시 입장**(오픈~클로즈 + 키반납 N시간) ③ 주말 — 동일/다름/상시. 권종은 새 축이 아니라 카드 추가. 이용시간은 시간블록/키반납에서 **파생**(저장 안 함).
 - **정기 휴무**는 위치 공통(권종 무관) — 매주 + 월간 동시 가능. 월간은 **atomic**("N째 주 X요일" 1건); "2·4주 수" 나 "2주 화 + 4주 목"은 휴무 항목을 여러 개로(grouping 은 UI 표현, 저장은 원자 단위 → 모델 균일·평가 단순).
 
+### 대여 장비 = 위치별·강사 전역 (venue-extension)
+- 장비 대여료는 **위치마다 다르다**(딥스테이션=입장료에 포함돼 무료 ↔ 5m풀=유료, 강사가 더 싸게도). 그래서 장비를 **코스가 아니라 "강사 × 위치" 가격표**(venue-extension, BE `venue.equipment`)에 둔다 — 그 강사의 모든 코스가 공유하고 "어디서 바꿔도 신규 접수부터 적용".
+- official 위치엔 자유텍스트 `장비 대여 정보`(Sanity)만 — 강사가 받을 실제 대여 항목·가격은 이 가격표. 강사 custom 위치엔 장비란 없음(여기서 설정).
+- **장비료는 평일/주말로 안 나뉜다**(입장료와 달리 위치 종속 단일가). 항목별 **사이즈 형식**(핀=신발mm / 슈트=S~XL / 마스크=없음, 직접입력)으로 수강생 신청 마찰 0(chat39).
+
 ### 투어·다이빙 포인트
 - 투어 상품은 별도 모델이 아니라 다이빙 포인트를 `type=OCEAN` 커스텀 Venue 로 정의 → 투어 구성 시 연동. (상품화 자체는 후속.)
 
@@ -109,6 +114,7 @@ BE 는 OFFICIAL venue 를 Sanity 에서 읽어 **Redis 에 캐싱**(availability
 | 2026-06-13 | **동기화 = read-side `_rev` 대조(정합성 바닥) + 선택 webhook, TTL 폐기, write-back ack 안 함** | `_rev` 대조가 ground-truth·바이트 단위. webhook 은 지연 최적화. ack 플래그는 BE 모니터링과 중복 |
 | 2026-06-13 | **reconcile 잡 liveness heartbeat alert 필수** | reconcile 가 정합성의 바닥 — 잡이 죽으면 무한 stale |
 | 2026-06-14 | **통합 read + 동기화 인프라 구현**(`GET /venues/builder` · `venue.sync`: HttpSanityVenueClient + Redis cache-aside + `_rev` reconcile + 웹훅 + actuator heartbeat) | 위 설계대로. 캐시 cache-aside lazy-load 라 cold start·테스트도 동작. 실 페이징은 Phase 4 |
+| 2026-06-14 | **대여 장비 = venue-extension 구현**(`venue.equipment`: 강사×위치 가격표 `(owner,venueRefId)` 유니크, 사이즈 형식 프리셋) | 장비료가 위치별로 달라 코스가 아니라 위치에 종속. 강사 전역·코스 공유. `GET/PUT /venue-equipment` |
 
 ## 미해결 / 확장
 

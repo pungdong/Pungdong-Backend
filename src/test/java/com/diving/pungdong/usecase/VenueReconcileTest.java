@@ -41,6 +41,7 @@ class VenueReconcileTest {
 
     @MockBean SanityVenueClient sanityVenueClient;
 
+    @org.junit.jupiter.api.AfterEach
     @BeforeEach
     void flushCache() {
         Set<String> keys = redisTemplate.keys("venue:official:*");
