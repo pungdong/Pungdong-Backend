@@ -138,6 +138,7 @@ public class AccountService implements UserDetailsService {
                 .birth(account.getBirth())
                 .phoneNumber(account.getPhoneNumber())
                 .gender(account.getGender())
+                .roles(account.getRoles())
                 .build();
     }
 
