@@ -5,7 +5,9 @@ Studio 에서 하나씩 손으로 넣기 불편한 카탈로그를 ndjson 으로
 
 ## certifications.ndjson — 자격증 발급 단체 + 등급 카탈로그
 
-7개 단체(`certOrganization`)와 종목별 등급(`certifications[]`):
+8개 단체(`certOrganization`)와 종목별 등급(`certifications[]`):
+
+> 자격 체계 방향: **정규(평탄화 6레벨) + 스페셜티 + 테크니컬**(TDI 등)로 확장 예정. 현재 seed 는 정규만 — 스페셜티/테크니컬은 런칭 후 종목 확장과 함께 채운다. (그래서 `SDI/TDI` 묶음은 폐기하고 `SDI` 만 둠 — TDI 는 테크니컬 트랙으로.)
 
 | code | 종목 | 등급 |
 |---|---|---|
@@ -15,6 +17,7 @@ Studio 에서 하나씩 손으로 넣기 불편한 카탈로그를 ndjson 으로
 | PADI | 프리다이빙 + 스쿠버 | (각 종목 L1~4 · Instructor · Course Director) |
 | SDI | 스쿠버 | Open Water ~ Divemaster · Instructor · Instructor Trainer |
 | NAUI | 스쿠버 | Open Water ~ Divemaster · Instructor · Course Director |
+| CMAS | 프리다이빙 + 스쿠버 | 스쿠버 1★~4★·Instructor★·★★/★★★ / 프리 Freediver 1★~3★·Instructor (L4·IT는 국가별 차이로 없음) |
 | **OTHER** | 프리다이빙 + 스쿠버 | **표준 6레벨을 종목 공통명(`레벨 1`·`강사` 등)으로** |
 
 > **OTHER(기타·직접입력) 계약**: 목록에 없는 단체용 폴백. `certificationsByOrgAndDiscipline` 가 표준 6레벨을 `displayName` = 종목 공통 단계명(`레벨 1`~`강사 양성`, `level-labels` 의 label 과 동일)으로 반환한다. → FE 는 OTHER 를 특별 분기 없이 다른 단체와 똑같은 cascade(단체→레벨)로 처리. 단체 고유 명칭은 없고 단계만.
