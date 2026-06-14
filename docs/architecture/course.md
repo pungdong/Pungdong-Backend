@@ -80,6 +80,8 @@ erDiagram
     int totalRounds
     int price "부가세 포함"
     enum status "DRAFT|OPEN|CLOSED (검수 없음)"
+    Set regions "Region @ElementCollection — 둘러보기 지역 필터(저장 시 주소→파생)"
+    String primaryLocationName "카드 대표 위치명(저장 시 비정규화)"
   }
   CourseMedia { enum kind "PHOTO|VIDEO", String url, int sortOrder }
   CourseRound {
@@ -99,13 +101,15 @@ erDiagram
 - **`levels` 평탄화** — 단체 명칭은 Sanity, BE 는 `CertLevel` enum 만. `isPackage` 는 size>=2 파생(저장 안 함).
 - **스냅샷 교체** — 수정은 `clearChildren()` + 재구성(orphanRemoval), venue/instructor-application 과 동일.
 - `roundIndex` 컬럼명(‘index’ 예약어 회피).
+- **둘러보기 facet 비정규화(`regions`·`primaryLocationName`)** — 코스의 위치는 `venueRefId` 참조이고 OFFICIAL 위치 주소는 Sanity 캐시(Redis)라 **쿼리 타임 JOIN 으로 지역 필터가 불가**. 그래서 저장 시점에 `venue.VenueRefResolver`(CUSTOM=DB, OFFICIAL=캐시)로 회차 위치 주소→`venue.Region`(서울·경기/강원/제주/부산·경남/ETC)을 풀어 코스에 박는다. 읽기 경로는 순수 JPA 컬럼 필터(`CourseSpecifications`, ES 안 씀). 트레이드오프: OFFICIAL 위치 이사 시 코스 재저장 전까지 stale(풀 이동은 드물어 MVP 허용, 후속 reconcile 후보).
 
 ## 5. 보안 / 권한 매트릭스
 
-매처는 `global/security/SecurityConfiguration` — `/courses/**`·`/course-images` = authenticated (강사 트랙; 리뷰 대기 STUDENT 도 draft 준비 허용, venue 동일). PII 없음 → GET 무방.
+매처는 `global/security/SecurityConfiguration` — `/courses/**`·`/course-images` = authenticated (강사 트랙; 리뷰 대기 STUDENT 도 draft 준비 허용, venue 동일). **단 `GET /courses/browse` 만 permitAll**(수강생 둘러보기, `/courses/**` authenticated 규칙보다 먼저 매칭). PII 없음 → GET 무방.
 
 | 엔드포인트 | 인증 | 소유권 |
 |---|---|---|
+| `GET /courses/browse` | **불필요(공개)** | OPEN 코스만 노출. 필터(종목·지역·종류·레벨·단체·가격)+정렬+페이지. 빈 결과=200 |
 | `POST /courses` | 필요 | instructor=현재 계정. venueRefId 는 내 custom / 캐시된 official 만 |
 | `GET /courses/mine` | 필요 | 내 코스만 |
 | `GET /courses/{id}` | 필요 | 내 코스만 — 아니면 400(존재 숨김) |
@@ -115,7 +119,9 @@ erDiagram
 
 ## 6. 알려진 설계 간극 / 확장 자리
 
-- 🟡 **공개(수강생) 코스 조회 미구현** — 현재 전부 강사 본인 스코프. 브라우즈/상세(OPEN 코스)·검색은 후속(legacy `/lecture/list` 대체).
+- 🟢 **공개 둘러보기(`GET /courses/browse`) 구현** — OPEN 코스 목록/검색/필터(legacy `/lecture/list` 대체). 다만 **공개 코스 상세**(카드→상세)는 아직 — 부킹 피처와 함께 후속.
+- 🟡 **둘러보기 정렬 = 최신·가격만** — 시안의 `인기순`/`가까운 일정`은 코스에 평점·확정일정 신호가 아직 없어 미구현(부킹·리뷰 도입 시 추가). 카드의 `meta`(주말·총 N회차) 중 회차수만 확정, 평일/주말 daypart 파생은 후속.
+- 🟡 **둘러보기 목록 N+1** — 카드 매핑이 코스별 media/levels/regions(LAZY)를 건드림(페이지 20 기준 소수 쿼리, MVP 허용). fetch-join/프로젝션은 후속 최적화.
 - 🟡 **ticketRef 깊은 검증 안 함** — 회차 위치의 이용권 선택을 그대로 보관(그 위치에 실제 있는 이용권인지 미검증). 부킹/availability 연동 때 검증 + 가격·시간 해석.
 - 🟡 **자격증 (org,disc,level) 권위 검증 안 함** — `organizationCode`·`levels` 를 코드로만 저장(instructor-application 관례). Sanity 카탈로그 대조는 후속.
 - 🟡 **영상 업로드** — `MediaKind.VIDEO` 자리는 있으나 업로드/트랜스코딩 미구현(사진만).
@@ -132,5 +138,13 @@ erDiagram
 - `E1` 코스 상세에서 위치별 장비가 강사×위치 가격표로부터 합성
 - `V1`~`V4` 자격인데 레벨 없음 / 회차수 불일치 / 없는 종목 / 남의 custom 위치 → 400
 - `R1` 남의 코스 상세 400(숨김) / `T1` 상태 OPEN 전이 / `L1` 내 강의 목록 = 내 것만
+
+`usecase/CourseBrowseUseCaseTest` (공개 둘러보기 — 주소 박은 CUSTOM 위치로 지역 파생 검증):
+
+- `S1` 비로그인 카드 필드(제목·강사·위치·지역·가격·썸네일) / `S2` 종목으로 좁힘
+- `R1` 지역=서울·경기 필터 / `R2` ETC 는 명시 필터 제외·전체엔 포함
+- `F1` 종류(체험)·레벨(LEVEL_1) / `F2` 단체 / `F3` 가격 밴드(min/max)
+- `Q1` 제목 검색 / `O1` 가격 오름차순 정렬
+- `V1` DRAFT 비노출(OPEN 만) / `V2` 빈 결과 = 200 빈 페이지
 
 > ⚠️ `Authorization` 헤더는 **raw JWT**(prefix 없음). 공식 위치 캐시는 임베디드 Redis(process-전역)라 `@BeforeEach` 로 `venue:official:*` flush.

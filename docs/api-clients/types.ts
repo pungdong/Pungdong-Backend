@@ -743,6 +743,74 @@ export interface CourseStatusRequest {
   status: CourseStatus;
 }
 
+// ── 공개 둘러보기 (course browse) — 수강생 메인 홈/필터 시트 ──
+// docs/features/course-discovery.md (정책) · docs/architecture/course.md (구현)
+// GET /courses/browse — 공개(비로그인 가능). OPEN 코스만. 페이지네이션(PagedModel/HAL).
+//   빈 결과는 에러 아님 → 200 + 빈 페이지(page.totalElements 0). "결과 N개" = page.totalElements.
+
+/**
+ * 둘러보기 지역 묶음 — 필터 칩(서울·경기/강원/제주/부산·경남)과 1:1. 강사가 따로 입력하지 않고
+ * 위치 도로명주소의 시·도에서 BE 가 파생. 어느 묶음에도 안 맞는 시·도(충청·전라 등)는 ETC —
+ * 명시 지역 필터엔 안 뜨지만 "전체"(region 생략)에는 포함된다.
+ */
+export type Region = 'SEOUL_GYEONGGI' | 'GANGWON' | 'JEJU' | 'BUSAN_GYEONGNAM' | 'ETC';
+
+/** 둘러보기 정렬 — 인기순/가까운일정은 평점·확정일정 신호 도입(부킹·리뷰) 후 추가 예정. */
+export type CourseBrowseSort = 'LATEST' | 'PRICE_ASC' | 'PRICE_DESC';
+
+/**
+ * GET /courses/browse 쿼리 파라미터(disciplineCode 외 전부 선택, 비-PII 라 querystring). 배열 파라미터는
+ * 반복 키로 보낸다(`?levels=LEVEL_1&levels=LEVEL_2`).
+ *
+ * ★ 종류·레벨은 평탄화 멀티칩(필터 한정): 필터 시트는 [체험·L1·L2·L3·트레이닝]을 한 줄로 펼쳐 멀티선택,
+ *   결과는 합집합(OR). 체험/트레이닝은 `kinds`, 자격은 `levels` 로 보낸다 — 필터엔 'CERTIFICATION' 칩이
+ *   없어서(자격은 레벨 칩으로 표현) `kinds` 엔 TRIAL/TRAINING 만. BE 는 `(kind ∈ kinds) OR (CERTIFICATION
+ *   & level ∈ levels)` 로 묶음. (※ 코스 *작성* 화면은 반대로 cascade — 종류 라디오→자격이면 레벨. 필터만
+ *   탐색 편의로 평탄화.)
+ * ★ 단체 칩 '상관없음' = organizationCodes 생략. 가격 밴드는 FE 가 칩을 min/max 로 변환해 전송.
+ */
+export interface CourseBrowseParams {
+  disciplineCode: string; // 필수 — 종목별 카탈로그가 크게 달라 화면이 항상 한 종목으로 진입(메인 상단 select). 누락 시 400
+  keyword?: string; // 제목 부분 일치
+  region?: Region; // 생략 = 전체
+  kinds?: CourseKind[]; // 평탄 멀티칩 — 체험·트레이닝 (자격은 levels 로). 생략 = 종류 무관
+  levels?: CertLevel[]; // 평탄 멀티칩 — L1·L2·L3 (kinds 와 OR 합집합). 생략 = 레벨 무관
+  organizationCodes?: string[]; // AIDA/PADI/SSI…
+  minPrice?: number;
+  maxPrice?: number;
+  sort?: CourseBrowseSort; // 기본 LATEST
+  page?: number; // 0-base
+  size?: number;
+}
+
+/** 둘러보기 카드 1칸 — 상세(CourseResponse)와 달리 카드 표면 필드만. */
+export interface CourseCardResponse {
+  id: number;
+  title: string;
+  thumbnailUrl: string | null; // 미디어 0번, 없으면 null
+  kind: CourseKind;
+  organizationCode: string | null; // CERTIFICATION 한정
+  levels: CertLevel[]; // CERTIFICATION 한정
+  isPackage: boolean;
+  instructorId: number | null;
+  instructorName: string | null; // 강사 nickName
+  locationName: string | null; // 대표 위치 이름
+  regions: Region[]; // 회차 위치들이 속한 지역 묶음(들)
+  price: number;
+  totalRounds: number;
+  disciplineCode: string;
+  createdAt?: string;
+}
+
+/**
+ * GET /courses/browse 응답 — Spring PagedModel(HAL). 카드는 `_embedded.courses`(빈 결과면 키 없음),
+ * 페이지 메타는 `page`. FE 는 `page.totalElements` 로 "결과 N개" 표기.
+ */
+export interface CourseBrowseResponse extends HalLinks {
+  _embedded?: { courses: CourseCardResponse[] };
+  page: { size: number; totalElements: number; totalPages: number; number: number };
+}
+
 // ============================================================
 // 인증 실패 응답 코드 (참고용)
 // docs/architecture/sign-up.md 의 "보안 / 권한 매트릭스" 참고

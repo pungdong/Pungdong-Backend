@@ -4,12 +4,20 @@ import com.diving.pungdong.account.Account;
 import com.diving.pungdong.discipline.DisciplineService;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
+import com.diving.pungdong.course.dto.CourseBrowseCondition;
+import com.diving.pungdong.course.dto.CourseCardResponse;
 import com.diving.pungdong.course.dto.CourseCreateRequest;
 import com.diving.pungdong.course.dto.CourseResponse;
+import com.diving.pungdong.venue.Region;
+import com.diving.pungdong.venue.VenueRefResolver;
 import com.diving.pungdong.venue.VenueRefValidator;
 import com.diving.pungdong.venue.equipment.VenueEquipmentService;
 import com.diving.pungdong.venue.equipment.dto.VenueEquipmentResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
@@ -36,6 +44,7 @@ public class CourseService {
     private final CourseJpaRepo courseRepo;
     private final DisciplineService disciplineService;
     private final VenueRefValidator venueRefValidator;
+    private final VenueRefResolver venueRefResolver;
     private final VenueEquipmentService equipmentService;
 
     @Transactional
@@ -66,6 +75,31 @@ public class CourseService {
         return courseRepo.findAllByInstructorIdOrderByIdDesc(me.getId()).stream()
                 .map(c -> CourseResponse.from(c, Collections.emptyMap()))
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 공개 둘러보기 — OPEN 코스만, 종목/지역/레벨·종류/단체/가격 필터 + 정렬. 빈 결과는 예외 아니라
+     * 빈 페이지(repo 규약: 음성 결과는 200). 지역 필터는 저장 시점 비정규화된 {@code regions} 컬럼으로,
+     * 정렬은 클라이언트 임의 필드가 아니라 {@link CourseBrowseCondition.Sort} 화이트리스트만 허용.
+     */
+    public Page<CourseCardResponse> browse(CourseBrowseCondition condition, Pageable pageable) {
+        PageRequest request = PageRequest.of(
+                pageable.getPageNumber(), pageable.getPageSize(), sortOf(condition.getSort()));
+        return courseRepo.findAll(CourseSpecifications.matching(condition), request)
+                .map(CourseCardResponse::from);
+    }
+
+    private Sort sortOf(CourseBrowseCondition.Sort sort) {
+        CourseBrowseCondition.Sort s = sort == null ? CourseBrowseCondition.Sort.LATEST : sort;
+        switch (s) {
+            case PRICE_ASC:
+                return Sort.by(Sort.Order.asc("price"), Sort.Order.desc("id"));
+            case PRICE_DESC:
+                return Sort.by(Sort.Order.desc("price"), Sort.Order.desc("id"));
+            case LATEST:
+            default:
+                return Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
+        }
     }
 
     @Transactional
@@ -129,6 +163,35 @@ public class CourseService {
             addVenues(me, extra, ex.getVenues());
             course.addRound(extra);
         }
+
+        applyFacets(course);
+    }
+
+    /**
+     * 둘러보기 비정규화 — 회차 위치들의 주소에서 지역 묶음 집합 + 대표 위치명(첫 위치)을 풀어 코스에 박는다
+     * (cleared/replaced 스냅샷). 위치 해석은 {@link VenueRefResolver}(CUSTOM=DB, OFFICIAL=Sanity 캐시).
+     */
+    private void applyFacets(Course course) {
+        List<String> refs = course.getRounds().stream()
+                .flatMap(r -> r.getVenues().stream())
+                .map(RoundVenue::getVenueRefId)
+                .collect(Collectors.toList());
+        Map<String, VenueRefResolver.Resolved> resolved = venueRefResolver.resolveAll(refs);
+
+        Set<Region> regions = new LinkedHashSet<>();
+        String primary = null;
+        for (String ref : refs) {
+            VenueRefResolver.Resolved r = resolved.get(ref);
+            if (r == null) {
+                continue;
+            }
+            regions.add(r.getRegion());
+            if (primary == null) {
+                primary = r.getName();
+            }
+        }
+        course.setRegions(regions);
+        course.setPrimaryLocationName(primary);
     }
 
     private void applyKind(Course course, CourseCreateRequest req) {
