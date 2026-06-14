@@ -48,6 +48,18 @@ public class VenueRefResolver {
      */
     public Map<String, Resolved> resolveAll(Collection<String> venueRefIds) {
         Map<String, Resolved> out = new LinkedHashMap<>();
+        resolveVenues(venueRefIds).forEach((ref, v) ->
+                out.put(ref, new Resolved(v.getName(), Region.fromAddress(v.getAddress()))));
+        return out;
+    }
+
+    /**
+     * venueRefId → 전체 {@link VenueResponse}(이름·주소·type·이용권·daypart fee). 공개 코스 상세에서
+     * 입장료(이용권×daypart fee)·위치명·장비를 합성할 때 쓴다. CUSTOM=BE DB, OFFICIAL=Sanity 캐시.
+     * 입력 순서·중복 무관, 키는 venueRefId. 미존재/형식오류는 결과에서 제외.
+     */
+    public Map<String, VenueResponse> resolveVenues(Collection<String> venueRefIds) {
+        Map<String, VenueResponse> out = new LinkedHashMap<>();
         Map<String, VenueResponse> officialByRef = null;
         for (String ref : venueRefIds) {
             if (ref == null || out.containsKey(ref)) {
@@ -57,7 +69,7 @@ public class VenueRefResolver {
             try {
                 parsed = VenueScope.parse(ref);
             } catch (RuntimeException e) {
-                continue; // 형식 어긋남 — 저장 경로에선 이미 검증됨, 방어적으로 스킵
+                continue; // 형식 어긋남 — 방어적으로 스킵
             }
             if (parsed.getScope() == VenueScope.CUSTOM) {
                 long pk;
@@ -66,15 +78,14 @@ public class VenueRefResolver {
                 } catch (NumberFormatException e) {
                     continue;
                 }
-                venueJpaRepo.findById(pk).ifPresent(v ->
-                        out.put(ref, new Resolved(v.getName(), Region.fromAddress(v.getAddress()))));
+                venueJpaRepo.findById(pk).ifPresent(v -> out.put(ref, VenueResponse.from(v)));
             } else {
                 if (officialByRef == null) {
                     officialByRef = loadOfficialByRef();
                 }
                 VenueResponse v = officialByRef.get(ref);
                 if (v != null) {
-                    out.put(ref, new Resolved(v.getName(), Region.fromAddress(v.getAddress())));
+                    out.put(ref, v);
                 }
             }
         }
