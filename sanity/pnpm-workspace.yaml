@@ -2,5 +2,5 @@
 #
 # 이 파일이 sanity/ 를 자기 완결적 pnpm 워크스페이스 루트로 표시한다 → `cd sanity && pnpm install`
 # 이 BE 레포의 다른 어떤 JS 설정에도 엮이지 않고 sanity/node_modules 에 독립 설치된다.
-# (BE 빌드는 ./gradlew — 이 폴더와 무관. Studio 는 `pnpm deploy` 로 Sanity 클라우드에 독립 배포.)
+# (BE 빌드는 ./gradlew — 이 폴더와 무관. Studio 는 `pnpm run deploy` 로 Sanity 클라우드에 독립 배포.)
 packages: []
