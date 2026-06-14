@@ -8,11 +8,13 @@ import com.diving.pungdong.venue.Venue;
 import com.diving.pungdong.venue.VenueJpaRepo;
 import com.diving.pungdong.venue.VenueType;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -43,6 +45,16 @@ class VenueBuilderUseCaseTest {
     @Autowired JwtTokenProvider jwtTokenProvider;
     @Autowired AccountJpaRepo accountRepo;
     @Autowired VenueJpaRepo venueRepo;
+    @Autowired RedisTemplate<String, String> redisTemplate;
+
+    /** 공식 위치 캐시(임베디드 Redis, process-전역)를 매 테스트 비워 stub 에서 새로 lazy-load. */
+    @BeforeEach
+    void flushOfficialCache() {
+        Set<String> keys = redisTemplate.keys("venue:official:*");
+        if (keys != null && !keys.isEmpty()) {
+            redisTemplate.delete(keys);
+        }
+    }
 
     @AfterEach
     void cleanUp() {

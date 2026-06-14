@@ -520,6 +520,40 @@ export interface VenueResponse extends HalLinks {
   updatedAt?: string;
 }
 
+// ── 대여 장비 가격표 (venue-extension) — docs/architecture/venue.md ──
+// 장비 대여료는 위치별로 다름(딥스테이션 무료포함 ↔ 5m풀 유료) → 강사 × 위치 단위 가격표(강사 전역,
+// 모든 코스 공유, "어디서 바꿔도 신규 접수부터 적용"). 위치는 venueRefId(빌더 목록이 준 토큰)로 가리킴.
+// 모두 인증(강사 트랙). GET /venue-equipment(?venueRefId= 단건/전체) · PUT /venue-equipment(upsert).
+
+/** 사이즈 표기 형식. 미입력 시 SHOE_MM/APPAREL_SXL 은 서버 프리셋 자동, NONE 은 빈 목록, CUSTOM 은 직접. */
+export type SizeFormat = 'NONE' | 'SHOE_MM' | 'APPAREL_SXL' | 'CUSTOM';
+
+/** 장비 1종 (요청·응답 공용 모양). price 0 = 무료. */
+export interface VenueEquipmentItem {
+  /** 응답에만. */
+  id?: number;
+  name: string;
+  price: number;
+  /** 미지정 시 NONE 취급. */
+  sizeFormat?: SizeFormat;
+  /** 수강생이 고를 사이즈. 비우면 sizeFormat 프리셋으로 채워져 응답에 옴. */
+  sizeOptions?: string[];
+}
+
+/** PUT /venue-equipment 요청 — 한 위치 가격표 저장(items 전량 교체 스냅샷). */
+export interface VenueEquipmentRequest {
+  /** "CUSTOM:<pk>" | "OFFICIAL:<sanityId>" (GET /venues/builder 항목의 venueRefId). */
+  venueRefId: string;
+  items: VenueEquipmentItem[];
+}
+
+/** 가격표 응답. 목록은 `_embedded.profiles`(CollectionModel). */
+export interface VenueEquipmentResponse extends HalLinks {
+  id: number;
+  venueRefId: string;
+  items: VenueEquipmentItem[];
+}
+
 // ── 주소 검색 + 좌표 변환 (address) — docs/architecture/address.md ──
 // juso(주소기반산업지원서비스) 통합은 BE 한 곳에만 — FE(웹·앱)는 juso 직접 호출 X(승인키 은닉 +
 // 모바일 BFF 부재). 항상 BE 를 거친다. 모두 인증 필요.

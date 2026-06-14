@@ -59,6 +59,7 @@ public class SecurityConfiguration {
                         .antMatchers("/identity-verifications/**").authenticated()
                         .antMatchers("/consents/**").authenticated()
                         .antMatchers("/venues/**").authenticated()
+                        .antMatchers("/venue-equipment/**").authenticated()
                         .antMatchers("/course-images").authenticated()
                         .antMatchers("/address-search", "/geocode").authenticated()
                         .antMatchers("/account/instructor/**").hasRole("INSTRUCTOR")

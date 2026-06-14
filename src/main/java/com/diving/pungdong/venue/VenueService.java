@@ -80,6 +80,13 @@ public class VenueService {
         return VenueResponse.from(requireOwned(me, id));
     }
 
+    /** 내가 소유한 커스텀 위치인가 — 장비 가격표(venue-extension)가 위치 참조를 검증할 때 쓴다. */
+    public boolean ownsCustomVenue(Account me, Long venueId) {
+        return venueRepo.findById(venueId)
+                .map(v -> v.getOwner() != null && v.getOwner().getId().equals(me.getId()))
+                .orElse(false);
+    }
+
     @Transactional
     public VenueResponse update(Account me, Long id, VenueCreateRequest req) {
         Venue venue = requireOwned(me, id);
