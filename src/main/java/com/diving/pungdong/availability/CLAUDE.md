@@ -43,10 +43,12 @@
 
 `src/test/.../usecase/AvailabilityUseCaseTest` — 실 H2 + 시큐리티 체인(EmbeddedRedis 불필요). S(성공:생성/조회/수정/삭제)/H(점유 hold·정원확장·상태파생)/G(게이트·인증)/R(권한·격리)/V(검증). ⚠️ `Authorization` 헤더는 **raw JWT**(Bearer prefix 없음). ⚠️ hold 는 LAZY — 트랜잭션 밖 DB 확인은 `AvailabilityHoldJpaRepo.findByWindowId`.
 
-## 아직 안 한 것 (후속 PR)
+## enrollment 연동됨 (PR #66)
 
-- **풍덩 enrollment 연동** — `pending`/`confirmed` 점유 + `applicants[]`(이름·단체·레벨·장비) 실데이터. booking 도메인 생길 때.
-- **강사 availability ∩ Venue 운영시간 교차 = 수강생 선택지**(student-facing) — booking 도메인 소유. → [[venue-domain-concept]].
+- **풍덩 enrollment 연동 완료** — `pending`/`confirmed` 점유 + `applicants[]` 가 [enrollment](../enrollment/CLAUDE.md) 도메인에서 실데이터로 채워진다(`AvailabilityService.toResponse` 가 window별 enrollment 집계). 즉 **availability → enrollment(repo) 단방향 의존**(읽기 전용)이 생겼다. 첫 신청이 window 를 (venue,세션)으로 bind(`enrollment.WindowBinder`).
+- **강사 availability ∩ Venue 운영시간 교차 = 수강생 선택지** — enrollment 의 `EnrollmentOptionsService`·`BookableSlotDeriver` 가 구현. → [[venue-domain-concept]].
+
+## 아직 안 한 것 (후속 PR)
 - **알림** — 대기 신청 배너의 푸시(notification outbox 연동) — enrollment 와 함께.
 - **OFFICIAL venueRef 의 Sanity 서버사이드 읽기/캐시** — venue 동기화 설계 [[venue-sanity-sync-design]].
 - **REST Docs `document(...)` 컨트롤러 테스트** — venue/course 와 동일하게 미작성(usecase 로 대체).
