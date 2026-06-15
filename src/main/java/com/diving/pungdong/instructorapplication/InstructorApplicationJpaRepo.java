@@ -18,6 +18,12 @@ public interface InstructorApplicationJpaRepo extends JpaRepository<InstructorAp
      */
     boolean existsByAccountIdAndDisciplineCode(Long accountId, String disciplineCode);
 
+    /**
+     * 강사 트랙에 들어왔는가 — 종목 무관, 신청 보유 여부(상태 무관, SUBMITTED 포함). 가용시간 캘린더
+     * (availability) 진입 게이트. 가용시간은 종목별이 아니라 강사 단위 도구라 종목 조건이 없다.
+     */
+    boolean existsByAccountId(Long accountId);
+
     /** 내 신청 목록 (종목별 여러 건) — 최신순. GET /me 의 출처. */
     List<InstructorApplication> findByAccountIdOrderByIdDesc(Long accountId);
 
