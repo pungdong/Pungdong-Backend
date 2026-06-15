@@ -57,7 +57,7 @@ flowchart TB
 
 - BE 는 **커스텀을 소유**하고 **공식을 캐시**(Sanity 서버사이드 읽기). 공식 위치 **공개 표시**는 여전히 FE 가 Sanity 직접 읽기(certOrganization·term 과 동일).
 - **코스 빌더 official+custom 통합** = `GET /venues/builder` — BE 가 official(캐시)+custom(DB)을 합쳐 반환(FE 소스 무지, §3.2). 신선도는 `_rev` 대조 reconcile + 웹훅이 유지, 잡 생존은 health heartbeat 가 감시(§6 → 구현됨).
-- **이용권 종목 필터 + ticketRef** — 빌더는 venue 뿐 아니라 **그 venue 의 이용권(ticket)도 `disciplineCode` 로 필터**(한 위치가 종목별 ticket 보유 가능 — 예: 딥스테이션 스쿠버 일반권 vs 프리 일반권). 각 ticket 은 코스 저장에 쓸 **안정 `ticketRef`**(CUSTOM=DB pk / OFFICIAL=Sanity `_key`)를 가진다 — FE 는 `id`(OFFICIAL 은 없음) 대신 이걸 쓴다. (관리용 `GET /venues` 는 ticket 필터 안 함.)
+- **이용권 종목 필터 + ticketRef** — 빌더는 venue 뿐 아니라 **그 venue 의 이용권(ticket)도 `disciplineCode` 로 필터**(한 위치가 종목별 ticket 보유 가능 — 예: 딥스테이션 스쿠버 일반권 vs 프리 일반권). 각 ticket 은 코스 저장에 쓸 **안정 `ticketRef`**(CUSTOM=`VenueTicket.ref` UUID / OFFICIAL=Sanity `_key`)를 가진다 — FE 는 `id`(OFFICIAL 은 없음, CUSTOM 도 수정 시 변동) 대신 이걸 쓴다. CUSTOM 의 ref 는 위치 수정(전량교체)에도 보존된다(§4). (관리용 `GET /venues` 는 ticket 필터 안 함.)
 
 ## 3. 핵심 흐름
 
@@ -141,6 +141,7 @@ erDiagram
     String lockedDisciplineCode "필수"
   }
   VenueTicket {
+    String ref "안정 ticketRef(UUID) — 수정에도 보존, PK 와 별개"
     String name
     int sortOrder
     Set disciplineCodes "= lockedDisciplineCode 1개"
@@ -190,7 +191,7 @@ erDiagram
 설계 의도:
 - **이용시간 표기 = 이용권 name 의 "(N시간)"** (어드민 입력). 시간블록 자동 파생(`durationHours`)은 **제거** — 6h 블록·5h 이용 같은 운영 사례(딥스테이션 하프권)로 타임 계산이 name 과 어긋나 혼선. 권종은 티켓 카드 추가.
 - **종목 = 코드 문자열 soft-ref**(`discipline.code`). CUSTOM 은 `lockedDisciplineCode` 1개로 강제.
-- **수정 = 전량 교체 스냅샷**(`clearChildren()` + 재구성, orphanRemoval) — instructor-application 재제출과 동일.
+- **수정 = 전량 교체 스냅샷**(`clearChildren()` + 재구성, orphanRemoval) — instructor-application 재제출과 동일. ⚠️ 단, 이용권은 **`ticketRef`(UUID) 보존**이 필수: 전량교체는 행을 삭제·재삽입해 PK 가 매번 바뀌므로, 코스(`RoundVenueTicket.ticketRef`)·수강신청(`Enrollment.ticketRef`)이 soft-ref 로 가리키던 이용권이 끊긴다. → `VenueTicket.ref`(PK 와 별개 UUID, `@PrePersist` 발급)를 두고, 수정 요청이 기존 `ticketRef` 를 다시 보내면 `VenueService` 가 그 값을 재삽입 행에 그대로 채운다(요청에 없거나 이 위치 소유가 아닌 ref 는 신규로 간주해 새 UUID — ref 주입 불가). unique 제약은 안 둠(UUID 충돌 무시 가능 + delete-before-insert 플러시 순서 회피).
 - OFFICIAL(Sanity) 도 동형 모델(이용 옵션·daypart·휴무) — 스키마는 `sanity/schemas/venue.ts`.
 
 ## 5. 보안 / 권한 매트릭스

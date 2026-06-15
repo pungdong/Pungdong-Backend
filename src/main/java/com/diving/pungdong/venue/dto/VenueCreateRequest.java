@@ -54,6 +54,12 @@ public class VenueCreateRequest {
     @Getter @Setter
     @NoArgsConstructor @AllArgsConstructor @Builder
     public static class Ticket {
+        /**
+         * 수정(PUT) 시 기존 이용권 식별 — 이 위치의 기존 {@code ticketRef} 면 ref 를 보존하고(코스/신청 참조 유지),
+         * 신규 이용권이면 비워둔다(BE 가 새 ref 발급). 생성(POST)에선 무시된다(기존이 없으므로). 위치의 다른
+         * 이용권이나 남의 ref 를 넣어도 무시되고 새로 발급된다 — ref 주입 불가.
+         */
+        private String ticketRef;
         private String name;
         private int sortOrder;
         /** 적용 종목 코드들. CUSTOM 은 lockedDisciplineCode 로 강제(불일치 시 400). */

@@ -75,7 +75,8 @@ public class VenueResponse {
     public static class Ticket {
         /**
          * 이용권 안정 식별자 — 코스 저장의 {@code RoundVenueTicket.ticketRef} 로 그대로 사용한다.
-         * CUSTOM = DB pk 문자열, OFFICIAL = Sanity 배열 {@code _key}. (FE 는 이 값을 쓰고 {@code id} 가정 금지.)
+         * CUSTOM = 위치 수정(전량교체)에도 보존되는 {@link VenueTicket#getRef() UUID}, OFFICIAL = Sanity 배열
+         * {@code _key}. (FE 는 이 값을 쓰고 {@code id} 가정 금지. PK 가정도 금지 — 수정 시 PK 는 바뀐다.)
          */
         private String ticketRef;
         private String name;
@@ -85,7 +86,7 @@ public class VenueResponse {
 
         static Ticket from(VenueTicket t) {
             return Ticket.builder()
-                    .ticketRef(String.valueOf(t.getId()))
+                    .ticketRef(t.getRef())
                     .name(t.getName())
                     .sortOrder(t.getSortOrder())
                     .disciplineCodes(t.getDisciplineCodes())

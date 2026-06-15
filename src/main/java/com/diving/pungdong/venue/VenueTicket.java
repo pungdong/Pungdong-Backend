@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * 이용 옵션 1종 = 한 카드 (예: 일반권 / 하프권 / 종일권). 권종은 새 축이 아니라 카드를 추가하는 것 —
@@ -27,6 +28,18 @@ import java.util.Set;
 public class VenueTicket {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    /**
+     * 이용권 공개 안정 식별자 — 코스({@code RoundVenueTicket.ticketRef})·수강신청({@code Enrollment.ticketRef})이
+     * 이 값으로 이용권을 참조한다. <b>PK 가 아니라 별도 UUID</b>인 이유: 위치 수정은 자식 전량 교체(삭제·재삽입)라
+     * PK 는 매번 바뀌지만, {@code ref} 는 수정 요청이 들고 온 기존 값을 {@link VenueService} 가 보존하므로
+     * 재생성에도 살아남는다 → 그 이용권을 가리키던 코스/신청 참조가 안 깨진다. (OFFICIAL/Sanity 의 {@code _key}
+     * 와 같은 "안정 문자열키" 역할.) 어떤 저장 경로(서비스/직접 repo save)든 비어 있으면 {@code @PrePersist}
+     * 가 새로 발급한다. UUID 라 unique 제약 없이도 충돌 사실상 불가 — 전량교체의 delete+insert 플러시 순서
+     * 문제도 피한다.
+     */
+    @Column(updatable = false)
+    private String ref;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "venue_id")
@@ -51,5 +64,13 @@ public class VenueTicket {
     public void addDaypart(VenueDaypart daypart) {
         daypart.setTicket(this);
         this.dayparts.add(daypart);
+    }
+
+    /** 저장 직전 안정 ref 보장 — 서비스가 보존값을 채웠으면 그대로, 아니면(신규/직접 save) 새 UUID. */
+    @PrePersist
+    void assignRefIfAbsent() {
+        if (ref == null || ref.isBlank()) {
+            ref = UUID.randomUUID().toString();
+        }
     }
 }
