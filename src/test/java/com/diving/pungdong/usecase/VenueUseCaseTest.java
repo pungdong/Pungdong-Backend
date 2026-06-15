@@ -304,6 +304,68 @@ class VenueUseCaseTest {
                 .andExpect(jsonPath("$._embedded").doesNotExist());
     }
 
+    @Test
+    @DisplayName("S3 위치를 수정해도 기존 이용권의 ticketRef 는 보존된다 (코스·수강신청 참조 유지)")
+    void s3_ticketRef_preserved_across_update() throws Exception {
+        Account inst = account("inst@pungdong.com", "강사");
+        enterInstructorTrack(inst, "FREEDIVING");
+
+        String created = mockMvc.perform(post("/venues")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(inst))
+                        .contentType(MediaType.APPLICATION_JSON).content(json(oceanFreediving())))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        Long id = objectMapper.readTree(created).get("id").asLong();
+        String ref = objectMapper.readTree(created).get("tickets").get(0).get("ticketRef").asText();
+        org.assertj.core.api.Assertions.assertThat(ref).isNotBlank();
+
+        // 같은 이용권을 ticketRef 와 함께 다시 보내며 입장료만 50000 으로 수정
+        VenueCreateRequest update = customVenue("울릉도 죽도 포인트", "FREEDIVING", List.of("FREEDIVING"),
+                List.of(weekdayFixed(50000, List.of(block(9, 0, 12, 0, 0))), weekendSame(0)));
+        update.getTickets().get(0).setTicketRef(ref);
+
+        mockMvc.perform(put("/venues/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(inst))
+                        .contentType(MediaType.APPLICATION_JSON).content(json(update)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tickets[0].ticketRef").value(ref))          // 보존
+                .andExpect(jsonPath("$.tickets[0].dayparts[0].fee").value(50000));  // 수정 반영
+    }
+
+    @Test
+    @DisplayName("S4 수정 중 새 이용권을 추가하면 기존 ref 는 보존되고 신규는 새 ref 를 받는다")
+    void s4_new_ticket_gets_fresh_ref_others_preserved() throws Exception {
+        Account inst = account("inst@pungdong.com", "강사");
+        enterInstructorTrack(inst, "FREEDIVING");
+
+        String created = mockMvc.perform(post("/venues")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(inst))
+                        .contentType(MediaType.APPLICATION_JSON).content(json(oceanFreediving())))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        Long id = objectMapper.readTree(created).get("id").asLong();
+        String ref = objectMapper.readTree(created).get("tickets").get(0).get("ticketRef").asText();
+
+        VenueCreateRequest.Ticket existing = VenueCreateRequest.Ticket.builder()
+                .ticketRef(ref).sortOrder(0).disciplineCodes(List.of("FREEDIVING"))
+                .dayparts(List.of(weekdayFixed(0, List.of(block(9, 0, 12, 0, 0))), weekendSame(0))).build();
+        VenueCreateRequest.Ticket added = VenueCreateRequest.Ticket.builder()
+                .sortOrder(1).disciplineCodes(List.of("FREEDIVING"))  // ticketRef 없음 = 신규
+                .dayparts(List.of(weekdayFixed(30000, List.of(block(13, 0, 16, 0, 0))), weekendSame(0))).build();
+        VenueCreateRequest update = oceanFreediving();
+        update.setTickets(List.of(existing, added));
+
+        String body = mockMvc.perform(put("/venues/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(inst))
+                        .contentType(MediaType.APPLICATION_JSON).content(json(update)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tickets.length()").value(2))
+                .andExpect(jsonPath("$.tickets[0].ticketRef").value(ref))  // 기존 보존(sortOrder 0)
+                .andReturn().getResponse().getContentAsString();
+        String newRef = objectMapper.readTree(body).get("tickets").get(1).get("ticketRef").asText();
+        org.assertj.core.api.Assertions.assertThat(newRef).isNotBlank().isNotEqualTo(ref);  // 신규는 새 ref
+    }
+
     private void postOk(Account actor, VenueCreateRequest req) throws Exception {
         mockMvc.perform(post("/venues")
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(actor))
