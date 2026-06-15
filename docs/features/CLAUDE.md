@@ -43,6 +43,7 @@
 - [코스 작성(course-create)](course-create.md) — course + venue + venue.equipment + discipline + Sanity 자격증 (강사 강의 개설 · 위치/장비 참조 모델)
 - [코스 둘러보기(course-discovery)](course-discovery.md) — course + venue + discipline (수강생 메인 홈 공개 조회·검색·필터 · 지역 광역 묶음/주소 파생)
 - [강사 가용시간 캘린더(instructor-availability)](instructor-availability.md) — availability + account + instructor-application + venue (2층 모델 · 외부/수동 점유 · enrollment 후속)
+- [수강신청(booking)](booking.md) — enrollment + availability + venue + course (교집합 = 학생 선택지 · exact-match join · 강사 수락/거절 · 결제 후속)
 
 ## 톤
 

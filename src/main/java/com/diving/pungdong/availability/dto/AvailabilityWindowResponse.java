@@ -53,12 +53,13 @@ public class AvailabilityWindowResponse {
     private List<ApplicantSummaryResponse> applicants;
 
     /**
-     * 엔티티 → 응답 매핑. 점유 파생값과 venueName 은 호출자가 계산해 넘긴다(venueName 은 N+1 회피 위해
-     * 배치 해석). {@code applicants} 는 v1 빈 배열.
+     * 엔티티 → 응답 매핑. 점유 파생값·venueName·applicants 는 호출자가 계산해 넘긴다(venueName/applicants 는
+     * N+1 회피 위해 배치 해석). applicants 는 enrollment 도메인이 채우는 풍덩 수강생 요약(없으면 빈 리스트).
      */
     public static AvailabilityWindowResponse of(AvailabilityWindow w, SlotStatus status,
                                                 int filled, int confirmedCount, int externalCount,
-                                                int pendingCount, String venueName) {
+                                                int pendingCount, String venueName,
+                                                List<ApplicantSummaryResponse> applicants) {
         return AvailabilityWindowResponse.builder()
                 .id(w.getId())
                 .date(w.getDate())
@@ -74,7 +75,7 @@ public class AvailabilityWindowResponse {
                 .venueName(venueName)
                 .sessionLabel(w.getSessionLabel())
                 .holds(w.getHolds().stream().map(HoldResponse::from).collect(Collectors.toList()))
-                .applicants(new ArrayList<>())
+                .applicants(applicants == null ? new ArrayList<>() : applicants)
                 .build();
     }
 

@@ -990,6 +990,131 @@ export interface AvailabilityWindowResponse extends HalLinks {
 }
 
 // ============================================================
+// 수강신청 (enrollment / booking 도메인)
+// docs/architecture/enrollment.md · docs/features/booking.md 참고
+// ============================================================
+// 선택지 = 강사 availability ∩ venue 운영블록 ∩ 코스 1회차 위치(교집합, BE 가 평탄 slots 로 계산).
+// 첫 신청이 window 를 (venue,블록)으로 bind → 같은 venue·정확히 같은 블록만 합류(부분겹침 불가).
+// 신청 시 결제 없음 — 강사 수락(CONFIRMED) 후 결제(PG, 후속).
+
+export type EnrollmentStatus = 'PENDING' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED';
+
+/**
+ * 신청 옵션 — GET /enrollments/options?courseId= (authenticated). 교집합 평탄 슬롯 + 위치별 장비.
+ * FE 는 slots 를 날짜→위치→시간으로 그룹핑(UX 순서는 계산 순서와 분리). 단건 응답(EntityModel, _links 동봉).
+ */
+export interface EnrollmentOptionsResponse {
+  course: {
+    id: number;
+    title: string;
+    disciplineCode: string;
+    levels: CertLevel[];
+    price: number;          // 수강료(원)
+    roundLabel: string;     // "1회차 · 첫 만남"
+    instructorId: number;
+    instructorName: string;
+  };
+  /** 평탄 슬롯(날짜×위치×시간블록). 신청 시 windowId·venueRefId·ticketRef·blockStart·blockEnd 를 echo. */
+  slots: EnrollmentSlot[];
+  /** 위치별 대여 장비(venueRefId → 아이템들). */
+  equipmentByVenue: Record<string, EnrollmentEquipmentOption[]>;
+}
+
+export interface EnrollmentSlot {
+  windowId: number;         // 이 슬롯을 받치는 강사 가용시간
+  date: string;             // "YYYY-MM-DD"
+  venueRefId: string;       // "CUSTOM:<pk>" | "OFFICIAL:<sanityId>"
+  venueName: string;
+  venueType: VenueType;
+  area: string;             // 도로명주소
+  blockStart: string;       // "14:00:00"
+  blockEnd: string;
+  sessionLabel: string;     // "14:00–17:00"
+  ticketRef: string;
+  entryFee: number;         // 입장료(이용권 × 그 날짜 평일/주말 daypart fee)
+  capacity: number;
+  remaining: number;        // capacity − 확정 − 외부 hold
+  full: boolean;
+}
+
+export interface EnrollmentEquipmentOption {
+  itemRef: string;
+  name: string;
+  price: number;
+  sizeFormat?: string | null;  // 있으면 사이즈 칩(v1 은 표시만, 캡처 후속)
+  sizeOptions?: string[];
+}
+
+/** 신청 — POST /enrollments → 201 PENDING. 옵션이 준 슬롯 식별자 echo. 서버가 모두 재검증. */
+export interface EnrollmentCreateRequest {
+  courseId: number;
+  availabilityWindowId: number;
+  venueRefId: string;
+  ticketRef: string;
+  blockStart: string;       // "14:00:00"
+  blockEnd: string;
+  equipmentRefs?: string[]; // 선택 장비 itemRef
+}
+
+/** 강사 거절 — POST /instructor/enrollments/{id}/reject. */
+export interface RejectRequest {
+  reason?: string;
+}
+
+export interface EnrollmentEquipmentLine {
+  itemRef: string;
+  name: string;
+  price: number;
+}
+
+/**
+ * 내 신청(학생) — 신청 직후 / GET /enrollments/mine. 목록은 `_embedded.enrollments`.
+ * 금액은 신청 시점 추정 스냅샷(권위 금액은 확정/결제 시점, 후속).
+ */
+export interface EnrollmentResponse extends HalLinks {
+  id: number;
+  courseId: number | null;
+  courseTitle: string | null;
+  instructorName: string | null;
+  roundIndex: number;
+  date: string | null;
+  blockStart: string | null;
+  blockEnd: string | null;
+  venueRefId: string | null;
+  venueName: string | null;
+  status: EnrollmentStatus;
+  rejectionReason: string | null;
+  tuition: number;
+  entry: number;
+  equipmentTotal: number;
+  total: number;
+  equipment: EnrollmentEquipmentLine[];
+  createdAt: string | null;
+  respondedAt: string | null;
+}
+
+/**
+ * 강사가 받은 신청 — GET /instructor/enrollments?status= · accept/reject 응답.
+ * 목록은 `_embedded.enrollments`. status 생략 시 PENDING.
+ */
+export interface InstructorEnrollmentResponse extends HalLinks {
+  id: number;
+  studentId: number | null;
+  studentName: string | null;
+  courseId: number | null;
+  courseTitle: string | null;
+  date: string | null;
+  blockStart: string | null;
+  blockEnd: string | null;
+  venueRefId: string | null;
+  venueName: string | null;
+  status: EnrollmentStatus;
+  total: number;
+  equipment: EnrollmentEquipmentLine[];
+  createdAt: string | null;
+}
+
+// ============================================================
 // 인증 실패 응답 코드 (참고용)
 // docs/architecture/sign-up.md 의 "보안 / 권한 매트릭스" 참고
 // ============================================================
