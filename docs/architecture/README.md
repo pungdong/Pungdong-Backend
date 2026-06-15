@@ -31,7 +31,8 @@
 | 위치 (venue) | [venue.md](venue.md) | ✅ (정식/커스텀 · builder 통합 머지 · Sanity 동기화 · 장비 equipment extension) |
 | 코스 (course) | [course.md](course.md) | ✅ (강사 작성 · 회차/추가세션 · 위치 venueRefId 참조 · 장비 합성 · 공개조회 후속) |
 | 주소·위치정보 (address) | [address.md](address.md) | ✅ (juso 검색+좌표변환 BE 경유 · 로컬 stub · 좌표계 검증 후속) |
-| 강사 가용시간 (availability) | [availability.md](availability.md) | ✅ (v1 코어 — 가용시간 window + 외부/수동 점유 hold · 5상태 파생 · 풍덩 수강생 enrollment 후속) |
+| 강사 가용시간 (availability) | [availability.md](availability.md) | ✅ (가용시간 window + 외부/수동 점유 hold · 5상태 파생 · enrollment 연동됨) |
+| 수강신청 (enrollment) | [enrollment.md](enrollment.md) | ✅ (booking — availability ∩ venue 교집합 · exact-match join · 강사 수락/거절 · 결제 후속) |
 | **Redis (인프라)** | [redis.md](redis.md) | ✅ (도메인 아님 — JWT 블랙리스트·이메일 코드·venue 캐시 · ⚠️ 테스트 16379 격리 원칙) |
 | 검색 (search / Elasticsearch) | _TODO — Phase 3 정리 후_ | ⏸️ |
 

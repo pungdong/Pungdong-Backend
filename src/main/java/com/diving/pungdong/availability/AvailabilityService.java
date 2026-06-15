@@ -4,7 +4,12 @@ import com.diving.pungdong.account.Account;
 import com.diving.pungdong.availability.dto.AvailabilityCreateRequest;
 import com.diving.pungdong.availability.dto.AvailabilityUpdateRequest;
 import com.diving.pungdong.availability.dto.AvailabilityWindowResponse;
+import com.diving.pungdong.availability.dto.ApplicantSummaryResponse;
 import com.diving.pungdong.availability.dto.HoldRequest;
+import com.diving.pungdong.enrollment.Enrollment;
+import com.diving.pungdong.enrollment.EnrollmentEquipment;
+import com.diving.pungdong.enrollment.EnrollmentJpaRepo;
+import com.diving.pungdong.enrollment.EnrollmentStatus;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
@@ -20,6 +25,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.temporal.TemporalAdjusters;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -44,6 +50,7 @@ public class AvailabilityService {
     private final InstructorApplicationJpaRepo applicationRepo;
     private final VenueRefValidator venueRefValidator;
     private final VenueRefResolver venueRefResolver;
+    private final EnrollmentJpaRepo enrollmentRepo;
 
     /* ─── 생성 (반복 전개) ─────────────────────────────────── */
 
@@ -110,7 +117,11 @@ public class AvailabilityService {
         List<AvailabilityWindow> windows =
                 windowRepo.findByInstructorIdAndDateBetweenOrderByDateAscStartTimeAsc(instructor.getId(), from, to);
         Map<String, String> nameByRef = resolveNames(windows);
-        return windows.stream().map(w -> toResponse(w, nameByRef)).collect(Collectors.toList());
+        Map<Long, List<Enrollment>> activeByWindow = activeByWindow(
+                windows.stream().map(AvailabilityWindow::getId).collect(Collectors.toList()));
+        return windows.stream()
+                .map(w -> toResponse(w, nameByRef, activeByWindow))
+                .collect(Collectors.toList());
     }
 
     public AvailabilityWindowResponse getMine(Account instructor, Long id) {
@@ -202,17 +213,44 @@ public class AvailabilityService {
     }
 
     private AvailabilityWindowResponse toResponse(AvailabilityWindow w) {
-        return toResponse(w, resolveNames(List.of(w)));
+        return toResponse(w, resolveNames(List.of(w)), activeByWindow(List.of(w.getId())));
     }
 
-    private AvailabilityWindowResponse toResponse(AvailabilityWindow w, Map<String, String> nameByRef) {
-        int confirmed = 0; // v1: enrollment 미연동
-        int pending = 0;   // v1: enrollment 미연동
+    private AvailabilityWindowResponse toResponse(AvailabilityWindow w, Map<String, String> nameByRef,
+                                                  Map<Long, List<Enrollment>> activeByWindow) {
+        List<Enrollment> active = activeByWindow.getOrDefault(w.getId(), List.of());
+        int confirmed = (int) active.stream().filter(e -> e.getStatus() == EnrollmentStatus.CONFIRMED).count();
+        int pending = (int) active.stream().filter(e -> e.getStatus() == EnrollmentStatus.PENDING).count();
         int external = w.heldCount();
         SlotStatus status = deriveStatus(w, confirmed, pending);
         String venueName = w.getVenueRefId() == null ? null : nameByRef.get(w.getVenueRefId());
+        List<ApplicantSummaryResponse> applicants = active.stream()
+                .map(AvailabilityService::toApplicant).collect(Collectors.toList());
         return AvailabilityWindowResponse.of(
-                w, status, confirmed + external, confirmed, external, pending, venueName);
+                w, status, confirmed + external, confirmed, external, pending, venueName, applicants);
+    }
+
+    /** 여러 window 의 활성(PENDING/CONFIRMED) enrollment 일괄 — 캘린더 점유·신청자 집계, N+1 회피. */
+    private Map<Long, List<Enrollment>> activeByWindow(Collection<Long> windowIds) {
+        if (windowIds.isEmpty()) {
+            return Map.of();
+        }
+        return enrollmentRepo.findByAvailabilityWindowIdInAndStatusIn(
+                        windowIds, List.of(EnrollmentStatus.PENDING, EnrollmentStatus.CONFIRMED))
+                .stream().collect(Collectors.groupingBy(e -> e.getAvailabilityWindow().getId()));
+    }
+
+    /** enrollment → 슬롯 안 학생 요약(이름·단체레벨·대여장비). 디자인의 SlotApplicantRow 와 통일. */
+    private static ApplicantSummaryResponse toApplicant(Enrollment e) {
+        String courseTag = e.getCourse() == null ? null
+                : StringUtils.hasText(e.getCourse().getOrganizationCode())
+                        ? e.getCourse().getOrganizationCode() : e.getCourse().getDisciplineCode();
+        return ApplicantSummaryResponse.builder()
+                .name(e.getStudent() == null ? null : e.getStudent().getNickName())
+                .courseTag(courseTag)
+                .gear(e.getEquipment().stream().map(EnrollmentEquipment::getName).collect(Collectors.toList()))
+                .kind(null)
+                .build();
     }
 
     /** window 들의 venueRefId 를 한 번에 표시명으로 해석(N+1 회피). 미지정/미존재는 빠진다. */
