@@ -460,10 +460,12 @@ export interface VenueDaypart {
 export interface VenueTicket {
   /**
    * 이용권 안정 식별자 — 코스 저장 시 CourseVenueRequest.tickets[].ticketRef 로 그대로 보낸다.
-   * CUSTOM = DB pk 문자열, OFFICIAL = Sanity 배열 _key. ★ 예전 `id`(number) 가정 폐기 — OFFICIAL 은
-   * id 가 없어 ticketRef 를 써야 한다.
+   * CUSTOM = 위치 수정(전량교체)에도 보존되는 안정 UUID, OFFICIAL = Sanity 배열 _key. ★ `id`(number) 가정
+   * 폐기(OFFICIAL 은 id 없음), PK 가정도 폐기 — 위치 수정 시 내부 PK 는 바뀌지만 ticketRef 는 유지된다.
+   * ★ 위치 수정(PUT /venues/{id}) 시 기존 이용권은 이 ticketRef 를 그대로 다시 보내야 보존된다(신규는 생략).
+   * 응답엔 항상 존재. 요청에선 optional — 생성/신규 티켓은 생략(BE 가 새로 발급).
    */
-  ticketRef: string;
+  ticketRef?: string;
   name?: string;
   sortOrder?: number;
   /** 적용 종목 코드(disciplines.code). CUSTOM 은 lockedDisciplineCode 1개로 강제(OFFICIAL/Sanity 는 멀티 가능). */

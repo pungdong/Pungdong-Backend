@@ -134,12 +134,19 @@ public class VenueService {
         venue.setMaxDepth(req.getMaxDepth());
         venue.setLockedDisciplineCode(lockedCode);
 
+        // 전량교체 전, 이 위치가 현재 보유한 안정 ref 들을 수집 — 수정 요청이 그중 하나를 다시 보내면 보존한다
+        // (코스/수강신청이 가리키던 ticketRef 가 안 깨지게). create 면 비어 있어 전부 새로 발급된다.
+        Set<String> existingRefs = venue.getTickets().stream()
+                .map(VenueTicket::getRef)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toSet());
+
         venue.clearChildren();
         if (req.getTickets() == null || req.getTickets().isEmpty()) {
             throw new BadRequestException(); // 이용 옵션 최소 1개
         }
         for (VenueCreateRequest.Ticket t : req.getTickets()) {
-            venue.addTicket(buildTicket(t, lockedCode));
+            venue.addTicket(buildTicket(t, lockedCode, existingRefs));
         }
         if (req.getClosures() != null) {
             for (VenueCreateRequest.Closure c : req.getClosures()) {
@@ -148,8 +155,12 @@ public class VenueService {
         }
     }
 
-    private VenueTicket buildTicket(VenueCreateRequest.Ticket t, String lockedCode) {
+    private VenueTicket buildTicket(VenueCreateRequest.Ticket t, String lockedCode, Set<String> existingRefs) {
+        // 들고 온 ticketRef 가 이 위치의 기존 것이면 보존, 아니면 null → @PrePersist 가 새 UUID 발급.
+        String preservedRef = StringUtils.hasText(t.getTicketRef()) && existingRefs.contains(t.getTicketRef())
+                ? t.getTicketRef() : null;
         VenueTicket ticket = VenueTicket.builder()
+                .ref(preservedRef)
                 .name(t.getName())
                 .sortOrder(t.getSortOrder())
                 .disciplineCodes(resolveDisciplines(t, lockedCode))

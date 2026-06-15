@@ -87,7 +87,7 @@ class CourseDetailUseCaseTest {
                 .createdAt(LocalDateTime.now()).build();
         v.addTicket(t);
         venueRepo.save(v);
-        return new String[]{"CUSTOM:" + v.getId(), String.valueOf(t.getId())};
+        return new String[]{"CUSTOM:" + v.getId(), t.getRef()};
     }
 
     private String json(Map<String, Object> m) throws Exception {

@@ -122,7 +122,7 @@ class EnrollmentUseCaseTest {
     }
 
     private String ticketRefOf(Venue v) {
-        return String.valueOf(v.getTickets().get(0).getId());
+        return v.getTickets().get(0).getRef();
     }
 
     private String venueRefOf(Venue v) {
