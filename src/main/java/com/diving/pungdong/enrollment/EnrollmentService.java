@@ -92,7 +92,7 @@ public class EnrollmentService {
 
         // 만석 — 확정 + 외부 hold 가 정원을 채웠으면 신청 불가(PENDING 은 하드캡 안 함)
         int confirmed = enrollmentRepo.countByAvailabilityWindowIdAndStatus(window.getId(), EnrollmentStatus.CONFIRMED);
-        if (confirmed + window.heldCount() >= window.getCapacity()) {
+        if (confirmed + window.heldCount() >= window.effectiveCapacity()) {
             throw new BadRequestException(); // 만석
         }
 

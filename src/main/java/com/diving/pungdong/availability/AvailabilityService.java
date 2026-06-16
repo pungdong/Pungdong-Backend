@@ -1,7 +1,9 @@
 package com.diving.pungdong.availability;
 
 import com.diving.pungdong.account.Account;
+import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.availability.dto.AvailabilityCreateRequest;
+import com.diving.pungdong.availability.dto.AvailabilitySettingsResponse;
 import com.diving.pungdong.availability.dto.AvailabilityUpdateRequest;
 import com.diving.pungdong.availability.dto.AvailabilityWindowResponse;
 import com.diving.pungdong.availability.dto.ApplicantSummaryResponse;
@@ -47,6 +49,7 @@ import java.util.stream.Collectors;
 public class AvailabilityService {
 
     private final AvailabilityWindowJpaRepo windowRepo;
+    private final AccountJpaRepo accountRepo;
     private final InstructorApplicationJpaRepo applicationRepo;
     private final VenueRefValidator venueRefValidator;
     private final VenueRefResolver venueRefResolver;
@@ -58,7 +61,7 @@ public class AvailabilityService {
     public List<AvailabilityWindowResponse> create(Account instructor, AvailabilityCreateRequest req) {
         requireInstructorTrack(instructor);
         requireValidRange(req.getStartTime(), req.getEndTime());
-        requireValidCapacity(req.getCapacity());
+        requireValidOverride(req.getCapacity()); // null = 계정 기본값 따름, 주면 1 이상
         validateVenueRefIfPresent(instructor, req.getVenueRefId());
 
         Set<LocalDate> dates = expandDates(req);
@@ -73,7 +76,7 @@ public class AvailabilityService {
                         .date(d)
                         .startTime(req.getStartTime())
                         .endTime(req.getEndTime())
-                        .capacity(req.getCapacity())
+                        .capacityOverride(req.getCapacity()) // null = 계정 기본값 라이브 참조
                         .venueRefId(StringUtils.hasText(req.getVenueRefId()) ? req.getVenueRefId().trim() : null)
                         .sessionLabel(StringUtils.hasText(req.getSessionLabel()) ? req.getSessionLabel().trim() : null)
                         .createdAt(now)
@@ -134,18 +137,56 @@ public class AvailabilityService {
     public AvailabilityWindowResponse update(Account instructor, Long id, AvailabilityUpdateRequest req) {
         AvailabilityWindow w = requireOwned(instructor, id);
         requireValidRange(req.getStartTime(), req.getEndTime());
-        requireValidCapacity(req.getCapacity());
-        if (req.getCapacity() < w.heldCount()) {
-            throw new BadRequestException(); // 정원을 현재 점유보다 낮출 수 없다
-        }
         validateVenueRefIfPresent(instructor, req.getVenueRefId());
 
         w.setDate(req.getDate());
         w.setStartTime(req.getStartTime());
         w.setEndTime(req.getEndTime());
-        w.setCapacity(req.getCapacity());
+        // 정원은 여기서 안 건드린다 — setWindowCapacity/resetWindowCapacity 전용(시간 수정과 분리).
         w.setVenueRefId(StringUtils.hasText(req.getVenueRefId()) ? req.getVenueRefId().trim() : null);
         w.setSessionLabel(StringUtils.hasText(req.getSessionLabel()) ? req.getSessionLabel().trim() : null);
+        w.setUpdatedAt(LocalDateTime.now());
+        return toResponse(w);
+    }
+
+    /* ─── 정원 — 계정 기본값(baseline) + 일정 override ────────── */
+
+    /** 일정탭 상단 ± 가 읽는 현재 기본 정원. 게이트 = 강사신청 보유. */
+    public AvailabilitySettingsResponse getSettings(Account instructor) {
+        requireInstructorTrack(instructor);
+        return AvailabilitySettingsResponse.builder()
+                .defaultCapacity(instructor.effectiveDefaultCapacity())
+                .build();
+    }
+
+    /**
+     * 계정 기본 정원(baseline) 조정 — 일정탭 ±. override 없는 일정들은 이 값을 라이브로 따른다(전파 write 없음).
+     * 이미 확정된 점유는 영향 없음(취소 없음, 만석 체크가 바닥). 1 이상.
+     */
+    @Transactional
+    public AvailabilitySettingsResponse updateDefaultCapacity(Account instructor, Integer capacity) {
+        requireInstructorTrack(instructor);
+        requirePositive(capacity);
+        instructor.setDefaultCapacity(capacity);
+        accountRepo.save(instructor);
+        return AvailabilitySettingsResponse.builder().defaultCapacity(capacity).build();
+    }
+
+    /** 그 일정만 정원 고정(override 설정/변경) — 일정 카드 ±. 1 이상. 점유보다 낮춰도 허용(확정자 유지). */
+    @Transactional
+    public AvailabilityWindowResponse setWindowCapacity(Account instructor, Long id, Integer capacity) {
+        AvailabilityWindow w = requireOwned(instructor, id);
+        requirePositive(capacity);
+        w.setCapacityOverride(capacity);
+        w.setUpdatedAt(LocalDateTime.now());
+        return toResponse(w);
+    }
+
+    /** 일정 override 해제 — "기본값 따르기". 이후 계정 기본값을 라이브로 따른다. */
+    @Transactional
+    public AvailabilityWindowResponse resetWindowCapacity(Account instructor, Long id) {
+        AvailabilityWindow w = requireOwned(instructor, id);
+        w.setCapacityOverride(null);
         w.setUpdatedAt(LocalDateTime.now());
         return toResponse(w);
     }
@@ -157,7 +198,11 @@ public class AvailabilityService {
 
     /* ─── 점유 hold ─────────────────────────────────────────── */
 
-    /** 점유 추가(외부예약 / ± 빠른조정). 정원 초과 시 정원 자동 확장(= 점유 합). */
+    /**
+     * 점유 추가(외부예약 / ± 빠른조정). 외부 reality 는 항상 기록 가능 — 유효정원을 넘겨도 막지 않는다(점유가
+     * 정원을 초과하면 그냥 FULL, 추가 풍덩 신청만 차단). 옛 "정원 자동 확장"은 이 바닥 개념으로 흡수(저장값을
+     * 안 올림 — 외부 hold 가 빠지면 자동 원복).
+     */
     @Transactional
     public AvailabilityWindowResponse addHold(Account instructor, Long id, HoldRequest req) {
         AvailabilityWindow w = requireOwned(instructor, id);
@@ -169,9 +214,6 @@ public class AvailabilityService {
                 .memo(StringUtils.hasText(req.getMemo()) ? req.getMemo().trim() : null)
                 .createdAt(LocalDateTime.now())
                 .build());
-        if (w.heldCount() > w.getCapacity()) {
-            w.setCapacity(w.heldCount()); // 정원 초과 시 자동 확장
-        }
         w.setUpdatedAt(LocalDateTime.now());
         return toResponse(w);
     }
@@ -203,7 +245,7 @@ public class AvailabilityService {
         if (filled == 0) {
             return SlotStatus.AVAILABLE;
         }
-        if (filled >= w.getCapacity()) {
+        if (filled >= w.effectiveCapacity()) {
             return SlotStatus.FULL;
         }
         if (external > 0) {
@@ -287,8 +329,16 @@ public class AvailabilityService {
         }
     }
 
-    private void requireValidCapacity(int capacity) {
-        if (capacity < 1) {
+    /** 정원 값 검증 — 반드시 존재 + 1 이상(계정 기본값/일정 override 설정용). */
+    private void requirePositive(Integer capacity) {
+        if (capacity == null || capacity < 1) {
+            throw new BadRequestException();
+        }
+    }
+
+    /** 생성 시 정원 override 검증 — null 허용(계정 기본값 따름), 주면 1 이상. */
+    private void requireValidOverride(Integer capacity) {
+        if (capacity != null && capacity < 1) {
             throw new BadRequestException();
         }
     }

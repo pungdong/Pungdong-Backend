@@ -11,13 +11,13 @@
 - **가용시간 window** = *이론적 가능성* (강사가 연 빈 시간). 이 도메인이 소유 — `AvailabilityWindow`.
 - **점유(occupancy)** = *실제 점유*. v1 은 **외부/수동 hold** 만 (`AvailabilityHold`, 단일 테이블, `memo` nullable):
   - `memo == null` ⇒ ± 빠른조정(메모 없는 +1).
-  - `memo != null` ⇒ 외부예약(메모 + 인원 1~N, 정원 초과 시 자동 확장).
+  - `memo != null` ⇒ 외부예약(메모 + 인원 1~N, 유효정원 초과해도 기록 — FULL 표시, 자동확장 없음).
 
 **5상태(`SlotStatus`)는 저장값이 아니라 점유에서 파생**(`AvailabilityService.deriveStatus`): `AVAILABLE · PENDING · CONFIRMED · EXTERNAL · FULL`. **풍덩 수강생 점유(`pending`/`confirmed`, `applicants[]`)는 enrollment/booking 도메인 산물 — v1 미연동이라 항상 0/빈 배열.** 응답 모양만 forward-compatible 하게 잡아 enrollment 가 붙으면 채운다. 즉 v1 캘린더는 `AVAILABLE` ↔ `EXTERNAL`/`FULL` 만 실제로 그려진다.
 
 - **컨트롤러**: `AvailabilityController`(`/instructor/availability/**`). recurrence 생성(201, 다중 window) · 캘린더 읽기(`?from=&to=`) · 디테일 · 수정 · 삭제 · hold 추가/제거.
-- **서비스**: `AvailabilityService`(recurrence 전개 · 5상태 파생 · 정원 자동확장 · 게이트). 응답은 **트랜잭션 안에서 DTO 매핑**(LAZY hold 보호). venueName 은 `VenueRefResolver` 배치 해석(N+1 회피).
-- **엔티티**: `AvailabilityWindow`(instructor·date·시간·capacity·nullable venueRefId/sessionLabel) → `AvailabilityHold`. enum: `RecurrenceMode`(ONCE/WEEKLY/FOUR_WEEKS)/`SlotStatus`.
+- **서비스**: `AvailabilityService`(recurrence 전개 · 5상태 파생 · 정원 baseline/override · 게이트). 응답은 **트랜잭션 안에서 DTO 매핑**(LAZY hold 보호). venueName 은 `VenueRefResolver` 배치 해석(N+1 회피).
+- **엔티티**: `AvailabilityWindow`(instructor·date·시간·**nullable `capacityOverride`**·nullable venueRefId/sessionLabel) → `AvailabilityHold`. 정원 기본값은 `Account.defaultCapacity`(기본 4)에 있고 window 는 override 없으면 라이브 참조(`effectiveCapacity()`). enum: `RecurrenceMode`(ONCE/WEEKLY/FOUR_WEEKS)/`SlotStatus`.
 - **레포**: `AvailabilityWindowJpaRepo.findByInstructorIdAndDateBetween...`, `AvailabilityHoldJpaRepo`(주로 테스트 점유 확인).
 - **dto/**: `AvailabilityCreateRequest`(recurrence) · `AvailabilityUpdateRequest` · `HoldRequest` · `AvailabilityWindowResponse`(중첩 `HoldResponse`) · `ApplicantSummaryResponse`(v1 빈 배열, 모양만).
 
@@ -34,14 +34,15 @@
 
 - **2층 모델** (V2 디자인 브리프) — 가용시간 window = 이론적 가능성 / 점유 = 실제. 출처(풍덩 수강생/외부)와 무관하게 동일 동작하도록 단일 정의.
 - **두 가지 정원 조정 = 단일 테이블** — ± 빠른조정과 외부예약을 같은 `AvailabilityHold` row 로(`memo` 로만 구분). 모델을 단단하게.
-- **정원 초과 = 자동 확장** — 외부 단체가 정원을 넘기면 강사가 막히지 않게 capacity = 점유로 확장. 축소(수정)는 점유 미만으로 못 내림(400).
+- **정원 = 계정 기본값 종속 + sparse override(2026-06-16)** — 정원은 "강사가 커버 가능한 인원" = `Account.defaultCapacity`(기본 4). 일정은 `capacityOverride==null` 이면 그 값을 **라이브 참조**(스냅샷·전파 write 없음 — 안 건드린 일정엔 숫자를 저장 안 하니 기본값만 바꾸면 됨), 그 날만 ±로 고정하면 override. 유효정원 = `override ?? account.defaultCapacity`(읽을 때 파생, `effectiveCapacity()`). 두 ± = 계정 baseline(PATCH `/settings`) / 일정 override(PATCH·DELETE `/{id}/capacity`). [[availability-domain-concept]] 의 "정원" 절.
+- **유효정원 < 점유 = 허용(확정 바닥)** — baseline/override 를 점유보다 낮춰도 막지 않는다. 이미 잡힌 점유(확정 enrollment·외부 hold)는 **유지**(취소 없음), 새 신청 수락만 차단(만석). 옛 "정원 자동확장"은 이 바닥 개념으로 흡수 — 저장값을 안 올려서 외부 hold 가 빠지면 자동 원복.
 - **게이트 = 강사신청 보유(상태 무관)** — venue 와 동일 기조. 리뷰 대기 중에도 가용시간 준비 허용. → [[instructor-review-window-allows-prep]]. (가용시간은 종목별이 아니라 강사 단위라 종목 조건 없음 — `existsByAccountId`.)
 - **없음/비소유 = 400 통일**(`ResourceNotFoundException`) — 남의 일정 존재 숨김(venue 패턴).
 - **applicants 빈 채로 v1** — enrollment 도메인 부재. 5상태 모델은 완비, `PENDING`/`CONFIRMED` 만 enrollment 가 붙을 때 채움.
 
 ## 안전망 테스트
 
-`src/test/.../usecase/AvailabilityUseCaseTest` — 실 H2 + 시큐리티 체인(EmbeddedRedis 불필요). S(성공:생성/조회/수정/삭제)/H(점유 hold·정원확장·상태파생)/G(게이트·인증)/R(권한·격리)/V(검증). ⚠️ `Authorization` 헤더는 **raw JWT**(Bearer prefix 없음). ⚠️ hold 는 LAZY — 트랜잭션 밖 DB 확인은 `AvailabilityHoldJpaRepo.findByWindowId`.
+`src/test/.../usecase/AvailabilityUseCaseTest` — 실 H2 + 시큐리티 체인(EmbeddedRedis 불필요). S(성공:생성/조회/수정/삭제)/H(점유 hold·정원초과 기록·상태파생)/C(정원: 기본값 baseline·override·라이브 참조·확정 바닥)/G(게이트·인증)/R(권한·격리)/V(검증). ⚠️ `Authorization` 헤더는 **raw JWT**(Bearer prefix 없음). ⚠️ hold 는 LAZY — 트랜잭션 밖 DB 확인은 `AvailabilityHoldJpaRepo.findByWindowId`.
 
 ## enrollment 연동됨 (PR #66)
 

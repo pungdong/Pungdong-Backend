@@ -34,7 +34,7 @@ import java.util.stream.Collectors;
  * 수강신청 옵션(교집합) — <b>강사 availability window ∩ venue 운영블록 ∩ 코스 1회차 위치</b>를 계산해 평탄
  * 슬롯 집합을 만든다. booking 의 일정/위치/시간/장비 선택지를 한 번에 내려준다(FE 가 날짜→위치→시간 그룹핑).
  *
- * <p>슬롯 정원: window.capacity. remaining = capacity − 확정 enrollment − 외부 hold. bound window(활성
+ * <p>슬롯 정원: window.effectiveCapacity()(override ?? 강사 defaultCapacity). remaining = 정원 − 확정 enrollment − 외부 hold. bound window(활성
  * enrollment 보유)는 그 (venue, 블록)만 노출 — exact-match join 의 옵션-쪽 표현.
  */
 @Service
@@ -107,7 +107,7 @@ public class EnrollmentOptionsService {
                             && b.sameTime(bound.getBlockStart(), bound.getBlockEnd()))) {
                         continue; // 이미 다른 (venue,블록)으로 찬 window — 안 띄움
                     }
-                    int remaining = Math.max(0, w.getCapacity() - occupied);
+                    int remaining = Math.max(0, w.effectiveCapacity() - occupied);
                     slots.add(EnrollmentOptionsResponse.Slot.builder()
                             .windowId(w.getId())
                             .date(w.getDate())
@@ -120,7 +120,7 @@ public class EnrollmentOptionsService {
                             .sessionLabel(label(b.getStart(), b.getEnd()))
                             .ticketRef(ticketRef)
                             .entryFee(b.getFee())
-                            .capacity(w.getCapacity())
+                            .capacity(w.effectiveCapacity())
                             .remaining(remaining)
                             .full(remaining <= 0)
                             .build());

@@ -52,7 +52,7 @@ public class InstructorEnrollmentService {
         // 정원 재검증 — 확정 + 외부 hold 가 정원에 도달했으면 더 못 받음(거절로 정리)
         int confirmed = enrollmentRepo.countByAvailabilityWindowIdAndStatus(
                 e.getAvailabilityWindow().getId(), EnrollmentStatus.CONFIRMED);
-        if (confirmed + e.getAvailabilityWindow().heldCount() >= e.getAvailabilityWindow().getCapacity()) {
+        if (confirmed + e.getAvailabilityWindow().heldCount() >= e.getAvailabilityWindow().effectiveCapacity()) {
             throw new BadRequestException(); // 정원 초과 — 수락 불가
         }
         e.setStatus(EnrollmentStatus.CONFIRMED);
