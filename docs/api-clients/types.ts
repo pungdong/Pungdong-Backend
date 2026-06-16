@@ -891,6 +891,26 @@ export interface CourseDetailTicketResponse {
 // ============================================================
 // 2층 모델: 가용시간 window(이론적 가능성) + 점유 hold(외부/수동). 5상태는 저장값 아니라 점유에서 파생.
 // v1 미연동: 풍덩 수강생 점유(pending/confirmed/applicants[])는 enrollment 도메인 산물 — 항상 0/빈 배열.
+//
+// 정원 모델: 정원은 강사 "계정 기본값(defaultCapacity)"에 종속. 일정은 override 가 없으면 그 값을
+// 라이브로 따른다(스냅샷·전파 아님 — 기본값 바꾸면 override 없는 일정이 즉시 반영). 그 날만 ± 로 고정하면
+// override. 유효정원을 낮춰도 이미 확정된 점유는 유지(취소 없음, 추가만 차단).
+// - 계정 기본값: GET/PATCH /instructor/availability/settings
+// - 일정 override: PATCH(설정/변경) / DELETE(해제·기본값 따르기) /instructor/availability/{id}/capacity
+
+/** 강사 스케줄 설정 — GET/PATCH /instructor/availability/settings. 현재는 기본 정원 하나. */
+export interface AvailabilitySettingsResponse {
+  /** override 없는 일정들의 유효정원(신규 강사 기본 4). */
+  defaultCapacity: number;
+}
+
+/**
+ * 정원 값 1개 — 두 ± 가 공유. PATCH /settings(계정 기본값) 와 PATCH /{id}/capacity(일정 override) 본문.
+ * 1 이상. 일정 override 해제는 본문 없는 DELETE /{id}/capacity.
+ */
+export interface CapacityRequest {
+  capacity: number;
+}
 
 /** 가용시간 생성 반복 모드 — "이 날만 / 주 / 4주". */
 export type RecurrenceMode = 'ONCE' | 'WEEKLY' | 'FOUR_WEEKS';
@@ -912,27 +932,26 @@ export interface AvailabilityCreateRequest {
   /** "HH:mm" 또는 "HH:mm:ss". */
   startTime: string;
   endTime: string;
-  /** 정원 — 1 이상. */
-  capacity: number;
+  /** 정원 override(선택). 생략하면 계정 기본값(defaultCapacity)을 따른다(권장). 주면 그 일정만 그 값으로 고정, 1 이상. */
+  capacity?: number;
   /** 위치 토큰(선택) — "CUSTOM:<pk>"|"OFFICIAL:<sanityId>". 빈 가용시간이면 생략. */
   venueRefId?: string;
   /** 세션 라벨(선택) — "1부"/"오후". */
   sessionLabel?: string;
 }
 
-/** 가용시간 수정 — PUT /instructor/availability/{id}. 정원을 현재 점유 미만으로 낮추면 400. */
+/** 가용시간 수정 — PUT /instructor/availability/{id}. 정원은 여기서 안 다룸(전용 capacity 엔드포인트). */
 export interface AvailabilityUpdateRequest {
   date: string;
   startTime: string;
   endTime: string;
-  capacity: number;
   venueRefId?: string;
   sessionLabel?: string;
 }
 
 /**
  * 점유 추가 — POST /instructor/availability/{id}/holds (201). 단일 hold 테이블에 row 1개.
- * memo 없음 = ± 빠른조정 / memo 있음 = 외부예약. filled+count > capacity 면 정원 자동 확장.
+ * memo 없음 = ± 빠른조정 / memo 있음 = 외부예약. 유효정원을 넘겨도 기록됨(상태 FULL, 자동확장 없음).
  */
 export interface HoldRequest {
   /** 인원 — 1 이상. */
@@ -964,7 +983,7 @@ export interface ApplicantSummaryResponse {
  * 가용시간 window 응답 — 캘린더 한 블록. 목록은 `_embedded.windows`(CollectionModel).
  * - GET /instructor/availability?from&to : 범위 조회(일/주/월 뷰는 FE 가 범위로).
  * - POST /instructor/availability : 전개된 windows 컬렉션(201).
- * - GET/PUT/POST {id}(/holds...) : 단건.
+ * - GET/PUT/POST {id}(/holds...) : 단건. PATCH/DELETE {id}/capacity : 일정 override 설정/해제.
  * status·filled·*Count 는 BE 가 점유에서 파생(저장값 아님). confirmedCount/pendingCount/applicants 는 v1 0/빈.
  */
 export interface AvailabilityWindowResponse extends HalLinks {
@@ -972,7 +991,10 @@ export interface AvailabilityWindowResponse extends HalLinks {
   date: string;
   startTime: string;
   endTime: string;
+  /** 유효정원 = 이 일정 override 가 있으면 그것, 없으면 강사 계정 기본값(파생). */
   capacity: number;
+  /** true = 그 날만 직접 정한 값(override). FE 의 "직접 설정" 배지·"기본값 따르기" 노출 판단용. */
+  capacityOverridden: boolean;
   status: SlotStatus;
   /** 찬 자리 = confirmedCount + externalCount. */
   filled: number;

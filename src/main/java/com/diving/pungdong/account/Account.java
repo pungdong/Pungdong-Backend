@@ -16,6 +16,10 @@ import java.util.Set;
 @Builder
 @NoArgsConstructor @AllArgsConstructor
 public class Account {
+
+    /** 강사 기본 수용 인원 기본값 — 신규 강사가 시작하는 값(이후 본인이 조정). 폴백 상수. */
+    public static final int DEFAULT_CAPACITY = 4;
+
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
@@ -65,6 +69,14 @@ public class Account {
 
     private Boolean isDeleted;
 
+    /**
+     * 강사가 한 일정에서 동시에 수용 가능한 기본 인원 — "내가 커버 가능한 인원"의 단일 출처(account 종속).
+     * 가용시간(window)은 이 값을 <b>스냅샷이 아니라 라이브로 참조</b>한다: 개별 override 가 없는 일정의
+     * 유효정원 = 이 값. 바꾸면 override 안 한 일정들이 즉시 따라간다(전파 로직 불필요 — 저장이 아니라 참조라서).
+     * 학생 계정엔 의미 없으나 무해. null 이면 {@link #DEFAULT_CAPACITY} 폴백({@link #effectiveDefaultCapacity()}).
+     */
+    private Integer defaultCapacity;
+
     @OneToMany(mappedBy = "instructor", fetch = FetchType.LAZY)
     private List<Lecture> lectureList;
 
@@ -82,5 +94,11 @@ public class Account {
         this.isCertified = this.isCertified != null && this.isCertified;
         this.isDeleted = false;
         this.provider = this.provider == null ? AuthProvider.EMAIL : this.provider;
+        this.defaultCapacity = this.defaultCapacity == null ? DEFAULT_CAPACITY : this.defaultCapacity;
+    }
+
+    /** 기본 수용 인원(null 이면 {@link #DEFAULT_CAPACITY}). 기존 데이터(null)·신규 모두 안전하게 읽는다. */
+    public int effectiveDefaultCapacity() {
+        return defaultCapacity != null ? defaultCapacity : DEFAULT_CAPACITY;
     }
 }

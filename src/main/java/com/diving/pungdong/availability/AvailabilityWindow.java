@@ -40,8 +40,13 @@ public class AvailabilityWindow {
     private LocalTime startTime;
     private LocalTime endTime;
 
-    /** 정원(폼의 maxCapacity). 외부 hold 가 넘치면 자동 확장될 수 있다({@code AvailabilityService}). */
-    private int capacity;
+    /**
+     * 이 일정만의 정원 override(sparse). <b>null = 계정 기본값을 라이브로 따름</b>(강사가 안 건드린 일정),
+     * 값 있음 = 그 날만 강사가 직접 ±로 고정한 값. 안 건드린 일정엔 숫자를 저장하지 않으므로 계정 기본값을
+     * 바꿔도 전파 write 가 필요 없다(읽을 때 {@link #effectiveCapacity()} 로 계산). 유효정원을 점유보다
+     * 낮춰도 확정 점유는 유지(취소 없음) — "추가 수락만 멈춤"({@code AvailabilityService}/enrollment 의 만석 체크).
+     */
+    private Integer capacityOverride;
 
     /** "CUSTOM:&lt;pk&gt;" | "OFFICIAL:&lt;sanityId&gt;". 빈 가용시간은 null. */
     private String venueRefId;
@@ -69,5 +74,21 @@ public class AvailabilityWindow {
     /** 외부/수동 점유 합계 — 모든 hold 의 인원 합(±빠른조정 + 외부예약). 정원 dot 의 '점유' 몫. */
     public int heldCount() {
         return holds.stream().mapToInt(AvailabilityHold::getCount).sum();
+    }
+
+    /**
+     * 유효정원 = override 가 있으면 그 값, 없으면 강사 계정 기본값({@code instructor.effectiveDefaultCapacity()}).
+     * 저장값이 아니라 읽을 때 파생. {@code instructor} 는 LAZY 라 트랜잭션 안에서 호출해야 한다.
+     */
+    public int effectiveCapacity() {
+        if (capacityOverride != null) {
+            return capacityOverride;
+        }
+        return instructor != null ? instructor.effectiveDefaultCapacity() : Account.DEFAULT_CAPACITY;
+    }
+
+    /** 그 날만 직접 정한 값이 있는지(= override). FE 의 "직접 설정" 배지·"기본값 따르기" 노출용. */
+    public boolean isCapacityOverridden() {
+        return capacityOverride != null;
     }
 }

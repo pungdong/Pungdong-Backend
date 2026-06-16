@@ -41,8 +41,11 @@ public class AvailabilityCreateRequest {
     @NotNull
     private LocalTime endTime;
 
-    /** 정원(maxCapacity) — 1 이상. */
-    private int capacity;
+    /**
+     * 정원 override(선택). <b>비우면(null) 계정 기본 정원을 따른다</b>(권장 — sparse override). 값을 주면
+     * 그 일정만 그 인원으로 고정. 주면 1 이상({@code AvailabilityService} 검증).
+     */
+    private Integer capacity;
 
     /** 위치 토큰(선택) — "CUSTOM:&lt;pk&gt;"/"OFFICIAL:&lt;sanityId&gt;". 빈 가용시간이면 비움. */
     private String venueRefId;

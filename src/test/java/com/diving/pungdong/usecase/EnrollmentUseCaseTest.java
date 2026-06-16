@@ -151,8 +151,9 @@ class EnrollmentUseCaseTest {
     }
 
     private AvailabilityWindow saveWindow(Account instructor, LocalDate date, LocalTime start, LocalTime end, int cap) {
+        // cap 을 일정 override 로 고정 — 유효정원이 계정 기본값과 무관하게 cap 이 되어 만석/잔여 시나리오가 결정적.
         return windowRepo.save(AvailabilityWindow.builder()
-                .instructor(instructor).date(date).startTime(start).endTime(end).capacity(cap)
+                .instructor(instructor).date(date).startTime(start).endTime(end).capacityOverride(cap)
                 .createdAt(LocalDateTime.now()).build());
     }
 
