@@ -29,7 +29,11 @@ public class AvailabilityWindowResponse {
     private LocalDate date;
     private LocalTime startTime;
     private LocalTime endTime;
+
+    /** 유효정원 = 이 일정 override 가 있으면 그것, 없으면 강사 계정 기본값(파생, 저장값 아님). */
     private int capacity;
+    /** true = 그 날만 직접 정한 값(override). FE 배지·"기본값 따르기" 노출 판단용. */
+    private boolean capacityOverridden;
 
     /** 파생 표시 상태(AVAILABLE/PENDING/CONFIRMED/EXTERNAL/FULL). */
     private SlotStatus status;
@@ -65,7 +69,8 @@ public class AvailabilityWindowResponse {
                 .date(w.getDate())
                 .startTime(w.getStartTime())
                 .endTime(w.getEndTime())
-                .capacity(w.getCapacity())
+                .capacity(w.effectiveCapacity())
+                .capacityOverridden(w.isCapacityOverridden())
                 .status(status)
                 .filled(filled)
                 .confirmedCount(confirmedCount)

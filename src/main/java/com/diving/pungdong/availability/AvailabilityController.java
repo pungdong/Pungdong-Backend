@@ -2,8 +2,10 @@ package com.diving.pungdong.availability;
 
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.availability.dto.AvailabilityCreateRequest;
+import com.diving.pungdong.availability.dto.AvailabilitySettingsResponse;
 import com.diving.pungdong.availability.dto.AvailabilityUpdateRequest;
 import com.diving.pungdong.availability.dto.AvailabilityWindowResponse;
+import com.diving.pungdong.availability.dto.CapacityRequest;
 import com.diving.pungdong.availability.dto.HoldRequest;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.security.CurrentUser;
@@ -49,6 +51,18 @@ public class AvailabilityController {
         return ResponseEntity.status(201).body(collection(created));
     }
 
+    /** 기본 정원(baseline) 읽기 — 일정탭 ± 가 표시할 현재 값. {@code /{id}} 보다 구체적이라 우선 매칭. */
+    @GetMapping("/settings")
+    public ResponseEntity<?> getSettings(@CurrentUser Account account) {
+        return ResponseEntity.ok().body(availabilityService.getSettings(account));
+    }
+
+    /** 기본 정원 조정 — 일정탭 상단 ±. override 없는 일정들이 라이브로 따라간다(전파 write 없음). */
+    @PatchMapping("/settings")
+    public ResponseEntity<?> updateSettings(@CurrentUser Account account, @RequestBody CapacityRequest request) {
+        return ResponseEntity.ok().body(availabilityService.updateDefaultCapacity(account, request.getCapacity()));
+    }
+
     /** 캘린더 읽기 — [from, to] 범위(일/주/월 뷰는 FE 가 범위로 표현). */
     @GetMapping
     public ResponseEntity<?> list(@CurrentUser Account account,
@@ -77,7 +91,20 @@ public class AvailabilityController {
         return ResponseEntity.noContent().build();
     }
 
-    /** 점유 추가 — 외부예약(memo) / ± 빠른조정(memo 없음). 정원 자동 확장 가능. 갱신 window 반환. */
+    /** 그 일정만 정원 고정(override 설정) — 일정 카드 ±. 갱신 window 반환. */
+    @PatchMapping("/{id}/capacity")
+    public ResponseEntity<?> setCapacity(@CurrentUser Account account, @PathVariable Long id,
+                                         @RequestBody CapacityRequest request) {
+        return ResponseEntity.ok().body(model(availabilityService.setWindowCapacity(account, id, request.getCapacity())));
+    }
+
+    /** 일정 override 해제 — "기본값 따르기". 이후 계정 기본값을 라이브로 따른다. 갱신 window 반환. */
+    @DeleteMapping("/{id}/capacity")
+    public ResponseEntity<?> resetCapacity(@CurrentUser Account account, @PathVariable Long id) {
+        return ResponseEntity.ok().body(model(availabilityService.resetWindowCapacity(account, id)));
+    }
+
+    /** 점유 추가 — 외부예약(memo) / ± 빠른조정(memo 없음). 유효정원 초과해도 기록(FULL 표시). 갱신 window 반환. */
     @PostMapping("/{id}/holds")
     public ResponseEntity<?> addHold(@CurrentUser Account account, @PathVariable Long id,
                                      @RequestBody HoldRequest request) {
