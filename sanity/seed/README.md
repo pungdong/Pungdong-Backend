@@ -5,17 +5,18 @@ Studio 에서 하나씩 손으로 넣기 불편한 카탈로그를 ndjson 으로
 
 ## venues.ndjson — 공식(OFFICIAL) 위치 카탈로그
 
-ssiduckdive.com 공개 정보 기반 잠수풀/딥풀 5곳(`venue`). 출처에 위/경도가 없어 `latitude`/`longitude`
-는 비움 — 추후 어드민이 직접 입력(또는 BE geocoding). `name`=장소명, `address`=도로명(좌표 기준),
-`addressDetail`=시설 세부, 수온·장비·예약·주차는 `equipInfo`(자유 텍스트)에.
+ssiduckdive.com 공개 정보 기반 잠수풀/딥풀 4곳(`venue`). `name`=장소명, `address`=도로명(좌표 기준),
+`addressDetail`=시설 세부, 수온·장비·예약·주차는 `equipInfo`(자유 텍스트)에. `latitude`/`longitude`
+는 **address 도메인 geocoding(juso 좌표 API, EPSG:5179→WGS84)으로 채움** — `address` 도로명을 태웠다.
 
 | _id | 장소 | type | 평일/주말 입장료 | 정기휴무 |
 |---|---|---|---|---|
 | venue-jamsil | 잠실 다이빙풀장 | DIVING_POOL | 15,000 / 20,000 | 없음 |
 | venue-seongnam | 성남 아쿠아라인 | DIVING_POOL | 15,000 / 20,000 | 매월 2·4째 일 |
 | venue-suwon | 수원 스포츠 아일랜드 | DIVING_POOL | 18,000 / 18,000 | 매월 2째 수 |
-| venue-deepstation | 용인 딥스테이션 (35m) | DEEP_POOL | 44,000 / 66,000 | 없음 |
 | venue-k26 | 가평 K26 (24m) | DEEP_POOL | 33,000 / 53,000 | 매주 일 |
+
+> 용인 딥스테이션은 어드민이 Studio 에서 직접 등록한 상세본(`_id` auto, 4 tickets)이 이미 있어 seed 에서 제외.
 
 시간 모델: 평일 FIXED(부)/OPEN(상시), 주말 FIXED/SAME(평일과 동일·가격만 다름). `disciplines`
 는 프리·스쿠버 공용(같은 입장료라 멀티 태그). 스키마/정책은 [../docs/features/venue.md](../docs/features/venue.md).
