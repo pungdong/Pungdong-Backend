@@ -3,13 +3,14 @@ package com.diving.pungdong.enrollment.dto;
 import lombok.*;
 
 import javax.validation.constraints.NotNull;
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 
 /**
  * 수강신청 요청 — V2 booking ⑤ 최종확인 → 신청. student 는 컨트롤러가 현재 계정으로 주입.
  * 옵션 API({@code GET /enrollments/options})가 준 슬롯의 식별자를 그대로 echo 한다. 서버가 모두 재검증
- * (window 소유 강사=코스 강사 · 블록이 venue 운영블록이며 window 에 ⊆ · 정원 · 장비 소속 · 가격 재계산).
+ * (코스 1회차 위치/이용권 · 블록이 venue 운영블록이며 강사 coverage 에 통째로 ⊆ · 정원 · 장비 소속 · 가격 재계산).
  */
 @Getter @Setter
 @Builder
@@ -19,8 +20,9 @@ public class EnrollmentCreateRequest {
     @NotNull
     private Long courseId;
 
+    /** 신청 날짜(옵션 슬롯 date echo). 예전 availabilityWindowId 대체 — 이제 (date,위치,블록)이 슬롯 식별자. */
     @NotNull
-    private Long availabilityWindowId;
+    private LocalDate date;
 
     @NotNull
     private String venueRefId;

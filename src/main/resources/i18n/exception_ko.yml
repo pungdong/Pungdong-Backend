@@ -53,3 +53,7 @@ emailDuplication:
 closedLecture:
   code: "-1013"
   msg: "강의가 열리지 않았습니다."
+
+coverageHasSession:
+  code: "-1014"
+  msg: "해당 시간에 일정이 있어 예약가능시간을 변경할 수 없습니다. 내부 일정을 먼저 정리해주세요."

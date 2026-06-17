@@ -886,81 +886,97 @@ export interface CourseDetailTicketResponse {
 }
 
 // ============================================================
-// 강사 가용시간 캘린더 (availability 도메인)
+// 강사 캘린더 — coverage(예약가능시간) + session(일정) 2레이어 (availability 도메인)
 // docs/architecture/availability.md · docs/features/instructor-availability.md 참고
 // ============================================================
-// 2층 모델: 가용시간 window(이론적 가능성) + 점유 hold(외부/수동). 5상태는 저장값 아니라 점유에서 파생.
-// v1 미연동: 풍덩 수강생 점유(pending/confirmed/applicants[])는 enrollment 도메인 산물 — 항상 0/빈 배열.
+// 2레이어: coverage(예약가능시간 = 순수 시간 띠, 위치/정원/사람 없음) + session(일정 = 위치·정원·점유).
+// 결합은 시간 포함뿐(session 이 coverage id 를 참조하지 않음 — coverage 는 머지/분할로 id 휘발).
 //
-// 정원 모델: 정원은 강사 "계정 기본값(defaultCapacity)"에 종속. 일정은 override 가 없으면 그 값을
-// 라이브로 따른다(스냅샷·전파 아님 — 기본값 바꾸면 override 없는 일정이 즉시 반영). 그 날만 ± 로 고정하면
-// override. 유효정원을 낮춰도 이미 확정된 점유는 유지(취소 없음, 추가만 차단).
-// - 계정 기본값: GET/PATCH /instructor/availability/settings
-// - 일정 override: PATCH(설정/변경) / DELETE(해제·기본값 따르기) /instructor/availability/{id}/capacity
+// 핵심 동작:
+// - 일정 원자 추가: POST /sessions 한 번 → coverage 확장+머지 + (위치,시간) session 생성/join + 점유.
+//   (예전 create-window + add-hold 2-call 폐기.)
+// - coverage 직접 편집: POST /coverage(열기, union+머지) / DELETE /coverage(닫기, subtract). 닫기가 일정을
+//   가로지르면 거부(code -1014 COVERAGE_HAS_SESSION → "내부 일정 먼저 정리" 안내).
+// - 범위 조회 GET ?from&to → { coverage:[...], sessions:[...] } 분리.
+// - 정원: 계정 기본값(defaultCapacity) + session override. override 없으면 기본값을 라이브로 따름.
+//   유효정원을 점유보다 낮춰도 확정 점유 유지(취소 없음, 추가만 차단).
+//
+// 학생 신청 자격: venue 운영 부가 coverage 에 **통째로 ⊆** 일 때만(부분겹침 불가). 첫 신청이 그 (위치,블록)
+// session 생성, 같은 (위치,블록) 신청은 join. (enrollment 도메인 참고.)
 
-/** 강사 스케줄 설정 — GET/PATCH /instructor/availability/settings. 현재는 기본 정원 하나. */
+/** 가용시간 전개 반복 모드 — "이 날만 / 주 / 4주"(coverage 열기에서 사용). */
+export type RecurrenceMode = 'ONCE' | 'WEEKLY' | 'FOUR_WEEKS';
+
+/** 일정(session) 표시 상태 — 저장값 아님, 점유에서 파생. */
+export type SlotStatus = 'AVAILABLE' | 'PENDING' | 'CONFIRMED' | 'EXTERNAL' | 'FULL';
+
+/** 강사 스케줄 설정 — GET/PATCH /instructor/availability/settings. */
 export interface AvailabilitySettingsResponse {
   /** override 없는 일정들의 유효정원(신규 강사 기본 4). */
   defaultCapacity: number;
 }
 
 /**
- * 정원 값 1개 — 두 ± 가 공유. PATCH /settings(계정 기본값) 와 PATCH /{id}/capacity(일정 override) 본문.
- * 1 이상. 일정 override 해제는 본문 없는 DELETE /{id}/capacity.
+ * 정원 값 1개 — PATCH /settings(계정 기본값) 와 PATCH /sessions/{id}/capacity(일정 override) 공유.
+ * 1 이상. 일정 override 해제는 본문 없는 DELETE /sessions/{id}/capacity.
  */
 export interface CapacityRequest {
   capacity: number;
 }
 
-/** 가용시간 생성 반복 모드 — "이 날만 / 주 / 4주". */
-export type RecurrenceMode = 'ONCE' | 'WEEKLY' | 'FOUR_WEEKS';
-
-/** 슬롯 표시 상태 — 저장값 아님, 점유에서 파생. v1 은 AVAILABLE↔EXTERNAL/FULL 만 실제로 그려짐. */
-export type SlotStatus = 'AVAILABLE' | 'PENDING' | 'CONFIRMED' | 'EXTERNAL' | 'FULL';
-
 /**
- * 가용시간 생성 — POST /instructor/availability. instructor 는 현재 계정(바디 아님).
- * ONCE = date 하루. WEEKLY/FOUR_WEEKS = dayOfWeeks 요일들을 1주/4주에 전개(기준 주부터, 과거일 제외).
- * 응답은 전개된 window 들의 CollectionModel(_embedded.windows), 201.
+ * 예약가능시간(coverage) 열기/닫기 — POST /coverage(union) · DELETE /coverage(subtract).
+ * 열기는 mode 로 반복 전개. 닫기는 단일 date+시간만(반복 무시). 응답은 영향 받은 coverage 구간[].
  */
-export interface AvailabilityCreateRequest {
-  mode: RecurrenceMode;
+export interface CoverageRequest {
+  /** 열기 전개 모드(닫기는 무시). 생략 = ONCE. */
+  mode?: RecurrenceMode;
   /** 기준 날짜 (ISO "YYYY-MM-DD"). */
   date: string;
-  /** WEEKLY/FOUR_WEEKS 에서 열 요일(ISO DayOfWeek 대문자). ONCE 면 무시. */
+  /** WEEKLY/FOUR_WEEKS 에서 열 요일(ISO DayOfWeek 대문자). */
   dayOfWeeks?: Weekday[];
   /** "HH:mm" 또는 "HH:mm:ss". */
   startTime: string;
   endTime: string;
-  /** 정원 override(선택). 생략하면 계정 기본값(defaultCapacity)을 따른다(권장). 주면 그 일정만 그 값으로 고정, 1 이상. */
-  capacity?: number;
-  /** 위치 토큰(선택) — "CUSTOM:<pk>"|"OFFICIAL:<sanityId>". 빈 가용시간이면 생략. */
-  venueRefId?: string;
-  /** 세션 라벨(선택) — "1부"/"오후". */
-  sessionLabel?: string;
 }
 
-/** 가용시간 수정 — PUT /instructor/availability/{id}. 정원은 여기서 안 다룸(전용 capacity 엔드포인트). */
-export interface AvailabilityUpdateRequest {
+/** 예약가능시간 한 구간 — 순수 시간 띠(위치/정원/사람 없음). 캘린더의 coverage[]. */
+export interface CoverageRangeResponse {
   date: string;
   startTime: string;
   endTime: string;
-  venueRefId?: string;
-  sessionLabel?: string;
 }
 
 /**
- * 점유 추가 — POST /instructor/availability/{id}/holds (201). 단일 hold 테이블에 row 1개.
+ * 일정(session) 원자 추가 — POST /instructor/availability/sessions (201).
+ * 한 트랜잭션: coverage 확장+머지 → (date,위치,시간) session 생성/join → count>0 이면 점유(hold) 기록.
+ */
+export interface SessionCreateRequest {
+  date: string;
+  startTime: string;
+  endTime: string;
+  /** 위치 토큰(선택) — "CUSTOM:<pk>"|"OFFICIAL:<sanityId>". 위치 없는 점유면 생략. */
+  venueRefId?: string;
+  /** 세션 라벨(선택) — "1부"/"오후". */
+  sessionLabel?: string;
+  /** 함께 기록할 점유 인원(선택). 0/생략 = 빈 일정만, 1~N = 점유 추가. */
+  count?: number;
+  /** 외부예약 메모(선택). 있으면 외부예약, 없으면 ± 빠른조정. */
+  memo?: string;
+  /** 이 일정 정원 override(선택). 생략하면 계정 기본값을 따름. 1 이상. */
+  capacity?: number;
+}
+
+/**
+ * 기존 일정에 점유 추가 — POST /instructor/availability/sessions/{id}/holds (201).
  * memo 없음 = ± 빠른조정 / memo 있음 = 외부예약. 유효정원을 넘겨도 기록됨(상태 FULL, 자동확장 없음).
  */
 export interface HoldRequest {
-  /** 인원 — 1 이상. */
   count: number;
-  /** 외부예약 메모(선택). 생략/공백이면 ± 빠른조정. */
   memo?: string;
 }
 
-/** 점유 hold 1건 — window 응답 안 holds[]. */
+/** 점유 hold 1건 — session 응답 안 holds[]. */
 export interface HoldResponse {
   id: number;
   count: number;
@@ -989,45 +1005,49 @@ export interface ApplicantSummaryResponse {
 }
 
 /**
- * 가용시간 window 응답 — 캘린더 한 블록. 목록은 `_embedded.windows`(CollectionModel).
- * - GET /instructor/availability?from&to : 범위 조회(일/주/월 뷰는 FE 가 범위로).
- * - POST /instructor/availability : 전개된 windows 컬렉션(201).
- * - GET/PUT/POST {id}(/holds...) : 단건. PATCH/DELETE {id}/capacity : 일정 override 설정/해제.
- * status·filled·*Count 는 BE 가 점유에서 파생(저장값 아님). confirmedCount/pendingCount/applicants 는 v1 0/빈.
+ * 일정(session) 응답 — 캘린더의 한 점유 블록(위치·정원·사람). status·filled·*Count 는 BE 가 점유에서 파생.
+ * 반환처: GET/POST /sessions/{id}(/holds...), PATCH/DELETE /sessions/{id}/capacity, 캘린더의 sessions[].
  */
-export interface AvailabilityWindowResponse extends HalLinks {
+export interface AvailabilitySessionResponse {
   id: number;
   date: string;
   startTime: string;
   endTime: string;
   /** 유효정원 = 이 일정 override 가 있으면 그것, 없으면 강사 계정 기본값(파생). */
   capacity: number;
-  /** true = 그 날만 직접 정한 값(override). FE 의 "직접 설정" 배지·"기본값 따르기" 노출 판단용. */
+  /** true = 그 날만 직접 정한 값(override). FE "직접 설정" 배지·"기본값 따르기" 노출 판단용. */
   capacityOverridden: boolean;
   status: SlotStatus;
   /** 찬 자리 = confirmedCount + externalCount. */
   filled: number;
-  /** 풍덩 확정 점유 — v1 항상 0. */
   confirmedCount: number;
   /** 외부/수동 hold 점유 합. */
   externalCount: number;
-  /** 풍덩 대기 신청 — v1 항상 0. */
   pendingCount: number;
   venueRefId: string | null;
   /** venueRefId 해석 표시명(미지정/미존재면 null). */
   venueName: string | null;
   sessionLabel: string | null;
   holds: HoldResponse[];
-  /** v1 빈 배열 — enrollment 가 붙으면 채워짐. */
   applicants: ApplicantSummaryResponse[];
+}
+
+/**
+ * 강사 캘린더 범위 조회 — GET /instructor/availability?from&to. 두 레이어 분리.
+ * coverage = 머지된 예약가능시간 띠(배경), sessions = 그 위 일정 카드. FE 는 coverage 를 깔고 sessions 를 얹는다.
+ */
+export interface AvailabilityCalendarResponse {
+  coverage: CoverageRangeResponse[];
+  sessions: AvailabilitySessionResponse[];
 }
 
 // ============================================================
 // 수강신청 (enrollment / booking 도메인)
 // docs/architecture/enrollment.md · docs/features/booking.md 참고
 // ============================================================
-// 선택지 = 강사 availability ∩ venue 운영블록 ∩ 코스 1회차 위치(교집합, BE 가 평탄 slots 로 계산).
-// 첫 신청이 window 를 (venue,블록)으로 bind → 같은 venue·정확히 같은 블록만 합류(부분겹침 불가).
+// 선택지 = 강사 coverage(예약가능시간) ∩ venue 운영블록 ∩ 코스 1회차 위치(교집합, BE 가 평탄 slots 로 계산).
+// venue 부가 coverage 에 통째로 ⊆ 일 때만 옵션이 됨(부분겹침 불가). 첫 신청이 그 (위치,블록) session 생성,
+// 같은 (위치,블록) 신청은 join. 슬롯 식별자 = (date, venueRefId, blockStart, blockEnd) — windowId 없음.
 // 신청 시 결제 없음 — 강사 수락(CONFIRMED) 후 결제(PG, 후속).
 
 export type EnrollmentStatus = 'PENDING' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED';
@@ -1047,15 +1067,14 @@ export interface EnrollmentOptionsResponse {
     instructorId: number;
     instructorName: string;
   };
-  /** 평탄 슬롯(날짜×위치×시간블록). 신청 시 windowId·venueRefId·ticketRef·blockStart·blockEnd 를 echo. */
+  /** 평탄 슬롯(날짜×위치×시간블록). 신청 시 date·venueRefId·ticketRef·blockStart·blockEnd 를 echo. */
   slots: EnrollmentSlot[];
   /** 위치별 대여 장비(venueRefId → 아이템들). */
   equipmentByVenue: Record<string, EnrollmentEquipmentOption[]>;
 }
 
 export interface EnrollmentSlot {
-  windowId: number;         // 이 슬롯을 받치는 강사 가용시간
-  date: string;             // "YYYY-MM-DD"
+  date: string;             // "YYYY-MM-DD" — 슬롯 식별자의 일부
   venueRefId: string;       // "CUSTOM:<pk>" | "OFFICIAL:<sanityId>"
   venueName: string;
   venueType: VenueType;
@@ -1078,10 +1097,10 @@ export interface EnrollmentEquipmentOption {
   sizeOptions?: string[];
 }
 
-/** 신청 — POST /enrollments → 201 PENDING. 옵션이 준 슬롯 식별자 echo. 서버가 모두 재검증. */
+/** 신청 — POST /enrollments → 201 PENDING. 옵션이 준 슬롯 식별자(date,위치,블록) echo. 서버가 모두 재검증. */
 export interface EnrollmentCreateRequest {
   courseId: number;
-  availabilityWindowId: number;
+  date: string;             // "YYYY-MM-DD" — 슬롯의 date (예전 availabilityWindowId 대체)
   venueRefId: string;
   ticketRef: string;
   blockStart: string;       // "14:00:00"
