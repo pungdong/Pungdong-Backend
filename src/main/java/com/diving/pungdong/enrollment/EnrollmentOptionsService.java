@@ -7,6 +7,7 @@ import com.diving.pungdong.availability.AvailabilitySession;
 import com.diving.pungdong.availability.AvailabilitySessionJpaRepo;
 import com.diving.pungdong.availability.CoverageMerger;
 import com.diving.pungdong.availability.CoverageMerger.Span;
+import com.diving.pungdong.availability.SessionOverlapGuard;
 import com.diving.pungdong.course.Course;
 import com.diving.pungdong.course.CourseJpaRepo;
 import com.diving.pungdong.course.CourseRound;
@@ -91,6 +92,8 @@ public class EnrollmentOptionsService {
                 .findByInstructorIdAndDateBetweenOrderByDateAscStartTimeAsc(instructor.getId(), today, to);
         sessions.forEach(s -> sessionByKey.put(
                 sessionKey(s.getDate(), s.getVenueRefId(), s.getStartTime(), s.getEndTime()), s));
+        Map<LocalDate, List<AvailabilitySession>> sessionsByDate = sessions.stream()
+                .collect(Collectors.groupingBy(AvailabilitySession::getDate));
         Map<Long, Integer> confirmedBySession = enrollmentRepo
                 .findByAvailabilitySessionIdInAndStatusIn(
                         sessions.stream().map(AvailabilitySession::getId).collect(Collectors.toList()),
@@ -113,6 +116,10 @@ public class EnrollmentOptionsService {
                 for (BookableSlotDeriver.Block b : slotDeriver.blocksFor(vr, ticketRef, date)) {
                     if (!CoverageMerger.containsWhole(spans, new Span(b.getStart(), b.getEnd()))) {
                         continue; // venue 부가 coverage 에 통째로 안 들어옴
+                    }
+                    if (SessionOverlapGuard.wouldOverlap(sessionsByDate.getOrDefault(date, List.of()),
+                            venueRef, b.getStart(), b.getEnd())) {
+                        continue; // 강사 기존 일정과 시간 겹침 — 이중부킹 불가(같은 위치·블록 join 은 제외)
                     }
                     // 정원은 물리 슬롯(위치,시간) 공유 — 같은 시간 다른 이용권도 같은 session 점유를 본다.
                     AvailabilitySession s = sessionByKey.get(sessionKey(date, venueRef, b.getStart(), b.getEnd()));

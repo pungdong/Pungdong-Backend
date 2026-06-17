@@ -62,6 +62,7 @@ public class AvailabilityService {
     private final VenueRefResolver venueRefResolver;
     private final EnrollmentJpaRepo enrollmentRepo;
     private final SessionCleaner sessionCleaner;
+    private final SessionOverlapGuard overlapGuard;
 
     /* ─── coverage(예약가능시간) 직접 편집 ───────────────────── */
 
@@ -121,6 +122,8 @@ public class AvailabilityService {
                 requireTicketInVenue(venueRef, ticketRef);
             }
         }
+        // 기존 일정과 시간 겹치면 거부(한 강사 = 한 번에 한 세션). 정확히 같은 (위치,시간)은 join 이라 통과.
+        overlapGuard.requireNoOverlap(instructor.getId(), req.getDate(), venueRef, req.getStartTime(), req.getEndTime());
         // ① coverage 가 이 시간대를 덮도록 보장(없으면 확장 + 머지)
         ensureCoverage(instructor, req.getDate(), new Span(req.getStartTime(), req.getEndTime()));
 

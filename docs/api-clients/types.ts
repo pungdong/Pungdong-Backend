@@ -952,6 +952,8 @@ export interface CoverageRangeResponse {
  * 한 트랜잭션: coverage 확장+머지 → (date,위치,시간) session 생성/join → 점유(hold) 기록.
  * ※ 일정 = 점유. **count 는 1 이상 필수**(빈 일정 생성 불가; 점유 없이 시간만 열려면 POST /coverage).
  *   점유가 0 이 되면(아래 removeHold·거절·취소) 그 일정은 자동 삭제됨(session 존재 ⟺ 점유>0).
+ * ※ **시간 겹침 불가**: 새 일정이 같은 날 강사의 기존 일정과 시간상 겹치면 거부(code -1015 SESSION_TIME_OVERLAP).
+ *   한 강사 = 한 번에 한 세션. 맞닿는 경계(08–11 + 11–14)는 허용, 정확히 같은 (위치,시간)은 join.
  */
 export interface SessionCreateRequest {
   date: string;
@@ -1053,8 +1055,9 @@ export interface AvailabilityCalendarResponse {
 // docs/architecture/enrollment.md · docs/features/booking.md 참고
 // ============================================================
 // 선택지 = 강사 coverage(예약가능시간) ∩ venue 운영블록 ∩ 코스 1회차 위치(교집합, BE 가 평탄 slots 로 계산).
-// venue 부가 coverage 에 통째로 ⊆ 일 때만 옵션이 됨(부분겹침 불가). 첫 신청이 그 (위치,블록) session 생성,
-// 같은 (위치,블록) 신청은 join. 슬롯 식별자 = (date, venueRefId, blockStart, blockEnd) — windowId 없음.
+// venue 부가 coverage 에 통째로 ⊆ 일 때만 옵션이 됨(부분겹침 불가). 강사 기존 일정과 시간 겹치는 부는 제외
+// (이중부킹 방지 — submit 도 -1015 로 재검증). 첫 신청이 그 (위치,블록) session 생성, 같은 (위치,블록) 신청은
+// join. 슬롯 식별자 = (date, venueRefId, blockStart, blockEnd) — windowId 없음.
 // 신청 시 결제 없음 — 강사 수락(CONFIRMED) 후 결제(PG, 후속).
 
 export type EnrollmentStatus = 'PENDING' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED';
