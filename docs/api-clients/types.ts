@@ -959,8 +959,8 @@ export interface SessionCreateRequest {
   endTime: string;
   /** 위치 토큰(선택) — "CUSTOM:<pk>"|"OFFICIAL:<sanityId>". 위치 없는 점유면 생략. */
   venueRefId?: string;
-  /** 세션 라벨(선택) — "1부"/"오후". */
-  sessionLabel?: string;
+  /** 이용권 안정 식별자(선택, enrollment 와 동일 키). 명칭은 BE 가 해석. ticketRef 보내면 venueRefId 필수. */
+  ticketRef?: string;
   /** 점유 인원 — 1 이상 필수. */
   count: number;
   /** 외부예약 메모(선택). 있으면 외부예약, 없으면 ± 빠른조정. */
@@ -1032,6 +1032,8 @@ export interface AvailabilitySessionResponse {
   venueRefId: string | null;
   /** venueRefId 해석 표시명(미지정/미존재면 null). */
   venueName: string | null;
+  ticketRef: string | null;
+  /** ticketRef 해석 이용권 명칭(미지정/미존재면 null). BE 가 venue 에서 해석 — FE 는 그대로 표시(라벨 생성 X). */
   sessionLabel: string | null;
   holds: HoldResponse[];
   applicants: ApplicantSummaryResponse[];

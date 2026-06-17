@@ -9,7 +9,7 @@
 강사가 매일 여는 메인 도구. V2 디자인 `features/instructor-availability` 의 BE. **두 레이어로 분리**(2026-06-18 — 옛 단일 `AvailabilityWindow` 가 시간·위치·정원·점유를 한 줄에 뭉쳤던 걸 쪼갬):
 
 - **예약가능시간(coverage)** = `AvailabilityCoverage` — **순수 시간 띠**. "이 범위 안에서 예약을 받을 수 있다"는 판정값일 뿐 위치/정원/점유 아무것도 귀속하지 않는다. 한 (instructor, date) 의 coverage row 들은 항상 **비겹침·비인접으로 머지**돼 저장된다(10–12 + 12–14 → 10–14 한 줄). 머지/빼기/포함판정은 순수함수 `CoverageMerger`(union/subtract/normalize/containsWhole/overlapsAny). row id 는 머지/분할로 **휘발성**이라 다른 엔티티가 FK 로 참조하지 않는다 — coverage↔session 결합은 **시간 포함 판정뿐**.
-- **일정(session)** = `AvailabilitySession` — **위치·정원·점유** 레이어. 정체성 = `(instructor, date, venueRefId, startTime, endTime)`. 같은 (위치,시간)에 점유를 또 추가하면 새 session 이 아니라 기존에 **누적**(외부 hold 또는 enrollment join). 점유 = 외부/수동 `AvailabilityHold`(단일 테이블, `memo` nullable) + 풍덩 enrollment(`enrollment.session_id`, enrollment 도메인 소유):
+- **일정(session)** = `AvailabilitySession` — **위치·정원·점유** 레이어. 정체성 = `(instructor, date, venueRefId, startTime, endTime)` — **물리적 (위치,시간) 슬롯**. 같은 (위치,시간)에 점유를 또 추가하면 새 session 이 아니라 기존에 **누적**(외부 hold 또는 enrollment join). 정원은 그 물리 슬롯 단위로 **공유**(강사 동시 감당 인원) — **`ticketRef` 는 정체성 아님**(같은 시간이 두 이용권 밑에 정의돼도 한 세션, 쪼개면 정원 이중계산). **`ticketRef`(표시 대표값)만 저장하고 이용권 명칭은 읽을 때 venue 에서 해석**(응답 `sessionLabel` = 해석된 이용권명, `venueName` 과 동일 패턴 — 단일 출처, FE 라벨 생성 불필요). 점유 = 외부/수동 `AvailabilityHold`(단일 테이블, `memo` nullable) + 풍덩 enrollment(`enrollment.session_id`, enrollment 도메인 소유):
   - `memo == null` ⇒ ± 빠른조정(메모 없는 +1).
   - `memo != null` ⇒ 외부예약(메모 + 인원 1~N, 유효정원 초과해도 기록 — FULL 표시, 자동확장 없음).
 
@@ -23,7 +23,7 @@
 - **불변식: session 존재 ⟺ 점유 > 0 (`SessionCleaner`)** — `POST /sessions` 는 `count≥1` 필수(빈 일정 생성 불가; 순수 시간은 `/coverage`). 외부 hold 제거(`removeHold`)·신청 거절/취소로 활성 신청+hold 가 0 이 되면 그 session 을 **삭제**(화면 카드 제거). `removeHold` 가 비우면 **204**(남으면 200+session). **enrollment 이력은 보존** — CANCELLED/REJECTED 는 안 지우고 `session_id` 만 끊음(스냅샷 date/위치/블록/가격/사유 남아 CS·환불 증빙). coverage 는 안 건드림(독립).
 - **엔티티**:
   - `AvailabilityCoverage`(instructor·date·startTime·endTime — 순수 시간, FK 대상 아님).
-  - `AvailabilitySession`(instructor·date·시간·**nullable `capacityOverride`**·nullable `venueRefId`/`sessionLabel`) → `AvailabilityHold`(`session_id` FK).
+  - `AvailabilitySession`(instructor·date·시간·**nullable `capacityOverride`**·nullable `venueRefId`/`ticketRef`) → `AvailabilityHold`(`session_id` FK). 이용권 명칭은 미저장(읽을 때 venue 해석).
   - 정원 기본값은 `Account.defaultCapacity`(기본 4)에 있고 session 은 override 없으면 라이브 참조(`effectiveCapacity() = capacityOverride ?? instructor.effectiveDefaultCapacity()`). enum: `RecurrenceMode`(ONCE/WEEKLY/FOUR_WEEKS)/`SlotStatus`.
 - **레포**: `AvailabilityCoverageJpaRepo`(`findByInstructorIdAndDate` 통째 로드해 교체 · `...DateBetween...` 범위 읽기), `AvailabilitySessionJpaRepo`(`...DateBetween...` 캘린더 · `findBy...DateAndStartTimeAndEndTime` find-or-create · `findByInstructorIdAndDate` coverage 닫기 충돌 판정), `AvailabilityHoldJpaRepo.findBySessionId`(주로 테스트 점유 확인).
 - **dto/**: `CoverageRequest`(열기/닫기 공용, recurrence 필드) · `SessionCreateRequest`(원자 추가: date·시간·venueRef?·label?·count?·memo?·capacity?) · `HoldRequest` · `CapacityRequest` · `CoverageRangeResponse`(머지 구간 1개) · `AvailabilityCalendarResponse`(`coverage[]`+`sessions[]`) · `AvailabilitySessionResponse`(중첩 `HoldResponse`) · `AvailabilitySettingsResponse` · `ApplicantSummaryResponse`(평탄 3종, 아래 booking).

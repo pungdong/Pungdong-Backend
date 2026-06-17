@@ -142,11 +142,11 @@ erDiagram
     Long id PK
     Long instructor_id FK
     LocalDate date
-    LocalTime startTime "정체성=(instructor,date,venueRefId,start,end)"
+    LocalTime startTime "정체성=(instructor,date,venueRefId,start,end) — 물리 슬롯"
     LocalTime endTime
     Integer capacityOverride "nullable — null=계정 defaultCapacity 라이브 참조 / 값=그 날만 고정"
     String venueRefId "nullable, CUSTOM:pk|OFFICIAL:id"
-    String sessionLabel "nullable, 1부/오후"
+    String ticketRef "nullable — 표시 대표값(정체성 아님). 명칭은 읽기 시 venue 해석"
     LocalDateTime createdAt
     LocalDateTime updatedAt
   }
@@ -159,7 +159,7 @@ erDiagram
   }
 ```
 
-**의도된 설계**: coverage 는 위치/정원/사람 없는 **순수 시간 띠** — id 가 휘발성이라(머지/분할 때마다 그 날 row 통째 삭제 후 재생성) 아무도 FK 로 참조 안 한다. session 은 `(instructor,date,venueRefId,start,end)` 정체성으로 find-or-create — 같은 (위치,시간)이면 점유만 누적. `venueRefId`/`sessionLabel` nullable(위치 없는 점유 = ± 일반 바쁨). 점유는 hold 단일 테이블에 `memo` 로 두 조정 방식 흡수. `SlotStatus`·`filled`·`externalCount`·**유효정원**(`effectiveCapacity`)는 **저장 안 함** — 읽기 시 파생. 정원의 출처는 `ACCOUNT.defaultCapacity`, `capacityOverride` 는 sparse — 안 건드린 session 은 계정 값을 라이브로 따라 baseline 변경에 전파 write 가 필요 없다.
+**의도된 설계**: coverage 는 위치/정원/사람 없는 **순수 시간 띠** — id 가 휘발성이라(머지/분할 때마다 그 날 row 통째 삭제 후 재생성) 아무도 FK 로 참조 안 한다. session 은 `(instructor,date,venueRefId,start,end)` 정체성으로 find-or-create — **물리 (위치,시간) 슬롯**, 같은 (위치,시간)이면 점유만 누적, 정원 공유. `ticketRef` 는 **정체성 아님**(같은 시간이 두 이용권 밑에 있어도 한 세션 — 쪼개면 정원 이중계산). `ticketRef`(표시 대표값)만 저장하고 응답 `sessionLabel` 은 그걸 venue 에서 해석한 이용권명(단일 출처, `venueName` 과 동일 패턴). `venueRefId`/`ticketRef` nullable(위치 없는 점유 = ± 일반 바쁨). 점유는 hold 단일 테이블에 `memo` 로 두 조정 방식 흡수. `SlotStatus`·`filled`·`externalCount`·**유효정원**(`effectiveCapacity`)는 **저장 안 함** — 읽기 시 파생. 정원의 출처는 `ACCOUNT.defaultCapacity`, `capacityOverride` 는 sparse — 안 건드린 session 은 계정 값을 라이브로 따라 baseline 변경에 전파 write 가 필요 없다.
 
 **의도된 결합**: `AVAILABILITY_SESSION ||--o{ ENROLLMENT` 은 enrollment 도메인이 소유(`enrollment.session_id`). availability 는 그걸 **읽어서만** 집계(`confirmedCount`/`pendingCount`/`applicants[]` + `deriveStatus`).
 

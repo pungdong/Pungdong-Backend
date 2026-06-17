@@ -81,9 +81,9 @@ public class EnrollmentService {
             throw new BadRequestException(); // 예약가능시간 밖
         }
 
-        // (위치, 블록) session 찾거나 생성 — 첫 신청이 생성, 같은 (위치,블록)이면 join
+        // (위치, 이용권, 블록) session 찾거나 생성 — 첫 신청이 생성, 같은 (위치,이용권,블록)이면 join
         AvailabilitySession session = findOrCreateSession(instructor, req.getDate(),
-                req.getBlockStart(), req.getBlockEnd(), req.getVenueRefId());
+                req.getBlockStart(), req.getBlockEnd(), req.getVenueRefId(), req.getTicketRef());
 
         // 만석 — 확정 + 외부 hold 가 유효정원을 채웠으면 신청 불가(PENDING 은 하드캡 안 함)
         int confirmed = enrollmentRepo.countByAvailabilitySessionIdAndStatus(session.getId(), EnrollmentStatus.CONFIRMED);
@@ -158,14 +158,18 @@ public class EnrollmentService {
         return CoverageMerger.containsWhole(spans, new Span(start, end));
     }
 
-    /** (instructor, date, venueRef, block) session 찾거나 생성. 학생 생성 session 은 정원 override 없음. */
+    /**
+     * (instructor, date, venueRef, block) session 찾거나 생성 — 정체성은 (위치,시간), ticketRef 는 표시 대표값
+     * (첫 신청 것으로 저장; 같은 (위치,시간)에 다른 이용권이면 기존 세션에 join, 정원 공유). 학생 생성은 override 없음.
+     */
     private AvailabilitySession findOrCreateSession(Account instructor, java.time.LocalDate date,
-                                                    java.time.LocalTime start, java.time.LocalTime end, String venueRef) {
+                                                    java.time.LocalTime start, java.time.LocalTime end,
+                                                    String venueRef, String ticketRef) {
         return sessionRepo.findByInstructorIdAndDateAndStartTimeAndEndTime(instructor.getId(), date, start, end)
                 .stream().filter(s -> Objects.equals(s.getVenueRefId(), venueRef)).findFirst()
                 .orElseGet(() -> sessionRepo.save(AvailabilitySession.builder()
                         .instructor(instructor).date(date).startTime(start).endTime(end)
-                        .venueRefId(venueRef).sessionLabel(start + "–" + end)
+                        .venueRefId(venueRef).ticketRef(ticketRef)
                         .createdAt(LocalDateTime.now()).build()));
     }
 
