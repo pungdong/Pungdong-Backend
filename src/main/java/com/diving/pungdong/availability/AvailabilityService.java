@@ -2,17 +2,21 @@ package com.diving.pungdong.availability;
 
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.AccountJpaRepo;
-import com.diving.pungdong.availability.dto.AvailabilityCreateRequest;
-import com.diving.pungdong.availability.dto.AvailabilitySettingsResponse;
-import com.diving.pungdong.availability.dto.AvailabilityUpdateRequest;
-import com.diving.pungdong.availability.dto.AvailabilityWindowResponse;
+import com.diving.pungdong.availability.CoverageMerger.Span;
 import com.diving.pungdong.availability.dto.ApplicantSummaryResponse;
+import com.diving.pungdong.availability.dto.AvailabilityCalendarResponse;
+import com.diving.pungdong.availability.dto.AvailabilitySessionResponse;
+import com.diving.pungdong.availability.dto.AvailabilitySettingsResponse;
+import com.diving.pungdong.availability.dto.CoverageRangeResponse;
+import com.diving.pungdong.availability.dto.CoverageRequest;
 import com.diving.pungdong.availability.dto.HoldRequest;
+import com.diving.pungdong.availability.dto.SessionCreateRequest;
 import com.diving.pungdong.enrollment.Enrollment;
 import com.diving.pungdong.enrollment.EnrollmentEquipment;
 import com.diving.pungdong.enrollment.EnrollmentJpaRepo;
 import com.diving.pungdong.enrollment.EnrollmentStatus;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
+import com.diving.pungdong.global.advice.exception.CoverageHasSessionException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
 import com.diving.pungdong.venue.VenueRefResolver;
@@ -31,138 +35,166 @@ import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 강사 가용시간 캘린더 — window 생성(반복 전개)/조회/수정/삭제 + 점유 hold 추가·제거 + 5상태 파생.
+ * 강사 캘린더 — 두 레이어. <b>coverage(예약가능시간)</b> = 순수 시간 띠({@link AvailabilityCoverage}, 머지
+ * 정규화), <b>session(일정)</b> = 위치·정원·점유({@link AvailabilitySession}). 결합은 시간 포함 판정뿐.
  *
- * <p>2층 모델: window(이론적 가능성) 는 이 도메인이 소유, 점유는 {@link AvailabilityHold}(외부/수동)만
- * v1 에서 다룬다. 풍덩 수강생 점유(pending/confirmed)는 미래 enrollment 도메인 — v1 응답엔 0/빈 배열.
- *
- * <p>게이트 = 강사신청 보유(상태 무관, venue 도메인과 동일 기조). 없음/비소유 window = 400
- * ({@link ResourceNotFoundException}, 남의 일정 존재 숨김). 응답은 트랜잭션 안에서 DTO 매핑(LAZY hold 보호).
+ * <p>핵심: ① 일정 원자 추가({@link #addSession}) = coverage 확장+머지 후 session 생성/join 을 1 트랜잭션에.
+ * ② coverage 직접 편집(open/close)도 항상 머지, 닫기가 session 가로지르면 거부({@link CoverageHasSessionException}).
+ * ③ 정원 = 계정 기본값 + session override(PR #69). 게이트 = 강사신청 보유.
  */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class AvailabilityService {
 
-    private final AvailabilityWindowJpaRepo windowRepo;
+    private final AvailabilityCoverageJpaRepo coverageRepo;
+    private final AvailabilitySessionJpaRepo sessionRepo;
     private final AccountJpaRepo accountRepo;
     private final InstructorApplicationJpaRepo applicationRepo;
     private final VenueRefValidator venueRefValidator;
     private final VenueRefResolver venueRefResolver;
     private final EnrollmentJpaRepo enrollmentRepo;
 
-    /* ─── 생성 (반복 전개) ─────────────────────────────────── */
+    /* ─── coverage(예약가능시간) 직접 편집 ───────────────────── */
 
+    /** 예약가능시간 열기(union) — recurrence 전개, 각 날 머지. 영향 받은 날들의 머지된 구간 반환. */
     @Transactional
-    public List<AvailabilityWindowResponse> create(Account instructor, AvailabilityCreateRequest req) {
+    public List<CoverageRangeResponse> openCoverage(Account instructor, CoverageRequest req) {
         requireInstructorTrack(instructor);
         requireValidRange(req.getStartTime(), req.getEndTime());
-        requireValidOverride(req.getCapacity()); // null = 계정 기본값 따름, 주면 1 이상
-        validateVenueRefIfPresent(instructor, req.getVenueRefId());
-
         Set<LocalDate> dates = expandDates(req);
         if (dates.isEmpty()) {
-            throw new BadRequestException(); // 전개 결과가 비면(예: 과거 요일만) 만들 게 없다
-        }
-
-        LocalDateTime now = LocalDateTime.now();
-        return dates.stream()
-                .map(d -> windowRepo.save(AvailabilityWindow.builder()
-                        .instructor(instructor)
-                        .date(d)
-                        .startTime(req.getStartTime())
-                        .endTime(req.getEndTime())
-                        .capacityOverride(req.getCapacity()) // null = 계정 기본값 라이브 참조
-                        .venueRefId(StringUtils.hasText(req.getVenueRefId()) ? req.getVenueRefId().trim() : null)
-                        .sessionLabel(StringUtils.hasText(req.getSessionLabel()) ? req.getSessionLabel().trim() : null)
-                        .createdAt(now)
-                        .build()))
-                .map(this::toResponse)
-                .collect(Collectors.toList());
-    }
-
-    /** ONCE = 그 하루 / WEEKLY·FOUR_WEEKS = 선택 요일을 1주·4주에 걸쳐(기준일이 속한 주부터, 과거일 제외). */
-    private Set<LocalDate> expandDates(AvailabilityCreateRequest req) {
-        Set<LocalDate> dates = new LinkedHashSet<>();
-        if (req.getMode() == RecurrenceMode.ONCE) {
-            dates.add(req.getDate());
-            return dates;
-        }
-        List<DayOfWeek> dows = req.getDayOfWeeks();
-        if (dows == null || dows.isEmpty()) {
-            throw new BadRequestException(); // 주/4주 반복은 요일 1개 이상
-        }
-        int weeks = req.getMode() == RecurrenceMode.FOUR_WEEKS ? 4 : 1;
-        LocalDate monday = req.getDate().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-        for (int w = 0; w < weeks; w++) {
-            LocalDate weekStart = monday.plusWeeks(w);
-            for (DayOfWeek dow : new LinkedHashSet<>(dows)) {
-                LocalDate d = weekStart.plusDays(dow.getValue() - 1L);
-                if (!d.isBefore(req.getDate())) {
-                    dates.add(d);
-                }
-            }
-        }
-        return dates;
-    }
-
-    /* ─── 조회 ─────────────────────────────────────────────── */
-
-    /** 캘린더 읽기 — [from, to] 범위(일/주/월 뷰는 FE 가 범위로 표현). venueName 은 배치 해석(N+1 회피). */
-    public List<AvailabilityWindowResponse> list(Account instructor, LocalDate from, LocalDate to) {
-        if (from == null || to == null || to.isBefore(from)) {
             throw new BadRequestException();
         }
-        List<AvailabilityWindow> windows =
-                windowRepo.findByInstructorIdAndDateBetweenOrderByDateAscStartTimeAsc(instructor.getId(), from, to);
-        Map<String, String> nameByRef = resolveNames(windows);
-        Map<Long, List<Enrollment>> activeByWindow = activeByWindow(
-                windows.stream().map(AvailabilityWindow::getId).collect(Collectors.toList()));
-        return windows.stream()
-                .map(w -> toResponse(w, nameByRef, activeByWindow))
-                .collect(Collectors.toList());
+        for (LocalDate d : dates) {
+            ensureCoverage(instructor, d, new Span(req.getStartTime(), req.getEndTime()));
+        }
+        LocalDate from = dates.stream().min(LocalDate::compareTo).orElseThrow();
+        LocalDate to = dates.stream().max(LocalDate::compareTo).orElseThrow();
+        return coverageRanges(instructor, from, to);
     }
 
-    public AvailabilityWindowResponse getMine(Account instructor, Long id) {
-        return toResponse(requireOwned(instructor, id));
-    }
-
-    /* ─── 수정/삭제 ────────────────────────────────────────── */
-
+    /** 예약가능시간 닫기(subtract, 단일 날) — 그 구간에 일정이 걸치면 거부. 그 날 머지된 구간 반환. */
     @Transactional
-    public AvailabilityWindowResponse update(Account instructor, Long id, AvailabilityUpdateRequest req) {
-        AvailabilityWindow w = requireOwned(instructor, id);
+    public List<CoverageRangeResponse> closeCoverage(Account instructor, CoverageRequest req) {
+        requireInstructorTrack(instructor);
         requireValidRange(req.getStartTime(), req.getEndTime());
-        validateVenueRefIfPresent(instructor, req.getVenueRefId());
-
-        w.setDate(req.getDate());
-        w.setStartTime(req.getStartTime());
-        w.setEndTime(req.getEndTime());
-        // 정원은 여기서 안 건드린다 — setWindowCapacity/resetWindowCapacity 전용(시간 수정과 분리).
-        w.setVenueRefId(StringUtils.hasText(req.getVenueRefId()) ? req.getVenueRefId().trim() : null);
-        w.setSessionLabel(StringUtils.hasText(req.getSessionLabel()) ? req.getSessionLabel().trim() : null);
-        w.setUpdatedAt(LocalDateTime.now());
-        return toResponse(w);
+        Span cut = new Span(req.getStartTime(), req.getEndTime());
+        if (sessionOverlaps(instructor, req.getDate(), cut)) {
+            throw new CoverageHasSessionException();
+        }
+        List<Span> result = CoverageMerger.subtract(loadSpans(instructor, req.getDate()), cut);
+        replaceCoverage(instructor, req.getDate(), result);
+        return coverageRanges(instructor, req.getDate(), req.getDate());
     }
 
-    /* ─── 정원 — 계정 기본값(baseline) + 일정 override ────────── */
+    /* ─── session(일정) 원자 추가 + 관리 ─────────────────────── */
 
-    /** 일정탭 상단 ± 가 읽는 현재 기본 정원. 게이트 = 강사신청 보유. */
+    /**
+     * 일정 원자 추가 — coverage 확장+머지 → (위치,시간) session 찾거나 생성 → count&gt;0 이면 점유 기록.
+     * 한 트랜잭션. 외부 점유는 유효정원 넘겨도 기록(자동확장 없음).
+     */
+    @Transactional
+    public AvailabilitySessionResponse addSession(Account instructor, SessionCreateRequest req) {
+        requireInstructorTrack(instructor);
+        requireValidRange(req.getStartTime(), req.getEndTime());
+        requireValidOverride(req.getCapacity());
+        String venueRef = trimToNull(req.getVenueRefId());
+        if (venueRef != null) {
+            venueRefValidator.validate(instructor, venueRef);
+        }
+        // ① coverage 가 이 시간대를 덮도록 보장(없으면 확장 + 머지)
+        ensureCoverage(instructor, req.getDate(), new Span(req.getStartTime(), req.getEndTime()));
+
+        // ② (위치,시간) session 찾거나 생성
+        AvailabilitySession session = findOrCreateSession(
+                instructor, req.getDate(), req.getStartTime(), req.getEndTime(),
+                venueRef, trimToNull(req.getSessionLabel()), req.getCapacity());
+
+        // ③ 점유 기록(선택)
+        if (req.getCount() != null && req.getCount() > 0) {
+            session.addHold(AvailabilityHold.builder()
+                    .count(req.getCount())
+                    .memo(trimToNull(req.getMemo()))
+                    .createdAt(LocalDateTime.now())
+                    .build());
+            session.setUpdatedAt(LocalDateTime.now());
+        }
+        return toResponse(session);
+    }
+
+    /** 일정 삭제 — 활성(PENDING/CONFIRMED) 신청이 있으면 거부(확정 취소 없음). coverage 는 그대로(독립). */
+    @Transactional
+    public void deleteSession(Account instructor, Long id) {
+        AvailabilitySession s = requireOwned(instructor, id);
+        boolean hasActive = !enrollmentRepo.findByAvailabilitySessionIdAndStatusIn(
+                id, List.of(EnrollmentStatus.PENDING, EnrollmentStatus.CONFIRMED)).isEmpty();
+        if (hasActive) {
+            throw new BadRequestException(); // 신청이 있는 일정은 못 지움
+        }
+        sessionRepo.delete(s);
+    }
+
+    /** 일정 정원 override 설정/변경 — 1 이상. 점유보다 낮춰도 허용(확정 바닥). */
+    @Transactional
+    public AvailabilitySessionResponse setSessionCapacity(Account instructor, Long id, Integer capacity) {
+        AvailabilitySession s = requireOwned(instructor, id);
+        requirePositive(capacity);
+        s.setCapacityOverride(capacity);
+        s.setUpdatedAt(LocalDateTime.now());
+        return toResponse(s);
+    }
+
+    /** 일정 override 해제 — 계정 기본값을 라이브로 따른다. */
+    @Transactional
+    public AvailabilitySessionResponse resetSessionCapacity(Account instructor, Long id) {
+        AvailabilitySession s = requireOwned(instructor, id);
+        s.setCapacityOverride(null);
+        s.setUpdatedAt(LocalDateTime.now());
+        return toResponse(s);
+    }
+
+    /** 기존 일정에 점유 추가(±/외부). 유효정원 넘겨도 기록. */
+    @Transactional
+    public AvailabilitySessionResponse addHold(Account instructor, Long id, HoldRequest req) {
+        AvailabilitySession s = requireOwned(instructor, id);
+        if (req.getCount() < 1) {
+            throw new BadRequestException();
+        }
+        s.addHold(AvailabilityHold.builder()
+                .count(req.getCount())
+                .memo(trimToNull(req.getMemo()))
+                .createdAt(LocalDateTime.now())
+                .build());
+        s.setUpdatedAt(LocalDateTime.now());
+        return toResponse(s);
+    }
+
+    /** 점유 제거(± −1 / 외부예약 취소). */
+    @Transactional
+    public AvailabilitySessionResponse removeHold(Account instructor, Long id, Long holdId) {
+        AvailabilitySession s = requireOwned(instructor, id);
+        boolean removed = s.getHolds().removeIf(h -> h.getId().equals(holdId));
+        if (!removed) {
+            throw new ResourceNotFoundException();
+        }
+        s.setUpdatedAt(LocalDateTime.now());
+        return toResponse(s);
+    }
+
+    /* ─── 정원 — 계정 기본값(baseline) ──────────────────────── */
+
     public AvailabilitySettingsResponse getSettings(Account instructor) {
         requireInstructorTrack(instructor);
         return AvailabilitySettingsResponse.builder()
-                .defaultCapacity(instructor.effectiveDefaultCapacity())
-                .build();
+                .defaultCapacity(instructor.effectiveDefaultCapacity()).build();
     }
 
-    /**
-     * 계정 기본 정원(baseline) 조정 — 일정탭 ±. override 없는 일정들은 이 값을 라이브로 따른다(전파 write 없음).
-     * 이미 확정된 점유는 영향 없음(취소 없음, 만석 체크가 바닥). 1 이상.
-     */
     @Transactional
     public AvailabilitySettingsResponse updateDefaultCapacity(Account instructor, Integer capacity) {
         requireInstructorTrack(instructor);
@@ -172,72 +204,81 @@ public class AvailabilityService {
         return AvailabilitySettingsResponse.builder().defaultCapacity(capacity).build();
     }
 
-    /** 그 일정만 정원 고정(override 설정/변경) — 일정 카드 ±. 1 이상. 점유보다 낮춰도 허용(확정자 유지). */
-    @Transactional
-    public AvailabilityWindowResponse setWindowCapacity(Account instructor, Long id, Integer capacity) {
-        AvailabilityWindow w = requireOwned(instructor, id);
-        requirePositive(capacity);
-        w.setCapacityOverride(capacity);
-        w.setUpdatedAt(LocalDateTime.now());
-        return toResponse(w);
-    }
+    /* ─── 조회 ─────────────────────────────────────────────── */
 
-    /** 일정 override 해제 — "기본값 따르기". 이후 계정 기본값을 라이브로 따른다. */
-    @Transactional
-    public AvailabilityWindowResponse resetWindowCapacity(Account instructor, Long id) {
-        AvailabilityWindow w = requireOwned(instructor, id);
-        w.setCapacityOverride(null);
-        w.setUpdatedAt(LocalDateTime.now());
-        return toResponse(w);
-    }
-
-    @Transactional
-    public void delete(Account instructor, Long id) {
-        windowRepo.delete(requireOwned(instructor, id));
-    }
-
-    /* ─── 점유 hold ─────────────────────────────────────────── */
-
-    /**
-     * 점유 추가(외부예약 / ± 빠른조정). 외부 reality 는 항상 기록 가능 — 유효정원을 넘겨도 막지 않는다(점유가
-     * 정원을 초과하면 그냥 FULL, 추가 풍덩 신청만 차단). 옛 "정원 자동 확장"은 이 바닥 개념으로 흡수(저장값을
-     * 안 올림 — 외부 hold 가 빠지면 자동 원복).
-     */
-    @Transactional
-    public AvailabilityWindowResponse addHold(Account instructor, Long id, HoldRequest req) {
-        AvailabilityWindow w = requireOwned(instructor, id);
-        if (req.getCount() < 1) {
+    /** 캘린더 [from,to] — coverage 구간[] + session[] 분리. */
+    public AvailabilityCalendarResponse getCalendar(Account instructor, LocalDate from, LocalDate to) {
+        if (from == null || to == null || to.isBefore(from)) {
             throw new BadRequestException();
         }
-        w.addHold(AvailabilityHold.builder()
-                .count(req.getCount())
-                .memo(StringUtils.hasText(req.getMemo()) ? req.getMemo().trim() : null)
-                .createdAt(LocalDateTime.now())
-                .build());
-        w.setUpdatedAt(LocalDateTime.now());
-        return toResponse(w);
+        List<AvailabilitySession> sessions =
+                sessionRepo.findByInstructorIdAndDateBetweenOrderByDateAscStartTimeAsc(instructor.getId(), from, to);
+        Map<String, String> nameByRef = resolveNames(sessions);
+        Map<Long, List<Enrollment>> activeBySession = activeBySession(
+                sessions.stream().map(AvailabilitySession::getId).collect(Collectors.toList()));
+        return AvailabilityCalendarResponse.builder()
+                .coverage(coverageRanges(instructor, from, to))
+                .sessions(sessions.stream()
+                        .map(s -> toResponse(s, nameByRef, activeBySession))
+                        .collect(Collectors.toList()))
+                .build();
     }
 
-    /** 점유 제거(± −1 / 외부예약 취소). 정원은 자동 축소하지 않는다(확장은 흔적 — 강사가 직접 줄임). */
-    @Transactional
-    public AvailabilityWindowResponse removeHold(Account instructor, Long id, Long holdId) {
-        AvailabilityWindow w = requireOwned(instructor, id);
-        boolean removed = w.getHolds().removeIf(h -> h.getId().equals(holdId));
-        if (!removed) {
-            throw new ResourceNotFoundException();
+    public AvailabilitySessionResponse getSession(Account instructor, Long id) {
+        return toResponse(requireOwned(instructor, id));
+    }
+
+    /* ─── coverage 내부 ─────────────────────────────────────── */
+
+    /** 그 시간대가 coverage 에 들어오도록 union + 머지 + 교체. */
+    private void ensureCoverage(Account instructor, LocalDate date, Span span) {
+        List<Span> merged = CoverageMerger.union(loadSpans(instructor, date), span);
+        replaceCoverage(instructor, date, merged);
+    }
+
+    private List<Span> loadSpans(Account instructor, LocalDate date) {
+        return coverageRepo.findByInstructorIdAndDate(instructor.getId(), date).stream()
+                .map(c -> new Span(c.getStartTime(), c.getEndTime()))
+                .collect(Collectors.toList());
+    }
+
+    /** 그 날 coverage row 를 newSpans 로 통째 교체(머지 결과 박제). */
+    private void replaceCoverage(Account instructor, LocalDate date, List<Span> newSpans) {
+        coverageRepo.deleteAll(coverageRepo.findByInstructorIdAndDate(instructor.getId(), date));
+        for (Span s : newSpans) {
+            coverageRepo.save(AvailabilityCoverage.builder()
+                    .instructor(instructor).date(date).startTime(s.start()).endTime(s.end()).build());
         }
-        w.setUpdatedAt(LocalDateTime.now());
-        return toResponse(w);
     }
 
-    /* ─── 파생 + 매핑 ──────────────────────────────────────── */
+    private List<CoverageRangeResponse> coverageRanges(Account instructor, LocalDate from, LocalDate to) {
+        return coverageRepo.findByInstructorIdAndDateBetweenOrderByDateAscStartTimeAsc(instructor.getId(), from, to)
+                .stream().map(CoverageRangeResponse::of).collect(Collectors.toList());
+    }
 
-    /**
-     * 5상태 파생 — v1 은 enrollment 가 없어 confirmed/pending = 0, 모든 점유는 외부 hold.
-     * 미래 enrollment 가 붙으면 confirmed/pending 만 채우면 그대로 동작한다.
-     */
-    SlotStatus deriveStatus(AvailabilityWindow w, int confirmed, int pending) {
-        int external = w.heldCount();
+    private boolean sessionOverlaps(Account instructor, LocalDate date, Span cut) {
+        return sessionRepo.findByInstructorIdAndDate(instructor.getId(), date).stream()
+                .anyMatch(s -> new Span(s.getStartTime(), s.getEndTime()).overlaps(cut));
+    }
+
+    /* ─── session 내부 ──────────────────────────────────────── */
+
+    private AvailabilitySession findOrCreateSession(Account instructor, LocalDate date, LocalTime start,
+                                                    LocalTime end, String venueRef, String sessionLabel,
+                                                    Integer capacityOverride) {
+        return sessionRepo.findByInstructorIdAndDateAndStartTimeAndEndTime(instructor.getId(), date, start, end)
+                .stream().filter(s -> Objects.equals(s.getVenueRefId(), venueRef)).findFirst()
+                .orElseGet(() -> sessionRepo.save(AvailabilitySession.builder()
+                        .instructor(instructor).date(date).startTime(start).endTime(end)
+                        .venueRefId(venueRef).sessionLabel(sessionLabel)
+                        .capacityOverride(capacityOverride)
+                        .createdAt(LocalDateTime.now()).build()));
+    }
+
+    /* ─── 상태 파생 + 매핑 ──────────────────────────────────── */
+
+    SlotStatus deriveStatus(AvailabilitySession s, int confirmed, int pending) {
+        int external = s.heldCount();
         int filled = confirmed + external;
         if (pending > 0 && filled == 0) {
             return SlotStatus.PENDING;
@@ -245,7 +286,7 @@ public class AvailabilityService {
         if (filled == 0) {
             return SlotStatus.AVAILABLE;
         }
-        if (filled >= w.effectiveCapacity()) {
+        if (filled >= s.effectiveCapacity()) {
             return SlotStatus.FULL;
         }
         if (external > 0) {
@@ -254,39 +295,34 @@ public class AvailabilityService {
         return SlotStatus.CONFIRMED;
     }
 
-    private AvailabilityWindowResponse toResponse(AvailabilityWindow w) {
-        return toResponse(w, resolveNames(List.of(w)), activeByWindow(List.of(w.getId())));
+    private AvailabilitySessionResponse toResponse(AvailabilitySession s) {
+        return toResponse(s, resolveNames(List.of(s)), activeBySession(List.of(s.getId())));
     }
 
-    private AvailabilityWindowResponse toResponse(AvailabilityWindow w, Map<String, String> nameByRef,
-                                                  Map<Long, List<Enrollment>> activeByWindow) {
-        List<Enrollment> active = activeByWindow.getOrDefault(w.getId(), List.of());
+    private AvailabilitySessionResponse toResponse(AvailabilitySession s, Map<String, String> nameByRef,
+                                                   Map<Long, List<Enrollment>> activeBySession) {
+        List<Enrollment> active = activeBySession.getOrDefault(s.getId(), List.of());
         int confirmed = (int) active.stream().filter(e -> e.getStatus() == EnrollmentStatus.CONFIRMED).count();
         int pending = (int) active.stream().filter(e -> e.getStatus() == EnrollmentStatus.PENDING).count();
-        int external = w.heldCount();
-        SlotStatus status = deriveStatus(w, confirmed, pending);
-        String venueName = w.getVenueRefId() == null ? null : nameByRef.get(w.getVenueRefId());
+        int external = s.heldCount();
+        SlotStatus status = deriveStatus(s, confirmed, pending);
+        String venueName = s.getVenueRefId() == null ? null : nameByRef.get(s.getVenueRefId());
         List<ApplicantSummaryResponse> applicants = active.stream()
                 .map(AvailabilityService::toApplicant).collect(Collectors.toList());
-        return AvailabilityWindowResponse.of(
-                w, status, confirmed + external, confirmed, external, pending, venueName, applicants);
+        return AvailabilitySessionResponse.of(
+                s, status, confirmed + external, confirmed, external, pending, venueName, applicants);
     }
 
-    /** 여러 window 의 활성(PENDING/CONFIRMED) enrollment 일괄 — 캘린더 점유·신청자 집계, N+1 회피. */
-    private Map<Long, List<Enrollment>> activeByWindow(Collection<Long> windowIds) {
-        if (windowIds.isEmpty()) {
+    private Map<Long, List<Enrollment>> activeBySession(Collection<Long> sessionIds) {
+        if (sessionIds.isEmpty()) {
             return Map.of();
         }
-        return enrollmentRepo.findByAvailabilityWindowIdInAndStatusIn(
-                        windowIds, List.of(EnrollmentStatus.PENDING, EnrollmentStatus.CONFIRMED))
-                .stream().collect(Collectors.groupingBy(e -> e.getAvailabilityWindow().getId()));
+        return enrollmentRepo.findByAvailabilitySessionIdInAndStatusIn(
+                        sessionIds, List.of(EnrollmentStatus.PENDING, EnrollmentStatus.CONFIRMED))
+                .stream().collect(Collectors.groupingBy(e -> e.getAvailabilitySession().getId()));
     }
 
-    /**
-     * enrollment → 슬롯 안 학생 요약(이름·단체/종목/레벨·대여장비). 단체·레벨은 <b>평탄 3종</b>으로 내리고
-     * (org/discipline/levels) 표시명 해석은 FE 가 Sanity cert 카탈로그로 한다 — cert 는 FE-direct CDN 이라
-     * BE 는 단체별 명칭을 모른다([[sanity-read-principle]]). 디자인의 SlotApplicantRow 와 통일.
-     */
+    /** enrollment → 슬롯 안 학생 요약. 단체·레벨은 평탄 3종(FE 가 Sanity 로 표시명 해석 — [[sanity-read-principle]]). */
     private static ApplicantSummaryResponse toApplicant(Enrollment e) {
         var course = e.getCourse();
         List<String> levels = course == null || course.getLevels() == null ? List.of()
@@ -301,12 +337,9 @@ public class AvailabilityService {
                 .build();
     }
 
-    /** window 들의 venueRefId 를 한 번에 표시명으로 해석(N+1 회피). 미지정/미존재는 빠진다. */
-    private Map<String, String> resolveNames(List<AvailabilityWindow> windows) {
-        Set<String> refs = windows.stream()
-                .map(AvailabilityWindow::getVenueRefId)
-                .filter(StringUtils::hasText)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
+    private Map<String, String> resolveNames(List<AvailabilitySession> sessions) {
+        Set<String> refs = sessions.stream().map(AvailabilitySession::getVenueRefId)
+                .filter(StringUtils::hasText).collect(Collectors.toCollection(LinkedHashSet::new));
         if (refs.isEmpty()) {
             return Map.of();
         }
@@ -314,18 +347,11 @@ public class AvailabilityService {
                 .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().getName()));
     }
 
-    /* ─── 게이트 + 검증 ────────────────────────────────────── */
+    /* ─── 게이트 + 검증 + 전개 ──────────────────────────────── */
 
-    /** 가용시간 진입 게이트 — 강사신청 보유(상태 무관). 미신청이면 강사 트랙 밖이라 400. */
     private void requireInstructorTrack(Account instructor) {
         if (!applicationRepo.existsByAccountId(instructor.getId())) {
             throw new BadRequestException();
-        }
-    }
-
-    private void validateVenueRefIfPresent(Account me, String venueRefId) {
-        if (StringUtils.hasText(venueRefId)) {
-            venueRefValidator.validate(me, venueRefId.trim()); // 형식·소유/존재 검증(없으면 400)
         }
     }
 
@@ -335,25 +361,53 @@ public class AvailabilityService {
         }
     }
 
-    /** 정원 값 검증 — 반드시 존재 + 1 이상(계정 기본값/일정 override 설정용). */
     private void requirePositive(Integer capacity) {
         if (capacity == null || capacity < 1) {
             throw new BadRequestException();
         }
     }
 
-    /** 생성 시 정원 override 검증 — null 허용(계정 기본값 따름), 주면 1 이상. */
     private void requireValidOverride(Integer capacity) {
         if (capacity != null && capacity < 1) {
             throw new BadRequestException();
         }
     }
 
-    private AvailabilityWindow requireOwned(Account me, Long id) {
-        AvailabilityWindow w = windowRepo.findById(id).orElseThrow(ResourceNotFoundException::new);
-        if (w.getInstructor() == null || !w.getInstructor().getId().equals(me.getId())) {
-            throw new ResourceNotFoundException(); // 없음/남의 일정 — 존재 숨김
+    private static String trimToNull(String s) {
+        return StringUtils.hasText(s) ? s.trim() : null;
+    }
+
+    /** ONCE = 그 하루 / WEEKLY·FOUR_WEEKS = 선택 요일을 1·4주(기준 주부터, 과거일 제외). */
+    private Set<LocalDate> expandDates(CoverageRequest req) {
+        Set<LocalDate> dates = new LinkedHashSet<>();
+        RecurrenceMode mode = req.getMode() == null ? RecurrenceMode.ONCE : req.getMode();
+        if (mode == RecurrenceMode.ONCE) {
+            dates.add(req.getDate());
+            return dates;
         }
-        return w;
+        List<DayOfWeek> dows = req.getDayOfWeeks();
+        if (dows == null || dows.isEmpty()) {
+            throw new BadRequestException();
+        }
+        int weeks = mode == RecurrenceMode.FOUR_WEEKS ? 4 : 1;
+        LocalDate monday = req.getDate().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        for (int w = 0; w < weeks; w++) {
+            LocalDate weekStart = monday.plusWeeks(w);
+            for (DayOfWeek dow : new LinkedHashSet<>(dows)) {
+                LocalDate d = weekStart.plusDays(dow.getValue() - 1L);
+                if (!d.isBefore(req.getDate())) {
+                    dates.add(d);
+                }
+            }
+        }
+        return dates;
+    }
+
+    private AvailabilitySession requireOwned(Account me, Long id) {
+        AvailabilitySession s = sessionRepo.findById(id).orElseThrow(ResourceNotFoundException::new);
+        if (s.getInstructor() == null || !s.getInstructor().getId().equals(me.getId())) {
+            throw new ResourceNotFoundException();
+        }
+        return s;
     }
 }

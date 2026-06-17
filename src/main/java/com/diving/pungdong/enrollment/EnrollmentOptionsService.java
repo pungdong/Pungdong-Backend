@@ -1,8 +1,12 @@
 package com.diving.pungdong.enrollment;
 
 import com.diving.pungdong.account.Account;
-import com.diving.pungdong.availability.AvailabilityWindow;
-import com.diving.pungdong.availability.AvailabilityWindowJpaRepo;
+import com.diving.pungdong.availability.AvailabilityCoverage;
+import com.diving.pungdong.availability.AvailabilityCoverageJpaRepo;
+import com.diving.pungdong.availability.AvailabilitySession;
+import com.diving.pungdong.availability.AvailabilitySessionJpaRepo;
+import com.diving.pungdong.availability.CoverageMerger;
+import com.diving.pungdong.availability.CoverageMerger.Span;
 import com.diving.pungdong.course.Course;
 import com.diving.pungdong.course.CourseJpaRepo;
 import com.diving.pungdong.course.CourseRound;
@@ -28,25 +32,27 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /**
- * 수강신청 옵션(교집합) — <b>강사 availability window ∩ venue 운영블록 ∩ 코스 1회차 위치</b>를 계산해 평탄
- * 슬롯 집합을 만든다. booking 의 일정/위치/시간/장비 선택지를 한 번에 내려준다(FE 가 날짜→위치→시간 그룹핑).
+ * 수강신청 옵션(교집합) — <b>강사 coverage(예약가능시간) ∩ venue 운영블록 ∩ 코스 1회차 위치</b>를 계산해 평탄
+ * 슬롯 집합을 만든다. venue 부 전체가 coverage 에 ⊆ 일 때만 옵션이 된다(부분겹침 불가).
  *
- * <p>슬롯 정원: window.effectiveCapacity()(override ?? 강사 defaultCapacity). remaining = 정원 − 확정 enrollment − 외부 hold. bound window(활성
- * enrollment 보유)는 그 (venue, 블록)만 노출 — exact-match join 의 옵션-쪽 표현.
+ * <p>슬롯 정원: 그 (위치,블록)에 일정(session)이 있으면 session.effectiveCapacity()·점유, 없으면 계정 기본값·0점유.
+ * remaining = 정원 − 확정 − 외부 hold.
  */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class EnrollmentOptionsService {
 
-    /** 옵션을 내다볼 미래 범위 — 오늘부터 8주. (FE 가 일/주/월 뷰로 잘라 씀.) */
+    /** 옵션을 내다볼 미래 범위 — 오늘부터 8주. */
     private static final int LOOKAHEAD_WEEKS = 8;
 
     private final CourseJpaRepo courseRepo;
-    private final AvailabilityWindowJpaRepo windowRepo;
+    private final AvailabilityCoverageJpaRepo coverageRepo;
+    private final AvailabilitySessionJpaRepo sessionRepo;
     private final EnrollmentJpaRepo enrollmentRepo;
     private final VenueRefResolver venueRefResolver;
     private final VenueEquipmentService equipmentService;
@@ -75,23 +81,27 @@ public class EnrollmentOptionsService {
             equipmentService.findMine(instructor, ref).ifPresent(e -> equipByRef.put(ref, e));
         }
 
-        // 강사 가용시간 + 활성 enrollment 일괄
-        List<AvailabilityWindow> windows = windowRepo
-                .findByInstructorIdAndDateBetweenOrderByDateAscStartTimeAsc(
-                        instructor.getId(), today, today.plusWeeks(LOOKAHEAD_WEEKS));
-        Map<Long, List<Enrollment>> activeByWindow = enrollmentRepo
-                .findByAvailabilityWindowIdInAndStatusIn(
-                        windows.stream().map(AvailabilityWindow::getId).collect(Collectors.toList()),
+        LocalDate to = today.plusWeeks(LOOKAHEAD_WEEKS);
+        int defaultCapacity = instructor.effectiveDefaultCapacity();
+
+        // coverage(날짜별 머지 구간) + session 점유 일괄
+        Map<LocalDate, List<Span>> coverageByDate = coverageByDate(instructor.getId(), today, to);
+        Map<String, AvailabilitySession> sessionByKey = new LinkedHashMap<>();
+        List<AvailabilitySession> sessions = sessionRepo
+                .findByInstructorIdAndDateBetweenOrderByDateAscStartTimeAsc(instructor.getId(), today, to);
+        sessions.forEach(s -> sessionByKey.put(sessionKey(s.getDate(), s.getVenueRefId(), s.getStartTime(), s.getEndTime()), s));
+        Map<Long, Integer> confirmedBySession = enrollmentRepo
+                .findByAvailabilitySessionIdInAndStatusIn(
+                        sessions.stream().map(AvailabilitySession::getId).collect(Collectors.toList()),
                         List.of(EnrollmentStatus.PENDING, EnrollmentStatus.CONFIRMED))
-                .stream().collect(Collectors.groupingBy(e -> e.getAvailabilityWindow().getId()));
+                .stream().filter(e -> e.getStatus() == EnrollmentStatus.CONFIRMED)
+                .collect(Collectors.groupingBy(e -> e.getAvailabilitySession().getId(),
+                        Collectors.summingInt(e -> 1)));
 
         List<EnrollmentOptionsResponse.Slot> slots = new ArrayList<>();
-        for (AvailabilityWindow w : windows) {
-            List<Enrollment> active = activeByWindow.getOrDefault(w.getId(), List.of());
-            Enrollment bound = active.isEmpty() ? null : active.get(0); // 활성이 있으면 bound (venue,블록)
-            int confirmed = (int) active.stream().filter(e -> e.getStatus() == EnrollmentStatus.CONFIRMED).count();
-            int occupied = confirmed + w.heldCount();
-
+        for (Map.Entry<LocalDate, List<Span>> day : coverageByDate.entrySet()) {
+            LocalDate date = day.getKey();
+            List<Span> spans = day.getValue();
             for (String[] c : candidates) {
                 String venueRef = c[0];
                 String ticketRef = c[1];
@@ -99,18 +109,17 @@ public class EnrollmentOptionsService {
                 if (vr == null) {
                     continue;
                 }
-                for (BookableSlotDeriver.Block b : slotDeriver.blocksFor(vr, ticketRef, w.getDate())) {
-                    if (!fitsWithin(b, w)) {
-                        continue; // venue 블록이 강사 가용시간 안에 들어와야
+                for (BookableSlotDeriver.Block b : slotDeriver.blocksFor(vr, ticketRef, date)) {
+                    if (!CoverageMerger.containsWhole(spans, new Span(b.getStart(), b.getEnd()))) {
+                        continue; // venue 부가 coverage 에 통째로 안 들어옴
                     }
-                    if (bound != null && !(venueRef.equals(bound.getVenueRefId())
-                            && b.sameTime(bound.getBlockStart(), bound.getBlockEnd()))) {
-                        continue; // 이미 다른 (venue,블록)으로 찬 window — 안 띄움
-                    }
-                    int remaining = Math.max(0, w.effectiveCapacity() - occupied);
+                    AvailabilitySession s = sessionByKey.get(sessionKey(date, venueRef, b.getStart(), b.getEnd()));
+                    int capacity = s == null ? defaultCapacity : s.effectiveCapacity();
+                    int occupied = s == null ? 0
+                            : confirmedBySession.getOrDefault(s.getId(), 0) + s.heldCount();
+                    int remaining = Math.max(0, capacity - occupied);
                     slots.add(EnrollmentOptionsResponse.Slot.builder()
-                            .windowId(w.getId())
-                            .date(w.getDate())
+                            .date(date)
                             .venueRefId(venueRef)
                             .venueName(vr.getName())
                             .venueType(vr.getType())
@@ -120,7 +129,7 @@ public class EnrollmentOptionsService {
                             .sessionLabel(label(b.getStart(), b.getEnd()))
                             .ticketRef(ticketRef)
                             .entryFee(b.getFee())
-                            .capacity(w.effectiveCapacity())
+                            .capacity(capacity)
                             .remaining(remaining)
                             .full(remaining <= 0)
                             .build());
@@ -135,19 +144,26 @@ public class EnrollmentOptionsService {
                 .build();
     }
 
-    /** 첫 만남 회차 — REGULAR 중 roundIndex 최소(없으면 첫 회차). */
+    /** 날짜별 머지된 coverage 구간 — 날짜 오름차순. */
+    private Map<LocalDate, List<Span>> coverageByDate(Long instructorId, LocalDate from, LocalDate to) {
+        Map<LocalDate, List<Span>> raw = new TreeMap<>();
+        for (AvailabilityCoverage c : coverageRepo
+                .findByInstructorIdAndDateBetweenOrderByDateAscStartTimeAsc(instructorId, from, to)) {
+            raw.computeIfAbsent(c.getDate(), k -> new ArrayList<>()).add(new Span(c.getStartTime(), c.getEndTime()));
+        }
+        raw.replaceAll((d, spans) -> CoverageMerger.normalize(spans));
+        return raw;
+    }
+
+    private static String sessionKey(LocalDate date, String venueRef, LocalTime start, LocalTime end) {
+        return date + "|" + venueRef + "|" + start + "|" + end;
+    }
+
     private CourseRound firstMeetingRound(Course course) {
         return course.getRounds().stream()
                 .filter(r -> r.getRoundKind() == RoundKind.REGULAR)
                 .min(Comparator.comparing(r -> r.getRoundIndex() == null ? Integer.MAX_VALUE : r.getRoundIndex()))
                 .orElse(course.getRounds().isEmpty() ? null : course.getRounds().get(0));
-    }
-
-    /** venue 블록이 강사 가용시간 [start,end] 에 포함되는가(⊆). exact-match 의 시간 절반. */
-    private boolean fitsWithin(BookableSlotDeriver.Block b, AvailabilityWindow w) {
-        return w.getStartTime() != null && w.getEndTime() != null
-                && !b.getStart().isBefore(w.getStartTime())
-                && !b.getEnd().isAfter(w.getEndTime());
     }
 
     private EnrollmentOptionsResponse.CourseSummary courseSummary(Course course, CourseRound round1) {

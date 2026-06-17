@@ -13,13 +13,13 @@ public interface EnrollmentJpaRepo extends JpaRepository<Enrollment, Long> {
     /** 강사 — 내 코스로 들어온 신청(상태별). enrollment.course.instructor.id 경유. */
     List<Enrollment> findByCourse_Instructor_IdAndStatusOrderByIdDesc(Long instructorId, EnrollmentStatus status);
 
-    /** 한 window 의 특정 상태 신청 수 — 정원/캘린더 집계. */
-    int countByAvailabilityWindowIdAndStatus(Long windowId, EnrollmentStatus status);
+    /** 한 일정(session)의 특정 상태 신청 수 — 정원 집계. */
+    int countByAvailabilitySessionIdAndStatus(Long sessionId, EnrollmentStatus status);
 
-    /** 한 window 의 상태 집합에 드는 신청들 — 활성(PENDING/CONFIRMED) 조회·bind 판정. */
-    List<Enrollment> findByAvailabilityWindowIdAndStatusIn(Long windowId, Collection<EnrollmentStatus> statuses);
+    /** 한 일정의 상태 집합에 드는 신청들 — 활성(PENDING/CONFIRMED) 조회·join/삭제 판정. */
+    List<Enrollment> findByAvailabilitySessionIdAndStatusIn(Long sessionId, Collection<EnrollmentStatus> statuses);
 
-    /** 여러 window 의 활성 신청 일괄 조회 — 캘린더 목록 N+1 회피. */
-    List<Enrollment> findByAvailabilityWindowIdInAndStatusIn(Collection<Long> windowIds,
-                                                             Collection<EnrollmentStatus> statuses);
+    /** 여러 일정의 활성 신청 일괄 조회 — 캘린더 N+1 회피. */
+    List<Enrollment> findByAvailabilitySessionIdInAndStatusIn(Collection<Long> sessionIds,
+                                                              Collection<EnrollmentStatus> statuses);
 }

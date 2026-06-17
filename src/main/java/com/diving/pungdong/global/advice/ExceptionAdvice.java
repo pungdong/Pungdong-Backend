@@ -91,6 +91,12 @@ public class ExceptionAdvice {
         return responseService.getFailResult(Integer.parseInt(getMessage("reservationFull.code")), getMessage("reservationFull.msg"));
     }
 
+    @ExceptionHandler(CoverageHasSessionException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public CommonResult coverageHasSession(CoverageHasSessionException e) {
+        return responseService.getFailResult(Integer.parseInt(getMessage("coverageHasSession.code")), getMessage("coverageHasSession.msg"));
+    }
+
     @ExceptionHandler(BadRequestException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public CommonResult badRequest(BadRequestException e) {

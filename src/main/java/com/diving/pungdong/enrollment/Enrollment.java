@@ -1,7 +1,7 @@
 package com.diving.pungdong.enrollment;
 
 import com.diving.pungdong.account.Account;
-import com.diving.pungdong.availability.AvailabilityWindow;
+import com.diving.pungdong.availability.AvailabilitySession;
 import com.diving.pungdong.course.Course;
 import lombok.*;
 
@@ -15,12 +15,13 @@ import java.util.List;
  * 수강신청 1건 — 학생이 코스의 <b>첫 만남(1회차)</b>을 강사가 연 가용시간 슬롯에 신청한 것.
  * V2 디자인 booking 흐름의 산물. availability v1 이 비워둔 점유(pending/confirmed)를 실제로 채운다.
  *
- * <p><b>2층 모델 연결</b>: enrollment 는 {@link AvailabilityWindow}(date+시간+capacity) 에 붙는다. 한 window 의
- * 첫 active enrollment 가 window 를 (venueRefId, sessionLabel) 로 bind 하고, 이후 신청은 <b>같은 venue +
- * 정확히 같은 블록</b>({@link #blockStart}~{@link #blockEnd})이어야 합류한다(부분겹침 구조적 불가).
+ * <p><b>레이어 연결</b>: enrollment 는 {@link AvailabilitySession}(위치·시간블록·정원) 에 붙는다. 학생 첫
+ * 신청이 그 (위치, 시간블록) session 을 생성하고, 같은 (위치, 블록) 신청은 그 session 에 join 한다. 자격은
+ * 그 블록이 강사 coverage(예약가능시간)에 통째로 ⊆ 일 때만(부분겹침 불가). {@link #venueRefId}/{@link #blockStart}/
+ * {@link #blockEnd} 는 신청 시점 스냅샷.
  *
  * <p>가격은 신청 시점 스냅샷(추정치) — 권위 금액은 강사 확정/결제 시점 재계산(결제는 후속). {@code Account}·
- * {@code Course}·{@code AvailabilityWindow} 단방향 참조.
+ * {@code Course}·{@code AvailabilitySession} 단방향 참조.
  */
 @Entity
 @Table(name = "enrollment")
@@ -45,13 +46,14 @@ public class Enrollment {
     private int roundIndex;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "availability_window_id")
-    private AvailabilityWindow availabilityWindow;
+    @JoinColumn(name = "session_id")
+    private AvailabilitySession availabilitySession;
 
-    /** 선택한 위치 토큰("CUSTOM:&lt;pk&gt;"/"OFFICIAL:&lt;sanityId&gt;"). exact-match 키의 일부. */
+    /** 선택한 위치 토큰("CUSTOM:&lt;pk&gt;"/"OFFICIAL:&lt;sanityId&gt;"). 신청 시점 스냅샷. */
     private String venueRefId;
 
-    /** 선택한 venue 운영 시간블록(exact-match 키). */
+    /** 신청한 날짜 + venue 운영 시간블록(스냅샷). */
+    private java.time.LocalDate date;
     private LocalTime blockStart;
     private LocalTime blockEnd;
 
