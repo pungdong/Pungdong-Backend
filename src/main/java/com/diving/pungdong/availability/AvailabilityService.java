@@ -36,6 +36,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -59,6 +60,7 @@ public class AvailabilityService {
     private final VenueRefValidator venueRefValidator;
     private final VenueRefResolver venueRefResolver;
     private final EnrollmentJpaRepo enrollmentRepo;
+    private final SessionCleaner sessionCleaner;
 
     /* ─── coverage(예약가능시간) 직접 편집 ───────────────────── */
 
@@ -104,6 +106,9 @@ public class AvailabilityService {
         requireInstructorTrack(instructor);
         requireValidRange(req.getStartTime(), req.getEndTime());
         requireValidOverride(req.getCapacity());
+        if (req.getCount() == null || req.getCount() < 1) {
+            throw new BadRequestException(); // 일정 = 점유 추가. 점유 없이 시간만 열려면 POST /coverage.
+        }
         String venueRef = trimToNull(req.getVenueRefId());
         if (venueRef != null) {
             venueRefValidator.validate(instructor, venueRef);
@@ -116,15 +121,13 @@ public class AvailabilityService {
                 instructor, req.getDate(), req.getStartTime(), req.getEndTime(),
                 venueRef, trimToNull(req.getSessionLabel()), req.getCapacity());
 
-        // ③ 점유 기록(선택)
-        if (req.getCount() != null && req.getCount() > 0) {
-            session.addHold(AvailabilityHold.builder()
-                    .count(req.getCount())
-                    .memo(trimToNull(req.getMemo()))
-                    .createdAt(LocalDateTime.now())
-                    .build());
-            session.setUpdatedAt(LocalDateTime.now());
-        }
+        // ③ 점유 기록
+        session.addHold(AvailabilityHold.builder()
+                .count(req.getCount())
+                .memo(trimToNull(req.getMemo()))
+                .createdAt(LocalDateTime.now())
+                .build());
+        session.setUpdatedAt(LocalDateTime.now());
         return toResponse(session);
     }
 
@@ -175,16 +178,19 @@ public class AvailabilityService {
         return toResponse(s);
     }
 
-    /** 점유 제거(± −1 / 외부예약 취소). */
+    /** 점유 제거(± −1 / 외부예약 취소). 제거 후 점유 0 이면 빈 일정 삭제 → Optional.empty(컨트롤러 204). */
     @Transactional
-    public AvailabilitySessionResponse removeHold(Account instructor, Long id, Long holdId) {
+    public Optional<AvailabilitySessionResponse> removeHold(Account instructor, Long id, Long holdId) {
         AvailabilitySession s = requireOwned(instructor, id);
         boolean removed = s.getHolds().removeIf(h -> h.getId().equals(holdId));
         if (!removed) {
             throw new ResourceNotFoundException();
         }
         s.setUpdatedAt(LocalDateTime.now());
-        return toResponse(s);
+        if (sessionCleaner.deleteIfEmpty(s)) {
+            return Optional.empty();
+        }
+        return Optional.of(toResponse(s));
     }
 
     /* ─── 정원 — 계정 기본값(baseline) ──────────────────────── */

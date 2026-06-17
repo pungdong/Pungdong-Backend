@@ -949,7 +949,9 @@ export interface CoverageRangeResponse {
 
 /**
  * 일정(session) 원자 추가 — POST /instructor/availability/sessions (201).
- * 한 트랜잭션: coverage 확장+머지 → (date,위치,시간) session 생성/join → count>0 이면 점유(hold) 기록.
+ * 한 트랜잭션: coverage 확장+머지 → (date,위치,시간) session 생성/join → 점유(hold) 기록.
+ * ※ 일정 = 점유. **count 는 1 이상 필수**(빈 일정 생성 불가; 점유 없이 시간만 열려면 POST /coverage).
+ *   점유가 0 이 되면(아래 removeHold·거절·취소) 그 일정은 자동 삭제됨(session 존재 ⟺ 점유>0).
  */
 export interface SessionCreateRequest {
   date: string;
@@ -959,8 +961,8 @@ export interface SessionCreateRequest {
   venueRefId?: string;
   /** 세션 라벨(선택) — "1부"/"오후". */
   sessionLabel?: string;
-  /** 함께 기록할 점유 인원(선택). 0/생략 = 빈 일정만, 1~N = 점유 추가. */
-  count?: number;
+  /** 점유 인원 — 1 이상 필수. */
+  count: number;
   /** 외부예약 메모(선택). 있으면 외부예약, 없으면 ± 빠른조정. */
   memo?: string;
   /** 이 일정 정원 override(선택). 생략하면 계정 기본값을 따름. 1 이상. */
@@ -970,6 +972,9 @@ export interface SessionCreateRequest {
 /**
  * 기존 일정에 점유 추가 — POST /instructor/availability/sessions/{id}/holds (201).
  * memo 없음 = ± 빠른조정 / memo 있음 = 외부예약. 유효정원을 넘겨도 기록됨(상태 FULL, 자동확장 없음).
+ *
+ * 점유 제거는 DELETE /sessions/{id}/holds/{holdId} — 제거 후 그 일정의 점유가 0 이면 **빈 일정이 자동 삭제되고 204**
+ * (카드 제거). 남으면 200 + 갱신 session. (신청 거절/취소로 0명이 된 일정도 동일하게 사라짐 — enrollment 이력은 보존.)
  */
 export interface HoldRequest {
   count: number;
