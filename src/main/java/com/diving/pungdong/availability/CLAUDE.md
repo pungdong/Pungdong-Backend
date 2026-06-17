@@ -9,7 +9,7 @@
 강사가 매일 여는 메인 도구. V2 디자인 `features/instructor-availability` 의 BE. **두 레이어로 분리**(2026-06-18 — 옛 단일 `AvailabilityWindow` 가 시간·위치·정원·점유를 한 줄에 뭉쳤던 걸 쪼갬):
 
 - **예약가능시간(coverage)** = `AvailabilityCoverage` — **순수 시간 띠**. "이 범위 안에서 예약을 받을 수 있다"는 판정값일 뿐 위치/정원/점유 아무것도 귀속하지 않는다. 한 (instructor, date) 의 coverage row 들은 항상 **비겹침·비인접으로 머지**돼 저장된다(10–12 + 12–14 → 10–14 한 줄). 머지/빼기/포함판정은 순수함수 `CoverageMerger`(union/subtract/normalize/containsWhole/overlapsAny). row id 는 머지/분할로 **휘발성**이라 다른 엔티티가 FK 로 참조하지 않는다 — coverage↔session 결합은 **시간 포함 판정뿐**.
-- **일정(session)** = `AvailabilitySession` — **위치·정원·점유** 레이어. 정체성 = `(instructor, date, venueRefId, ticketRef, startTime, endTime)` (venue 운영블록이 이용권→daypart→timeBlock 으로 이용권에 속해 `ticketRef` 포함). 같은 (위치,이용권,시간)에 점유를 또 추가하면 새 session 이 아니라 기존에 **누적**(외부 hold 또는 enrollment join). **`ticketRef` 만 저장하고 이용권 명칭은 읽을 때 venue 에서 해석**(응답 `sessionLabel` = 해석된 이용권명, `venueName` 과 동일 패턴 — 단일 출처, 명칭 변경 자동 반영, FE 라벨 생성 불필요). 점유 = 외부/수동 `AvailabilityHold`(단일 테이블, `memo` nullable) + 풍덩 enrollment(`enrollment.session_id`, enrollment 도메인 소유):
+- **일정(session)** = `AvailabilitySession` — **위치·정원·점유** 레이어. 정체성 = `(instructor, date, venueRefId, startTime, endTime)` — **물리적 (위치,시간) 슬롯**. 같은 (위치,시간)에 점유를 또 추가하면 새 session 이 아니라 기존에 **누적**(외부 hold 또는 enrollment join). 정원은 그 물리 슬롯 단위로 **공유**(강사 동시 감당 인원) — **`ticketRef` 는 정체성 아님**(같은 시간이 두 이용권 밑에 정의돼도 한 세션, 쪼개면 정원 이중계산). **`ticketRef`(표시 대표값)만 저장하고 이용권 명칭은 읽을 때 venue 에서 해석**(응답 `sessionLabel` = 해석된 이용권명, `venueName` 과 동일 패턴 — 단일 출처, FE 라벨 생성 불필요). 점유 = 외부/수동 `AvailabilityHold`(단일 테이블, `memo` nullable) + 풍덩 enrollment(`enrollment.session_id`, enrollment 도메인 소유):
   - `memo == null` ⇒ ± 빠른조정(메모 없는 +1).
   - `memo != null` ⇒ 외부예약(메모 + 인원 1~N, 유효정원 초과해도 기록 — FULL 표시, 자동확장 없음).
 

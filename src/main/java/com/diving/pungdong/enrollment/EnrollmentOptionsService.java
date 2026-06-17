@@ -90,7 +90,7 @@ public class EnrollmentOptionsService {
         List<AvailabilitySession> sessions = sessionRepo
                 .findByInstructorIdAndDateBetweenOrderByDateAscStartTimeAsc(instructor.getId(), today, to);
         sessions.forEach(s -> sessionByKey.put(
-                sessionKey(s.getDate(), s.getVenueRefId(), s.getTicketRef(), s.getStartTime(), s.getEndTime()), s));
+                sessionKey(s.getDate(), s.getVenueRefId(), s.getStartTime(), s.getEndTime()), s));
         Map<Long, Integer> confirmedBySession = enrollmentRepo
                 .findByAvailabilitySessionIdInAndStatusIn(
                         sessions.stream().map(AvailabilitySession::getId).collect(Collectors.toList()),
@@ -114,7 +114,8 @@ public class EnrollmentOptionsService {
                     if (!CoverageMerger.containsWhole(spans, new Span(b.getStart(), b.getEnd()))) {
                         continue; // venue 부가 coverage 에 통째로 안 들어옴
                     }
-                    AvailabilitySession s = sessionByKey.get(sessionKey(date, venueRef, ticketRef, b.getStart(), b.getEnd()));
+                    // 정원은 물리 슬롯(위치,시간) 공유 — 같은 시간 다른 이용권도 같은 session 점유를 본다.
+                    AvailabilitySession s = sessionByKey.get(sessionKey(date, venueRef, b.getStart(), b.getEnd()));
                     int capacity = s == null ? defaultCapacity : s.effectiveCapacity();
                     int occupied = s == null ? 0
                             : confirmedBySession.getOrDefault(s.getId(), 0) + s.heldCount();
@@ -156,8 +157,8 @@ public class EnrollmentOptionsService {
         return raw;
     }
 
-    private static String sessionKey(LocalDate date, String venueRef, String ticketRef, LocalTime start, LocalTime end) {
-        return date + "|" + venueRef + "|" + ticketRef + "|" + start + "|" + end;
+    private static String sessionKey(LocalDate date, String venueRef, LocalTime start, LocalTime end) {
+        return date + "|" + venueRef + "|" + start + "|" + end;
     }
 
     private CourseRound firstMeetingRound(Course course) {

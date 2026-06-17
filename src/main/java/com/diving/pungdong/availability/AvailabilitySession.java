@@ -14,9 +14,10 @@ import java.util.List;
  * 일정(session) — 위치·정원·사람을 가진 점유 레이어. 예약가능시간({@link AvailabilityCoverage}) 위에 놓인
  * 한 (위치, 시간블록) 세션이다. 강사가 원자적으로 추가하거나(외부예약/수동) 학생 첫 신청으로 생성된다.
  *
- * <p><b>정체성 = (instructor, date, venueRefId, ticketRef, startTime, endTime)</b>. 같은 (위치,이용권,시간)에
- * 점유를 또 추가하면 새 session 이 아니라 기존 session 에 누적(외부 hold 또는 enrollment join). venue 운영
- * 블록이 (이용권→daypart→timeBlock)으로 이용권에 속하므로 ticketRef 가 정체성에 포함된다.
+ * <p><b>정체성 = (instructor, date, venueRefId, startTime, endTime)</b> — 물리적 (위치,시간) 슬롯. 같은
+ * (위치,시간)에 점유를 또 추가하면 새 session 이 아니라 기존에 누적(외부 hold 또는 enrollment join). 정원은
+ * 그 슬롯 단위로 공유된다(강사가 동시에 감당 가능한 인원) — <b>ticketRef 는 정체성이 아니다</b>(같은 시간이
+ * 두 이용권 밑에 정의돼도 물리적으로 한 세션이라 쪼개면 정원 이중계산). ticketRef 는 표시용 대표값일 뿐.
  *
  * <p>정원: {@code capacityOverride==null} 이면 강사 {@code Account.defaultCapacity} 를 라이브로 따른다(PR #69
  * 모델). 점유 = 외부/수동 {@link AvailabilityHold} + 풍덩 enrollment(enrollment 도메인 소유).
@@ -50,8 +51,9 @@ public class AvailabilitySession {
     private String venueRefId;
 
     /**
-     * 이용권 안정 식별자(enrollment 와 동일 키 — custom=UUID, official=Sanity _key). 명칭은 저장하지 않고
-     * 읽을 때 venue 이용권에서 해석한다(단일 출처 — 이용권명 변경이 기존 일정에 자동 반영). 위치 없는 점유면 null.
+     * 이용권 안정 식별자(enrollment 와 동일 키 — custom=UUID, official=Sanity _key) — <b>표시용 대표값</b>(정체성
+     * 아님). 명칭은 저장하지 않고 읽을 때 venue 이용권에서 해석(단일 출처 — 이용권명 변경 자동 반영). 첫 신청/강사
+     * 지정 ticketRef 로 채워지고, 같은 (위치,시간)에 다른 이용권이 join 해도 이 대표값은 유지. 위치 없는 점유면 null.
      */
     private String ticketRef;
 

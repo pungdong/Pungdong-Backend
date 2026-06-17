@@ -158,13 +158,15 @@ public class EnrollmentService {
         return CoverageMerger.containsWhole(spans, new Span(start, end));
     }
 
-    /** (instructor, date, venueRef, ticketRef, block) session 찾거나 생성. 학생 생성 session 은 정원 override 없음. */
+    /**
+     * (instructor, date, venueRef, block) session 찾거나 생성 — 정체성은 (위치,시간), ticketRef 는 표시 대표값
+     * (첫 신청 것으로 저장; 같은 (위치,시간)에 다른 이용권이면 기존 세션에 join, 정원 공유). 학생 생성은 override 없음.
+     */
     private AvailabilitySession findOrCreateSession(Account instructor, java.time.LocalDate date,
                                                     java.time.LocalTime start, java.time.LocalTime end,
                                                     String venueRef, String ticketRef) {
         return sessionRepo.findByInstructorIdAndDateAndStartTimeAndEndTime(instructor.getId(), date, start, end)
-                .stream().filter(s -> Objects.equals(s.getVenueRefId(), venueRef)
-                        && Objects.equals(s.getTicketRef(), ticketRef)).findFirst()
+                .stream().filter(s -> Objects.equals(s.getVenueRefId(), venueRef)).findFirst()
                 .orElseGet(() -> sessionRepo.save(AvailabilitySession.builder()
                         .instructor(instructor).date(date).startTime(start).endTime(end)
                         .venueRefId(venueRef).ticketRef(ticketRef)

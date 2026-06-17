@@ -280,9 +280,9 @@ public class AvailabilityService {
     private AvailabilitySession findOrCreateSession(Account instructor, LocalDate date, LocalTime start,
                                                     LocalTime end, String venueRef, String ticketRef,
                                                     Integer capacityOverride) {
+        // 정체성 = (위치,시간). ticketRef 는 정체성 아님(표시 대표값) — 정원은 물리 슬롯 단위로 공유.
         return sessionRepo.findByInstructorIdAndDateAndStartTimeAndEndTime(instructor.getId(), date, start, end)
-                .stream().filter(s -> Objects.equals(s.getVenueRefId(), venueRef)
-                        && Objects.equals(s.getTicketRef(), ticketRef)).findFirst()
+                .stream().filter(s -> Objects.equals(s.getVenueRefId(), venueRef)).findFirst()
                 .orElseGet(() -> sessionRepo.save(AvailabilitySession.builder()
                         .instructor(instructor).date(date).startTime(start).endTime(end)
                         .venueRefId(venueRef).ticketRef(ticketRef)
