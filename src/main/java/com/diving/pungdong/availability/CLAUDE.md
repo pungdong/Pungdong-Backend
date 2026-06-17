@@ -11,7 +11,7 @@
 - **예약가능시간(coverage)** = `AvailabilityCoverage` — **순수 시간 띠**. "이 범위 안에서 예약을 받을 수 있다"는 판정값일 뿐 위치/정원/점유 아무것도 귀속하지 않는다. 한 (instructor, date) 의 coverage row 들은 항상 **비겹침·비인접으로 머지**돼 저장된다(10–12 + 12–14 → 10–14 한 줄). 머지/빼기/포함판정은 순수함수 `CoverageMerger`(union/subtract/normalize/containsWhole/overlapsAny). row id 는 머지/분할로 **휘발성**이라 다른 엔티티가 FK 로 참조하지 않는다 — coverage↔session 결합은 **시간 포함 판정뿐**.
 - **일정(session)** = `AvailabilitySession` — **위치·정원·점유** 레이어. 정체성 = `(instructor, date, venueRefId, startTime, endTime)` — **물리적 (위치,시간) 슬롯**. 같은 (위치,시간)에 점유를 또 추가하면 새 session 이 아니라 기존에 **누적**(외부 hold 또는 enrollment join). 정원은 그 물리 슬롯 단위로 **공유**(강사 동시 감당 인원) — **`ticketRef` 는 정체성 아님**(같은 시간이 두 이용권 밑에 정의돼도 한 세션, 쪼개면 정원 이중계산). **`ticketRef`(표시 대표값)만 저장하고 이용권 명칭은 읽을 때 venue 에서 해석**(응답 `sessionLabel` = 해석된 이용권명, `venueName` 과 동일 패턴 — 단일 출처, FE 라벨 생성 불필요). 점유 = 외부/수동 `AvailabilityHold`(단일 테이블, `memo` nullable) + 풍덩 enrollment(`enrollment.session_id`, enrollment 도메인 소유):
   - `memo == null` ⇒ ± 빠른조정(메모 없는 +1).
-  - `memo != null` ⇒ 외부예약(메모 + 인원 1~N, 유효정원 초과해도 기록 — FULL 표시, 자동확장 없음).
+  - `memo != null` ⇒ 외부예약(메모 + 인원 1~N). 점유가 정원 넘으면 그 일정이 **커스텀 정원(=점유)으로 확장**(`bumpCapacityIfExceeded` — 6명 넣으면 6/6).
 
 **5상태(`SlotStatus`)는 저장값이 아니라 점유에서 파생**(`AvailabilityService.deriveStatus`): `AVAILABLE · PENDING · CONFIRMED · EXTERNAL · FULL`. 풍덩 수강생 점유(`pending`/`confirmed`, `applicants[]`)는 enrollment 도메인이 채운다(연동됨, 아래).
 
@@ -42,7 +42,9 @@
 
 - **coverage / session 분리 (2026-06-18)** — 옛 단일 `AvailabilityWindow` 가 *시간·위치·정원·점유*를 한 줄에 뭉쳐 의미가 충돌했다(같은 시간대 다른 위치 = window 2개? 빈 가용시간 vs 위치 잡힌 일정이 같은 타입?). 두 레이어로 쪼갬: **coverage = 순수 "예약 받을 수 있는 시간" predicate**(머지된 시간 띠), **session = "위치·정원·사람 가진 한 일정"**. ① 결합은 **시간 포함 판정뿐**(coverage row id 는 머지/분할로 휘발성 → session 이 FK 로 참조 안 함, time containment 로만). ② coverage 는 항상 **머지·정규화**(10–12 + 12–14 → 10–14, `CoverageMerger`). ③ **원자 일정추가**(`POST /sessions`)가 coverage 확장+머지 → session find-or-create → hold 를 한 트랜잭션에 — 옛 "window 생성 + hold 추가" 2-call 폐기. ④ 정원이 window 에서 **session 으로 이전**(아래 PR #69 모델 그대로, 귀속 엔티티만 바뀜).
 - **정원 = 계정 기본값 종속 + sparse override(2026-06-16, session 으로 이전)** — 정원은 "강사가 커버 가능한 인원" = `Account.defaultCapacity`(기본 4). 일정은 `capacityOverride==null` 이면 그 값을 **라이브 참조**(스냅샷·전파 write 없음 — 안 건드린 일정엔 숫자를 저장 안 하니 기본값만 바꾸면 됨), 그 날만 ±로 고정하면 override. 유효정원 = `override ?? account.defaultCapacity`(읽을 때 파생, `effectiveCapacity()`). 두 ± = 계정 baseline(PATCH `/settings`) / 일정 override(PATCH·DELETE `/sessions/{id}/capacity`). 2026-06-18 분리에서 `capacityOverride` 가 window→session 으로 그대로 옮겨졌다. [[availability-domain-concept]] 의 "정원" 절.
-- **유효정원 < 점유 = 허용(확정 바닥)** — baseline/override 를 점유보다 낮춰도 막지 않는다. 이미 잡힌 점유(확정 enrollment·외부 hold)는 **유지**(취소 없음), 새 신청 수락만 차단(만석). 옛 "정원 자동확장"은 이 바닥 개념으로 흡수.
+- **점유 추가 vs 정원 낮춤 — 비대칭 (`bumpCapacityIfExceeded` / 확정 바닥)**:
+  - **강사가 점유를 추가**(addSession/addHold)해 정원을 넘기면 → 그 일정을 **커스텀 정원(=점유)으로 확장**(override 설정, "그만큼 받겠다" 선언, 6명 넣으면 6/6). 학생 신청은 만석 캡이라 여기 안 옴.
+  - **강사가 정원을 점유보다 낮추면**(baseline/override ↓) → **바닥 유지**(확장 안 함). 이미 잡힌 점유(확정 enrollment·외부 hold)는 유지(취소 없음), over 표시·새 수락만 차단(만석). → `X/Y where X>Y` 는 **낮췄을 때만** 나온다.
 - **coverage 닫기가 session 가로지르면 거부 (`COVERAGE_HAS_SESSION` / -1014)** — BE 가 자동으로 일정을 정리하지 않는다(CS 유발). 식별 가능한 코드를 내려 FE 가 "내부 일정을 먼저 정리해주세요"로 유도. 예외 `CoverageHasSessionException`, i18n key `coverageHasSession`(`exception_ko.yml`). (포함/겹침 판정은 strict — 맞닿음은 충돌 아님.)
 - **두 가지 정원 조정 = 단일 테이블** — ± 빠른조정과 외부예약을 같은 `AvailabilityHold` row 로(`memo` 로만 구분).
 - **게이트 = 강사신청 보유(상태 무관)** — venue 와 동일 기조. 리뷰 대기 중에도 가용시간 준비 허용. → [[instructor-review-window-allows-prep]]. (가용시간은 강사 단위라 종목 조건 없음 — `existsByAccountId`.)
