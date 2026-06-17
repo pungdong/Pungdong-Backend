@@ -969,12 +969,21 @@ export interface HoldResponse {
 }
 
 /**
- * 슬롯 안 학생 요약 — 이름·단체레벨·대여장비. **v1 은 항상 빈 배열**(enrollment 미연동, 모양만).
- * kind='external' 이면 외부 점유 행, 없으면 풍덩 학생.
+ * 슬롯 안 학생 요약 — 이름·단체/종목/레벨·대여장비. kind='external' 이면 외부 점유 행, 없으면 풍덩 학생.
+ *
+ * 단체·레벨은 **평탄 3종**(organizationCode/disciplineCode/levels)으로 내려온다 = BE↔Sanity 공유 키.
+ * - 리스트: FE 가 평탄 포맷("AIDA · L2", levels[0]→"L2"). 단일레벨이면 그대로, 범위면 FE 가 규칙 결정.
+ * - 상세: FE 가 (org, discipline, level) 로 Sanity cert 카탈로그(certificationsByOrgAndDiscipline)에서
+ *   그 단체 displayName 룩업(예: PADI·SCUBA·LEVEL_1 → "Open Water Diver"). BE 는 단체별 명칭 모름(FE-direct CDN).
+ * levels = 신청한 **코스의 목표 레벨**(학생 본인 자격 아님). organizationCode/disciplineCode 는 코스 단체
+ * 미지정(기타) 또는 코스 없는 행이면 null.
  */
 export interface ApplicantSummaryResponse {
   name: string;
-  courseTag: string;
+  organizationCode: string | null;
+  disciplineCode: string | null;
+  /** 평탄 레벨 enum: 'LEVEL_1'|'LEVEL_2'|'LEVEL_3'|'LEVEL_4'|'INSTRUCTOR'|'INSTRUCTOR_TRAINER'. 범위 코스면 여러 개. */
+  levels: CertLevel[];
   gear: string[];
   kind?: 'external';
 }
