@@ -89,7 +89,8 @@ public class EnrollmentOptionsService {
         Map<String, AvailabilitySession> sessionByKey = new LinkedHashMap<>();
         List<AvailabilitySession> sessions = sessionRepo
                 .findByInstructorIdAndDateBetweenOrderByDateAscStartTimeAsc(instructor.getId(), today, to);
-        sessions.forEach(s -> sessionByKey.put(sessionKey(s.getDate(), s.getVenueRefId(), s.getStartTime(), s.getEndTime()), s));
+        sessions.forEach(s -> sessionByKey.put(
+                sessionKey(s.getDate(), s.getVenueRefId(), s.getTicketRef(), s.getStartTime(), s.getEndTime()), s));
         Map<Long, Integer> confirmedBySession = enrollmentRepo
                 .findByAvailabilitySessionIdInAndStatusIn(
                         sessions.stream().map(AvailabilitySession::getId).collect(Collectors.toList()),
@@ -113,7 +114,7 @@ public class EnrollmentOptionsService {
                     if (!CoverageMerger.containsWhole(spans, new Span(b.getStart(), b.getEnd()))) {
                         continue; // venue 부가 coverage 에 통째로 안 들어옴
                     }
-                    AvailabilitySession s = sessionByKey.get(sessionKey(date, venueRef, b.getStart(), b.getEnd()));
+                    AvailabilitySession s = sessionByKey.get(sessionKey(date, venueRef, ticketRef, b.getStart(), b.getEnd()));
                     int capacity = s == null ? defaultCapacity : s.effectiveCapacity();
                     int occupied = s == null ? 0
                             : confirmedBySession.getOrDefault(s.getId(), 0) + s.heldCount();
@@ -155,8 +156,8 @@ public class EnrollmentOptionsService {
         return raw;
     }
 
-    private static String sessionKey(LocalDate date, String venueRef, LocalTime start, LocalTime end) {
-        return date + "|" + venueRef + "|" + start + "|" + end;
+    private static String sessionKey(LocalDate date, String venueRef, String ticketRef, LocalTime start, LocalTime end) {
+        return date + "|" + venueRef + "|" + ticketRef + "|" + start + "|" + end;
     }
 
     private CourseRound firstMeetingRound(Course course) {

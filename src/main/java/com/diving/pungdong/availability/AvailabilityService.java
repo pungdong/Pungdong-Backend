@@ -21,6 +21,7 @@ import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
 import com.diving.pungdong.venue.VenueRefResolver;
 import com.diving.pungdong.venue.VenueRefValidator;
+import com.diving.pungdong.venue.dto.VenueResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -110,16 +111,23 @@ public class AvailabilityService {
             throw new BadRequestException(); // 일정 = 점유 추가. 점유 없이 시간만 열려면 POST /coverage.
         }
         String venueRef = trimToNull(req.getVenueRefId());
+        String ticketRef = trimToNull(req.getTicketRef());
+        if (ticketRef != null && venueRef == null) {
+            throw new BadRequestException(); // 이용권은 위치에 속한다 — venueRefId 없이 ticketRef 불가
+        }
         if (venueRef != null) {
             venueRefValidator.validate(instructor, venueRef);
+            if (ticketRef != null) {
+                requireTicketInVenue(venueRef, ticketRef);
+            }
         }
         // ① coverage 가 이 시간대를 덮도록 보장(없으면 확장 + 머지)
         ensureCoverage(instructor, req.getDate(), new Span(req.getStartTime(), req.getEndTime()));
 
-        // ② (위치,시간) session 찾거나 생성
+        // ② (위치,이용권,시간) session 찾거나 생성
         AvailabilitySession session = findOrCreateSession(
                 instructor, req.getDate(), req.getStartTime(), req.getEndTime(),
-                venueRef, trimToNull(req.getSessionLabel()), req.getCapacity());
+                venueRef, ticketRef, req.getCapacity());
 
         // ③ 점유 기록
         session.addHold(AvailabilityHold.builder()
@@ -219,13 +227,13 @@ public class AvailabilityService {
         }
         List<AvailabilitySession> sessions =
                 sessionRepo.findByInstructorIdAndDateBetweenOrderByDateAscStartTimeAsc(instructor.getId(), from, to);
-        Map<String, String> nameByRef = resolveNames(sessions);
+        Map<String, VenueResponse> venueByRef = resolveVenues(sessions);
         Map<Long, List<Enrollment>> activeBySession = activeBySession(
                 sessions.stream().map(AvailabilitySession::getId).collect(Collectors.toList()));
         return AvailabilityCalendarResponse.builder()
                 .coverage(coverageRanges(instructor, from, to))
                 .sessions(sessions.stream()
-                        .map(s -> toResponse(s, nameByRef, activeBySession))
+                        .map(s -> toResponse(s, venueByRef, activeBySession))
                         .collect(Collectors.toList()))
                 .build();
     }
@@ -270,15 +278,26 @@ public class AvailabilityService {
     /* ─── session 내부 ──────────────────────────────────────── */
 
     private AvailabilitySession findOrCreateSession(Account instructor, LocalDate date, LocalTime start,
-                                                    LocalTime end, String venueRef, String sessionLabel,
+                                                    LocalTime end, String venueRef, String ticketRef,
                                                     Integer capacityOverride) {
         return sessionRepo.findByInstructorIdAndDateAndStartTimeAndEndTime(instructor.getId(), date, start, end)
-                .stream().filter(s -> Objects.equals(s.getVenueRefId(), venueRef)).findFirst()
+                .stream().filter(s -> Objects.equals(s.getVenueRefId(), venueRef)
+                        && Objects.equals(s.getTicketRef(), ticketRef)).findFirst()
                 .orElseGet(() -> sessionRepo.save(AvailabilitySession.builder()
                         .instructor(instructor).date(date).startTime(start).endTime(end)
-                        .venueRefId(venueRef).sessionLabel(sessionLabel)
+                        .venueRefId(venueRef).ticketRef(ticketRef)
                         .capacityOverride(capacityOverride)
                         .createdAt(LocalDateTime.now()).build()));
+    }
+
+    /** ticketRef 가 그 venue 의 이용권인지 — 아니면 400(bogus ref 저장 방지). */
+    private void requireTicketInVenue(String venueRef, String ticketRef) {
+        VenueResponse vr = venueRefResolver.resolveVenues(List.of(venueRef)).get(venueRef);
+        boolean ok = vr != null && vr.getTickets() != null
+                && vr.getTickets().stream().anyMatch(t -> ticketRef.equals(t.getTicketRef()));
+        if (!ok) {
+            throw new BadRequestException();
+        }
     }
 
     /* ─── 상태 파생 + 매핑 ──────────────────────────────────── */
@@ -302,21 +321,32 @@ public class AvailabilityService {
     }
 
     private AvailabilitySessionResponse toResponse(AvailabilitySession s) {
-        return toResponse(s, resolveNames(List.of(s)), activeBySession(List.of(s.getId())));
+        return toResponse(s, resolveVenues(List.of(s)), activeBySession(List.of(s.getId())));
     }
 
-    private AvailabilitySessionResponse toResponse(AvailabilitySession s, Map<String, String> nameByRef,
+    private AvailabilitySessionResponse toResponse(AvailabilitySession s, Map<String, VenueResponse> venueByRef,
                                                    Map<Long, List<Enrollment>> activeBySession) {
         List<Enrollment> active = activeBySession.getOrDefault(s.getId(), List.of());
         int confirmed = (int) active.stream().filter(e -> e.getStatus() == EnrollmentStatus.CONFIRMED).count();
         int pending = (int) active.stream().filter(e -> e.getStatus() == EnrollmentStatus.PENDING).count();
         int external = s.heldCount();
         SlotStatus status = deriveStatus(s, confirmed, pending);
-        String venueName = s.getVenueRefId() == null ? null : nameByRef.get(s.getVenueRefId());
+        VenueResponse vr = s.getVenueRefId() == null ? null : venueByRef.get(s.getVenueRefId());
+        String venueName = vr == null ? null : vr.getName();
+        String ticketName = ticketName(vr, s.getTicketRef());
         List<ApplicantSummaryResponse> applicants = active.stream()
                 .map(AvailabilityService::toApplicant).collect(Collectors.toList());
         return AvailabilitySessionResponse.of(
-                s, status, confirmed + external, confirmed, external, pending, venueName, applicants);
+                s, status, confirmed + external, confirmed, external, pending, venueName, ticketName, applicants);
+    }
+
+    /** ticketRef → venue 이용권 명칭(단일 출처). 미지정/미존재면 null. */
+    private static String ticketName(VenueResponse vr, String ticketRef) {
+        if (vr == null || ticketRef == null || vr.getTickets() == null) {
+            return null;
+        }
+        return vr.getTickets().stream().filter(t -> ticketRef.equals(t.getTicketRef()))
+                .map(VenueResponse.Ticket::getName).findFirst().orElse(null);
     }
 
     private Map<Long, List<Enrollment>> activeBySession(Collection<Long> sessionIds) {
@@ -343,14 +373,10 @@ public class AvailabilityService {
                 .build();
     }
 
-    private Map<String, String> resolveNames(List<AvailabilitySession> sessions) {
+    private Map<String, VenueResponse> resolveVenues(List<AvailabilitySession> sessions) {
         Set<String> refs = sessions.stream().map(AvailabilitySession::getVenueRefId)
                 .filter(StringUtils::hasText).collect(Collectors.toCollection(LinkedHashSet::new));
-        if (refs.isEmpty()) {
-            return Map.of();
-        }
-        return venueRefResolver.resolveAll(refs).entrySet().stream()
-                .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().getName()));
+        return refs.isEmpty() ? Map.of() : venueRefResolver.resolveVenues(refs);
     }
 
     /* ─── 게이트 + 검증 + 전개 ──────────────────────────────── */
