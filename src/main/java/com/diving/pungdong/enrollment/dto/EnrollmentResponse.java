@@ -54,7 +54,7 @@ public class EnrollmentResponse {
                 .courseTitle(e.getCourse() == null ? null : e.getCourse().getTitle())
                 .instructorName(instructorName)
                 .roundIndex(e.getRoundIndex())
-                .date(e.getAvailabilityWindow() == null ? null : e.getAvailabilityWindow().getDate())
+                .date(e.getDate())
                 .blockStart(e.getBlockStart())
                 .blockEnd(e.getBlockEnd())
                 .venueRefId(e.getVenueRefId())

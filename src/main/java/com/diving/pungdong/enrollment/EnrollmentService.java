@@ -1,14 +1,16 @@
 package com.diving.pungdong.enrollment;
 
 import com.diving.pungdong.account.Account;
-import com.diving.pungdong.availability.AvailabilityWindow;
-import com.diving.pungdong.availability.AvailabilityWindowJpaRepo;
+import com.diving.pungdong.availability.AvailabilityCoverageJpaRepo;
+import com.diving.pungdong.availability.AvailabilitySession;
+import com.diving.pungdong.availability.AvailabilitySessionJpaRepo;
+import com.diving.pungdong.availability.CoverageMerger;
+import com.diving.pungdong.availability.CoverageMerger.Span;
 import com.diving.pungdong.course.Course;
 import com.diving.pungdong.course.CourseJpaRepo;
 import com.diving.pungdong.course.CourseRound;
 import com.diving.pungdong.course.CourseStatus;
 import com.diving.pungdong.course.RoundKind;
-import com.diving.pungdong.course.RoundVenue;
 import com.diving.pungdong.enrollment.dto.EnrollmentCreateRequest;
 import com.diving.pungdong.enrollment.dto.EnrollmentResponse;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
@@ -26,15 +28,16 @@ import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
- * 수강신청 — 학생 측(신청/취소/내목록). 신청은 서버가 모두 재검증한다: window 소유 강사=코스 강사 · 선택
- * 블록이 venue 운영블록이며 강사 가용시간에 ⊆ · exact-match(이미 찬 window 면 같은 venue+블록) · 만석
- * (confirmed+외부hold &lt; capacity) · 장비 소속 · 가격 서버 재계산.
+ * 수강신청 — 학생 측(신청/취소/내목록). 신청은 서버가 모두 재검증한다: 코스 OPEN·1회차 위치/이용권 · 선택
+ * 블록이 venue 운영블록 · <b>그 블록이 강사 coverage(예약가능시간)에 통째로 ⊆</b> · 만석(confirmed+외부hold &lt;
+ * 유효정원) · 장비 소속 · 가격 서버 재계산.
  *
- * <p>첫 active 신청이 window 를 (venue, 세션) 으로 bind({@link WindowBinder}) → availability 캘린더가 그
- * window 를 그 위치/세션으로 표시. 결제는 v1 에 없음(강사 확정 후 PG, 후속).
+ * <p>첫 신청이 그 (위치, 시간블록) {@link AvailabilitySession} 을 생성하고, 같은 (위치, 블록) 신청은 join.
+ * 결제는 v1 에 없음(강사 확정 후 PG, 후속).
  */
 @Service
 @RequiredArgsConstructor
@@ -43,67 +46,57 @@ public class EnrollmentService {
 
     private final EnrollmentJpaRepo enrollmentRepo;
     private final CourseJpaRepo courseRepo;
-    private final AvailabilityWindowJpaRepo windowRepo;
+    private final AvailabilitySessionJpaRepo sessionRepo;
+    private final AvailabilityCoverageJpaRepo coverageRepo;
     private final VenueRefResolver venueRefResolver;
     private final VenueEquipmentService equipmentService;
     private final BookableSlotDeriver slotDeriver;
-    private final WindowBinder windowBinder;
 
     @Transactional
     public EnrollmentResponse submit(Account student, EnrollmentCreateRequest req) {
         Course course = courseRepo.findById(req.getCourseId())
                 .filter(c -> c.getStatus() == CourseStatus.OPEN)
                 .orElseThrow(ResourceNotFoundException::new);
-        AvailabilityWindow window = windowRepo.findById(req.getAvailabilityWindowId())
-                .orElseThrow(ResourceNotFoundException::new);
-        // window 소유 강사 == 코스 강사 (아니면 잘못된 슬롯 — 존재 숨김)
-        if (window.getInstructor() == null || course.getInstructor() == null
-                || !window.getInstructor().getId().equals(course.getInstructor().getId())) {
+        Account instructor = course.getInstructor();
+        if (instructor == null) {
             throw new ResourceNotFoundException();
         }
 
         CourseRound round1 = firstMeetingRound(course);
         requireRound1Candidate(round1, req.getVenueRefId(), req.getTicketRef());
 
-        // venue 해석 + 선택 블록이 진짜 운영블록이며 가용시간에 ⊆ 인지
+        // venue 해석 + 선택 블록이 진짜 운영블록인지
         VenueResponse venue = venueRefResolver.resolveVenues(List.of(req.getVenueRefId())).get(req.getVenueRefId());
         if (venue == null) {
             throw new BadRequestException();
         }
-        BookableSlotDeriver.Block block = slotDeriver.blocksFor(venue, req.getTicketRef(), window.getDate()).stream()
+        BookableSlotDeriver.Block block = slotDeriver.blocksFor(venue, req.getTicketRef(), req.getDate()).stream()
                 .filter(b -> b.sameTime(req.getBlockStart(), req.getBlockEnd()))
                 .findFirst().orElseThrow(BadRequestException::new);
-        if (req.getBlockStart().isBefore(window.getStartTime()) || req.getBlockEnd().isAfter(window.getEndTime())) {
-            throw new BadRequestException(); // 블록이 강사 가용시간 밖
+
+        // 블록이 강사 coverage 에 통째로 ⊆ 인지 (부분겹침 불가)
+        if (!coversWhole(instructor, req.getDate(), req.getBlockStart(), req.getBlockEnd())) {
+            throw new BadRequestException(); // 예약가능시간 밖
         }
 
-        // exact-match: 이미 찬 window 면 같은 venue+정확히 같은 블록만 합류
-        List<Enrollment> active = enrollmentRepo.findByAvailabilityWindowIdAndStatusIn(
-                window.getId(), List.of(EnrollmentStatus.PENDING, EnrollmentStatus.CONFIRMED));
-        if (!active.isEmpty()) {
-            Enrollment bound = active.get(0);
-            boolean sameSlot = req.getVenueRefId().equals(bound.getVenueRefId())
-                    && req.getBlockStart().equals(bound.getBlockStart())
-                    && req.getBlockEnd().equals(bound.getBlockEnd());
-            if (!sameSlot) {
-                throw new BadRequestException(); // 다른 세션이 차지한 슬롯
-            }
-        }
+        // (위치, 블록) session 찾거나 생성 — 첫 신청이 생성, 같은 (위치,블록)이면 join
+        AvailabilitySession session = findOrCreateSession(instructor, req.getDate(),
+                req.getBlockStart(), req.getBlockEnd(), req.getVenueRefId());
 
-        // 만석 — 확정 + 외부 hold 가 정원을 채웠으면 신청 불가(PENDING 은 하드캡 안 함)
-        int confirmed = enrollmentRepo.countByAvailabilityWindowIdAndStatus(window.getId(), EnrollmentStatus.CONFIRMED);
-        if (confirmed + window.heldCount() >= window.effectiveCapacity()) {
+        // 만석 — 확정 + 외부 hold 가 유효정원을 채웠으면 신청 불가(PENDING 은 하드캡 안 함)
+        int confirmed = enrollmentRepo.countByAvailabilitySessionIdAndStatus(session.getId(), EnrollmentStatus.CONFIRMED);
+        if (confirmed + session.heldCount() >= session.effectiveCapacity()) {
             throw new BadRequestException(); // 만석
         }
 
-        // 장비 검증 + 가격 스냅샷
-        Map<String, VenueEquipmentResponse.Item> items = equipmentItems(course.getInstructor(), req.getVenueRefId());
+        Map<String, VenueEquipmentResponse.Item> items = equipmentItems(instructor, req.getVenueRefId());
         Enrollment e = Enrollment.builder()
                 .student(student)
                 .course(course)
                 .roundIndex(round1 == null || round1.getRoundIndex() == null ? 1 : round1.getRoundIndex())
-                .availabilityWindow(window)
+                .availabilitySession(session)
                 .venueRefId(req.getVenueRefId())
+                .date(req.getDate())
                 .blockStart(req.getBlockStart())
                 .blockEnd(req.getBlockEnd())
                 .ticketRef(req.getTicketRef())
@@ -127,12 +120,7 @@ public class EnrollmentService {
         e.setEquipmentSnapshot(equipTotal);
         enrollmentRepo.save(e);
 
-        // 첫 active 신청이면 window 를 이 (venue, 세션)으로 bind
-        windowBinder.bindIfUnbound(window, req.getVenueRefId(),
-                req.getBlockStart() + "–" + req.getBlockEnd());
-
-        return EnrollmentResponse.of(e, venue.getName(),
-                course.getInstructor() == null ? null : course.getInstructor().getNickName());
+        return EnrollmentResponse.of(e, venue.getName(), instructor.getNickName());
     }
 
     @Transactional
@@ -143,7 +131,6 @@ public class EnrollmentService {
         }
         e.setStatus(EnrollmentStatus.CANCELLED);
         e.setRespondedAt(LocalDateTime.now());
-        windowBinder.unbindIfEmpty(e.getAvailabilityWindow());
         return EnrollmentResponse.of(e, venueName(e.getVenueRefId()), instructorName(e));
     }
 
@@ -156,6 +143,25 @@ public class EnrollmentService {
     }
 
     /* ─── helpers ─── */
+
+    /** 그 블록이 강사의 그 날 coverage 구간에 통째로 들어가나. */
+    private boolean coversWhole(Account instructor, java.time.LocalDate date,
+                                java.time.LocalTime start, java.time.LocalTime end) {
+        List<Span> spans = coverageRepo.findByInstructorIdAndDate(instructor.getId(), date).stream()
+                .map(c -> new Span(c.getStartTime(), c.getEndTime())).collect(Collectors.toList());
+        return CoverageMerger.containsWhole(spans, new Span(start, end));
+    }
+
+    /** (instructor, date, venueRef, block) session 찾거나 생성. 학생 생성 session 은 정원 override 없음. */
+    private AvailabilitySession findOrCreateSession(Account instructor, java.time.LocalDate date,
+                                                    java.time.LocalTime start, java.time.LocalTime end, String venueRef) {
+        return sessionRepo.findByInstructorIdAndDateAndStartTimeAndEndTime(instructor.getId(), date, start, end)
+                .stream().filter(s -> Objects.equals(s.getVenueRefId(), venueRef)).findFirst()
+                .orElseGet(() -> sessionRepo.save(AvailabilitySession.builder()
+                        .instructor(instructor).date(date).startTime(start).endTime(end)
+                        .venueRefId(venueRef).sessionLabel(start + "–" + end)
+                        .createdAt(LocalDateTime.now()).build()));
+    }
 
     private CourseRound firstMeetingRound(Course course) {
         return course.getRounds().stream()
@@ -185,7 +191,7 @@ public class EnrollmentService {
     private Enrollment requireMine(Account student, Long id) {
         Enrollment e = enrollmentRepo.findById(id).orElseThrow(ResourceNotFoundException::new);
         if (e.getStudent() == null || !e.getStudent().getId().equals(student.getId())) {
-            throw new ResourceNotFoundException(); // 없음/남의 신청 — 존재 숨김
+            throw new ResourceNotFoundException();
         }
         return e;
     }

@@ -20,7 +20,7 @@ import java.util.stream.Collectors;
  * 수강신청 — 강사 측(받은 신청 목록 · 수락 · 거절). V2 enrollment-management 검토 시트의 BE.
  *
  * <p>게이트 = 강사신청 보유(availability/venue 와 동일 기조). 수락 시 정원 재검증(여러 PENDING 이 정원을
- * 넘게 쌓일 수 있으므로 — 넘으면 수락 거부, 강사가 거절로 정리). 거절은 복구 가능 + 활성 0 이면 window unbind.
+ * 넘게 쌓일 수 있으므로 — 넘으면 수락 거부, 강사가 거절로 정리). 거절은 복구 가능.
  */
 @Service
 @RequiredArgsConstructor
@@ -30,7 +30,6 @@ public class InstructorEnrollmentService {
     private final EnrollmentJpaRepo enrollmentRepo;
     private final InstructorApplicationJpaRepo applicationRepo;
     private final VenueRefResolver venueRefResolver;
-    private final WindowBinder windowBinder;
 
     public List<InstructorEnrollmentResponse> list(Account instructor, EnrollmentStatus status) {
         requireInstructorTrack(instructor);
@@ -49,10 +48,10 @@ public class InstructorEnrollmentService {
         if (e.getStatus() != EnrollmentStatus.PENDING) {
             throw new BadRequestException(); // 대기 건만 수락
         }
-        // 정원 재검증 — 확정 + 외부 hold 가 정원에 도달했으면 더 못 받음(거절로 정리)
-        int confirmed = enrollmentRepo.countByAvailabilityWindowIdAndStatus(
-                e.getAvailabilityWindow().getId(), EnrollmentStatus.CONFIRMED);
-        if (confirmed + e.getAvailabilityWindow().heldCount() >= e.getAvailabilityWindow().effectiveCapacity()) {
+        // 정원 재검증 — 확정 + 외부 hold 가 유효정원에 도달했으면 더 못 받음(거절로 정리)
+        int confirmed = enrollmentRepo.countByAvailabilitySessionIdAndStatus(
+                e.getAvailabilitySession().getId(), EnrollmentStatus.CONFIRMED);
+        if (confirmed + e.getAvailabilitySession().heldCount() >= e.getAvailabilitySession().effectiveCapacity()) {
             throw new BadRequestException(); // 정원 초과 — 수락 불가
         }
         e.setStatus(EnrollmentStatus.CONFIRMED);
@@ -69,7 +68,6 @@ public class InstructorEnrollmentService {
         e.setStatus(EnrollmentStatus.REJECTED);
         e.setRejectionReason(StringUtils.hasText(reason) ? reason.trim() : null);
         e.setRespondedAt(LocalDateTime.now());
-        windowBinder.unbindIfEmpty(e.getAvailabilityWindow());
         return InstructorEnrollmentResponse.of(e, venueName(e.getVenueRefId()));
     }
 

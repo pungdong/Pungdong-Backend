@@ -15,8 +15,8 @@ import java.util.Set;
  * 운영블록 ∩ 코스 회차 위치)을 한 번에 계산해 평탄 {@link Slot} 집합으로 내려준다.</b> UX 순서(날짜→위치→시간)는
  * FE 가 이 평탄 집합을 그룹핑해 표현 — 계산 순서와 분리.
  *
- * <p>각 슬롯은 자기 기술적(self-describing): 신청 시 {@code windowId·venueRefId·ticketRef·blockStart·blockEnd}
- * 를 그대로 echo 한다. 장비는 위치별({@link #equipmentByVenue}).
+ * <p>각 슬롯은 자기 기술적(self-describing): 신청 시 {@code date·venueRefId·ticketRef·blockStart·blockEnd}
+ * 를 그대로 echo 한다(슬롯 식별자 = (date,위치,블록)). 장비는 위치별({@link #equipmentByVenue}).
  */
 @Getter @Setter
 @Builder
@@ -45,8 +45,6 @@ public class EnrollmentOptionsResponse {
 
     @Getter @Setter @Builder @NoArgsConstructor @AllArgsConstructor
     public static class Slot {
-        /** 신청 시 echo — 이 슬롯을 받치는 강사 가용시간. */
-        private Long windowId;
         private LocalDate date;
         private String venueRefId;
         private String venueName;

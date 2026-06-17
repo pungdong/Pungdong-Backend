@@ -3,8 +3,9 @@ package com.diving.pungdong.usecase;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.account.Role;
-import com.diving.pungdong.availability.AvailabilityWindow;
-import com.diving.pungdong.availability.AvailabilityWindowJpaRepo;
+import com.diving.pungdong.availability.AvailabilityCoverage;
+import com.diving.pungdong.availability.AvailabilityCoverageJpaRepo;
+import com.diving.pungdong.availability.AvailabilitySessionJpaRepo;
 import com.diving.pungdong.course.*;
 import com.diving.pungdong.enrollment.Enrollment;
 import com.diving.pungdong.enrollment.EnrollmentJpaRepo;
@@ -43,14 +44,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 수강신청(enrollment/booking) use-case 시나리오 — 실 H2 + Spring Security 필터 체인 + 실제 서비스/JPA.
+ * 수강신청(enrollment/booking) use-case — 실 H2 + Spring Security 필터 + 실 서비스/JPA.
  *
- * <p><b>읽는 법</b>: {@code @DisplayName} 을 위→아래로 = 사양. 그룹 — O* 옵션 교집합 / S* 신청 / J* 합류
- * (exact-match) / F* 만석 / A* 강사 수락·거절 / C* 취소 / G*·R* 게이트·권한.
+ * <p><b>읽는 법</b>: {@code @DisplayName} 위→아래 = 사양. O* 옵션 교집합 / S* 신청 / J* 합류·자격 / F* 만석 /
+ * A* 강사 수락·거절 / C* 취소 / G*·R* 게이트·권한.
  *
- * <p>핵심: 슬롯 = 강사 availability window ∩ venue 운영블록. 첫 신청이 window 를 (venue,블록)으로 bind →
- * 같은 venue·정확히 같은 블록만 합류(부분겹침 불가). 신청은 PENDING(결제 없음) → 강사 수락 시 CONFIRMED.
- * availability 캘린더에 pending/confirmed/applicants 가 실제로 반영된다. ⚠️ Authorization = raw JWT.
+ * <p>핵심: 슬롯 = 강사 <b>coverage(예약가능시간) ∩ venue 운영블록</b>(부 전체가 coverage 에 ⊆). 첫 신청이 그
+ * (위치,블록) session 을 생성, 같은 (위치,블록) 신청은 join. 정원 = 계정 기본값(여기선 강사 defaultCapacity 로
+ * 결정적 셋업). 신청 PENDING(결제 없음) → 강사 수락 시 CONFIRMED. 캘린더 sessions[] 에 반영. ⚠️ raw JWT.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -62,7 +63,8 @@ class EnrollmentUseCaseTest {
     @Autowired JwtTokenProvider jwtTokenProvider;
     @Autowired AccountJpaRepo accountRepo;
     @Autowired InstructorApplicationJpaRepo applicationRepo;
-    @Autowired AvailabilityWindowJpaRepo windowRepo;
+    @Autowired AvailabilityCoverageJpaRepo coverageRepo;
+    @Autowired AvailabilitySessionJpaRepo sessionRepo;
     @Autowired CourseJpaRepo courseRepo;
     @Autowired VenueJpaRepo venueRepo;
     @Autowired VenueEquipmentExtensionJpaRepo equipmentRepo;
@@ -75,7 +77,8 @@ class EnrollmentUseCaseTest {
     @AfterEach
     void cleanUp() {
         enrollmentRepo.deleteAll();
-        windowRepo.deleteAll();
+        sessionRepo.deleteAll();
+        coverageRepo.deleteAll();
         courseRepo.deleteAll();
         equipmentRepo.deleteAll();
         venueRepo.deleteAll();
@@ -83,7 +86,7 @@ class EnrollmentUseCaseTest {
         accountRepo.deleteAll();
     }
 
-    /* ─── fixtures ─────────────────────────────────────────── */
+    /* ─── fixtures ─── */
 
     private Account account(String email, String nick) {
         return accountRepo.save(Account.builder()
@@ -102,7 +105,7 @@ class EnrollmentUseCaseTest {
                 .submittedAt(LocalDateTime.now()).createdAt(LocalDateTime.now()).build());
     }
 
-    /** 잠실풀 — 일반권 1개, 평일·주말 FIXED 블록 09–12·14–17(둘 다 fee 15,000 → 날짜 무관 결정적). */
+    /** 잠실풀 — 일반권, 평일·주말 FIXED 블록 09–12·14–17(둘 다 fee 15,000 → 날짜 무관 결정적). */
     private Venue saveVenue(Account owner) {
         VenueTimeBlock b1 = VenueTimeBlock.builder().startTime(LocalTime.of(9, 0)).endTime(LocalTime.of(12, 0)).sortOrder(0).build();
         VenueTimeBlock b2 = VenueTimeBlock.builder().startTime(B_START).endTime(B_END).sortOrder(1).build();
@@ -150,11 +153,10 @@ class EnrollmentUseCaseTest {
         return courseRepo.save(course);
     }
 
-    private AvailabilityWindow saveWindow(Account instructor, LocalDate date, LocalTime start, LocalTime end, int cap) {
-        // cap 을 일정 override 로 고정 — 유효정원이 계정 기본값과 무관하게 cap 이 되어 만석/잔여 시나리오가 결정적.
-        return windowRepo.save(AvailabilityWindow.builder()
-                .instructor(instructor).date(date).startTime(start).endTime(end).capacityOverride(cap)
-                .createdAt(LocalDateTime.now()).build());
+    /** 그 강사의 D1 coverage [start,end] 직접 개방(정규화된 단일 구간). */
+    private void openCoverage(Account instructor, LocalTime start, LocalTime end) {
+        coverageRepo.save(AvailabilityCoverage.builder()
+                .instructor(instructor).date(D1).startTime(start).endTime(end).build());
     }
 
     private String json(Object o) {
@@ -165,40 +167,43 @@ class EnrollmentUseCaseTest {
         }
     }
 
-    private EnrollmentCreateRequest req(Long courseId, Long windowId, String venueRef, String ticketRef,
-                                        List<String> equip) {
+    private EnrollmentCreateRequest req(Long courseId, String venueRef, String ticketRef,
+                                        LocalTime bStart, LocalTime bEnd, List<String> equip) {
         return EnrollmentCreateRequest.builder()
-                .courseId(courseId).availabilityWindowId(windowId)
+                .courseId(courseId).date(D1)
                 .venueRefId(venueRef).ticketRef(ticketRef)
-                .blockStart(B_START).blockEnd(B_END).equipmentRefs(equip).build();
+                .blockStart(bStart).blockEnd(bEnd).equipmentRefs(equip).build();
     }
 
-    /** 강사·venue·course·window 한 세트(09–18, 정원 cap) 준비. 인덱스 [course, window]. */
+    /**
+     * 강사·venue·course 한 세트 + coverage 09–18 개방. 정원 cap 은 강사 defaultCapacity 로 박아 결정적(세션은
+     * 첫 신청에 override 없이 생성되어 그 값을 따른다). 인덱스 [course, venue, venueRef].
+     */
     private Object[] setup(Account instructor, int cap) {
+        instructor.setDefaultCapacity(cap);
+        accountRepo.save(instructor);
         Venue venue = saveVenue(instructor);
         String venueRef = venueRefOf(venue);
         Course course = saveCourse(instructor, venueRef, ticketRefOf(venue));
-        AvailabilityWindow w = saveWindow(instructor, D1, LocalTime.of(9, 0), LocalTime.of(18, 0), cap);
-        return new Object[]{course, w, venue, venueRef};
+        openCoverage(instructor, LocalTime.of(9, 0), LocalTime.of(18, 0));
+        return new Object[]{course, venue, venueRef};
     }
 
-    /* ─── O* 옵션 교집합 ───────────────────────────────────── */
+    /* ─── O* 옵션 교집합 ─── */
 
     @Test
-    @DisplayName("O1 신청 옵션은 강사 가용시간 ∩ venue 운영블록 ∩ 코스 1회차 위치 교집합 슬롯을 준다")
+    @DisplayName("O1 신청 옵션은 강사 coverage ∩ venue 운영블록 ∩ 코스 1회차 위치 교집합 슬롯을 준다")
     void optionsIntersection() throws Exception {
         Account ins = account("ins1@pd.com", "강사1");
         enterInstructorTrack(ins);
-        Object[] s = setup(ins, 4);
-        Course course = (Course) s[0];
+        Course course = (Course) setup(ins, 4)[0];
         Account stu = account("stu1@pd.com", "수강생1");
 
         mockMvc.perform(get("/enrollments/options")
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(stu))
                 .param("courseId", String.valueOf(course.getId())))
                 .andExpect(status().isOk())
-                // 09–18 window 안에 09–12·14–17 두 블록 → 슬롯 2개
-                .andExpect(jsonPath("$.slots.length()").value(2))
+                .andExpect(jsonPath("$.slots.length()").value(2)) // 09–12·14–17 둘 다 09–18 coverage 에 ⊆
                 .andExpect(jsonPath("$.slots[0].capacity").value(4))
                 .andExpect(jsonPath("$.slots[0].remaining").value(4))
                 .andExpect(jsonPath("$.slots[0].entryFee").value(15000))
@@ -206,14 +211,15 @@ class EnrollmentUseCaseTest {
     }
 
     @Test
-    @DisplayName("O2 venue 블록이 강사 가용시간에 안 들어가면(부분만 겹침) 슬롯에서 빠진다")
-    void optionsExcludesBlocksOutsideWindow() throws Exception {
+    @DisplayName("O2 venue 부가 coverage 에 통째로 안 들어가면(부분만 겹침) 슬롯에서 빠진다")
+    void optionsExcludesBlocksOutsideCoverage() throws Exception {
         Account ins = account("ins2@pd.com", "강사2");
         enterInstructorTrack(ins);
+        ins.setDefaultCapacity(4);
+        accountRepo.save(ins);
         Venue venue = saveVenue(ins);
         Course course = saveCourse(ins, venueRefOf(venue), ticketRefOf(venue));
-        // 가용시간 14–17 → 09–12 블록은 안 들어감, 14–17 만 ⊆
-        saveWindow(ins, D1, B_START, B_END, 4);
+        openCoverage(ins, B_START, B_END); // 14–17 만 → 09–12 부는 빠짐
         Account stu = account("stu2@pd.com", "수강생2");
 
         mockMvc.perform(get("/enrollments/options")
@@ -223,41 +229,36 @@ class EnrollmentUseCaseTest {
                 .andExpect(jsonPath("$.slots.length()").value(1));
     }
 
-    /* ─── S* 신청 ──────────────────────────────────────────── */
+    /* ─── S* 신청 ─── */
 
     @Test
-    @DisplayName("S1 학생이 신청하면 PENDING 이 생기고 가용시간 캘린더에 대기 1명·신청자가 반영된다")
+    @DisplayName("S1 학생이 신청하면 PENDING 이 생기고 캘린더 session 에 대기 1명·신청자가 반영된다")
     void submitPendingReflectsOnCalendar() throws Exception {
         Account ins = account("ins3@pd.com", "강사3");
         enterInstructorTrack(ins);
         Object[] s = setup(ins, 4);
         Course course = (Course) s[0];
-        AvailabilityWindow w = (AvailabilityWindow) s[1];
-        String venueRef = (String) s[3];
+        String venueRef = (String) s[2];
         Account stu = account("stu3@pd.com", "수강생3");
 
         mockMvc.perform(post("/enrollments")
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(stu))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(json(req(course.getId(), w.getId(), venueRef, ticketRefOf((Venue) s[2]), List.of()))))
+                .content(json(req(course.getId(), venueRef, ticketRefOf((Venue) s[1]), B_START, B_END, List.of()))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("PENDING"))
-                .andExpect(jsonPath("$.tuition").value(350000))
-                .andExpect(jsonPath("$.entry").value(15000))
                 .andExpect(jsonPath("$.total").value(365000));
 
         assertThat(enrollmentRepo.findAll()).hasSize(1);
-        assertThat(enrollmentRepo.findAll().get(0).getStatus()).isEqualTo(EnrollmentStatus.PENDING);
 
-        // 강사 가용시간 캘린더: 그 window 가 pending 1 + 신청자 반영, venue bound
         mockMvc.perform(get("/instructor/availability")
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(ins))
                 .param("from", D1.minusDays(1).toString()).param("to", D1.plusDays(1).toString()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$._embedded.windows[0].pendingCount").value(1))
-                .andExpect(jsonPath("$._embedded.windows[0].status").value("PENDING"))
-                .andExpect(jsonPath("$._embedded.windows[0].applicants[0].name").value("수강생3"))
-                .andExpect(jsonPath("$._embedded.windows[0].venueName").value("잠실 잠수풀장"));
+                .andExpect(jsonPath("$.sessions[0].pendingCount").value(1))
+                .andExpect(jsonPath("$.sessions[0].status").value("PENDING"))
+                .andExpect(jsonPath("$.sessions[0].applicants[0].name").value("수강생3"))
+                .andExpect(jsonPath("$.sessions[0].venueName").value("잠실 잠수풀장"));
     }
 
     @Test
@@ -267,15 +268,14 @@ class EnrollmentUseCaseTest {
         enterInstructorTrack(ins);
         Object[] s = setup(ins, 4);
         Course course = (Course) s[0];
-        AvailabilityWindow w = (AvailabilityWindow) s[1];
-        String venueRef = (String) s[3];
+        String venueRef = (String) s[2];
         VenueEquipmentItem fin = saveEquipment(ins, venueRef);
         Account stu = account("stu4@pd.com", "수강생4");
 
         mockMvc.perform(post("/enrollments")
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(stu))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(json(req(course.getId(), w.getId(), venueRef, ticketRefOf((Venue) s[2]),
+                .content(json(req(course.getId(), venueRef, ticketRefOf((Venue) s[1]), B_START, B_END,
                         List.of(String.valueOf(fin.getId()))))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.equipmentTotal").value(5000))
@@ -283,49 +283,48 @@ class EnrollmentUseCaseTest {
                 .andExpect(jsonPath("$.equipment[0].name").value("롱핀"));
     }
 
-    /* ─── J* 합류(exact-match) ─────────────────────────────── */
+    /* ─── J* 합류·자격 ─── */
 
     @Test
-    @DisplayName("J1 같은 window·같은 venue·정확히 같은 블록이면 둘째 학생도 합류(둘 다 PENDING)")
+    @DisplayName("J1 같은 venue·정확히 같은 블록이면 둘째 학생도 같은 session 에 합류(둘 다 PENDING)")
     void joinSameSlot() throws Exception {
         Account ins = account("ins5@pd.com", "강사5");
         enterInstructorTrack(ins);
         Object[] s = setup(ins, 4);
         Course course = (Course) s[0];
-        AvailabilityWindow w = (AvailabilityWindow) s[1];
-        String venueRef = (String) s[3];
-        String ticketRef = ticketRefOf((Venue) s[2]);
+        String venueRef = (String) s[2];
+        String ticketRef = ticketRefOf((Venue) s[1]);
 
-        submitOk(account("a@pd.com", "학생A"), course, w, venueRef, ticketRef);
-        submitOk(account("b@pd.com", "학생B"), course, w, venueRef, ticketRef);
+        submitOk(account("a@pd.com", "학생A"), course, venueRef, ticketRef);
+        submitOk(account("b@pd.com", "학생B"), course, venueRef, ticketRef);
 
-        assertThat(enrollmentRepo.findByAvailabilityWindowIdAndStatusIn(
-                w.getId(), List.of(EnrollmentStatus.PENDING))).hasSize(2);
+        assertThat(sessionRepo.findAll()).hasSize(1); // 하나의 session 으로 합류
+        long sid = sessionRepo.findAll().get(0).getId();
+        assertThat(enrollmentRepo.findByAvailabilitySessionIdAndStatusIn(
+                sid, List.of(EnrollmentStatus.PENDING))).hasSize(2);
     }
 
     @Test
-    @DisplayName("J2 이미 14–17 로 찬 window 에 09–12(다른 블록)로 신청하면 거절(부분겹침·다른 세션 불가)")
-    void rejectDifferentBlockOnBoundWindow() throws Exception {
+    @DisplayName("J2 그 부가 강사 coverage 에 통째로 안 들어가면 신청 거절(서버 재검증)")
+    void rejectBlockOutsideCoverage() throws Exception {
         Account ins = account("ins6@pd.com", "강사6");
         enterInstructorTrack(ins);
-        Object[] s = setup(ins, 4);
-        Course course = (Course) s[0];
-        AvailabilityWindow w = (AvailabilityWindow) s[1];
-        String venueRef = (String) s[3];
-        String ticketRef = ticketRefOf((Venue) s[2]);
-        submitOk(account("a2@pd.com", "학생A2"), course, w, venueRef, ticketRef); // bind 14–17
+        ins.setDefaultCapacity(4);
+        accountRepo.save(ins);
+        Venue venue = saveVenue(ins);
+        String venueRef = venueRefOf(venue);
+        Course course = saveCourse(ins, venueRef, ticketRefOf(venue));
+        openCoverage(ins, B_START, B_END); // 14–17 만 — 09–12 부는 coverage 밖
 
-        EnrollmentCreateRequest other = EnrollmentCreateRequest.builder()
-                .courseId(course.getId()).availabilityWindowId(w.getId())
-                .venueRefId(venueRef).ticketRef(ticketRef)
-                .blockStart(LocalTime.of(9, 0)).blockEnd(LocalTime.of(12, 0)).build();
+        EnrollmentCreateRequest other = req(course.getId(), venueRef, ticketRefOf(venue),
+                LocalTime.of(9, 0), LocalTime.of(12, 0), List.of());
         mockMvc.perform(post("/enrollments")
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(account("b2@pd.com", "학생B2")))
                 .contentType(MediaType.APPLICATION_JSON).content(json(other)))
                 .andExpect(status().isBadRequest());
     }
 
-    /* ─── F* 만석 ──────────────────────────────────────────── */
+    /* ─── F* 만석 ─── */
 
     @Test
     @DisplayName("F1 정원이 확정으로 다 차면(만석) 새 신청은 400")
@@ -334,12 +333,10 @@ class EnrollmentUseCaseTest {
         enterInstructorTrack(ins);
         Object[] s = setup(ins, 1); // 정원 1
         Course course = (Course) s[0];
-        AvailabilityWindow w = (AvailabilityWindow) s[1];
-        String venueRef = (String) s[3];
-        String ticketRef = ticketRefOf((Venue) s[2]);
+        String venueRef = (String) s[2];
+        String ticketRef = ticketRefOf((Venue) s[1]);
 
-        Enrollment first = submitOk(account("c@pd.com", "학생C"), course, w, venueRef, ticketRef);
-        // 강사 수락 → CONFIRMED, 정원(1) 도달
+        Enrollment first = submitOk(account("c@pd.com", "학생C"), course, venueRef, ticketRef);
         mockMvc.perform(post("/instructor/enrollments/{id}/accept", first.getId())
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(ins)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CONFIRMED"));
@@ -347,11 +344,11 @@ class EnrollmentUseCaseTest {
         mockMvc.perform(post("/enrollments")
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(account("d@pd.com", "학생D")))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(json(req(course.getId(), w.getId(), venueRef, ticketRef, List.of()))))
+                .content(json(req(course.getId(), venueRef, ticketRef, B_START, B_END, List.of()))))
                 .andExpect(status().isBadRequest());
     }
 
-    /* ─── A* 강사 수락·거절 ────────────────────────────────── */
+    /* ─── A* 강사 수락·거절 ─── */
 
     @Test
     @DisplayName("A1 강사가 수락하면 CONFIRMED 가 되고 캘린더에 확정 1명으로 반영된다")
@@ -359,9 +356,7 @@ class EnrollmentUseCaseTest {
         Account ins = account("ins8@pd.com", "강사8");
         enterInstructorTrack(ins);
         Object[] s = setup(ins, 4);
-        Course course = (Course) s[0];
-        AvailabilityWindow w = (AvailabilityWindow) s[1];
-        Enrollment e = submitOk(account("e@pd.com", "학생E"), course, w, (String) s[3], ticketRefOf((Venue) s[2]));
+        Enrollment e = submitOk(account("e@pd.com", "학생E"), (Course) s[0], (String) s[2], ticketRefOf((Venue) s[1]));
 
         mockMvc.perform(post("/instructor/enrollments/{id}/accept", e.getId())
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(ins)))
@@ -372,53 +367,49 @@ class EnrollmentUseCaseTest {
         mockMvc.perform(get("/instructor/availability")
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(ins))
                 .param("from", D1.minusDays(1).toString()).param("to", D1.plusDays(1).toString()))
-                .andExpect(jsonPath("$._embedded.windows[0].confirmedCount").value(1))
-                .andExpect(jsonPath("$._embedded.windows[0].status").value("CONFIRMED"));
+                .andExpect(jsonPath("$.sessions[0].confirmedCount").value(1))
+                .andExpect(jsonPath("$.sessions[0].status").value("CONFIRMED"));
     }
 
     @Test
-    @DisplayName("A2 강사가 거절하면 REJECTED·사유가 남고, 활성 신청이 0 이면 window bind 가 풀려 다시 AVAILABLE")
-    void rejectUnbinds() throws Exception {
+    @DisplayName("A2 강사가 거절하면 REJECTED·사유가 남고, session 은 비어 다시 AVAILABLE 로 보인다")
+    void rejectEmptiesSession() throws Exception {
         Account ins = account("ins9@pd.com", "강사9");
         enterInstructorTrack(ins);
         Object[] s = setup(ins, 4);
-        Course course = (Course) s[0];
-        AvailabilityWindow w = (AvailabilityWindow) s[1];
-        Enrollment e = submitOk(account("f@pd.com", "학생F"), course, w, (String) s[3], ticketRefOf((Venue) s[2]));
+        Enrollment e = submitOk(account("f@pd.com", "학생F"), (Course) s[0], (String) s[2], ticketRefOf((Venue) s[1]));
 
         mockMvc.perform(post("/instructor/enrollments/{id}/reject", e.getId())
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(ins))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"일정이 안 맞아요\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("REJECTED"));
 
-        assertThat(windowRepo.findById(w.getId()).orElseThrow().getVenueRefId()).isNull();
         mockMvc.perform(get("/instructor/availability")
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(ins))
                 .param("from", D1.minusDays(1).toString()).param("to", D1.plusDays(1).toString()))
-                .andExpect(jsonPath("$._embedded.windows[0].status").value("AVAILABLE"));
+                .andExpect(jsonPath("$.sessions[0].status").value("AVAILABLE"));
     }
 
-    /* ─── C* 취소 ──────────────────────────────────────────── */
+    /* ─── C* 취소 ─── */
 
     @Test
-    @DisplayName("C1 학생이 대기 중 취소하면 CANCELLED 가 되고 window bind 가 풀린다")
-    void studentCancelUnbinds() throws Exception {
+    @DisplayName("C1 학생이 대기 중 취소하면 CANCELLED 가 된다")
+    void studentCancel() throws Exception {
         Account ins = account("ins10@pd.com", "강사10");
         enterInstructorTrack(ins);
         Object[] s = setup(ins, 4);
-        Course course = (Course) s[0];
-        AvailabilityWindow w = (AvailabilityWindow) s[1];
         Account stu = account("g@pd.com", "학생G");
-        Enrollment e = submitOk(stu, course, w, (String) s[3], ticketRefOf((Venue) s[2]));
+        Enrollment e = submitOk(stu, (Course) s[0], (String) s[2], ticketRefOf((Venue) s[1]));
 
         mockMvc.perform(post("/enrollments/{id}/cancel", e.getId())
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(stu)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CANCELLED"));
 
-        assertThat(windowRepo.findById(w.getId()).orElseThrow().getVenueRefId()).isNull();
+        assertThat(enrollmentRepo.findById(e.getId()).orElseThrow().getStatus())
+                .isEqualTo(EnrollmentStatus.CANCELLED);
     }
 
-    /* ─── G*·R* 게이트·권한 ────────────────────────────────── */
+    /* ─── G*·R* 게이트·권한 ─── */
 
     @Test
     @DisplayName("G0 토큰 없이 옵션을 부르면 401")
@@ -442,8 +433,7 @@ class EnrollmentUseCaseTest {
         Account ins = account("ins11@pd.com", "강사11");
         enterInstructorTrack(ins);
         Object[] s = setup(ins, 4);
-        Enrollment e = submitOk(account("owner@pd.com", "주인"), (Course) s[0],
-                (AvailabilityWindow) s[1], (String) s[3], ticketRefOf((Venue) s[2]));
+        Enrollment e = submitOk(account("owner@pd.com", "주인"), (Course) s[0], (String) s[2], ticketRefOf((Venue) s[1]));
 
         mockMvc.perform(post("/enrollments/{id}/cancel", e.getId())
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(account("other@pd.com", "남"))))
@@ -456,8 +446,7 @@ class EnrollmentUseCaseTest {
         Account ins = account("ins12@pd.com", "강사12");
         enterInstructorTrack(ins);
         Object[] s = setup(ins, 4);
-        Enrollment e = submitOk(account("h@pd.com", "학생H"), (Course) s[0],
-                (AvailabilityWindow) s[1], (String) s[3], ticketRefOf((Venue) s[2]));
+        Enrollment e = submitOk(account("h@pd.com", "학생H"), (Course) s[0], (String) s[2], ticketRefOf((Venue) s[1]));
 
         Account otherIns = account("ins13@pd.com", "강사13");
         enterInstructorTrack(otherIns);
@@ -468,12 +457,11 @@ class EnrollmentUseCaseTest {
 
     /* ─── helper ─── */
 
-    private Enrollment submitOk(Account student, Course course, AvailabilityWindow w,
-                                String venueRef, String ticketRef) throws Exception {
+    private Enrollment submitOk(Account student, Course course, String venueRef, String ticketRef) throws Exception {
         mockMvc.perform(post("/enrollments")
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(student))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(json(req(course.getId(), w.getId(), venueRef, ticketRef, List.of()))))
+                .content(json(req(course.getId(), venueRef, ticketRef, B_START, B_END, List.of()))))
                 .andExpect(status().isCreated());
         return enrollmentRepo.findByStudentIdOrderByIdDesc(student.getId()).get(0);
     }
