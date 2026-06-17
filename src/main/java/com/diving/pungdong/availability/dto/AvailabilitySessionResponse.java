@@ -49,6 +49,8 @@ public class AvailabilitySessionResponse {
     private String venueRefId;
     /** venueRefId 해석 표시명(미지정/미존재면 null). */
     private String venueName;
+    private String ticketRef;
+    /** ticketRef 해석 이용권 명칭(미지정/미존재면 null). 저장값 아니라 venue 에서 읽어 채움. */
     private String sessionLabel;
 
     private List<HoldResponse> holds;
@@ -60,7 +62,7 @@ public class AvailabilitySessionResponse {
      */
     public static AvailabilitySessionResponse of(AvailabilitySession s, SlotStatus status,
                                                  int filled, int confirmedCount, int externalCount,
-                                                 int pendingCount, String venueName,
+                                                 int pendingCount, String venueName, String ticketName,
                                                  List<ApplicantSummaryResponse> applicants) {
         return AvailabilitySessionResponse.builder()
                 .id(s.getId())
@@ -76,7 +78,8 @@ public class AvailabilitySessionResponse {
                 .pendingCount(pendingCount)
                 .venueRefId(s.getVenueRefId())
                 .venueName(venueName)
-                .sessionLabel(s.getSessionLabel())
+                .ticketRef(s.getTicketRef())
+                .sessionLabel(ticketName)
                 .holds(s.getHolds().stream().map(HoldResponse::from).collect(Collectors.toList()))
                 .applicants(applicants == null ? new ArrayList<>() : applicants)
                 .build();

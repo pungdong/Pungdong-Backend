@@ -25,8 +25,8 @@ public class SessionCreateRequest {
 
     /** 위치 토큰(선택) — "CUSTOM:&lt;pk&gt;"/"OFFICIAL:&lt;sanityId&gt;". 위치 없는 점유면 비움. */
     private String venueRefId;
-    /** 세션 라벨(선택) — "1부"/"오후". */
-    private String sessionLabel;
+    /** 이용권 안정 식별자(선택, enrollment 와 동일 키). 명칭은 BE 가 venue 에서 해석. ticketRef 있으면 venueRefId 필수. */
+    private String ticketRef;
 
     /** 점유 인원 — <b>1 이상 필수</b>(일정 = 점유 추가). 점유 없이 시간만 열려면 POST /coverage. */
     private Integer count;

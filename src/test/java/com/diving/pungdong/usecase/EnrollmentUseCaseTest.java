@@ -258,7 +258,9 @@ class EnrollmentUseCaseTest {
                 .andExpect(jsonPath("$.sessions[0].pendingCount").value(1))
                 .andExpect(jsonPath("$.sessions[0].status").value("PENDING"))
                 .andExpect(jsonPath("$.sessions[0].applicants[0].name").value("수강생3"))
-                .andExpect(jsonPath("$.sessions[0].venueName").value("잠실 잠수풀장"));
+                .andExpect(jsonPath("$.sessions[0].venueName").value("잠실 잠수풀장"))
+                // sessionLabel 은 저장 라벨이 아니라 ticketRef 로 해석한 이용권 명칭(단일 출처)
+                .andExpect(jsonPath("$.sessions[0].sessionLabel").value("일반권"));
     }
 
     @Test
