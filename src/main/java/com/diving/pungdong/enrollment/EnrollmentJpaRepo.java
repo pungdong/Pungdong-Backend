@@ -19,6 +19,9 @@ public interface EnrollmentJpaRepo extends JpaRepository<Enrollment, Long> {
     /** 한 일정의 상태 집합에 드는 신청들 — 활성(PENDING/CONFIRMED) 조회·join/삭제 판정. */
     List<Enrollment> findByAvailabilitySessionIdAndStatusIn(Long sessionId, Collection<EnrollmentStatus> statuses);
 
+    /** 한 일정의 모든 신청(상태 무관) — 빈 일정 삭제 시 FK 끊기용. */
+    List<Enrollment> findByAvailabilitySessionId(Long sessionId);
+
     /** 여러 일정의 활성 신청 일괄 조회 — 캘린더 N+1 회피. */
     List<Enrollment> findByAvailabilitySessionIdInAndStatusIn(Collection<Long> sessionIds,
                                                               Collection<EnrollmentStatus> statuses);

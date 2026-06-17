@@ -28,7 +28,7 @@ public class SessionCreateRequest {
     /** 세션 라벨(선택) — "1부"/"오후". */
     private String sessionLabel;
 
-    /** 함께 기록할 점유 인원(선택). 0/null = 빈 일정만 생성, 1~N = 그만큼 점유(hold) 추가. */
+    /** 점유 인원 — <b>1 이상 필수</b>(일정 = 점유 추가). 점유 없이 시간만 열려면 POST /coverage. */
     private Integer count;
     /** 외부예약 메모(선택). 있으면 외부예약, 없으면 ± 빠른조정. */
     private String memo;

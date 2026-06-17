@@ -114,9 +114,12 @@ public class AvailabilityController {
         return ResponseEntity.status(201).body(availabilityService.addHold(account, id, request));
     }
 
+    /** 점유 제거. 그 일정의 점유가 0 이 되면 빈 일정이 삭제되고 204(카드 제거). 남으면 200 + 갱신 일정. */
     @DeleteMapping("/sessions/{id}/holds/{holdId}")
     public ResponseEntity<?> removeHold(@CurrentUser Account account, @PathVariable Long id,
                                         @PathVariable Long holdId) {
-        return ResponseEntity.ok(availabilityService.removeHold(account, id, holdId));
+        return availabilityService.removeHold(account, id, holdId)
+                .<ResponseEntity<?>>map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.noContent().build());
     }
 }
