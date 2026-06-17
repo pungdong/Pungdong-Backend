@@ -97,6 +97,12 @@ public class ExceptionAdvice {
         return responseService.getFailResult(Integer.parseInt(getMessage("coverageHasSession.code")), getMessage("coverageHasSession.msg"));
     }
 
+    @ExceptionHandler(SessionTimeOverlapException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public CommonResult sessionTimeOverlap(SessionTimeOverlapException e) {
+        return responseService.getFailResult(Integer.parseInt(getMessage("sessionTimeOverlap.code")), getMessage("sessionTimeOverlap.msg"));
+    }
+
     @ExceptionHandler(BadRequestException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public CommonResult badRequest(BadRequestException e) {

@@ -57,3 +57,7 @@ closedLecture:
 coverageHasSession:
   code: "-1014"
   msg: "해당 시간에 일정이 있어 예약가능시간을 변경할 수 없습니다. 내부 일정을 먼저 정리해주세요."
+
+sessionTimeOverlap:
+  code: "-1015"
+  msg: "그 시간에 이미 다른 일정이 있습니다. 일정은 시간이 겹칠 수 없습니다."

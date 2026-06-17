@@ -6,6 +6,7 @@ import com.diving.pungdong.availability.AvailabilitySession;
 import com.diving.pungdong.availability.AvailabilitySessionJpaRepo;
 import com.diving.pungdong.availability.CoverageMerger;
 import com.diving.pungdong.availability.SessionCleaner;
+import com.diving.pungdong.availability.SessionOverlapGuard;
 import com.diving.pungdong.availability.CoverageMerger.Span;
 import com.diving.pungdong.course.Course;
 import com.diving.pungdong.course.CourseJpaRepo;
@@ -53,6 +54,7 @@ public class EnrollmentService {
     private final VenueEquipmentService equipmentService;
     private final BookableSlotDeriver slotDeriver;
     private final SessionCleaner sessionCleaner;
+    private final SessionOverlapGuard overlapGuard;
 
     @Transactional
     public EnrollmentResponse submit(Account student, EnrollmentCreateRequest req) {
@@ -80,8 +82,11 @@ public class EnrollmentService {
         if (!coversWhole(instructor, req.getDate(), req.getBlockStart(), req.getBlockEnd())) {
             throw new BadRequestException(); // 예약가능시간 밖
         }
+        // 강사의 기존 일정과 시간 겹치는 블록이면 거부(이중부킹 방지). 같은 (위치,블록)은 join 이라 통과.
+        overlapGuard.requireNoOverlap(instructor.getId(), req.getDate(),
+                req.getVenueRefId(), req.getBlockStart(), req.getBlockEnd());
 
-        // (위치, 이용권, 블록) session 찾거나 생성 — 첫 신청이 생성, 같은 (위치,이용권,블록)이면 join
+        // (위치, 블록) session 찾거나 생성 — 첫 신청이 생성, 같은 (위치,블록)이면 join
         AvailabilitySession session = findOrCreateSession(instructor, req.getDate(),
                 req.getBlockStart(), req.getBlockEnd(), req.getVenueRefId(), req.getTicketRef());
 
