@@ -269,6 +269,22 @@ class AvailabilityUseCaseTest {
     }
 
     @Test
+    @DisplayName("SS7 점유가 계정 기본정원(4)을 넘게 일정을 추가하면 그 일정이 커스텀 정원(=점유)으로 확장된다")
+    void addingOverDefaultBumpsToCustomCapacity() throws Exception {
+        Account in = account("ss7@pd.com", "강사ss7");
+        enterInstructorTrack(in);
+        String token = tokenFor(in);
+        long id = addSession(token, LocalTime.of(14, 0), LocalTime.of(16, 0), 6); // 기본 4인데 6명
+
+        mockMvc.perform(get("/instructor/availability/sessions/{id}", id)
+                .header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(jsonPath("$.capacity").value(6))          // 5/4 아니라 6 으로 확장
+                .andExpect(jsonPath("$.capacityOverridden").value(true))
+                .andExpect(jsonPath("$.externalCount").value(6))
+                .andExpect(jsonPath("$.status").value("FULL"));
+    }
+
+    @Test
     @DisplayName("SS6 같은 강사의 기존 일정과 시간이 겹치는 새 일정은 거부(-1015). 맞닿는 건 허용")
     void rejectsOverlappingSession() throws Exception {
         Account in = account("ss6@pd.com", "강사ss6");
