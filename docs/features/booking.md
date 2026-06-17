@@ -41,6 +41,14 @@
 - 거절/취소로 window 의 활성 신청이 0 이 되면 bind 해제(다시 available).
 - 학생 신청은 인증만(누구나 OPEN 코스). 강사 측은 강사신청 보유 게이트. 없음/비소유 = 400(존재 숨김).
 
+### 슬롯 신청자 행의 단체·레벨 = 평탄 3종 + FE 가 Sanity 로 표시명 해석 (2026-06-17)
+
+강사 캘린더의 슬롯 신청자 행(`AvailabilityWindowResponse.applicants[]`, availability 도메인이 enrollment 를 집계해 렌더)은 단체·레벨을 **평탄 3종**으로만 내린다: `organizationCode` · `disciplineCode` · `levels[]`(코스 목표 레벨). 이게 **BE↔Sanity 공유 키**(평탄화 `CertLevel` 계약).
+
+- **표시명은 FE 가 Sanity cert 카탈로그로 해석**한다 — `(org, discipline, level)` 로 `certificationsByOrgAndDiscipline` 에서 그 단체 `displayName` 룩업(예: `PADI·SCUBA·LEVEL_1` → "Open Water Diver"). BE 는 단체별 명칭을 모르고 캐싱도 안 한다.
+- **왜 BE 캐시 아닌가**: cert org 카탈로그는 **FE-direct CDN** 결정(venue 와 달리 BE 가 권위검증·머지 안 함). 표시 라벨 하나 때문에 BE cert 캐시(reconcile/webhook)를 세우는 건 "CDN 재발명" 안티패턴. → [[sanity-read-principle]], `sanity/CLAUDE.md` "읽기 기조".
+- **레벨 = 코스 목표 레벨**(학생 본인 자격 아님 — enrollment 에 학생 cert 미수집). 범위 코스(`levels` 여러 개)면 표시 규칙은 FE.
+
 ## 결정 히스토리
 
 | 시점 | 결정 | 근거 |

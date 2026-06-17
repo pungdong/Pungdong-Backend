@@ -282,14 +282,20 @@ public class AvailabilityService {
                 .stream().collect(Collectors.groupingBy(e -> e.getAvailabilityWindow().getId()));
     }
 
-    /** enrollment → 슬롯 안 학생 요약(이름·단체레벨·대여장비). 디자인의 SlotApplicantRow 와 통일. */
+    /**
+     * enrollment → 슬롯 안 학생 요약(이름·단체/종목/레벨·대여장비). 단체·레벨은 <b>평탄 3종</b>으로 내리고
+     * (org/discipline/levels) 표시명 해석은 FE 가 Sanity cert 카탈로그로 한다 — cert 는 FE-direct CDN 이라
+     * BE 는 단체별 명칭을 모른다([[sanity-read-principle]]). 디자인의 SlotApplicantRow 와 통일.
+     */
     private static ApplicantSummaryResponse toApplicant(Enrollment e) {
-        String courseTag = e.getCourse() == null ? null
-                : StringUtils.hasText(e.getCourse().getOrganizationCode())
-                        ? e.getCourse().getOrganizationCode() : e.getCourse().getDisciplineCode();
+        var course = e.getCourse();
+        List<String> levels = course == null || course.getLevels() == null ? List.of()
+                : course.getLevels().stream().sorted().map(Enum::name).collect(Collectors.toList());
         return ApplicantSummaryResponse.builder()
                 .name(e.getStudent() == null ? null : e.getStudent().getNickName())
-                .courseTag(courseTag)
+                .organizationCode(course == null ? null : course.getOrganizationCode())
+                .disciplineCode(course == null ? null : course.getDisciplineCode())
+                .levels(levels)
                 .gear(e.getEquipment().stream().map(EnrollmentEquipment::getName).collect(Collectors.toList()))
                 .kind(null)
                 .build();
