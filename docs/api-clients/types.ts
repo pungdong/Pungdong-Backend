@@ -973,7 +973,8 @@ export interface SessionCreateRequest {
 
 /**
  * 기존 일정에 점유 추가 — POST /instructor/availability/sessions/{id}/holds (201).
- * memo 없음 = ± 빠른조정 / memo 있음 = 외부예약. 유효정원을 넘겨도 기록됨(상태 FULL, 자동확장 없음).
+ * memo 없음 = ± 빠른조정 / memo 있음 = 외부예약. **점유가 정원을 넘기면 그 일정이 커스텀 정원(=점유)으로 확장**
+ * (6명 넣으면 capacity 6·capacityOverridden true). ※ X/Y(X>Y over) 는 정원을 *낮췄을* 때만(확정 바닥).
  *
  * 점유 제거는 DELETE /sessions/{id}/holds/{holdId} — 제거 후 그 일정의 점유가 0 이면 **빈 일정이 자동 삭제되고 204**
  * (카드 제거). 남으면 200 + 갱신 session. (신청 거절/취소로 0명이 된 일정도 동일하게 사라짐 — enrollment 이력은 보존.)

@@ -132,12 +132,13 @@ public class AvailabilityService {
                 instructor, req.getDate(), req.getStartTime(), req.getEndTime(),
                 venueRef, ticketRef, req.getCapacity());
 
-        // ③ 점유 기록
+        // ③ 점유 기록 + 점유가 정원 넘으면 커스텀 정원으로 확장(강사가 그만큼 받겠다는 선언)
         session.addHold(AvailabilityHold.builder()
                 .count(req.getCount())
                 .memo(trimToNull(req.getMemo()))
                 .createdAt(LocalDateTime.now())
                 .build());
+        bumpCapacityIfExceeded(session);
         session.setUpdatedAt(LocalDateTime.now());
         return toResponse(session);
     }
@@ -185,8 +186,22 @@ public class AvailabilityService {
                 .memo(trimToNull(req.getMemo()))
                 .createdAt(LocalDateTime.now())
                 .build());
+        bumpCapacityIfExceeded(s);
         s.setUpdatedAt(LocalDateTime.now());
         return toResponse(s);
+    }
+
+    /**
+     * 점유(확정 + 외부 hold)가 유효정원을 넘으면 그 session 을 <b>커스텀 정원(=점유)</b>으로 확장 — 강사가
+     * 점유를 추가할 때만(외부예약/±). "그만큼 받겠다"는 선언이라 6명 넣으면 6/6. (정원을 의도적으로 *낮추는*
+     * 건 확장 안 하고 바닥 유지 — 확정자 보호, over 표시·새 수락 차단. 학생 신청은 만석 캡이라 여기 안 옴.)
+     */
+    private void bumpCapacityIfExceeded(AvailabilitySession s) {
+        int occupancy = s.heldCount()
+                + enrollmentRepo.countByAvailabilitySessionIdAndStatus(s.getId(), EnrollmentStatus.CONFIRMED);
+        if (occupancy > s.effectiveCapacity()) {
+            s.setCapacityOverride(occupancy);
+        }
     }
 
     /** 점유 제거(± −1 / 외부예약 취소). 제거 후 점유 0 이면 빈 일정 삭제 → Optional.empty(컨트롤러 204). */
