@@ -1,6 +1,8 @@
 package com.diving.pungdong.enrollment;
 
 import com.diving.pungdong.account.Account;
+import com.diving.pungdong.availability.AvailabilitySession;
+import com.diving.pungdong.availability.SessionCleaner;
 import com.diving.pungdong.enrollment.dto.InstructorEnrollmentResponse;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
@@ -30,6 +32,7 @@ public class InstructorEnrollmentService {
     private final EnrollmentJpaRepo enrollmentRepo;
     private final InstructorApplicationJpaRepo applicationRepo;
     private final VenueRefResolver venueRefResolver;
+    private final SessionCleaner sessionCleaner;
 
     public List<InstructorEnrollmentResponse> list(Account instructor, EnrollmentStatus status) {
         requireInstructorTrack(instructor);
@@ -65,10 +68,14 @@ public class InstructorEnrollmentService {
         if (e.getStatus() != EnrollmentStatus.PENDING) {
             throw new BadRequestException(); // 대기 건만 거절
         }
+        AvailabilitySession session = e.getAvailabilitySession();
         e.setStatus(EnrollmentStatus.REJECTED);
         e.setRejectionReason(StringUtils.hasText(reason) ? reason.trim() : null);
         e.setRespondedAt(LocalDateTime.now());
-        return InstructorEnrollmentResponse.of(e, venueName(e.getVenueRefId()));
+        // 응답은 enrollment 스냅샷 기반(이력 보존). 그 일정이 비면 카드만 삭제(거절 이력은 남음).
+        InstructorEnrollmentResponse resp = InstructorEnrollmentResponse.of(e, venueName(e.getVenueRefId()));
+        sessionCleaner.deleteIfEmpty(session);
+        return resp;
     }
 
     /* ─── helpers ─── */

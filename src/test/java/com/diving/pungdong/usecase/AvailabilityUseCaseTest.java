@@ -175,7 +175,7 @@ class AvailabilityUseCaseTest {
         Account in = account("cv4@pd.com", "강사cv4");
         enterInstructorTrack(in);
         String token = tokenFor(in);
-        addSession(token, LocalTime.of(14, 0), LocalTime.of(16, 0), null); // coverage 14–16 + 일정
+        addSession(token, LocalTime.of(14, 0), LocalTime.of(16, 0), 1); // coverage 14–16 + 일정
 
         mockMvc.perform(delete("/instructor/availability/coverage")
                 .header(HttpHeaders.AUTHORIZATION, token).contentType(MediaType.APPLICATION_JSON)
@@ -195,7 +195,7 @@ class AvailabilityUseCaseTest {
         Account in = account("ss1@pd.com", "강사ss1");
         enterInstructorTrack(in);
         String token = tokenFor(in);
-        addSession(token, LocalTime.of(12, 0), LocalTime.of(14, 0), null);
+        addSession(token, LocalTime.of(12, 0), LocalTime.of(14, 0), 1);
         // coverage 12–14 생성
         var ranges = coverageRepo.findByInstructorIdAndDate(in.getId(), MON);
         assertThat(ranges).hasSize(1);
@@ -223,7 +223,7 @@ class AvailabilityUseCaseTest {
         Account in = account("ss3@pd.com", "강사ss3");
         enterInstructorTrack(in);
         String token = tokenFor(in);
-        long id = addSession(token, LocalTime.of(10, 0), LocalTime.of(12, 0), null);
+        long id = addSession(token, LocalTime.of(10, 0), LocalTime.of(12, 0), 1);
 
         mockMvc.perform(get("/instructor/availability/sessions/{id}", id)
                 .header(HttpHeaders.AUTHORIZATION, token))
@@ -243,13 +243,29 @@ class AvailabilityUseCaseTest {
         Account in = account("ss4@pd.com", "강사ss4");
         enterInstructorTrack(in);
         String token = tokenFor(in);
-        long id = addSession(token, LocalTime.of(14, 0), LocalTime.of(16, 0), null);
+        long id = addSession(token, LocalTime.of(14, 0), LocalTime.of(16, 0), 1);
 
         mockMvc.perform(delete("/instructor/availability/sessions/{id}", id)
                 .header(HttpHeaders.AUTHORIZATION, token))
                 .andExpect(status().isNoContent());
         assertThat(sessionRepo.findById(id)).isEmpty();
         assertThat(coverageRepo.findByInstructorIdAndDate(in.getId(), MON)).isNotEmpty(); // coverage 유지
+    }
+
+    @Test
+    @DisplayName("SS5 외부 점유를 모두 제거하면(0명) 빈 일정은 자동으로 사라진다(204). coverage 는 유지")
+    void removingLastHoldDeletesEmptySession() throws Exception {
+        Account in = account("ss5@pd.com", "강사ss5");
+        enterInstructorTrack(in);
+        String token = tokenFor(in);
+        long id = addSession(token, LocalTime.of(14, 0), LocalTime.of(16, 0), 2); // hold 2명
+        long holdId = holdRepo.findBySessionId(id).get(0).getId();
+
+        mockMvc.perform(delete("/instructor/availability/sessions/{id}/holds/{holdId}", id, holdId)
+                .header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isNoContent()); // 점유 0 → 빈 일정 삭제
+        assertThat(sessionRepo.findById(id)).isEmpty();
+        assertThat(coverageRepo.findByInstructorIdAndDate(in.getId(), MON)).isNotEmpty();
     }
 
     /* ─── CAL* 분리 조회 ─── */
@@ -291,7 +307,7 @@ class AvailabilityUseCaseTest {
         Account in = account("c2@pd.com", "강사c2");
         enterInstructorTrack(in);
         String token = tokenFor(in);
-        long id = addSession(token, LocalTime.of(10, 0), LocalTime.of(12, 0), null);
+        long id = addSession(token, LocalTime.of(10, 0), LocalTime.of(12, 0), 1);
 
         mockMvc.perform(patch("/instructor/availability/settings")
                 .header(HttpHeaders.AUTHORIZATION, token).contentType(MediaType.APPLICATION_JSON)
@@ -346,7 +362,7 @@ class AvailabilityUseCaseTest {
         Account in = account("v2@pd.com", "강사v2");
         enterInstructorTrack(in);
         String token = tokenFor(in);
-        long id = addSession(token, LocalTime.of(10, 0), LocalTime.of(12, 0), null);
+        long id = addSession(token, LocalTime.of(10, 0), LocalTime.of(12, 0), 1);
         mockMvc.perform(patch("/instructor/availability/sessions/{id}/capacity", id)
                 .header(HttpHeaders.AUTHORIZATION, token).contentType(MediaType.APPLICATION_JSON)
                 .content(capacityBody(0)))
@@ -358,7 +374,7 @@ class AvailabilityUseCaseTest {
     void cannotReadOthersSession() throws Exception {
         Account owner = account("r1a@pd.com", "주인");
         enterInstructorTrack(owner);
-        long id = addSession(tokenFor(owner), LocalTime.of(10, 0), LocalTime.of(12, 0), null);
+        long id = addSession(tokenFor(owner), LocalTime.of(10, 0), LocalTime.of(12, 0), 1);
 
         Account other = account("r1b@pd.com", "남");
         enterInstructorTrack(other);

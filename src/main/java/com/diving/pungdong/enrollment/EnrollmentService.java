@@ -5,6 +5,7 @@ import com.diving.pungdong.availability.AvailabilityCoverageJpaRepo;
 import com.diving.pungdong.availability.AvailabilitySession;
 import com.diving.pungdong.availability.AvailabilitySessionJpaRepo;
 import com.diving.pungdong.availability.CoverageMerger;
+import com.diving.pungdong.availability.SessionCleaner;
 import com.diving.pungdong.availability.CoverageMerger.Span;
 import com.diving.pungdong.course.Course;
 import com.diving.pungdong.course.CourseJpaRepo;
@@ -51,6 +52,7 @@ public class EnrollmentService {
     private final VenueRefResolver venueRefResolver;
     private final VenueEquipmentService equipmentService;
     private final BookableSlotDeriver slotDeriver;
+    private final SessionCleaner sessionCleaner;
 
     @Transactional
     public EnrollmentResponse submit(Account student, EnrollmentCreateRequest req) {
@@ -129,9 +131,13 @@ public class EnrollmentService {
         if (e.getStatus() != EnrollmentStatus.PENDING) {
             throw new BadRequestException(); // 대기 중에만 취소
         }
+        AvailabilitySession session = e.getAvailabilitySession();
         e.setStatus(EnrollmentStatus.CANCELLED);
         e.setRespondedAt(LocalDateTime.now());
-        return EnrollmentResponse.of(e, venueName(e.getVenueRefId()), instructorName(e));
+        // 응답은 enrollment 스냅샷 기반(이력 보존). 그 일정이 비면 카드만 삭제(신청 이력은 남음).
+        EnrollmentResponse resp = EnrollmentResponse.of(e, venueName(e.getVenueRefId()), instructorName(e));
+        sessionCleaner.deleteIfEmpty(session);
+        return resp;
     }
 
     public List<EnrollmentResponse> listMine(Account student) {

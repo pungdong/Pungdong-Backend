@@ -15,7 +15,7 @@
 
 ## 핵심 모델 — "session 이 첫 신청으로 생성, 같은 (위치,블록)이면 join"
 
-- enrollment 는 **`AvailabilitySession`(위치·시간블록·정원 단위)** 에 붙는다(`session_id`). 첫 신청이 그 (위치, 시간블록) session 을 **생성**하고(`findOrCreateSession`), 같은 **(venueRefId, blockStart, blockEnd)** 신청은 그 session 에 **join**. session 이 처음부터 위치를 소유하므로 별도 bind/unbind 없음 — 거절/취소되면 session 은 그냥 남는다(점유 0 = AVAILABLE).
+- enrollment 는 **`AvailabilitySession`(위치·시간블록·정원 단위)** 에 붙는다(`session_id`). 첫 신청이 그 (위치, 시간블록) session 을 **생성**하고(`findOrCreateSession`), 같은 **(venueRefId, blockStart, blockEnd)** 신청은 그 session 에 **join**. session 이 처음부터 위치를 소유하므로 bind/unbind 없음. 대신 **점유 0 = 일정 삭제**: 거절/취소로 활성 신청+hold 가 0 이 되면 `availability.SessionCleaner.deleteIfEmpty` 가 session 을 지운다. **단 enrollment 이력은 보존** — CANCELLED/REJECTED 는 안 지우고 `session_id` 만 끊음(스냅샷 date/위치/블록/가격/사유 남아 CS·환불 증빙). 외부 hold 제거(`removeHold`)도 점유 0 이면 같은 정리 → 204.
 - **자격 = 블록이 강사 coverage(예약가능시간)에 통째로 ⊆**(`CoverageMerger.containsWhole`, 부분겹침 불가). 블록은 venue 운영 카탈로그의 이산 단위라 통째로만 선택.
 - **만석** = `confirmed + 외부hold >= effectiveCapacity` 일 때만 새 신청 거절. **PENDING 은 하드캡 안 함**(여러 건 쌓여도 강사가 수락/거절로 정리). 수락 시 정원 재검증.
 - **availability 캘린더 연동**: `availability/AvailabilityService.toResponse` 가 **session별** enrollment 를 집계해 `confirmedCount`/`pendingCount`/`applicants[]` 를 채운다 → **availability → enrollment(repo) 단방향 의존**(읽기 전용). 5상태 모델 실가동.

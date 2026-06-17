@@ -372,8 +372,8 @@ class EnrollmentUseCaseTest {
     }
 
     @Test
-    @DisplayName("A2 강사가 거절하면 REJECTED·사유가 남고, session 은 비어 다시 AVAILABLE 로 보인다")
-    void rejectEmptiesSession() throws Exception {
+    @DisplayName("A2 강사가 거절해 그 일정이 0명이 되면 일정 카드는 사라지되(캘린더 session 0개) 거절 이력은 보존된다")
+    void rejectEmptiesAndDeletesSessionButKeepsHistory() throws Exception {
         Account ins = account("ins9@pd.com", "강사9");
         enterInstructorTrack(ins);
         Object[] s = setup(ins, 4);
@@ -384,17 +384,28 @@ class EnrollmentUseCaseTest {
                 .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"일정이 안 맞아요\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("REJECTED"));
 
+        // 빈 일정 카드는 캘린더에서 사라짐(coverage 는 유지)
         mockMvc.perform(get("/instructor/availability")
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(ins))
                 .param("from", D1.minusDays(1).toString()).param("to", D1.plusDays(1).toString()))
-                .andExpect(jsonPath("$.sessions[0].status").value("AVAILABLE"));
+                .andExpect(jsonPath("$.sessions.length()").value(0))
+                .andExpect(jsonPath("$.coverage.length()").value(1));
+        assertThat(sessionRepo.findAll()).isEmpty();
+
+        // 거절 이력은 보존 — enrollment 는 REJECTED·사유·스냅샷(날짜·위치·블록) 그대로, session FK 만 끊김
+        Enrollment hist = enrollmentRepo.findById(e.getId()).orElseThrow();
+        assertThat(hist.getStatus()).isEqualTo(EnrollmentStatus.REJECTED);
+        assertThat(hist.getRejectionReason()).isEqualTo("일정이 안 맞아요");
+        assertThat(hist.getDate()).isEqualTo(D1);
+        assertThat(hist.getVenueRefId()).isEqualTo((String) s[2]);
+        assertThat(hist.getAvailabilitySession()).isNull();
     }
 
     /* ─── C* 취소 ─── */
 
     @Test
-    @DisplayName("C1 학생이 대기 중 취소하면 CANCELLED 가 된다")
-    void studentCancel() throws Exception {
+    @DisplayName("C1 학생이 대기 중 취소해 일정이 0명이 되면 일정은 사라지되 취소 이력은 보존된다")
+    void studentCancelDeletesSessionButKeepsHistory() throws Exception {
         Account ins = account("ins10@pd.com", "강사10");
         enterInstructorTrack(ins);
         Object[] s = setup(ins, 4);
@@ -405,8 +416,12 @@ class EnrollmentUseCaseTest {
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(stu)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CANCELLED"));
 
-        assertThat(enrollmentRepo.findById(e.getId()).orElseThrow().getStatus())
-                .isEqualTo(EnrollmentStatus.CANCELLED);
+        assertThat(sessionRepo.findAll()).isEmpty(); // 빈 일정 삭제
+        // 취소 이력 보존 — enrollment 는 CANCELLED·스냅샷 그대로
+        Enrollment hist = enrollmentRepo.findById(e.getId()).orElseThrow();
+        assertThat(hist.getStatus()).isEqualTo(EnrollmentStatus.CANCELLED);
+        assertThat(hist.getDate()).isEqualTo(D1);
+        assertThat(hist.getAvailabilitySession()).isNull();
     }
 
     /* ─── G*·R* 게이트·권한 ─── */

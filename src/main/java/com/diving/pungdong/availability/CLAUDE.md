@@ -19,7 +19,8 @@
   - coverage: `POST /coverage`(열기·union, recurrence ONCE/WEEKLY/FOUR_WEEKS) · `DELETE /coverage`(닫기·subtract, 단일 날). 닫기가 session 을 가로지르면 **거부**(`COVERAGE_HAS_SESSION` / `-1014`).
   - session: `POST /sessions`(**원자 추가** 201) · `GET/DELETE /sessions/{id}` · `PATCH/DELETE /sessions/{id}/capacity`(override 설정/해제) · `POST /sessions/{id}/holds` · `DELETE /sessions/{id}/holds/{holdId}`.
   - 범위 조회 `GET ?from&to` → `{coverage: CoverageRangeResponse[], sessions: AvailabilitySessionResponse[]}` (두 레이어 분리 — 옛 `_embedded.windows` HAL 아님). 정원 baseline `GET/PATCH /settings`.
-- **서비스**: `AvailabilityService`(coverage 머지·교체 · session find-or-create · 원자 추가 · 5상태 파생 · 정원 baseline/override · 게이트). 응답은 **트랜잭션 안에서 DTO 매핑**(LAZY hold 보호). venueName 은 `VenueRefResolver` 배치 해석(N+1 회피), enrollment 집계는 `EnrollmentJpaRepo` 일괄 조회.
+- **서비스**: `AvailabilityService`(coverage 머지·교체 · session find-or-create · 원자 추가 · 5상태 파생 · 정원 baseline/override · 게이트) + `SessionCleaner`(**점유 0 = 빈 일정 삭제**). 응답은 **트랜잭션 안에서 DTO 매핑**(LAZY hold 보호). venueName 은 `VenueRefResolver` 배치 해석(N+1 회피), enrollment 집계는 `EnrollmentJpaRepo` 일괄 조회.
+- **불변식: session 존재 ⟺ 점유 > 0 (`SessionCleaner`)** — `POST /sessions` 는 `count≥1` 필수(빈 일정 생성 불가; 순수 시간은 `/coverage`). 외부 hold 제거(`removeHold`)·신청 거절/취소로 활성 신청+hold 가 0 이 되면 그 session 을 **삭제**(화면 카드 제거). `removeHold` 가 비우면 **204**(남으면 200+session). **enrollment 이력은 보존** — CANCELLED/REJECTED 는 안 지우고 `session_id` 만 끊음(스냅샷 date/위치/블록/가격/사유 남아 CS·환불 증빙). coverage 는 안 건드림(독립).
 - **엔티티**:
   - `AvailabilityCoverage`(instructor·date·startTime·endTime — 순수 시간, FK 대상 아님).
   - `AvailabilitySession`(instructor·date·시간·**nullable `capacityOverride`**·nullable `venueRefId`/`sessionLabel`) → `AvailabilityHold`(`session_id` FK).
