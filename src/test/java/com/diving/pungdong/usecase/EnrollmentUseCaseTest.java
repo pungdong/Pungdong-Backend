@@ -5,6 +5,7 @@ import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.account.Role;
 import com.diving.pungdong.availability.AvailabilityCoverage;
 import com.diving.pungdong.availability.AvailabilityCoverageJpaRepo;
+import com.diving.pungdong.availability.AvailabilitySession;
 import com.diving.pungdong.availability.AvailabilitySessionJpaRepo;
 import com.diving.pungdong.course.*;
 import com.diving.pungdong.enrollment.Enrollment;
@@ -227,6 +228,27 @@ class EnrollmentUseCaseTest {
                 .param("courseId", String.valueOf(course.getId())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.slots.length()").value(1));
+    }
+
+    @Test
+    @DisplayName("O3 강사 기존 일정과 시간이 겹치는 venue 부는 옵션에서 빠진다(이중부킹 방지)")
+    void optionsExcludeOverlappingBlock() throws Exception {
+        Account ins = account("ins14@pd.com", "강사14");
+        enterInstructorTrack(ins);
+        Object[] s = setup(ins, 4); // coverage 09–18, venue 부 09–12·14–17
+        Course course = (Course) s[0];
+        String venueRef = (String) s[2];
+        // 09–12 부와 겹치는(정확히 같지 않은) 기존 일정 10–12 직접 생성
+        sessionRepo.save(AvailabilitySession.builder().instructor(ins).date(D1)
+                .startTime(LocalTime.of(10, 0)).endTime(LocalTime.of(12, 0)).venueRefId(venueRef)
+                .createdAt(LocalDateTime.now()).build());
+        Account stu = account("stu14@pd.com", "수강생14");
+
+        mockMvc.perform(get("/enrollments/options")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(stu))
+                .param("courseId", String.valueOf(course.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.slots.length()").value(1)); // 09–12 빠지고 14–17 만
     }
 
     /* ─── S* 신청 ─── */

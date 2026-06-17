@@ -20,6 +20,7 @@
   - session: `POST /sessions`(**원자 추가** 201) · `GET/DELETE /sessions/{id}` · `PATCH/DELETE /sessions/{id}/capacity`(override 설정/해제) · `POST /sessions/{id}/holds` · `DELETE /sessions/{id}/holds/{holdId}`.
   - 범위 조회 `GET ?from&to` → `{coverage: CoverageRangeResponse[], sessions: AvailabilitySessionResponse[]}` (두 레이어 분리 — 옛 `_embedded.windows` HAL 아님). 정원 baseline `GET/PATCH /settings`.
 - **서비스**: `AvailabilityService`(coverage 머지·교체 · session find-or-create · 원자 추가 · 5상태 파생 · 정원 baseline/override · 게이트) + `SessionCleaner`(**점유 0 = 빈 일정 삭제**). 응답은 **트랜잭션 안에서 DTO 매핑**(LAZY hold 보호). venueName 은 `VenueRefResolver` 배치 해석(N+1 회피), enrollment 집계는 `EnrollmentJpaRepo` 일괄 조회.
+- **불변식: 한 강사의 일정은 시간 겹침 불가 (`SessionOverlapGuard`)** — 새 일정이 같은 날 기존 일정과 시간상 겹치면 거부(`SessionTimeOverlapException`, code -1015). 한 강사는 한 번에 한 세션만 운영(위치 무관 — 동시에 두 곳 불가). 정확히 같은 (위치,시간)은 join 이라 제외, 맞닿는 경계(08–11 + 11–14)는 겹침 아님(strict). 강사 `addSession`·학생 신청(`EnrollmentService`) 양쪽에서 강제, 학생 옵션(`EnrollmentOptionsService`)도 겹치는 부 제외. 겹침 허용하면 강사 이중부킹 + 그 시간대 정원 이중계산(ticketRef 정체성 제외와 같은 부류).
 - **불변식: session 존재 ⟺ 점유 > 0 (`SessionCleaner`)** — `POST /sessions` 는 `count≥1` 필수(빈 일정 생성 불가; 순수 시간은 `/coverage`). 외부 hold 제거(`removeHold`)·신청 거절/취소로 활성 신청+hold 가 0 이 되면 그 session 을 **삭제**(화면 카드 제거). `removeHold` 가 비우면 **204**(남으면 200+session). **enrollment 이력은 보존** — CANCELLED/REJECTED 는 안 지우고 `session_id` 만 끊음(스냅샷 date/위치/블록/가격/사유 남아 CS·환불 증빙). coverage 는 안 건드림(독립).
 - **엔티티**:
   - `AvailabilityCoverage`(instructor·date·startTime·endTime — 순수 시간, FK 대상 아님).

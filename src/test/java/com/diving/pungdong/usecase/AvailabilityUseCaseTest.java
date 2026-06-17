@@ -268,6 +268,30 @@ class AvailabilityUseCaseTest {
         assertThat(coverageRepo.findByInstructorIdAndDate(in.getId(), MON)).isNotEmpty();
     }
 
+    @Test
+    @DisplayName("SS6 같은 강사의 기존 일정과 시간이 겹치는 새 일정은 거부(-1015). 맞닿는 건 허용")
+    void rejectsOverlappingSession() throws Exception {
+        Account in = account("ss6@pd.com", "강사ss6");
+        enterInstructorTrack(in);
+        String token = tokenFor(in);
+        addSession(token, LocalTime.of(14, 0), LocalTime.of(16, 0), 1); // 기존 14–16
+
+        // 13–17 (14–16 을 포함, 겹침) → 400 -1015
+        mockMvc.perform(post("/instructor/availability/sessions")
+                .header(HttpHeaders.AUTHORIZATION, token).contentType(MediaType.APPLICATION_JSON)
+                .content(json(SessionCreateRequest.builder().date(MON)
+                        .startTime(LocalTime.of(13, 0)).endTime(LocalTime.of(17, 0)).count(1).build())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(-1015));
+
+        // 16–18 (14–16 과 맞닿음, 안 겹침) → 201
+        mockMvc.perform(post("/instructor/availability/sessions")
+                .header(HttpHeaders.AUTHORIZATION, token).contentType(MediaType.APPLICATION_JSON)
+                .content(json(SessionCreateRequest.builder().date(MON)
+                        .startTime(LocalTime.of(16, 0)).endTime(LocalTime.of(18, 0)).count(1).build())))
+                .andExpect(status().isCreated());
+    }
+
     /* ─── CAL* 분리 조회 ─── */
 
     @Test
