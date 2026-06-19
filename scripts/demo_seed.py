@@ -281,6 +281,23 @@ INSTRUCTORS = [
         "pool": ("용인 머메이드 스튜디오풀", "경기도 용인시 기흥구 흥덕중앙로 120", 37.275, 127.115, 5, 35000, 45000),
         "ocean": ("양양 인구해변 포인트", "강원특별자치도 양양군 현남면 인구길 1", 37.971, 128.780, 12, 60000, 70000),
     },
+    {
+        # 6번째 강사 — 강의만(투어 없음). 루트 직속 사진 9장(인물 3 + 빅애니멀/블루홀 풍경 6)으로 구성.
+        "email": "demo_inst6@plop.cool", "nick": "정우진", "discipline": "FREEDIVING", "org": "AIDA",
+        "lecture": {
+            "slug": "lecture-6", "title": "AIDA 레벨3 딥 프리다이버 자격 과정", "kind": "CERTIFICATION",
+            "org": "AIDA", "levels": ["LEVEL_3"], "price": 620000,
+            "rounds": [
+                "심화 이론 — 마우스필·역압평형(프렌젤/마우스필)과 깊은 수심의 생리학.",
+                "딥풀 세션 — FRC 다이빙과 깊은 수심 적응, 레스큐 심화.",
+                "해양 세션 1 — 수심 30m 라인 다이빙과 프리폴.",
+                "해양 세션 2 — 빅블루 환경 적응 및 자격 인증.",
+            ],
+            "description": "수심 30m 이상을 향하는 심화 프리다이빙 자격 과정. 마우스필 역압평형, 프리폴, FRC 다이빙을 익히고 귀상어 떼·정어리 베이트볼이 펼쳐지는 빅블루 환경에서 깊이감을 완성합니다. 레벨2 이수자 대상.",
+        },
+        "tour": None,
+        "pool": ("K26 딥다이빙풀", "경기도 가평군 청평면 호반로 26", 37.731, 127.426, 26, 45000, 55000),
+    },
 ]
 
 
@@ -298,23 +315,23 @@ def main():
         print(f"  강사{i} {inst['nick']} ({d}) — 가입·본인확인·신청 완료")
 
         inst["lecture"]["discipline"] = d
-        inst["tour"]["discipline"] = d
 
         # 강의용 풀 위치 + 코스
         p = inst["pool"]
         vref, tref = create_venue(token, d, "DIVING_POOL", *p)
         lid = create_course(token, inst["lecture"], vref, tref)
         print(f"    ↳ 강의 #{lid}  {inst['lecture']['title']}")
-
-        # 투어용 해양 위치 + 코스
-        o = inst["ocean"]
-        vref, tref = create_venue(token, d, "OCEAN", *o)
-        tid = create_course(token, inst["tour"], vref, tref)
-        print(f"    ↳ 투어 #{tid}  {inst['tour']['title']}")
-
         created["instructors"].append(inst["nick"])
         created["lectures"].append((lid, inst["lecture"]["title"]))
-        created["tours"].append((tid, inst["tour"]["title"]))
+
+        # 투어용 해양 위치 + 코스 (투어 없는 강사는 생략)
+        if inst.get("tour"):
+            inst["tour"]["discipline"] = d
+            o = inst["ocean"]
+            vref, tref = create_venue(token, d, "OCEAN", *o)
+            tid = create_course(token, inst["tour"], vref, tref)
+            print(f"    ↳ 투어 #{tid}  {inst['tour']['title']}")
+            created["tours"].append((tid, inst["tour"]["title"]))
 
     print("[3/3] 검증 — 둘러보기 카운트")
     for d in ("FREEDIVING", "SCUBA", "MERMAID"):
