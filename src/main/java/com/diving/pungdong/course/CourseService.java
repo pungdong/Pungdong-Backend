@@ -10,6 +10,7 @@ import com.diving.pungdong.course.dto.CourseCreateRequest;
 import com.diving.pungdong.course.dto.CourseDetailResponse;
 import com.diving.pungdong.course.dto.CourseResponse;
 import com.diving.pungdong.venue.Region;
+import com.diving.pungdong.global.sitesettings.SiteSettingsProvider;
 import com.diving.pungdong.venue.VenueRefResolver;
 import com.diving.pungdong.venue.VenueRefValidator;
 import com.diving.pungdong.venue.equipment.VenueEquipmentService;
@@ -19,6 +20,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
@@ -47,6 +49,7 @@ public class CourseService {
     private final VenueRefValidator venueRefValidator;
     private final VenueRefResolver venueRefResolver;
     private final VenueEquipmentService equipmentService;
+    private final SiteSettingsProvider siteSettings;
 
     @Transactional
     public CourseResponse create(Account me, CourseCreateRequest req) {
@@ -76,8 +79,10 @@ public class CourseService {
      * 위치 이름·type·주소, <b>입장료(이용권×daypart fee)</b>, 위치별 장비. 비OPEN/없음은 400(존재 숨김).
      */
     public CourseDetailResponse publicDetail(Long id) {
+        boolean showSeeded = siteSettings.current().showSeededCourses();
         Course course = courseRepo.findById(id)
                 .filter(c -> c.getStatus() == CourseStatus.OPEN)
+                .filter(c -> showSeeded || !c.isSeeded()) // 데모 가림 시 상세도 숨김(존재 숨김)
                 .orElseThrow(ResourceNotFoundException::new);
         List<String> refs = course.getRounds().stream()
                 .flatMap(r -> r.getVenues().stream())
@@ -104,8 +109,11 @@ public class CourseService {
     public Page<CourseCardResponse> browse(CourseBrowseCondition condition, Pageable pageable) {
         PageRequest request = PageRequest.of(
                 pageable.getPageNumber(), pageable.getPageSize(), sortOf(condition.getSort()));
-        return courseRepo.findAll(CourseSpecifications.matching(condition), request)
-                .map(CourseCardResponse::from);
+        Specification<Course> spec = CourseSpecifications.matching(condition);
+        if (!siteSettings.current().showSeededCourses()) {
+            spec = spec.and(CourseSpecifications.excludeSeeded()); // 런칭 후 데모 가림
+        }
+        return courseRepo.findAll(spec, request).map(CourseCardResponse::from);
     }
 
     private Sort sortOf(CourseBrowseCondition.Sort sort) {

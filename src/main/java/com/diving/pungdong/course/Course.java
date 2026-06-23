@@ -80,6 +80,14 @@ public class Course {
     /** 카드 표시용 대표 위치 이름(첫 회차 첫 위치) — 읽기 시 N+1 위치 해석 회피용 비정규화. */
     private String primaryLocationName;
 
+    /**
+     * 데모(시드) 코스 여부 — 정식 강사가 만든 코스와 구분하는 표식. 정식 작성 경로(CourseController)에선
+     * 절대 true 가 되지 않고, 데모 시더만 직접 표시한다. FE 는 "샘플용" 태그로 구분 노출하고, 둘러보기는
+     * {@code siteSettings.showSeededCourses=false} 일 때 이 값으로 제외한다. 런칭 시 데이터를 지우지 않고도
+     * 가릴 수 있게 하는 단일 표식(데이터 ↔ 노출 분리). 기본 false.
+     */
+    private boolean seeded;
+
     @OneToMany(mappedBy = "course", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @OrderBy("sortOrder asc, id asc")
     @Builder.Default
