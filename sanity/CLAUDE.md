@@ -8,6 +8,7 @@
 
 - `schemas/certOrganization.ts` — 자격증 발급 단체(종목별). `code` = BE 전송값(soft ref), `name`(굵은 표시명) + `fullName`(부제 정식명칭). **`certifications[]`** = 그 단체가 발급하는 등급 카탈로그(object `certification`: `disciplineCode` + 평탄화 `level`(LEVEL_1~4/INSTRUCTOR) + `displayName`(단체 명칭)). 코스 작성 "단체→레벨" 과 강사 신청 본인 레벨이 같은 카탈로그를 GROQ(`certificationsByOrgAndDiscipline`)로 직접 읽음. BE 는 `level` 만 enum 으로 저장.
 - `schemas/term.ts` — 약관/동의. `key`/`version`/`contexts` 가 **consent 도메인 계약**. `version` custom validation = body 변경 시 bump 강제(관리자 실수 방어).
+- `schemas/siteSettings.ts` — **사이트 전역 설정 싱글톤** (`launched`/`showSeededCourses`). 런칭/데모노출을 무배포로 토글하는 단일 스위치 — **launch-and-seeded-content 피처 계약**. FE 는 CDN 직접 읽어 배너/태그, **BE 도 서버사이드로 읽어**(`global/sitesettings/HttpSanitySiteSettingsProvider`, 캐시·fail-safe) 신청 차단·데모 필터를 강제. 정책은 [../docs/features/launch-and-seeded-content.md](../docs/features/launch-and-seeded-content.md).
 - `schemas/venue.ts` — **공식(OFFICIAL) 위치(수영장/딥풀)**. 어드민 authoring, 강사 코스 빌더가 참조하는 정적 카탈로그. 이용권(평일/주말·고정/상시·키반납)·정기휴무·사진/영상·장비정보. `tickets[].disciplines` = BE `discipline.code` soft-ref. 시간은 `"HH:mm"` 문자열. 오브젝트 타입(`venueTicket`/`venueDaypart`/`venueTimeBlock`/`venueClosure`)도 같이 등록. **강사 커스텀 위치는 Sanity 아님 — BE DB**(`venue` 도메인). 도메인/정책은 [../docs/features/venue.md](../docs/features/venue.md).
 - `queries.ts` — GROQ 단일 출처(`orgsByDiscipline`, `termsByContext`, `officialVenuesByDiscipline`, `venueById`, `venueRevs`). **FE 가 이 문자열 + projectId 를 복사**해 `@sanity/client` 로 직접 읽음(types.ts 복사 방식과 동일) — **공식 위치 공개 표시**용(share/브라우즈). 코스 빌더 official+custom 통합은 후속 **BE 머지 엔드포인트**(FE 소스 무지). custom 위치는 private 라 Sanity 아님(BE DB).
 - `sanity.config.ts` / `sanity.cli.ts` — projectId `rc448mwo`, dataset `production`.
@@ -35,6 +36,7 @@
 - `certOrganization.certifications[].level`(평탄화 LEVEL_1~4/INSTRUCTOR) ↔ **course 도메인** `CertLevel` enum + `types.ts` `CertLevel` union. 레벨 코드 추가/변경 시 세 곳 같이.
 - `venue.tickets[].disciplines` / `venue.type`(POOL_5M/DEEP_POOL/OCEAN) / daypart·closure 모양 ↔ **venue 도메인**([../docs/features/venue.md](../docs/features/venue.md), [../docs/architecture/venue.md](../docs/architecture/venue.md), BE `VenueResponse` 통합 응답). 미래 BE 동기화 시 `venueRevs`(`_rev` 대조) 사용.
 - `disciplines` 값 ↔ BE `discipline.code`(FREEDIVING/SCUBA…) 1:1.
+- `siteSettings.launched`/`showSeededCourses` ↔ **BE `global/sitesettings` (`SiteSettings`/`HttpSanitySiteSettingsProvider`)** + course 둘러보기 필터 + enrollment 게이트 + `types.ts` `SiteSettings`. 필드명 바꾸면 GROQ(`HttpSanitySiteSettingsProvider`)·BE 파싱 같이.
 - 필드/쿼리 모양 바꾸면 FE 가 복사하는 `queries.ts` 와 [../docs/api-clients/types.ts](../docs/api-clients/types.ts) 영향 — 같은 변경에서 점검.
 
 ## 불변 규칙
