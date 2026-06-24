@@ -18,7 +18,7 @@ locals {
 
   # 사용자가 SSM 콘솔에 미리 만들 SecureString. (container env var 이름 = SSM 파라미터 이름)
   # 경로: /plop/staging/<NAME>
-  user_secret_names = ["JWT_SECRET", "ADMIN_MAIL_ID", "ADMIN_MAIL_PASSWORD"]
+  user_secret_names = ["JWT_SECRET", "ADMIN_MAIL_ID", "ADMIN_MAIL_PASSWORD", "JUSO_SEARCH_KEY", "JUSO_COORD_KEY"]
   user_secrets = {
     for n in local.user_secret_names :
     n => "arn:aws:ssm:${var.aws_region}:${local.account_id}:parameter${local.ssm_prefix}/${n}"
@@ -48,7 +48,8 @@ locals {
     STORAGE_S3_ENABLED         = "true"
     CLOUD_AWS_S3_BUCKET        = local.uploads_bucket
     IDENTITY_VERIFICATION_MODE = "stub"
-    ADDRESS_GEOCODE_MODE       = "stub"
+    ADDRESS_GEOCODE_MODE       = "juso"
+    JUSO_REFERER               = "https://staging.plop.cool"
   }
 }
 
