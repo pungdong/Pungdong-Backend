@@ -21,9 +21,9 @@ variable "certificate_arn" {
 }
 
 variable "final_snapshot_identifier" {
-  description = "staging destroy 시 만들 최종 스냅샷 이름 (사이클마다 유니크). 예: pungdong-staging-final-20260624"
+  description = "staging destroy 시 만들 최종 스냅샷 이름 (사이클마다 유니크). 예: plop-staging-final-20260624"
   type        = string
-  default     = "pungdong-staging-final"
+  default     = "plop-staging-final"
 }
 
 variable "restore_snapshot_identifier" {
