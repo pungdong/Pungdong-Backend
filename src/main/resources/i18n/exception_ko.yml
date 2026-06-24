@@ -61,3 +61,7 @@ coverageHasSession:
 sessionTimeOverlap:
   code: "-1015"
   msg: "그 시간에 이미 다른 일정이 있습니다. 일정은 시간이 겹칠 수 없습니다."
+
+preLaunch:
+  code: "-1016"
+  msg: "정식 런칭 전이라 아직 신청할 수 없습니다. 7월 정식 런칭을 기다려주세요."

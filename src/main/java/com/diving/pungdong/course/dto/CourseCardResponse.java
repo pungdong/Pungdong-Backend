@@ -43,6 +43,8 @@ public class CourseCardResponse {
     private int price;
     private int totalRounds;
     private String disciplineCode;
+    /** 데모(샘플) 코스 — FE 가 "샘플용" 태그로 구분 노출. */
+    private boolean seeded;
     private LocalDateTime createdAt;
 
     public static CourseCardResponse from(Course c) {
@@ -61,6 +63,7 @@ public class CourseCardResponse {
                 .price(c.getPrice())
                 .totalRounds(c.getTotalRounds())
                 .disciplineCode(c.getDisciplineCode())
+                .seeded(c.isSeeded())
                 .createdAt(c.getCreatedAt())
                 .build();
     }

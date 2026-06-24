@@ -103,6 +103,12 @@ public class ExceptionAdvice {
         return responseService.getFailResult(Integer.parseInt(getMessage("sessionTimeOverlap.code")), getMessage("sessionTimeOverlap.msg"));
     }
 
+    @ExceptionHandler(PreLaunchException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public CommonResult preLaunch(PreLaunchException e) {
+        return responseService.getFailResult(Integer.parseInt(getMessage("preLaunch.code")), getMessage("preLaunch.msg"));
+    }
+
     @ExceptionHandler(BadRequestException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public CommonResult badRequest(BadRequestException e) {

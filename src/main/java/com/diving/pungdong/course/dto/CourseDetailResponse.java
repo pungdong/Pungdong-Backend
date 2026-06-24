@@ -41,6 +41,8 @@ public class CourseDetailResponse {
     /** 수강료(원). 입장료·장비는 회차별 변동이라 별도(부킹 시점). */
     private int price;
     private String description;
+    /** 데모(샘플) 코스 — FE 가 "샘플용" 표시 + 신청 유도 문구 분기. */
+    private boolean seeded;
     private List<Media> media;
 
     /** 강사 — 이름만. 경력·자격·평점은 강사 프로필/리뷰 통합 후속. */
@@ -65,6 +67,7 @@ public class CourseDetailResponse {
                 .totalRounds(c.getTotalRounds())
                 .price(c.getPrice())
                 .description(c.getDescription())
+                .seeded(c.isSeeded())
                 .media(c.getMedia().stream().map(Media::from).collect(Collectors.toList()))
                 .instructorId(c.getInstructor() == null ? null : c.getInstructor().getId())
                 .instructorName(c.getInstructor() == null ? null : c.getInstructor().getNickName())
