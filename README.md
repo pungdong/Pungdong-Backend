@@ -26,7 +26,6 @@ flowchart LR
     subgraph Data["데이터"]
         MySQL[("MySQL<br/>core domain")]
         Redis[("Redis<br/>이메일 인증 · 토큰 블랙리스트 ·<br/>공식 위치 캐시")]
-        ES[("Elasticsearch<br/>강의 검색<br/>※ Phase 3 검토")]
     end
 
     subgraph External["외부 서비스"]
@@ -39,7 +38,6 @@ flowchart LR
     App -- "HTTPS REST<br/>+ JWT (자체 발급)" --> Controller
     Service --> MySQL
     Service --> Redis
-    Service --> ES
     Service --> S3
     Service --> SMTP
     Service -- "GROQ 서버사이드 읽기<br/>+ _rev reconcile" --> Sanity
@@ -69,7 +67,7 @@ flowchart LR
 | 인증 | Spring Security 5.7 + JWT (자체 발급, HS256) |
 | 데이터 | MySQL (운영) / H2 (테스트), JPA + Spring Data Specifications |
 | 캐시 | Redis (이메일 인증, 토큰 블랙리스트) |
-| 검색 | Elasticsearch (강의 검색 — Phase 3에서 제거 검토) |
+| 검색 | MySQL (JpaSpecification — 제목·강사명 LIKE). 구 Elasticsearch 는 Phase 3에서 제거 |
 | 푸시 알림 | Firebase Cloud Messaging — outbox 패턴 + 자동 재시도 |
 | 파일 저장 | AWS S3 (`io.awspring.cloud:spring-cloud-starter-aws`) |
 | 메일 | Gmail SMTP (이메일 인증 코드 발송) |
@@ -108,7 +106,7 @@ curl "http://localhost:8080/sign/check/nickName?nickName=test"
 <summary>스크립트 없이 수동으로</summary>
 
 ```bash
-docker compose up -d                                          # 의존성 (MySQL + Redis + Elasticsearch)
+docker compose up -d                                          # 의존성 (MySQL + Redis)
 JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew bootRun   # 다른 터미널, Ctrl+C 종료
 ```
 </details>
@@ -150,8 +148,8 @@ JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew test --tests com.diving.pung
 ✅ Phase 0  Boot 2.3 → 2.7, JDK 11 → 17, Gradle 6 → 7, QueryDSL/Eureka 제거
 ✅ Phase 1  외부 Auth Server 흡수, SecurityFilterChain, 시크릿 외부화 (+ 이메일 인증/토큰 정책 완성)
 ✅ Phase 2  Kafka → Spring Events + Outbox + FCM (2-A~D 완료)
+✅ Phase 3  Elasticsearch 제거 (검색 = MySQL JpaSpecification 으로 치환)
    구조    layered → domain-based(package-by-feature) 전환 중 (account/notification 완료)
-   Phase 3  Elasticsearch 제거 결정 (트래픽 측정 후)
    Phase 4  배포 재설계 (Docker / ECS / WIF 등)
    Phase 5  CI/CD 재설계 (staging/prod 분리)
    Phase 6  Boot 3 + JDK 21 (jakarta 마이그레이션)

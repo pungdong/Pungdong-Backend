@@ -42,7 +42,6 @@ flowchart LR
     subgraph Data["데이터 저장소"]
         MySQL[("MySQL<br/>핵심 도메인 · outbox")]
         Redis[("Redis<br/>이메일 인증코드 · 토큰 블랙리스트 ·<br/>공식 위치 캐시")]
-        ES[("Elasticsearch<br/>강의 검색<br/>※ Phase 3 제거 검토")]
     end
 
     subgraph External["외부 서비스"]
@@ -61,7 +60,6 @@ flowchart LR
 
     Service --> MySQL
     Service --> Redis
-    Service --> ES
     Service --> S3
     Service --> SMTP
     Service --> Juso

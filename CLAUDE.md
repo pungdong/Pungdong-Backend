@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `pungdong` (풍덩) is the Spring Boot backend for a freediving instructor ↔ student lecture/reservation matching service. The Spring application name is still `msa-legacy-service` (the name predates the consolidation), but the service no longer registers with Eureka and is now a single self-contained Boot jar. Login token issuance is fully in-process (JWT minted by `JwtTokenProvider` in `account/`) — the former external OAuth2 authorization server dependency was absorbed in Phase 1. (Social OAuth — Kakao/Naver — is a separate future feature, deferred post-launch; see memory `project_simplification_plan`.)
 
-Stack: Spring Boot **2.7.18**, Java **17**, Gradle **7.6.4**, JPA + Spring Data Specifications, MySQL (prod) / H2 (test), Spring Security 5.7 + JWT, Redis, Spring Data Elasticsearch (Phase 3 removal candidate), Spring HATEOAS, `io.awspring.cloud:spring-cloud-starter-aws:2.4.4` (community fork; AWS SDK v1 path used by `S3Uploader`), Spring REST Docs (Asciidoctor JVM 3.3). Kafka was removed in Phase 2 (domain events + notification outbox replaced it).
+Stack: Spring Boot **2.7.18**, Java **17**, Gradle **7.6.4**, JPA + Spring Data Specifications, MySQL (prod) / H2 (test), Spring Security 5.7 + JWT, Redis, Spring HATEOAS, `io.awspring.cloud:spring-cloud-starter-aws:2.4.4` (community fork; AWS SDK v1 path used by `S3Uploader`), Spring REST Docs (Asciidoctor JVM 3.3). Kafka was removed in Phase 2 (domain events + notification outbox replaced it); Elasticsearch was removed in Phase 3 (search is now MySQL `JpaSpecification` — title/instructor `LIKE`).
 
 ## Commands
 
@@ -38,7 +38,7 @@ JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew bootRun
 
 After the one-time setup above, the day-to-day shortcut is **`./scripts/dev.sh`** — it cleans any process on 8080 (so it doubles as a restart), runs `docker compose up -d`, loads `.env.local`, and starts `bootRun` on JDK 17. (`scripts/dev.sh` is the only thing that needs to be in the permission allowlist for hands-off restarts.)
 
-`bootRun` requires direnv-loaded env vars (`JWT_SECRET`, `ADMIN_MAIL_ID`, `ADMIN_MAIL_PASSWORD`, `ELASTICSEARCH_URI`). See `.env.example`. If unset, Spring fail-fasts on placeholder resolution at boot.
+`bootRun` requires direnv-loaded env vars (`JWT_SECRET`, `ADMIN_MAIL_ID`, `ADMIN_MAIL_PASSWORD`). See `.env.example`. If unset, Spring fail-fasts on placeholder resolution at boot.
 
 Note: `bootJar` depends on `asciidoctor` which depends on `test`, so `./gradlew build` will fail the artifact step if any test fails. Use `./gradlew bootJar -x test -x asciidoctor` only when intentionally skipping docs.
 
@@ -51,17 +51,17 @@ Note: `bootJar` depends on `asciidoctor` which depends on `test`, so `./gradlew 
 
 `application.yml` is committed. `database.yml` / `redis.yml` / `aws.yml` are gitignored — `.example` siblings are committed and copied via the `cp ... .example ...` commands above for local dev. The filesystem entries use `optional:file:` prefix so they can be missing locally without breaking boot; in production those paths exist and override the local copies.
 
-Secrets (`spring.jwt.secret`, `AdminMail.id`, `AdminMail.password`, `elasticsearch.uri`) are externalized to env vars — see `.env.example` and `.env.local` (loaded by direnv). Fail-fast on missing vars at boot.
+Secrets (`spring.jwt.secret`, `AdminMail.id`, `AdminMail.password`) are externalized to env vars — see `.env.example` and `.env.local` (loaded by direnv). Fail-fast on missing vars at boot.
 
-The local Docker stack (`docker compose up -d`) provides MySQL 8 (port 3306, db `pungdong`, user `pungdong/pungdongpw`), Redis 7 (port 6379), and Elasticsearch 7.17 (port 9200, security disabled). Spring connects via the values in the example yml files. Hibernate `hbm2ddl.auto: update` (in `application.yml`) auto-creates tables on first connect.
+The local Docker stack (`docker compose up -d`) provides MySQL 8 (port 3306, db `pungdong`, user `pungdong/pungdongpw`) and Redis 7 (port 6379). Spring connects via the values in the example yml files. Hibernate `hbm2ddl.auto: update` (in `application.yml`) auto-creates tables on first connect.
 
 ## Test setup
 
 - Active profile: `test` (`@ActiveProfiles("test")`) — loads `src/test/resources/application-test.yml` which switches the datasource to in-memory H2 (the prod `MySQL5InnoDBDialect` is overridden to `H2Dialect` here).
 - Redis: tests use an **embedded Redis server** (`com.github.codemonstur:embedded-redis:1.4.3`, the maintained arm64-compatible fork) started by `EmbeddedRedisConfig` on a **dedicated port 16379** — deliberately separate from the docker Redis (6379) so `./gradlew test` never touches the local dev cache. `application-test.yml`'s `spring.redis.port` and `EmbeddedRedisConfig.TEST_REDIS_PORT` are kept in sync at 16379. (Earlier this used a random free port via `System.setProperty`, but that static block applied *after* `RedisAutoConfiguration` bound `spring.redis.port`, so tests fell back to yml's 6379 = docker Redis and leaked stub venue caches into dev.) **Redis 인프라 전반(용도·운영·이 격리 원칙)은 [docs/architecture/redis.md](docs/architecture/redis.md); config 작업 시 [global/config/CLAUDE.md](src/main/java/com/diving/pungdong/global/config/CLAUDE.md) 가 자동 로드된다.**
-- Elasticsearch: **gated off in test profile**. `ElasticSearchConfig` is `@Profile("!test")`, three Boot ES auto-configs are excluded in `application-test.yml`, and `TestElasticSearchConfig` provides a Mockito-mocked `LectureEsRepo` so `LectureEsService` (which is real in many test contexts) can still autowire its dependency. **Do not "fix" this** — it's an intentional scaffold being torn down in Phase 3 when ES is removed entirely. The existing `LectureControllerTest > ElasticSearch에 강의 데이터 저장` test now passes against a mock and is essentially useless until Phase 3 — that's accepted.
+- Elasticsearch: **removed in Phase 3** (2026-06-24). The former `@Profile("!test")` gate, the three Boot ES auto-config excludes in `application-test.yml`, and the `TestElasticSearchConfig` Mockito scaffold are all gone. Search is now MySQL `JpaSpecification` (`LectureSpecifications.keywordMatch` — title/instructor `LIKE`), so there is nothing to mock.
 - Controller tests follow the pattern `@SpringBootTest + @AutoConfigureMockMvc + @AutoConfigureRestDocs + @Import(RestDocsConfiguration.class) [+ EmbeddedRedisConfig.class]` with services replaced via `@MockBean`. They emit REST Docs snippets — when adding a new controller test, include `document(...)` calls so the generated documentation in `src/docs/asciidoc/api.adoc` stays complete.
-- The `AuthUseCaseTest` (`src/test/java/com/diving/pungdong/usecase/`) is a Phase 1 safety net of use-case scenarios that run against the real Spring Security filter chain (no `@MockBean` for auth). When changing anything in `JwtTokenProvider`, `JwtAuthenticationFilter`, `SecurityConfiguration`, or auth flow controllers, **expect this test to catch regressions**. `JwtAuthenticationFilter` rejects blacklisted tokens (the Redis `"false"` marker written by `/sign/logout`), and `L1`/`L2` verify that logout invalidates the access and refresh tokens (401 JSON). (Two earlier carry-overs are now resolved — the logout no-op and the `RestDocsConfiguration` context-cache hack; see memory `phase_0_deferred_items`. Only the ES test scaffold remains, removed in Phase 3.)
+- The `AuthUseCaseTest` (`src/test/java/com/diving/pungdong/usecase/`) is a Phase 1 safety net of use-case scenarios that run against the real Spring Security filter chain (no `@MockBean` for auth). When changing anything in `JwtTokenProvider`, `JwtAuthenticationFilter`, `SecurityConfiguration`, or auth flow controllers, **expect this test to catch regressions**. `JwtAuthenticationFilter` rejects blacklisted tokens (the Redis `"false"` marker written by `/sign/logout`), and `L1`/`L2` verify that logout invalidates the access and refresh tokens (401 JSON). (All earlier carry-overs are now resolved — the logout no-op, the `RestDocsConfiguration` context-cache hack, and the ES test scaffold removed in Phase 3; see memory `phase_0_deferred_items`.)
 
 ## Code layout
 
@@ -79,11 +79,11 @@ Cross-domain coupling is expected in this monolith — e.g. `Account` is importe
 **Legacy layered packages** (`controller/ service/ repo/ domain/ dto/`) — still hold lecture/reservation/schedule/review/equipment/location/lectureImage. These get folded into feature packages as each is rewritten (lecture/reservation are pending a 기획 redesign). Old description of the layered layout below still applies to these:
 
 - `controller/` — REST endpoints, organized by feature (`account/`, `lecture/`, `schedule/`, `reservation/`, `review/`, `equipment/`, `location/`, `lectureImage/`, `profilePhoto/`, `sign/`).
-- `service/` — business logic, mirroring controller features. Sub-packages exist for cross-cutting concerns: `service/kafka/` (producers/consumers + their DTOs — scheduled for removal in Phase 2), `service/elasticSearch/` (scheduled for removal in Phase 3), `service/image/` (S3 upload via AWS SDK v1).
-- `repo/` — Spring Data JPA repositories. Dynamic queries use **`JpaSpecificationExecutor` + a sibling `*Specifications` utility class** (e.g. `LectureSpecifications`); QueryDSL was removed in Phase 0.4. `repo/elasticSearch/` holds an `ElasticsearchRepository` interface that won't be instantiated under the `test` profile (see Test setup).
-- `domain/` — JPA entities grouped by aggregate (`account/`, `lecture/`, `schedule/`, `reservation/`, `payment/`, `review/`, `equipment/`, `location/`). `domain/lecture/elasticSearch/` holds the `@Document` projections indexed in ES.
+- `service/` — business logic, mirroring controller features. Sub-packages exist for cross-cutting concerns: `service/image/` (S3 upload via AWS SDK v1). (`service/kafka/` was removed in Phase 2; `service/elasticSearch/` in Phase 3.)
+- `repo/` — Spring Data JPA repositories. Dynamic queries use **`JpaSpecificationExecutor` + a sibling `*Specifications` utility class** (e.g. `LectureSpecifications` — `matching` for filters, `keywordMatch` for keyword search); QueryDSL was removed in Phase 0.4.
+- `domain/` — JPA entities grouped by aggregate (`account/`, `lecture/`, `schedule/`, `reservation/`, `payment/`, `review/`, `equipment/`, `location/`).
 - `dto/` — request/response DTOs. **Convention**: `dto/<feature>/<operation>/` (e.g. `dto/lecture/create/`, `dto/account/signUp/`). Add new DTOs to the matching operation folder; create a new one if needed.
-- `config/` — Spring `@Configuration` beans (Redis, Elasticsearch, email, HTTP client, i18n message source). `config/security/` holds `SecurityConfiguration` (still extends the **deprecated** `WebSecurityConfigurerAdapter` — migration to `SecurityFilterChain` bean is scheduled with the Phase 1 auth absorption), `JwtTokenProvider`, `JwtAuthenticationFilter`, `CurrentUser` (custom `@AuthenticationPrincipal` annotation), `UserAccount` (`UserDetails` wrapper).
+- `config/` — Spring `@Configuration` beans (Redis, email, HTTP client, i18n message source). `config/security/` holds `SecurityConfiguration` (still extends the **deprecated** `WebSecurityConfigurerAdapter` — migration to `SecurityFilterChain` bean is scheduled with the Phase 1 auth absorption), `JwtTokenProvider`, `JwtAuthenticationFilter`, `CurrentUser` (custom `@AuthenticationPrincipal` annotation), `UserAccount` (`UserDetails` wrapper).
 - `advice/` — `@RestControllerAdvice` exception handling. Custom exceptions live in `advice/exception/`; user-facing messages are looked up via `MessageSource` against `src/main/resources/i18n/exception*.yml` (configured via `yaml-resource-bundle`).
 - `model/` — `CommonResult` / `SingleResult<T>` / `ListResult<T>` / `SuccessResult` envelope types returned to clients. Build them through `ResponseService`.
 
@@ -191,7 +191,7 @@ The user maintains permanent project context in `~/.claude/projects/<this-repo-p
 - `MEMORY.md` — index
 - `user_role.md` — solo side project, Spring beginner using day-job exposure as compounding learning
 - `project_simplification_plan.md` — multi-phase roadmap with launch target ~2026-06-12; Phase 0+1 done; Phase 2 in progress
-- `phase_0_deferred_items.md` — three intentional scaffolds that future-you must NOT "fix": (1) `AuthUseCaseTest.L1` captures the logout-no-op as current spec, (2) `AuthUseCaseTest`'s RestDocs import is a context-cache merging hack, (3) the ES `@Profile("!test")` + `TestElasticSearchConfig` mock is temporary until Phase 3
+- `phase_0_deferred_items.md` — three Phase 0 carry-overs, **all now resolved**: (1) logout no-op → blacklist, (2) RestDocs context-cache hack → fixed-port embedded Redis, (3) ES `@Profile("!test")` + `TestElasticSearchConfig` mock → removed in Phase 3 (ES gone)
 
 When `application.yml` placeholders, `@Profile("!test")` annotations, or `@MockBean` on services that we can't really mock look "wrong" — check memory first. They're often deliberate.
 
@@ -227,8 +227,8 @@ When a PR materially changes layer 1 or 2, update the relevant doc(s) **in the s
 둘 다 해당 디렉토리에서 작업할 때 자동 로드되는 좁은 컨텍스트.
 
 Examples that warrant a **root README** diagram update:
-- Removing Kafka (Phase 2-C will do this)
-- Adding/removing Elasticsearch (Phase 3 may do this)
+- Removing Kafka (done in Phase 2-C)
+- Removing Elasticsearch (done in Phase 3 — search moved to MySQL `JpaSpecification`)
 - Switching from EC2/CodeDeploy to Docker/ECS (Phase 4)
 - Adding a new external service (e.g. Stripe, payment processor)
 
