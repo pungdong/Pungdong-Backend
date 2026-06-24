@@ -47,6 +47,12 @@ variable "memory" {
   default     = 1024
 }
 
+variable "cpu_architecture" {
+  description = "Fargate CPU 아키텍처. ARM64(Graviton)=저렴+Mac 네이티브 빌드 / X86_64"
+  type        = string
+  default     = "ARM64"
+}
+
 variable "desired_count" {
   description = "원하는 태스크 수. prod=1. staging 도 1(안 쓸 땐 env 통째로 destroy)"
   type        = number
