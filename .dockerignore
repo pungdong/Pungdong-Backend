@@ -1,0 +1,36 @@
+# --- VCS / 빌드 산출물 ---
+.git
+.gitignore
+.gradle
+build/
+**/build/
+out/
+bin/
+
+# --- IDE ---
+.idea
+*.iml
+.vscode
+
+# --- Node / Sanity (Gradle 빌드와 무관) ---
+**/node_modules
+sanity/
+
+# --- 로컬 시크릿·dev config: 이미지에 절대 굽지 않음 (런타임에 SPRING_CONFIG_LOCATION 으로 주입) ---
+.env
+.env.*
+.direnv
+src/main/resources/database.yml
+src/main/resources/redis.yml
+src/main/resources/aws.yml
+local-uploads/
+
+# --- 문서/시드 (런타임 불필요) ---
+docs/
+README.md
+CLAUDE.md
+**/CLAUDE.md
+
+# --- Docker 자체 ---
+Dockerfile
+.dockerignore
