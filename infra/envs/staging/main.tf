@@ -4,8 +4,8 @@
 data "aws_caller_identity" "current" {}
 
 locals {
-  name_prefix    = "pungdong-staging"
-  ssm_prefix     = "/pungdong/staging"
+  name_prefix    = "plop-staging"
+  ssm_prefix     = "/plop/staging"
   account_id     = data.aws_caller_identity.current.account_id
   uploads_bucket = "${local.name_prefix}-uploads"
 
@@ -13,7 +13,7 @@ locals {
   db_url = "jdbc:mysql://${module.data.db_endpoint}:${module.data.db_port}/${module.data.db_name}?characterEncoding=UTF-8&serverTimezone=Asia/Seoul&useSSL=true&requireSSL=false&allowPublicKeyRetrieval=true"
 
   # 사용자가 SSM 콘솔에 미리 만들 SecureString. (container env var 이름 = SSM 파라미터 이름)
-  # 경로: /pungdong/staging/<NAME>
+  # 경로: /plop/staging/<NAME>
   user_secret_names = ["JWT_SECRET", "ADMIN_MAIL_ID", "ADMIN_MAIL_PASSWORD"]
   user_secrets = {
     for n in local.user_secret_names :

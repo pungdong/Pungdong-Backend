@@ -1,5 +1,5 @@
 variable "name_prefix" {
-  description = "리소스 이름 접두어 (예: pungdong-staging)"
+  description = "리소스 이름 접두어 (예: plop-staging)"
   type        = string
 }
 
