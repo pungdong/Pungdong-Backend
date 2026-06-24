@@ -142,6 +142,25 @@ JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew test --tests com.diving.pung
 
 > **참고**: 테스트는 `application-test.yml` + 임베디드 Redis로 자체 완결 — 도커 / yml 카피 / env vars 없어도 동작. 도커 + yml + `.env.local` 은 `bootRun`(실제 서버) 에만 필요.
 
+### 컨테이너 (Docker 이미지)
+
+배포(Phase 4)용 멀티스테이지 [`Dockerfile`](Dockerfile): **JDK17 로 빌드 → JRE 런타임**, 비루트 유저, `/actuator/health` 헬스체크. 이미지 빌드는 **패키징만**(`-x test -x asciidoctor`) — 테스트/문서는 CI([ci.yml](.github/workflows/ci.yml))가 책임이라 배포가 테스트 실행에 묶이지 않는다.
+
+`database.yml`/`redis.yml`/`aws.yml` 과 시크릿은 **이미지에 굽지 않고 런타임 주입** — `SPRING_CONFIG_LOCATION` env 로 `PungdongApplication` 의 기본 config 위치를 덮어쓴다(staging/prod 는 SSM, Phase 4 후속).
+
+```bash
+docker build -t pungdong:local .
+
+# 로컬 docker MySQL·Redis 에 붙여 실행 (config 는 마운트 + env 주입)
+docker run --rm -p 8080:8080 --network pungdong-backend_default \
+  -e SPRING_CONFIG_LOCATION='classpath:application.yml,file:/cfg/database.yml,file:/cfg/redis.yml,file:/cfg/aws.yml' \
+  -e JWT_SECRET=... -e ADMIN_MAIL_ID=... -e ADMIN_MAIL_PASSWORD=... \
+  -e STORAGE_S3_ENABLED=true \
+  -v /path/to/config:/cfg:ro \
+  pungdong:local
+# → Started PungdongApplication, GET /actuator/health = {"status":"UP"}
+```
+
 ## 진행 중인 단순화 phase
 
 ```
@@ -150,7 +169,7 @@ JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew test --tests com.diving.pung
 ✅ Phase 2  Kafka → Spring Events + Outbox + FCM (2-A~D 완료)
 ✅ Phase 3  Elasticsearch 제거 (검색 = MySQL JpaSpecification 으로 치환)
    구조    layered → domain-based(package-by-feature) 전환 중 (account/notification 완료)
-   Phase 4  배포 재설계 (Docker / ECS / WIF 등)
+🔨 Phase 4  배포 재설계 (Docker / ECS / WIF 등) — 진행 중: Dockerfile ✅, 다음 = Terraform/ECS
    Phase 5  CI/CD 재설계 (staging/prod 분리)
    Phase 6  Boot 3 + JDK 21 (jakarta 마이그레이션)
 ```
