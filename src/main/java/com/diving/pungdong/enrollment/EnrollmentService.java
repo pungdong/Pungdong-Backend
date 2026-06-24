@@ -55,9 +55,13 @@ public class EnrollmentService {
     private final BookableSlotDeriver slotDeriver;
     private final SessionCleaner sessionCleaner;
     private final SessionOverlapGuard overlapGuard;
+    private final com.diving.pungdong.global.sitesettings.SiteSettingsProvider siteSettings;
 
     @Transactional
     public EnrollmentResponse submit(Account student, EnrollmentCreateRequest req) {
+        if (!siteSettings.current().launched()) {
+            throw new com.diving.pungdong.global.advice.exception.PreLaunchException(); // 런칭 전 전역 신청 차단
+        }
         Course course = courseRepo.findById(req.getCourseId())
                 .filter(c -> c.getStatus() == CourseStatus.OPEN)
                 .orElseThrow(ResourceNotFoundException::new);

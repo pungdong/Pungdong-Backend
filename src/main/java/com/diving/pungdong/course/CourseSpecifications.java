@@ -46,6 +46,14 @@ public final class CourseSpecifications {
         return (root, query, cb) -> cb.equal(root.get("status"), CourseStatus.OPEN);
     }
 
+    /**
+     * 데모(seeded) 코스 제외 — {@code siteSettings.showSeededCourses=false}(런칭 후) 일 때 둘러보기에서
+     * 샘플을 가린다. 데이터는 지우지 않고 노출만 끈다(데이터 ↔ 노출 분리). 노출 ON 이면 호출부가 안 붙인다.
+     */
+    public static Specification<Course> excludeSeeded() {
+        return (root, query, cb) -> cb.isFalse(root.get("seeded"));
+    }
+
     private static Specification<Course> disciplineEq(String disciplineCode) {
         return !StringUtils.hasText(disciplineCode) ? null
                 : (root, query, cb) -> cb.equal(root.get("disciplineCode"), disciplineCode);

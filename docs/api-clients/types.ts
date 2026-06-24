@@ -823,6 +823,7 @@ export interface CourseCardResponse {
   price: number;
   totalRounds: number;
   disciplineCode: string;
+  seeded: boolean; // 데모(샘플) 코스 — FE 가 "샘플용" 태그로 구분 노출. siteSettings.showSeededCourses=false 면 목록에서 빠짐
   createdAt?: string;
 }
 
@@ -857,6 +858,7 @@ export interface CourseDetailResponse extends HalLinks {
   totalRounds: number;
   price: number; // 수강료(원)
   description?: string;
+  seeded: boolean; // 데모(샘플) 코스. siteSettings.showSeededCourses=false 면 이 상세는 400(존재 숨김)
   media: { kind: MediaKind; url: string; sortOrder: number }[];
   instructorId: number | null;
   instructorName: string | null; // 강사 nickName
@@ -1195,6 +1197,20 @@ export const ErrorCode = {
   EXPIRED_ACCESS_TOKEN: -1005,
   EXPIRED_REFRESH_TOKEN: -1006,
   FORBIDDEN_TOKEN: -1007,
+  PRE_LAUNCH: -1016, // 정식 런칭 전 수강신청 시도(POST /enrollments, 403). FE 는 "런칭 대기" 안내로 분기
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
+
+// ============================================================
+// 사이트 설정 (siteSettings) — 런칭 토글
+// ⚠️ BE 엔드포인트가 아니라 **Sanity 싱글톤**. FE 가 Sanity CDN 에서 직접 읽는다
+//   (cert org/term 과 동일 패턴). 값 하나 바꿔 publish 하면 FE/BE 양쪽 무배포로 런칭 전환.
+//   GROQ: *[_type == "siteSettings"][0]{launched, showSeededCourses}
+//   BE 도 같은 문서를 서버사이드로 읽어 신청 차단(PRE_LAUNCH)·데모 필터를 강제한다.
+// ============================================================
+
+export interface SiteSettings {
+  launched: boolean; // false → 전 코스 신청 차단(BE 403 PRE_LAUNCH) + "정식 런칭을 기다려주세요" 배너
+  showSeededCourses: boolean; // false → 데모(seeded) 코스가 둘러보기/상세에서 빠짐(데이터는 보존)
+}
