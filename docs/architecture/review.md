@@ -221,7 +221,7 @@ flowchart TB
     A["Review 작성<br/>(savedReview.totalStarAvg = 4.0)"]
     B["lecture.setReviewTotalAvg(4.0)<br/>← 단일 값 대입, 누적평균 X"]
     C["DB UPDATE lecture<br/>SET review_total_avg = 4.0"]
-    D["LectureService → LectureEs 매핑 시<br/>.starAvg(lecture.getReviewTotalAvg())<br/>← 잘못된 값이 ES 로 그대로 전파"]
+    D["검색·목록 응답(LectureInfo) 매핑 시<br/>.starAvg(lecture.getReviewTotalAvg())<br/>← 잘못된 값이 클라이언트로 그대로 노출"]
 
     A --> B --> C --> D
 
@@ -279,9 +279,9 @@ lecture.setReviewCount(all.size());
    - 어디서도 증감 코드 없음. 인기 강의 정렬이 작동 안 함 (LectureJpaRepo.findPopularLectures 가 reviewCount 기준 정렬).
    - **해결**: 1번 해결과 함께 `lecture.setReviewCount(all.size())`.
 
-3. **잘못된 통계가 ES (`LectureEs.starAvg`, `LectureEs.reviewCount`) 로 그대로 전파**
-   - LectureService 의 Lecture → LectureEs 매핑 시 단순 복사.
-   - **해결**: 통계 자체를 고치면 자동 해결.
+3. **잘못된 통계가 검색·목록 응답(`LectureInfo.starAvg` / `reviewCount`) 으로 그대로 노출**
+   - `mapToPopularLectureInfos` 등이 `lecture.getReviewTotalAvg()` / `getReviewCount()` 를 단순 복사. (구 Elasticsearch 투영은 Phase 3 에서 제거 — 이제 MySQL 값이 그대로 클라이언트로.)
+   - **해결**: 통계 자체(#1·#2)를 고치면 자동 해결.
 
 ### 심각도 🟡
 

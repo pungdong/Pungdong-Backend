@@ -11,7 +11,6 @@ import com.diving.pungdong.dto.equipment.stock.create.EquipmentStockCreateInfo;
 import com.diving.pungdong.service.EquipmentService;
 import com.diving.pungdong.service.EquipmentStockService;
 import com.diving.pungdong.account.AccountService;
-import com.diving.pungdong.service.elasticSearch.LectureEsService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.http.HttpHeaders;
 import org.junit.jupiter.api.DisplayName;
@@ -62,9 +61,6 @@ class EquipmentStockControllerTest {
 
     @MockBean
     EquipmentStockService equipmentStockService;
-
-    @MockBean
-    LectureEsService lectureEsService;
 
     public Account createAccount() {
         Account account = Account.builder()

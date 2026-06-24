@@ -20,7 +20,7 @@
 |---|---|---|
 | 회원가입 + 로그인 (sign-up) | [sign-up.md](sign-up.md) | ✅ |
 | 알림 (notification outbox + FCM) | [notification.md](notification.md) | ✅ |
-| 강의 (lecture) | [lecture.md](lecture.md) | ✅ (baseline — ES 동기화 / 폐쇄 정책 간극) |
+| 강의 (lecture) | [lecture.md](lecture.md) | ✅ (baseline — 폐쇄/삭제 정책 간극 · 검색 ES→MySQL Specification) |
 | 일정 (schedule) | [schedule.md](schedule.md) | ✅ (baseline — 동시성 / 시간 충돌 / 수정 API 부재) |
 | 예약 (reservation) | [reservation.md](reservation.md) | ✅ (baseline — 알려진 간극 다수) |
 | 후기 (review) | [review.md](review.md) | ✅ (baseline — 통계 갱신 버그) |
@@ -34,7 +34,8 @@
 | 강사 가용시간 (availability) | [availability.md](availability.md) | ✅ (가용시간 window + 외부/수동 점유 hold · 5상태 파생 · enrollment 연동됨) |
 | 수강신청 (enrollment) | [enrollment.md](enrollment.md) | ✅ (booking — availability ∩ venue 교집합 · exact-match join · 강사 수락/거절 · 결제 후속) |
 | **Redis (인프라)** | [redis.md](redis.md) | ✅ (도메인 아님 — JWT 블랙리스트·이메일 코드·venue 캐시 · ⚠️ 테스트 16379 격리 원칙) |
-| 검색 (search / Elasticsearch) | _TODO — Phase 3 정리 후_ | ⏸️ |
+
+> 검색은 별도 도메인이 아니다 — Phase 3 에서 Elasticsearch 를 제거하고 lecture 도메인의 **MySQL `JpaSpecification`**(제목·강사명 LIKE) 으로 흡수했다. course 도메인도 Specification 기반. 결정 근거는 [observability.md](observability.md) "왜 Elasticsearch 가 아닌가".
 
 ## 갱신 규칙
 

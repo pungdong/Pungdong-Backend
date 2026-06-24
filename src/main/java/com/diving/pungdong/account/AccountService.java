@@ -22,7 +22,6 @@ import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.account.EmailService;
 import com.diving.pungdong.account.dto.read.AccountBasicInfo;
 import com.diving.pungdong.service.LectureService;
-import com.diving.pungdong.service.elasticSearch.LectureEsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -49,7 +48,6 @@ public class AccountService implements UserDetailsService {
     private final PasswordEncoder passwordEncoder;
     private final ProfilePhotoService profilePhotoService;
     private final LectureService lectureService;
-    private final LectureEsService lectureEsService;
 
     @Override
     public UserDetails loadUserByUsername(String id) throws UsernameNotFoundException {
@@ -152,8 +150,6 @@ public class AccountService implements UserDetailsService {
 
     public void updateNickName(Account account, String nickName) {
         checkDuplicationOfNickName(nickName);
-
-        lectureEsService.updateInstructorNickName(account, nickName);
 
         account.setNickName(nickName);
         accountJpaRepo.save(account);

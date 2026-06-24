@@ -5,11 +5,12 @@
 ## 무엇이 들어있나
 
 - **`RedisConfig`** — `RedisTemplate<String,String>`(Lettuce, `spring.redis.host`/`port`). Redis 의 **용도(JWT 블랙리스트·이메일 코드·OFFICIAL 위치 캐시)와 운영/테스트 이슈는 [docs/architecture/redis.md](../../../../../../../docs/architecture/redis.md)**.
-- **`ElasticSearchConfig`** — `@Profile("!test")`. Phase 3 제거 대상(테스트는 mock).
 - **`EmailConfig`** — 메일 발송(SMTP/SES).
 - **`FirebaseConfig`** — FCM (ADC/WIF 자격증명).
 - **`MessageConfiguration`** — i18n `MessageSource`(`i18n/exception*.yml`).
-- (test, `src/test/.../global/config/`) **`EmbeddedRedisConfig`**(임베디드 Redis **16379**), `RestDocsConfiguration`, `TestElasticSearchConfig`.
+- (test, `src/test/.../global/config/`) **`EmbeddedRedisConfig`**(임베디드 Redis **16379**), `RestDocsConfiguration`, `TestSiteSettingsConfig`.
+
+> Elasticsearch 는 Phase 3(2026-06-24)에서 제거됨 — `ElasticSearchConfig` / `TestElasticSearchConfig` 삭제, 검색은 MySQL `JpaSpecification` 으로. ([docs/architecture/lecture.md](../../../../../../../docs/architecture/lecture.md) 참고)
 
 ## ⚠️ Redis 작업 시 — 테스트가 dev/운영 Redis 를 오염시키면 안 된다
 
@@ -17,4 +18,4 @@
 
 > 이전에 테스트가 docker Redis(6379)를 공유해, 테스트의 stub OFFICIAL 위치 캐시가 로컬 dev 로 누설돼 코스 빌더가 stub 을 보던 사고(#62, 2026-06-14)가 있었다. 긴 디버깅을 유발했다(인증 CLI 엔 정상, public 만 이상). **원칙·재발 방지 상세: [docs/architecture/redis.md](../../../../../../../docs/architecture/redis.md) §4.**
 
-일반 원칙: 테스트 인프라(임베디드 Redis/H2/Testcontainers)는 dev docker 인프라(redis 6379·mysql 3306·es 9200)와 **포트/이름 격리**. 새 외부 의존을 테스트가 쓰면 dev 와 다른 포트인지 먼저 확인.
+일반 원칙: 테스트 인프라(임베디드 Redis/H2/Testcontainers)는 dev docker 인프라(redis 6379·mysql 3306)와 **포트/이름 격리**. 새 외부 의존을 테스트가 쓰면 dev 와 다른 포트인지 먼저 확인.

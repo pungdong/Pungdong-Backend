@@ -11,7 +11,6 @@ import com.diving.pungdong.dto.lectureImage.LectureImageUrl;
 import com.diving.pungdong.dto.lectureImage.delete.LectureImageDeleteInfo;
 import com.diving.pungdong.account.AccountService;
 import com.diving.pungdong.service.LectureImageService;
-import com.diving.pungdong.service.elasticSearch.LectureEsService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.http.HttpHeaders;
 import org.junit.jupiter.api.DisplayName;
@@ -64,9 +63,6 @@ class LectureImageControllerTest {
 
     @MockBean
     private LectureImageService lectureImageService;
-
-    @MockBean
-    private LectureEsService lectureEsService;
 
     public Account createAccount() {
         Account account = Account.builder()

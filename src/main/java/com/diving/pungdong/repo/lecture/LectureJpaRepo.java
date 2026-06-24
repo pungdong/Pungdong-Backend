@@ -20,6 +20,10 @@ public interface LectureJpaRepo extends JpaRepository<Lecture, Long>, JpaSpecifi
         return findAll(LectureSpecifications.matching(condition), pageable);
     }
 
+    default Page<Lecture> searchListByKeyword(String keyword, Pageable pageable) {
+        return findAll(LectureSpecifications.keywordMatch(keyword), pageable);
+    }
+
     Page<Lecture> findByRegion(String region, Pageable pageable);
 
     Page<Lecture> findByInstructor(Account instructor, Pageable pageable);
