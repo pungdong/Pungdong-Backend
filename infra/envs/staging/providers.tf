@@ -6,13 +6,12 @@ terraform {
     random = { source = "hashicorp/random", version = "~> 3.6" }
   }
 
-  # state 백엔드 — bootstrap 이 만든 S3 버킷 + DynamoDB lock.
-  # 최초 1회: `terraform init` (bootstrap apply 후 bucket 이름을 아래에 맞춤).
+  # state 백엔드 — bootstrap 이 만든 S3 버킷 + DynamoDB lock (2026-06-24 생성됨).
   backend "s3" {
-    bucket         = "pungdong-tfstate" # bootstrap 출력값으로 교체
+    bucket         = "plop-tfstate-111328750981" # bootstrap state_bucket 출력값
     key            = "staging/terraform.tfstate"
     region         = "ap-northeast-2"
-    dynamodb_table = "pungdong-tflock"
+    dynamodb_table = "plop-tflock"
     encrypt        = true
   }
 }

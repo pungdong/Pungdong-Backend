@@ -1,5 +1,5 @@
 variable "name_prefix" {
-  description = "리소스 이름 접두어 (예: pungdong-staging)"
+  description = "리소스 이름 접두어 (예: plop-staging)"
   type        = string
 }
 
@@ -60,7 +60,7 @@ variable "skip_final_snapshot" {
 }
 
 variable "final_snapshot_identifier" {
-  description = "destroy 시 만들 최종 스냅샷 이름. skip_final_snapshot=false 면 필수. 재destroy 충돌 피하려 사이클마다 유니크하게(예: pungdong-staging-final-20260624)"
+  description = "destroy 시 만들 최종 스냅샷 이름. skip_final_snapshot=false 면 필수. 재destroy 충돌 피하려 사이클마다 유니크하게(예: plop-staging-final-20260624)"
   type        = string
   default     = null
 }

@@ -33,12 +33,12 @@ variable "aws_region" {
 variable "state_bucket_name" {
   description = "Terraform state S3 버킷 (전역 유니크). 기본값이 이미 쓰이면 접미사 추가"
   type        = string
-  default     = "pungdong-tfstate"
+  default     = "plop-tfstate-111328750981"
 }
 
 variable "lock_table_name" {
   type    = string
-  default = "pungdong-tflock"
+  default = "plop-tflock"
 }
 
 resource "aws_s3_bucket" "tfstate" {
