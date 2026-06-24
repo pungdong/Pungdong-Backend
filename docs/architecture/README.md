@@ -1,6 +1,6 @@
 # 도메인별 아키텍처 문서
 
-전체 시스템 그림은 [루트 README](../../README.md#아키텍처-현재-상태) 의 Mermaid 다이어그램. 이 디렉토리는 그 안의 **개별 도메인** 을 한 단계 줌인해서 본다.
+전체 시스템 그림은 [루트 README](../../README.md#아키텍처-현재-상태) 의 Mermaid 다이어그램. 5가지 관점(토폴로지·요청계층·도메인맵·핵심 유스케이스·알림 파이프라인·Sanity 읽기)을 모은 발표용 상위 문서는 [system-overview.md](system-overview.md). 이 디렉토리는 그 안의 **개별 도메인** 을 한 단계 줌인해서 본다.
 
 > **여러 도메인에 걸친 "피처" 의 정책·히스토리** 는 [`docs/features/`](../features/) 에 별도로 묶는다 (이 디렉토리는 *구현/도메인* 관점, 피처 문서는 *제품 정책/왜* 관점 — 메커니즘은 여기로 링크). 예: [강사 자격·온보딩](../features/instructor-onboarding.md) = discipline + identity-verification + instructor-application.
 
