@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """
-공모전 데모 시드 — 강사 5명 + 강의 5개 + 투어 5개를 실 REST API 로 생성한다.
+공모전 데모 시드 — 강사 6명 + 강의 6개 + 투어 5개(총 11)를 실 REST API 로 생성한다.
 
 전제:
-  - 앱이 localhost:8080 에서 구동 중 (최신 master, 데모 이미지 static 반영을 위해 재시작된 상태).
-  - docker MySQL(pungdong) 가 떠 있음 (초기화 SQL 용).
-  - 이미지가 src/main/resources/static/images/demo/ 에 번들됨 → /images/demo/<slug>-<n>.jpg 로 서빙.
+  - 앱이 localhost:8080 에서 구동 중 (master = 런칭 인프라 #77 포함 → course.seeded 컬럼 존재).
+  - docker MySQL(pungdong) 가 떠 있음 (정리/표식 SQL 용).
+  - 이미지는 Sanity 에셋(scripts/demo_sanity_assets.json 의 CDN URL) — 먼저 upload_demo_to_sanity.py 실행.
 
 흐름(강사 1명당): 회원가입 → 본인확인(stub 즉시 VERIFIED) → 강사신청(SUBMITTED, 그 종목)
-              → 커스텀 위치 생성(풀=강의, 해양=투어) → 코스 생성 → 상태 OPEN.
+              → 커스텀 위치 생성(풀=강의, 해양=투어) → 코스 생성 → 상태 OPEN → seeded=1 표식.
 강사 role 은 STUDENT 로 남지만(정식 승인 생략) 둘러보기 카드는 nickName 으로 강사명을 표시하므로 데모엔 영향 없음.
 
-재실행 = 깨끗한 초기화: 모든 course/venue/application/identity 행을 비우고 demo_* 계정을 지운 뒤 새로 만든다.
+⚠️ 비파괴 재실행: 데모(demo_*) 소유 행만 정리(orphan sweep 포함)하고 **실강사 코스·계정은 보존**한다.
+   생성한 코스는 seeded=1 로 표시 — 런칭 시 Sanity siteSettings.showSeededCourses=false 로 가린다(데이터 보존).
 """
 import json
 import subprocess
@@ -61,33 +62,62 @@ def media_for(slug):
     return [{"kind": "PHOTO", "url": ASSETS[n]} for n in names]
 
 
-def wipe_db():
-    tables = [
-        # course graph
-        "round_venue_ticket", "round_venue", "course_round", "course_media",
-        "course_level", "course_region", "course",
-        # venue graph
-        "venue_ticket_discipline", "venue_ticket", "venue_daypart", "venue_time_block",
-        "venue_closure_weekday", "venue_closure_nth", "venue_closure", "venue_media",
-        "venue_equipment_item_size", "venue_equipment_item", "venue_equipment_extension",
-        "venue_equipment_profile", "venue",
-        # instructor track
-        "application_certificate", "instructor_application", "identity_verification",
-    ]
-    stmts = ["SET FOREIGN_KEY_CHECKS=0;"]
-    stmts += [f"DELETE FROM {t};" for t in tables]
-    stmts.append("DELETE FROM account WHERE email LIKE 'demo\\_%';")
-    stmts.append("SET FOREIGN_KEY_CHECKS=1;")
-    sql = " ".join(stmts)
+DEMO_LIKE = "email LIKE 'demo\\_%'"  # demo_inst{N}@plop.cool
+
+
+def mysql(sql, capture=False):
     res = subprocess.run(
         ["docker", "exec", "-i", "pungdong-mysql",
-         "mysql", "-upungdong", "-ppungdongpw", "pungdong", "-e", sql],
+         "mysql", "-upungdong", "-ppungdongpw", "pungdong", "-N", "-e", sql],
         capture_output=True, text=True,
     )
     if res.returncode != 0:
-        print("  ! wipe 경고:", res.stderr.strip()[:300])
-    else:
-        print("  · 기존 course/venue/application/identity + demo 계정 초기화 완료")
+        raise RuntimeError("mysql 실패: " + res.stderr.strip()[:300])
+    return res.stdout if capture else None
+
+
+def wipe_db():
+    """데모 데이터만 제거(실강사 코스·계정 보존). 데모(demo_*) 소유 부모 행을 지운 뒤, 부모가 사라진
+    자식 행을 FK 그래프 따라 일반적으로 정리(orphan sweep) — 실데이터는 부모가 살아 있어 영향 없음.
+    ⚠️ 옛 전체 TRUNCATE 금지: 런칭 전 실강사가 올린 코스와 공존하므로."""
+    # 1) 데모 부모 행 삭제 (scoped)
+    mysql(
+        "SET FOREIGN_KEY_CHECKS=0;"
+        f"DELETE FROM course WHERE instructor_id IN (SELECT id FROM account WHERE {DEMO_LIKE});"
+        f"DELETE FROM venue WHERE owner_id IN (SELECT id FROM account WHERE {DEMO_LIKE});"
+        f"DELETE FROM instructor_application WHERE account_id IN (SELECT id FROM account WHERE {DEMO_LIKE});"
+        f"DELETE FROM identity_verification WHERE account_id IN (SELECT id FROM account WHERE {DEMO_LIKE});"
+        f"DELETE FROM account WHERE {DEMO_LIKE};"
+        "SET FOREIGN_KEY_CHECKS=1;"
+    )
+    # 2) 고아 자식 정리 — FK 메타데이터로 부모 잃은 행만 삭제(일반적·안전, 다단계는 반복 수렴)
+    fks = [ln.split("\t") for ln in mysql(
+        "SELECT TABLE_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME "
+        "FROM information_schema.KEY_COLUMN_USAGE "
+        "WHERE TABLE_SCHEMA='pungdong' AND REFERENCED_TABLE_NAME IS NOT NULL;", capture=True
+    ).splitlines() if ln.strip()]
+    sweep = "SELECT (SELECT count(*) FROM round_venue_ticket)+(SELECT count(*) FROM venue_ticket)" \
+            "+(SELECT count(*) FROM course_round)+(SELECT count(*) FROM venue_daypart);"
+    for _ in range(6):  # 깊이 한도(course→round→round_venue→ticket 등)
+        clauses = ["SET FOREIGN_KEY_CHECKS=0;"]
+        for child, col, parent, refcol in fks:
+            clauses.append(
+                f"DELETE FROM {child} WHERE {col} IS NOT NULL "
+                f"AND {col} NOT IN (SELECT {refcol} FROM {parent});")
+        clauses.append("SET FOREIGN_KEY_CHECKS=1;")
+        before = mysql(sweep, capture=True).strip()
+        mysql("".join(clauses))
+        if mysql(sweep, capture=True).strip() == before:
+            break
+    print("  · 데모(demo_*) 계정·코스·위치만 정리 완료 (실강사 데이터 보존)")
+
+
+def mark_seeded():
+    """생성된 데모 코스를 seeded=1 로 표시 — 정식 작성 API 엔 seeded 필드가 없어(클라이언트가 못 정함)
+    시더만 직접 박는다. 런칭 후 siteSettings.showSeededCourses=false 로 가리는 기준(데이터는 보존)."""
+    mysql(f"UPDATE course SET seeded=1 WHERE instructor_id IN (SELECT id FROM account WHERE {DEMO_LIKE});")
+    n = mysql("SELECT count(*) FROM course WHERE seeded=1;", capture=True).strip()
+    print(f"  · seeded=1 표시: {n}개 데모 코스")
 
 
 def signup_or_login(email, nick):
@@ -302,10 +332,10 @@ INSTRUCTORS = [
 
 
 def main():
-    print(f"# 데모 시드 시작 — {BASE}\n[1/3] DB 초기화")
+    print(f"# 데모 시드 시작 — {BASE}\n[1/4] 데모 데이터 정리(scoped)")
     wipe_db()
 
-    print("[2/3] 강사·강의·투어 생성")
+    print("[2/4] 강사·강의·투어 생성")
     created = {"instructors": [], "lectures": [], "tours": []}
     for i, inst in enumerate(INSTRUCTORS, 1):
         d = inst["discipline"]
@@ -333,7 +363,10 @@ def main():
             print(f"    ↳ 투어 #{tid}  {inst['tour']['title']}")
             created["tours"].append((tid, inst["tour"]["title"]))
 
-    print("[3/3] 검증 — 둘러보기 카운트")
+    print("[3/4] 데모 표식")
+    mark_seeded()
+
+    print("[4/4] 검증 — 둘러보기 카운트")
     for d in ("FREEDIVING", "SCUBA", "MERMAID"):
         s, b = http("GET", f"/courses/browse?disciplineCode={d}&size=50")
         total = b.get("page", {}).get("totalElements", "?")
