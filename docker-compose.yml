@@ -46,27 +46,6 @@ services:
       timeout: 3s
       retries: 10
 
-  # Spring Data Elasticsearch 4.4 (Boot 2.7) targets ES 7.x. ES 8.x 미지원.
-  # 보안 비활성화는 로컬 dev 한정. Phase 3 ES 제거 결정 시 이 서비스도 같이 제거.
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.22
-    container_name: pungdong-elasticsearch
-    restart: unless-stopped
-    environment:
-      discovery.type: single-node
-      xpack.security.enabled: "false"
-      ES_JAVA_OPTS: "-Xms256m -Xmx512m"
-    ports:
-      - "9200:9200"
-    volumes:
-      - pungdong-es-data:/usr/share/elasticsearch/data
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:9200/_cluster/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-
 volumes:
   pungdong-mysql-data:
   pungdong-redis-data:
-  pungdong-es-data:

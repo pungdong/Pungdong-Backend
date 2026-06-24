@@ -1,11 +1,6 @@
 spring:
   jwt:
     secret: test-only-secret-not-for-production-do-not-rotate
-  autoconfigure:
-    exclude:
-      - org.springframework.boot.autoconfigure.elasticsearch.ElasticsearchRestClientAutoConfiguration
-      - org.springframework.boot.autoconfigure.data.elasticsearch.ElasticsearchDataAutoConfiguration
-      - org.springframework.boot.autoconfigure.data.elasticsearch.ElasticsearchRepositoriesAutoConfiguration
   datasource:
     username: sa
     password:
@@ -23,9 +18,6 @@ spring:
     # docker Redis(6379)와 분리된 테스트 전용 포트 — EmbeddedRedisConfig.TEST_REDIS_PORT 와 일치.
     # (테스트가 dev 의 docker Redis 를 오염시키지 않게.)
     port: 16379
-
-elasticsearch:
-  uri: http://localhost:9200
 
 AdminMail:
   id: test@example.invalid
