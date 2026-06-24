@@ -50,3 +50,6 @@ local-uploads/
 sanity/node_modules/
 sanity/dist/
 sanity/.sanity/
+
+# 공모전 데모 원본 이미지 — Sanity CDN 으로 서빙하므로 커밋하지 않음 (업로드 소스용 로컬 보관)
+src/main/resources/static/images/demo/
