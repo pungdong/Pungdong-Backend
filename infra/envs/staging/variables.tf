@@ -3,15 +3,28 @@ variable "aws_region" {
   default = "ap-northeast-2"
 }
 
-variable "container_image" {
-  description = "배포할 ECR 이미지 URI:tag. CI 가 갱신하므로 초기엔 placeholder 가능"
+variable "ecr_repo_name" {
+  description = "공유 ECR 저장소 이름 (bootstrap 의 ecr_repo_name 과 동일)"
   type        = string
+  default     = "plop"
+}
+
+variable "image_tag" {
+  description = "배포할 이미지 태그 (git sha 또는 latest). CI(⑤)가 갱신"
+  type        = string
+  default     = "latest"
 }
 
 variable "cors_allowed_origins" {
   description = "CORS 허용 오리진 (staging 웹)"
   type        = string
   default     = "https://staging.plop.cool"
+}
+
+variable "admin_emails" {
+  description = "부팅 시 ROLE_ADMIN 부여할 이메일(콤마구분). 어드민 심사 페이지 접근용"
+  type        = string
+  default     = "haneojin@plop.cool"
 }
 
 variable "certificate_arn" {

@@ -112,6 +112,13 @@ resource "aws_ecs_task_definition" "this" {
   execution_role_arn       = aws_iam_role.execution.arn
   task_role_arn            = aws_iam_role.task.arn
 
+  # ARM64(Graviton) Fargate — x86 대비 ~20% 저렴 + 개발자 Mac(arm64)에서 네이티브 빌드(에뮬레이션 X).
+  # 순수 Java 앱이라 아키텍처 무관. 이미지를 반드시 같은 아키텍처로 빌드해야 함(docker build --platform).
+  runtime_platform {
+    cpu_architecture        = var.cpu_architecture
+    operating_system_family = "LINUX"
+  }
+
   container_definitions = jsonencode([{
     name      = "app"
     image     = var.container_image
