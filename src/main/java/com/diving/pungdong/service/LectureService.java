@@ -296,6 +296,14 @@ public class LectureService {
         return new PageImpl<>(lectureInfos, lecturePage.getPageable(), lecturePage.getContent().size());
     }
 
+    @Transactional(readOnly = true)
+    public Page<LectureInfo> searchListByKeyword(Account account, String keyword, Pageable pageable) {
+        Page<Lecture> lecturePage = lectureJpaRepo.searchListByKeyword(keyword, pageable);
+        List<LectureInfo> lectureInfos = mapToPopularLectureInfos(account, lecturePage);
+
+        return new PageImpl<>(lectureInfos, lecturePage.getPageable(), lecturePage.getContent().size());
+    }
+
     public LectureCreatorInfo findLectureCreatorInfo(Long lectureId) {
         Lecture lecture = findLectureById(lectureId);
         Account account = lecture.getInstructor();

@@ -34,11 +34,6 @@ logging:
           descriptor:
             sql:
               BasicBinder: TRACE
-
-      springframework:
-        data:
-          elasticsearch:
-            core: DEBUG
     com:
       amazonaws:
         util:

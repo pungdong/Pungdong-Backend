@@ -12,7 +12,6 @@ import com.diving.pungdong.dto.equipment.create.*;
 import com.diving.pungdong.dto.lectureImage.LectureImageUrl;
 import com.diving.pungdong.account.AccountService;
 import com.diving.pungdong.service.EquipmentService;
-import com.diving.pungdong.service.elasticSearch.LectureEsService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.http.HttpHeaders;
 import org.junit.jupiter.api.DisplayName;
@@ -65,9 +64,6 @@ class EquipmentControllerTest {
 
     @MockBean
     EquipmentService equipmentService;
-
-    @MockBean
-    LectureEsService lectureEsService;
 
     public Account createAccount() {
         Account account = Account.builder()

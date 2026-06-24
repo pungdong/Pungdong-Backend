@@ -18,7 +18,7 @@
 
 ## 왜 Elasticsearch 가 아닌가
 
-- **검색용 ES**: 강의 full-text 인덱싱 위해 넣었으나 우리 규모엔 과함. **새 course 도메인은 이미 MySQL Specification 으로 검색** — ES 는 legacy lecture 에만 붙은 vestigial(테스트도 mock). 제거해도 검색 손실 0. (Phase 3)
+- **검색용 ES**: 강의 full-text 인덱싱 위해 넣었으나 우리 규모엔 과함. **새 course 도메인은 이미 MySQL Specification 으로 검색** — ES 는 legacy lecture 에만 붙은 vestigial 이었다. **Phase 3(2026-06-24)에서 제거 완료** — 키워드 검색을 MySQL `LIKE`(`LectureSpecifications.keywordMatch`)로 치환, 검색 손실 0.
 - **로그용 ES(ELK)**: *가능은* 하나 **자가호스팅 ES 가 가장 무거운 선택**(메모리 폭식·튜닝·스케일·보안 = 유지보수 부담). 솔로 dev + 이미 AWS 환경엔 CloudWatch + Sentry 가 더 가볍고 각 용도에 적합.
 - ELK 는 "로그 볼륨 폭발 + 복잡한 로그검색 일상"일 때나 의미. 거기 도달하면 **관리형**(OpenSearch Serverless / Grafana Loki)을 붙인다 — 자가 ES 부활 X.
 

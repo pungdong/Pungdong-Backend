@@ -6,7 +6,6 @@ import com.diving.pungdong.global.security.CurrentUser;
 import com.diving.pungdong.domain.LectureMark;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.domain.lecture.Lecture;
-import com.diving.pungdong.domain.lecture.elasticSearch.LectureEs;
 import com.diving.pungdong.dto.lecture.like.mark.MarkLectureInfo;
 import com.diving.pungdong.dto.lecture.LectureCreatorInfo;
 import com.diving.pungdong.dto.lecture.create.LectureCreateInfo;
@@ -25,7 +24,6 @@ import com.diving.pungdong.dto.lecture.update.LectureUpdateInfo;
 import com.diving.pungdong.dto.lectureMark.LectureMarkModel;
 import com.diving.pungdong.service.LectureMarkService;
 import com.diving.pungdong.service.LectureService;
-import com.diving.pungdong.service.elasticSearch.LectureEsService;
 import com.diving.pungdong.service.image.S3Uploader;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -54,7 +52,6 @@ import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
 @RequestMapping(value = "/lecture")
 public class LectureController {
     private final LectureService lectureService;
-    private final LectureEsService lectureEsService;
     private final LectureMarkService lectureMarkService;
     private final S3Uploader s3Uploader;
 
@@ -76,14 +73,6 @@ public class LectureController {
         return ResponseEntity.created(location.toUri()).body(model);
     }
 
-    @PostMapping("/{id}/elastic-search")
-    public ResponseEntity<?> createLectureEs(@CurrentUser Account account,
-                                             @PathVariable("id") Long lectureId) {
-        lectureEsService.saveLectureInfo(account, lectureId);
-
-        return ResponseEntity.noContent().build();
-    }
-
     @PutMapping
     public ResponseEntity<?> updateLecture(@CurrentUser Account account,
                                            @Valid @RequestBody LectureUpdateInfo lectureUpdateInfo,
@@ -93,7 +82,6 @@ public class LectureController {
         }
 
         lectureService.updateLecture(lectureUpdateInfo, account);
-        lectureEsService.updateLectureInfo(lectureUpdateInfo);
 
         return ResponseEntity.noContent().build();
     }
@@ -133,7 +121,7 @@ public class LectureController {
                                                  @NotEmpty @RequestParam String keyword,
                                                  Pageable pageable,
                                                  PagedResourcesAssembler<LectureInfo> assembler) {
-        Page<LectureInfo> lectureInfoPage = lectureEsService.getListContainKeyword(account, keyword, pageable);
+        Page<LectureInfo> lectureInfoPage = lectureService.searchListByKeyword(account, keyword, pageable);
 
         PagedModel<EntityModel<LectureInfo>> model = assembler.toModel(lectureInfoPage);
         return ResponseEntity.ok().body(model);

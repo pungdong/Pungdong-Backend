@@ -1,10 +1,13 @@
 package com.diving.pungdong.repo.lecture;
 
+import com.diving.pungdong.account.Account;
 import com.diving.pungdong.domain.lecture.Lecture;
 import com.diving.pungdong.domain.lecture.Organization;
 import com.diving.pungdong.dto.lecture.list.search.CostCondition;
 import com.diving.pungdong.dto.lecture.list.search.FilterSearchCondition;
 import org.springframework.data.jpa.domain.Specification;
+
+import javax.persistence.criteria.Join;
 
 public final class LectureSpecifications {
 
@@ -17,6 +20,24 @@ public final class LectureSpecifications {
                 .and(levelEq(condition.getLevel()))
                 .and(regionEq(condition.getRegion()))
                 .and(costBetween(condition.getCostCondition()));
+    }
+
+    /**
+     * 키워드 검색: 강의 제목 OR 강사 닉네임 부분 일치 (구 Elasticsearch findByTitleOrNickName 대체).
+     * keyword 가 비면 전체(null Specification).
+     */
+    public static Specification<Lecture> keywordMatch(String keyword) {
+        if (keyword == null || keyword.trim().isEmpty()) {
+            return null;
+        }
+        String pattern = "%" + keyword.trim() + "%";
+        return (root, query, cb) -> {
+            Join<Lecture, Account> instructor = root.join("instructor");
+            return cb.or(
+                    cb.like(root.get("title"), pattern),
+                    cb.like(instructor.get("nickName"), pattern)
+            );
+        };
     }
 
     private static Specification<Lecture> organizationEq(Organization organization) {
