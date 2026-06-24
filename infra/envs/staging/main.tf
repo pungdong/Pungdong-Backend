@@ -9,8 +9,12 @@ locals {
   account_id     = data.aws_caller_identity.current.account_id
   uploads_bucket = "${local.name_prefix}-uploads"
 
+  # 공유 ECR(bootstrap) 의 이미지 URI 조립.
+  container_image = "${local.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/${var.ecr_repo_name}:${var.image_tag}"
+
   # 앱이 RDS/Redis 에 붙는 URL — 모듈 output 에서 조립.
-  db_url = "jdbc:mysql://${module.data.db_endpoint}:${module.data.db_port}/${module.data.db_name}?characterEncoding=UTF-8&serverTimezone=Asia/Seoul&useSSL=true&requireSSL=false&allowPublicKeyRetrieval=true"
+  # useSSL=false: 트래픽이 VPC 내부 + data SG(app 에서만)라 RDS 인증서 검증 마찰 회피. (prod 는 SSL+RDS CA 검토)
+  db_url = "jdbc:mysql://${module.data.db_endpoint}:${module.data.db_port}/${module.data.db_name}?characterEncoding=UTF-8&serverTimezone=Asia/Seoul&useSSL=false&allowPublicKeyRetrieval=true"
 
   # 사용자가 SSM 콘솔에 미리 만들 SecureString. (container env var 이름 = SSM 파라미터 이름)
   # 경로: /plop/staging/<NAME>
@@ -23,10 +27,15 @@ locals {
     SPRING_DATASOURCE_PASSWORD = aws_ssm_parameter.db_password.arn
   })
 
-  # 앱 일반 환경변수. database/redis/aws.yml 을 classpath 에서 빼고(=SPRING_CONFIG_LOCATION),
-  # 대신 표준 env 키로 주입(Spring relaxed binding). AWS 자격증명은 task role 자동 사용(키 불필요).
-  # ⚠️ ④ 에서 application.yml 의 모든 ${ENV:default} 플레이스홀더를 전수 확인해 storage/identity/
-  #    address/sanity/firebase 키를 확정하고, 실제 ECS 부팅으로 검증한다(여기선 코어만).
+  # 앱 일반 환경변수(비밀 아님). database/redis/aws.yml 을 classpath 에서 빼고
+  # (SPRING_CONFIG_LOCATION=classpath:application.yml) 표준 env 키로 주입(Spring relaxed binding,
+  # env > application.yml 우선). AWS 자격증명은 안 줌 → ECS task role 자동 사용.
+  #
+  # ④ application.yml ${ENV} 전수 조사 반영:
+  # - cloud.aws.region.static / stack.auto 는 application.yml 에 이미 박혀 있어 생략.
+  # - S3 버킷: S3Uploader 가 ${cloud.aws.s3.bucket}(application.yml 하드코딩 "pungdong")를 읽으므로
+  #   CLOUD_AWS_S3_BUCKET 로 덮어써야 우리 버킷을 가리킴 (STORAGE_S3_BUCKET 은 앱이 안 읽음).
+  # - JWT_SECRET/ADMIN_MAIL_* 만 필수 secret. SANITY_*(public 기본값)·VENUE_RECONCILE_*·webhook 은 기본값 사용.
   environment = {
     SPRING_CONFIG_LOCATION     = "classpath:application.yml"
     SPRING_DATASOURCE_URL      = local.db_url
@@ -34,13 +43,12 @@ locals {
     SPRING_REDIS_HOST          = module.data.redis_endpoint
     SPRING_REDIS_PORT          = tostring(module.data.redis_port)
     CORS_ALLOWED_ORIGINS       = var.cors_allowed_origins
+    ADMIN_EMAILS               = var.admin_emails
     FIREBASE_ENABLED           = "false"
     STORAGE_S3_ENABLED         = "true"
-    STORAGE_S3_BUCKET          = local.uploads_bucket
+    CLOUD_AWS_S3_BUCKET        = local.uploads_bucket
     IDENTITY_VERIFICATION_MODE = "stub"
     ADDRESS_GEOCODE_MODE       = "stub"
-    CLOUD_AWS_REGION_STATIC    = var.aws_region
-    CLOUD_AWS_STACK_AUTO       = "false"
   }
 }
 
@@ -82,7 +90,7 @@ module "app" {
   public_subnet_ids   = module.network.public_subnet_ids
   alb_sg_id           = module.network.alb_sg_id
   app_sg_id           = module.network.app_sg_id
-  container_image     = var.container_image
+  container_image     = local.container_image
   uploads_bucket_name = local.uploads_bucket
   environment         = local.environment
   secrets             = local.secrets
