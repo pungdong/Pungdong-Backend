@@ -1,0 +1,14 @@
+# Terraform 로컬 산출물 — 커밋 금지
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+
+# 시크릿이 들어갈 수 있는 변수 파일 (terraform.tfvars 는 시크릿 없어 커밋함)
+*.auto.tfvars
+secrets.tfvars
+override.tf
+override.tf.json
