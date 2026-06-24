@@ -53,3 +53,5 @@ sanity/.sanity/
 
 # 공모전 데모 원본 이미지 — Sanity CDN 으로 서빙하므로 커밋하지 않음 (업로드 소스용 로컬 보관)
 src/main/resources/static/images/demo/
+# seed venue/tour 사진 — import 시 Sanity 로 자동 업로드되는 소스 (download-images.sh 로 재취득). 커밋 금지
+sanity/seed/images/
