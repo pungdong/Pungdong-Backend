@@ -51,6 +51,18 @@ variable "db_multi_az" {
   default     = false
 }
 
+variable "deletion_protection" {
+  description = "RDS 삭제 보호 (prod=true 권장)"
+  type        = bool
+  default     = false
+}
+
+variable "backup_retention_period" {
+  description = "자동 백업 보관일 (staging=1, prod=7 권장)"
+  type        = number
+  default     = 1
+}
+
 # --- staging 온디맨드: destroy 시 최종 스냅샷 보존 / 재생성 시 복원 ---
 
 variable "skip_final_snapshot" {

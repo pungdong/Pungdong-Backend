@@ -1,0 +1,8 @@
+# 운영 값. 시크릿은 SSM(/plop/production/*). DB 비번은 Terraform 생성.
+
+# staging 에서 검증된 이미지를 prod 태그로 promote 후 그 태그 지정.
+image_tag            = "prod-latest"
+cors_allowed_origins = "https://plop.cool,https://www.plop.cool"
+
+# HTTPS 인증서(api.plop.cool)는 DNS 검증 후 채움. 그 전엔 HTTP 로 ALB 직접 검증.
+# certificate_arn = "arn:aws:acm:ap-northeast-2:111328750981:certificate/..."

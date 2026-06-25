@@ -33,9 +33,9 @@ resource "aws_db_instance" "this" {
   final_snapshot_identifier = var.skip_final_snapshot ? null : var.final_snapshot_identifier
   snapshot_identifier       = var.restore_snapshot_identifier
 
-  # lean: 자동 백업 1일(스냅샷 복원/PITR 최소), 삭제 보호는 prod env 에서 켜기.
-  backup_retention_period = 1
-  deletion_protection     = false
+  # 백업 보관·삭제보호는 env 가 결정 (staging=1일·off / prod=7일·on).
+  backup_retention_period = var.backup_retention_period
+  deletion_protection     = var.deletion_protection
   apply_immediately       = true
 
   tags = merge(var.tags, { Name = "${var.name_prefix}-mysql" })
