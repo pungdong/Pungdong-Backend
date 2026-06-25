@@ -4,5 +4,5 @@
 image_tag            = "prod-latest"
 cors_allowed_origins = "https://plop.cool,https://www.plop.cool"
 
-# HTTPS 인증서(api.plop.cool)는 DNS 검증 후 채움. 그 전엔 HTTP 로 ALB 직접 검증.
-# certificate_arn = "arn:aws:acm:ap-northeast-2:111328750981:certificate/..."
+# HTTPS 인증서 (api.plop.cool, DNS 검증 완료).
+certificate_arn = "arn:aws:acm:ap-northeast-2:111328750981:certificate/b3cf9b22-36b9-4c78-8bcc-e12dff660604"

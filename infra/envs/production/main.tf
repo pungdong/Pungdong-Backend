@@ -65,9 +65,10 @@ module "data" {
   data_sg_id  = module.network.data_sg_id
   db_password = random_password.db.result
 
-  # 운영: 삭제보호 + 백업 7일. destroy 시 최종 스냅샷 보존(throwaway 아님).
+  # 운영: 삭제보호 + destroy 시 최종 스냅샷 보존. 백업 보관일은 무료플랜 제한으로 1일
+  # (유료 전환 후 7일로 상향 — FreeTierRestrictionError 회피).
   deletion_protection       = true
-  backup_retention_period   = 7
+  backup_retention_period   = 1
   skip_final_snapshot       = false
   final_snapshot_identifier = var.final_snapshot_identifier
 }
