@@ -1,0 +1,52 @@
+name: Build and Push (master to ECR)
+
+# master 머지 시 도커 이미지 빌드 → ECR push. 배포는 안 함(deploy.yml 버튼).
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "sanity/**"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-2
+  ECR_IMAGE: 111328750981.dkr.ecr.ap-northeast-2.amazonaws.com/plop
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: AWS auth (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::111328750981:role/plop-github-actions
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: ECR login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: arm64 builder (Fargate ARM64 match)
+        uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: build and push
+        run: |
+          SHA=${GITHUB_SHA::7}
+          docker buildx build --platform linux/arm64 \
+            -t ${{ env.ECR_IMAGE }}:master-$SHA \
+            -t ${{ env.ECR_IMAGE }}:master-latest \
+            --push .
+          echo "pushed master-$SHA and master-latest"
+
+      - name: summary
+        run: |
+          echo "### image build done" >> $GITHUB_STEP_SUMMARY
+          echo "- tags: master-${GITHUB_SHA::7}, master-latest" >> $GITHUB_STEP_SUMMARY
+          echo "- deploy via Actions Deploy workflow button" >> $GITHUB_STEP_SUMMARY
