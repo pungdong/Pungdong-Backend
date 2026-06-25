@@ -1,0 +1,99 @@
+name: Deploy (manual button)
+
+# Actions 탭 "Run workflow" 버튼. action 드롭다운으로 선택:
+#   staging-up        → terraform apply (staging 환경 생성 + 최신 이미지)
+#   staging-down      → terraform destroy (staging $0)
+#   production-deploy → prod ECS 이미지 교체 (인프라 그대로, 무중단 롤링)
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "무엇을 할까"
+        type: choice
+        required: true
+        options:
+          - staging-up
+          - staging-down
+          - production-deploy
+      image_tag:
+        description: "production-deploy 배포 태그 (기본 master-latest. 검증된 master-<sha> 권장)"
+        required: false
+        default: master-latest
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-2
+  ECR_IMAGE: 111328750981.dkr.ecr.ap-northeast-2.amazonaws.com/plop
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: AWS auth (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::111328750981:role/plop-github-actions
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform 설치
+        if: ${{ inputs.action == 'staging-up' || inputs.action == 'staging-down' }}
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+
+      # --- 🟢 staging 띄우기 ---
+      - name: staging-up (terraform apply)
+        if: ${{ inputs.action == 'staging-up' }}
+        working-directory: infra/envs/staging
+        run: |
+          terraform init -input=false
+          terraform apply -auto-approve -input=false -var="image_tag=master-latest"
+          echo "### staging UP" >> $GITHUB_STEP_SUMMARY
+          echo "- ALB: $(terraform output -raw alb_dns_name)" >> $GITHUB_STEP_SUMMARY
+
+      # --- 🔴 staging 내리기 ---
+      - name: staging-down (terraform destroy)
+        if: ${{ inputs.action == 'staging-down' }}
+        working-directory: infra/envs/staging
+        run: |
+          terraform init -input=false
+          terraform destroy -auto-approve -input=false
+          echo "### staging DOWN (최종 스냅샷 보존)" >> $GITHUB_STEP_SUMMARY
+
+      # --- 🚀 production 배포 (ECS 이미지 교체) ---
+      - name: prod 현재 task def 받기
+        if: ${{ inputs.action == 'production-deploy' }}
+        run: |
+          aws ecs describe-task-definition --task-definition plop-prod \
+            --query taskDefinition > task-def.json
+
+      - name: prod task def 에 새 이미지 렌더
+        if: ${{ inputs.action == 'production-deploy' }}
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-def.json
+          container-name: app
+          image: ${{ env.ECR_IMAGE }}:${{ inputs.image_tag }}
+
+      - name: prod ECS 배포 + 안정화 대기
+        if: ${{ inputs.action == 'production-deploy' }}
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          service: plop-prod-svc
+          cluster: plop-prod-cluster
+          wait-for-service-stability: true
+
+      - name: prod 헬스 확인
+        if: ${{ inputs.action == 'production-deploy' }}
+        run: |
+          echo "### production 배포 완료" >> $GITHUB_STEP_SUMMARY
+          echo "- 이미지: ${{ inputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          H=$(curl -s -m 15 https://api.plop.cool/actuator/health || echo "n/a")
+          echo "- health: $H" >> $GITHUB_STEP_SUMMARY
