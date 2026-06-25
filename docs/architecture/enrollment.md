@@ -68,9 +68,9 @@ sequenceDiagram
   participant AV as AvailabilityService
 
   I->>IES: POST /instructor/enrollments/{id}/accept
-  IES->>IES: 정원 재검증(confirmed+hold < effectiveCapacity)
-  IES-->>I: CONFIRMED
-  Note over AV: GET /instructor/availability → session별 enrollment 집계<br/>confirmedCount/pendingCount/applicants 반영, deriveStatus
+  IES->>IES: 정원 재검증(점유 OCCUPYING+hold < effectiveCapacity)
+  IES-->>I: PAYMENT_PENDING (결제 대기 · 슬롯 점유 — 결제 승인이 CONFIRMED 로)
+  Note over AV: GET /instructor/availability → session별 enrollment 집계<br/>confirmedCount(결제대기+확정)/pendingCount/applicants 반영, deriveStatus
   I->>IES: POST /{id}/reject {reason}
   IES->>IES: REJECTED (session 은 그대로 — 점유 0 이면 AVAILABLE)
 ```
@@ -128,9 +128,9 @@ erDiagram
 
 ## 6. 알려진 설계 간극
 
-- 🟡 **결제·정산 미구현** — 수락=CONFIRMED 로 끝(디자인 풀버전은 수락→결제링크 푸시→결제완료=확정). 해결안: payment 도메인 + notification 푸시 + EnrollmentStatus 에 PAYMENT_WAITING 추가.
+- 🟢 **결제 연동 완료(2026-06-26)** — 수락 → `PAYMENT_PENDING`(결제 대기·슬롯 점유) → 결제 승인 → `CONFIRMED`. [payment 도메인](payment.md)(토스 결제위젯) 소유. 남은 것: notification 결제링크 푸시 · 정산 수수료 분해.
 - 🟢 **venue 운영 정밀도** — `BookableSlotDeriver` 는 FIXED·OPEN(단일)·SAME, WEEKLY·MONTHLY 휴무 지원. 공휴일·OPEN 세분화는 후속.
-- 🟢 **가격 권위성** — 신청 스냅샷은 추정치. 강사가 입장료/장비를 바꾸면 확정/결제 시 재계산 필요(payment 도메인에서).
+- 🟢 **가격 권위성** — 신청 스냅샷은 추정치. 권위(청구) 금액은 결제 시점 `POST /payments/prepare` 가 재계산(수강료 라이브 + 입장료/장비 스냅샷). 입장료/장비 live 재도출은 후속([payment.md](payment.md)).
 - 🟢 **applicants = enrollment 만** — 캘린더 슬롯 안 신청자 행은 풍덩 enrollment 만(외부 hold 는 externalCount 로만). 디자인의 external applicant 행은 후속.
 
 ## 7. 더 깊게: 테스트로 보기
@@ -139,8 +139,8 @@ erDiagram
   - O1/O2: 교집합 슬롯, coverage 밖 블록 제외(containsWhole 부분겹침 불가)
   - S1/S2: PENDING 생성 + session 생성 + 캘린더 pending/applicants 반영, 장비 스냅샷
   - J1/J2: 같은 (위치,블록) session 합류 / 다른 블록은 별도 session
-  - F1: 만석(confirmed+hold=effectiveCapacity) 신청 400
-  - A1/A2: 수락→CONFIRMED+캘린더, 거절→REJECTED(session 잔존, 점유 0=AVAILABLE)
+  - F1: 만석(점유 OCCUPYING+hold=effectiveCapacity) 신청 400
+  - A1/A2: 수락→PAYMENT_PENDING+캘린더(점유), 거절→REJECTED(session 잔존, 점유 0=AVAILABLE). 결제는 `PaymentUseCaseTest`
   - C1: 취소→CANCELLED
   - G0/R1/R2/R3: 인증·게이트·격리
 - REST Docs `document(...)` 컨트롤러 테스트는 venue/course/availability 와 동일하게 미작성(후속).
