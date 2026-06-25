@@ -47,6 +47,12 @@ variable "ecr_repo_name" {
   default     = "plop"
 }
 
+variable "github_repo" {
+  description = "GitHub Actions OIDC 를 허용할 저장소 (owner/repo)"
+  type        = string
+  default     = "pungdong/Pungdong-Backend"
+}
+
 resource "aws_s3_bucket" "tfstate" {
   bucket = var.state_bucket_name
 }
@@ -103,6 +109,45 @@ resource "aws_ecr_lifecycle_policy" "app" {
       action       = { type = "expire" }
     }]
   })
+}
+
+# --- GitHub Actions OIDC (정적 키 없이 GitHub → AWS 인증) ---
+# GitHub Actions 가 short-lived 토큰으로 이 role 을 assume. 시크릿 access key 불필요.
+resource "aws_iam_openid_connect_provider" "github" {
+  url            = "https://token.actions.githubusercontent.com"
+  client_id_list = ["sts.amazonaws.com"]
+  thumbprint_list = [
+    "6938fd4d98bab03faadb97b34396831e3780aea1",
+    "1c58a3a8518e8759bf075b76b750d4f2df264fcd",
+  ]
+}
+
+resource "aws_iam_role" "github_actions" {
+  name = "plop-github-actions"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Federated = aws_iam_openid_connect_provider.github.arn }
+      Action    = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com" }
+        StringLike   = { "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:*" }
+      }
+    }]
+  })
+}
+
+# 워크플로우가 build(ECR)·deploy(ECS)·staging terraform(apply/destroy)까지 하므로 폭넓은 권한 필요.
+# 우선 AdministratorAccess (OIDC + repo 조건으로 게이트). 추후 least-privilege 로 좁힐 것.
+resource "aws_iam_role_policy_attachment" "github_actions_admin" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+}
+
+output "github_actions_role_arn" {
+  description = "GitHub Actions 워크플로우의 role-to-assume"
+  value       = aws_iam_role.github_actions.arn
 }
 
 output "state_bucket" {
