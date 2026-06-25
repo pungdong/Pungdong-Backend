@@ -14,8 +14,7 @@ locals {
   db_url = "jdbc:mysql://${module.data.db_endpoint}:${module.data.db_port}/${module.data.db_name}?characterEncoding=UTF-8&serverTimezone=Asia/Seoul&useSSL=false&allowPublicKeyRetrieval=true"
 
   # 운영 시크릿은 /plop/production/<NAME> (staging 과 분리). 사용자가 SSM 에 미리 생성.
-  # juso 는 운영 키 등록 후 추가(현재 ADDRESS_GEOCODE_MODE=stub).
-  user_secret_names = ["JWT_SECRET", "ADMIN_MAIL_ID", "ADMIN_MAIL_PASSWORD"]
+  user_secret_names = ["JWT_SECRET", "ADMIN_MAIL_ID", "ADMIN_MAIL_PASSWORD", "JUSO_SEARCH_KEY", "JUSO_COORD_KEY"]
   user_secrets = {
     for n in local.user_secret_names :
     n => "arn:aws:ssm:${var.aws_region}:${local.account_id}:parameter${local.ssm_prefix}/${n}"
@@ -36,7 +35,8 @@ locals {
     STORAGE_S3_ENABLED         = "true"
     CLOUD_AWS_S3_BUCKET        = local.uploads_bucket
     IDENTITY_VERIFICATION_MODE = "stub" # 실 본인확인기관 연동 전까지(심사용). 정식 출시 전 disabled/real 검토.
-    ADDRESS_GEOCODE_MODE       = "stub" # 운영 juso 키 등록 후 juso 로 전환.
+    ADDRESS_GEOCODE_MODE       = "juso"
+    JUSO_REFERER               = "https://plop.cool" # 운영 juso 키 등록 referer 와 일치
   }
 }
 
