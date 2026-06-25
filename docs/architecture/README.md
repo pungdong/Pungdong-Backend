@@ -34,6 +34,8 @@
 | 강사 가용시간 (availability) | [availability.md](availability.md) | ✅ (가용시간 window + 외부/수동 점유 hold · 5상태 파생 · enrollment 연동됨) |
 | 수강신청 (enrollment) | [enrollment.md](enrollment.md) | ✅ (booking — availability ∩ venue 교집합 · exact-match join · 강사 수락/거절 · 결제 후속) |
 | **Redis (인프라)** | [redis.md](redis.md) | ✅ (도메인 아님 — JWT 블랙리스트·이메일 코드·venue 캐시 · ⚠️ 테스트 16379 격리 원칙) |
+| **배포 전략 (인프라/프로세스)** | [deployment.md](deployment.md) | ✅ (도메인 아님 — 트렁크 브랜치·build-once/promote·env 격리·피처플래그·prod 수동게이트) |
+| **관측 스택 (인프라/프로세스)** | [observability.md](observability.md) | ✅ (도메인 아님 — CloudWatch+Sentry+Amplitude 결정·왜 ES 아닌가) |
 
 > 검색은 별도 도메인이 아니다 — Phase 3 에서 Elasticsearch 를 제거하고 lecture 도메인의 **MySQL `JpaSpecification`**(제목·강사명 LIKE) 으로 흡수했다. course 도메인도 Specification 기반. 결정 근거는 [observability.md](observability.md) "왜 Elasticsearch 가 아닌가".
 
