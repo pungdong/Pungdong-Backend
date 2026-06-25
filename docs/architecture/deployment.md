@@ -75,6 +75,11 @@ feat/xxx (로컬 개발 + 테스트)  →  PR(CI 자동 테스트)  →  master 
 
 **왜 prod 즉시배포(Vercel식) 안 하나** — FE(무상태·즉시롤백·프리뷰)는 머지=배포가 안전하나, BE 는 DB 마이그레이션·결제·실돈이라 한번 잘못 나가면 롤백이 어렵다. → 쿠팡식 **수동 게이트 + 카나리**.
 
+**구현 (2026-06-25, #90):** GitHub Actions 로 실제 배선됨.
+- `.github/workflows/build.yml` — master push → arm64 도커 빌드 → ECR push(`master-<sha>` + `master-latest`). docs/md/sanity 변경은 skip.
+- `.github/workflows/deploy.yml` — 수동 버튼(`workflow_dispatch`), action 드롭다운: `staging-up`(terraform apply) / `staging-down`(terraform destroy) / `production-deploy`(ECS 이미지 교체 + 헬스확인).
+- 인증 = OIDC (정적 키 0). bootstrap 의 provider + role `plop-github-actions`(repo 게이트, AdministratorAccess — 추후 least-privilege).
+
 ## 6. 피처 플래그 — 환경별은 env, 전역 런타임은 Sanity
 
 | 플래그 종류 | 메커니즘 | 예 |
@@ -100,6 +105,6 @@ feat/xxx (로컬 개발 + 테스트)  →  PR(CI 자동 테스트)  →  master 
 
 ## 후속 (미구현)
 
-- ⑤ **GitHub Actions** 워크플로우: master 머지 → 빌드 → ECR(OIDC), prod 승격 `workflow_dispatch`. (현재는 수동 빌드/push/apply)
+- ✅ ~~⑤ GitHub Actions~~ — **구현됨**(#90, 2026-06-25): build.yml(자동) + deploy.yml(버튼) + OIDC role. §5 참고. (남은 정리: least-privilege 권한 축소, infra-only 변경 시 build skip)
 - **카나리**(CodeDeploy 블루/그린) — 트래픽/리스크 커지면.
 - **Toss 결제 플로우** — `PAYMENT_MODE` 분기 + sandbox/live 키.
