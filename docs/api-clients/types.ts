@@ -1260,3 +1260,22 @@ export interface SiteSettings {
   launched: boolean; // false → 전 코스 신청 차단(BE 403 PRE_LAUNCH) + "정식 런칭을 기다려주세요" 배너
   showSeededCourses: boolean; // false → 데모(seeded) 코스가 둘러보기/상세에서 빠짐(데이터는 보존)
 }
+
+// ============================================================
+// 법적 고지 문서 (legalDocument) — 이용약관/개인정보처리방침/취소·환불 전문
+// ⚠️ BE 엔드포인트가 아니라 **Sanity 문서**. FE 가 Sanity CDN 에서 직접 읽어 /{slug} 페이지 + 푸터 모달에 렌더.
+//   GROQ: *[_type == "legalDocument" && slug.current == $slug && active == true][0]
+//         { "slug": slug.current, title, body, version, effectiveDate }
+//   `term`(동의 체크박스)과 다른 타입 — 이건 **공개 게시 전문 한 장**(표시 전용).
+//   body 는 Portable Text(블록 배열) — <PortableTextBody/> 로 렌더.
+// ============================================================
+
+export type LegalDocumentSlug = 'terms' | 'privacy' | 'refund';
+
+export interface LegalDocument {
+  slug: LegalDocumentSlug;
+  title: string;
+  body: unknown[]; // Portable Text 블록 배열 (@portabletext/react 의 PortableTextBlock[])
+  version?: string; // 표시용 개정 버전 (예: '1.0')
+  effectiveDate?: string; // ISO date (YYYY-MM-DD)
+}

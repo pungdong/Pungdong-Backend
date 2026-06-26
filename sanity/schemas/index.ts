@@ -1,5 +1,6 @@
 import {certOrganization, certification} from './certOrganization'
 import {term} from './term'
+import {legalDocument} from './legalDocument'
 import {siteSettings} from './siteSettings'
 import {venue, venueTicket, venueDaypart, venueTimeBlock, venueClosure} from './venue'
 
@@ -8,6 +9,7 @@ export const schemaTypes = [
   certOrganization,
   certification,
   term,
+  legalDocument,
   siteSettings,
   venue,
   venueTicket,

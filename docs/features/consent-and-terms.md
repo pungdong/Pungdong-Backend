@@ -11,7 +11,8 @@
 | 구성요소 | 위치 | 역할 |
 |---|---|---|
 | consent 도메인 | [architecture/consent.md](../architecture/consent.md) | 동의 기록 · 약관 버전 박제(증빙) · 조회 |
-| Sanity `term` | 이 레포 `sanity/schemas/term.ts` (Studio) | 약관 콘텐츠(전문/요약/`key`/`version`/`contexts`) authoring·저장 |
+| Sanity `term` | 이 레포 `sanity/schemas/term.ts` (Studio) | 동의 콘텐츠(요약/`key`/`version`/`contexts`) authoring·저장 — 화면별 체크박스 |
+| Sanity `legalDocument` | 이 레포 `sanity/schemas/legalDocument.ts` (Studio) | 법적 고지 **전문 페이지**(이용약관/개인정보/취소·환불) authoring — 표시 전용, FE CDN 직접 |
 | FE | apps/web · mobile | 화면(context)별 약관을 Sanity 에서 읽어 표시 + 동의한 약관 `keys` 를 BE 로 전송 |
 | identity-verification / instructor-application | 각 도메인 문서 | 동의를 수집하는 화면들. 진행 게이트 boolean 과 consent 이력이 공존 |
 
@@ -39,6 +40,13 @@
 ### 식별자
 - `key` = 논리적 약관 1개당 고유(버전 무관 동일). `(key, version)` 쌍이 "정확히 어떤 약관의 어떤 버전" 을 지목.
 
+### 두 축 — 동의 `term` vs 게시 `legalDocument`
+약관을 **두 표면**으로 다룬다. 한 타입에 욱여넣지 않고 분리한 이유는 역할이 다르기 때문:
+- **`term`** = 화면별 **동의 체크박스**. 한 줄 요약 + "자세히" 본문, `contexts` 로 화면 스코프, `(key, version)` 로 BE 가 동의 이력을 **박제**(법적 증빙). 동의를 *수집*하는 단위.
+- **`legalDocument`** = 이용약관/개인정보처리방침/취소·환불의 **공개 게시 전문 한 장**. 웹 `/{slug}`(terms·privacy·refund) + 푸터 모달에 표시. **BE 가 끼지 않고** FE 가 Sanity CDN 직접 읽기(siteSettings·venue official 과 동일 패턴). 약관을 *게시*하는 단위.
+- 둘은 콘텐츠가 겹칠 수 있으나(같은 이용약관이 양쪽에) 표면·소비자가 달라 별도 타입. **앱 심사**가 요구한 건 후자(전문 페이지). `legalDocument` 는 consent 박제 대상이 아님 — 표시 전용이라 `(key, version)` 키잉/박제 없음.
+- `body` 의 block 집합(styles/lists/marks)은 FE `PortableTextBody` 렌더러와 **1:1 일치**해야 함 — Studio 에서 켠 스타일이 렌더러 집합을 벗어나면 무스타일/raw 로 나옴. 새 스타일은 FE 렌더러 확장이 선행.
+
 ### 버전 권위는 BE (다운그레이드 위조 차단)
 - **FE 는 약관 `key` 만 보낸다** (version 아님). 동의에 기록할 **version 은 BE 가 전적으로 정한다** — `key` 로 Sanity 의 **현재 활성 버전**을 조회해 그 값으로 박제·기록. 기록된 version 은 응답으로 돌려준다.
 - 이유: FE 가 version 을 보내면 ① "FE 가 버전을 정한다" 는 **오해**를 부르고, ② 옛 버전을 보내 **더 약한 옛 약관에 동의한 것으로 다운그레이드**할 여지가 생긴다. 요청 계약에서 version 을 아예 빼 둘 다 차단.
@@ -56,6 +64,7 @@
 | 2026-06-12 | **버전 권위 = BE, 요청은 key-only** | 초기엔 (key,version) 받아 일치검증했으나, FE 가 version 을 보내면 오해/다운그레이드 여지 → 요청에서 version 제거. BE 가 key 로 현재 버전 조회·기록 |
 | 2026-06-12 | **bump 깜빡 = Studio validation 으로 방어** (BE content-hash 키잉은 보류) | 신뢰 주체(관리자)의 실수라 방어는 FE 레이어. 단일 admin 단계엔 hash 과함 — 비기술 운영자 여럿 생기면 재검토 |
 | 2026-06-12 | 기존 `agreedRequiredTerms` boolean 게이트와 **공존** | consent 는 그 위의 감사 이력. 수렴은 후속 |
+| 2026-06-26 | 게시 전문은 별도 `legalDocument` 타입(slug=terms/privacy/refund) | 앱 심사·푸터가 요구하는 "전문 한 장". `term`(동의 체크박스)과 다른 표면 — FE 가 CDN 직접, BE 박제 대상 아님. FE 가 임시 하드코딩하던 걸 Sanity 로 환원 |
 | 2026-06-12 | Sanity Studio 를 **FE 레포 → BE 레포 `sanity/`** 로 이관 | 스키마 계약을 BE 도메인이 소유 + BE 가 term 서버사이드로 읽음 + back-office 성격. 독립 레포(C안)는 프로젝트 커지면 재검토. queries 도 BE 단일 출처(FE 복사) |
 
 ## 미해결 / 확장
