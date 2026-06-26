@@ -33,6 +33,16 @@ export const termsByContext = `
   | order(sortOrder asc) { key, title, required, summary, body, version }
 `
 
+/**
+ * 법적 고지 문서 1건(전문 페이지) — 웹 /{slug} + 푸터 모달. params: { slug }
+ *   slug: 'terms' | 'privacy' | 'refund'
+ * `term`(동의 체크박스)과 다른 타입 — 이건 표시 전용 전문. FE 가 useCdn:true 직접 읽기.
+ */
+export const legalDocumentBySlug = `
+*[_type == "legalDocument" && slug.current == $slug && active == true][0]
+  { "slug": slug.current, title, body, version, effectiveDate }
+`
+
 /** 이용권 daypart 투영(평일/주말 공통). */
 const VENUE_DAYPART = `{ sold, fee, timeMode, blocks[]{ start, end }, open, close, holdHours }`
 
