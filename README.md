@@ -33,6 +33,7 @@ flowchart LR
         S3["AWS S3<br/>이미지 저장"]
         SMTP["Gmail SMTP<br/>이메일 발송"]
         Sanity["Sanity CMS<br/>약관·자격증·공식 위치<br/>(GROQ 읽기)"]
+        Toss["토스페이먼츠<br/>결제위젯 v2<br/>(승인 API)"]
     end
 
     App -- "HTTPS REST<br/>+ JWT (자체 발급)" --> Controller
@@ -41,6 +42,7 @@ flowchart LR
     Service --> S3
     Service --> SMTP
     Service -- "GROQ 서버사이드 읽기<br/>+ _rev reconcile" --> Sanity
+    Service -- "결제 승인<br/>(시크릿 키, BE 전용)" --> Toss
     Sanity -. "publish 웹훅<br/>(공식 위치)" .-> Controller
     Notif -- "FcmGateway<br/>(키리스 ADC)" --> FCM
 ```
@@ -50,6 +52,7 @@ flowchart LR
 - **알림은 도메인 이벤트 → 아웃박스 → 발송 워커.** 비즈니스 트랜잭션과 같이 outbox에 기록 (롤백 시 같이 롤백). 워커가 주기적으로 픽업해서 FCM 호출. 실패는 자동 재시도 (exp backoff, 10회 한도). 자세한 의도는 [PR #9](../../pull/9), [PR #10](../../pull/10).
 - **JWT 자체 발급.** 외부 OAuth 서버 분리되어 있던 거 흡수 완료 ([PR #7](../../pull/7)).
 - **시크릿 외부화.** 평문 시크릿 git에서 제거, 환경변수 기반 ([PR #8](../../pull/8)). FCM 인증은 keyless ADC ([PR #11](../../pull/11)) — 운영 시 Workload Identity Federation으로 확장.
+- **결제는 토스페이먼츠 결제위젯 v2.** 강사 수락 → 결제 → 확정. 승인은 BE 가 시크릿 키로(`/v1/payments/confirm`), FE 엔 클라이언트 키만. 금액은 서버 권위값(클라 신뢰 안 함). 로컬 stub, staging/prod 만 실연동. 정책은 [docs/features/payment.md](docs/features/payment.md).
 
 ### 전체 그림 더 보기
 

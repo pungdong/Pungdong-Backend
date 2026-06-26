@@ -52,7 +52,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *
  * <p>핵심: 슬롯 = 강사 <b>coverage(예약가능시간) ∩ venue 운영블록</b>(부 전체가 coverage 에 ⊆). 첫 신청이 그
  * (위치,블록) session 을 생성, 같은 (위치,블록) 신청은 join. 정원 = 계정 기본값(여기선 강사 defaultCapacity 로
- * 결정적 셋업). 신청 PENDING(결제 없음) → 강사 수락 시 CONFIRMED. 캘린더 sessions[] 에 반영. ⚠️ raw JWT.
+ * 결정적 셋업). 신청 PENDING → 강사 수락 시 PAYMENT_PENDING(결제 대기) → 결제 승인 시 CONFIRMED(결제는
+ * PaymentUseCaseTest). 수락은 슬롯을 점유. 캘린더 sessions[] 에 반영. ⚠️ raw JWT.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -351,7 +352,7 @@ class EnrollmentUseCaseTest {
     /* ─── F* 만석 ─── */
 
     @Test
-    @DisplayName("F1 정원이 확정으로 다 차면(만석) 새 신청은 400")
+    @DisplayName("F1 정원이 수락(결제대기)으로 다 차면(만석) 새 신청은 400")
     void fullRejectsNewApplication() throws Exception {
         Account ins = account("ins7@pd.com", "강사7");
         enterInstructorTrack(ins);
@@ -361,9 +362,10 @@ class EnrollmentUseCaseTest {
         String ticketRef = ticketRefOf((Venue) s[1]);
 
         Enrollment first = submitOk(account("c@pd.com", "학생C"), course, venueRef, ticketRef);
+        // 수락 = 결제 대기(슬롯 점유). 결제 전이라도 정원을 차지하므로 새 신청은 만석.
         mockMvc.perform(post("/instructor/enrollments/{id}/accept", first.getId())
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(ins)))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CONFIRMED"));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("PAYMENT_PENDING"));
 
         mockMvc.perform(post("/enrollments")
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(account("d@pd.com", "학생D")))
@@ -375,7 +377,7 @@ class EnrollmentUseCaseTest {
     /* ─── A* 강사 수락·거절 ─── */
 
     @Test
-    @DisplayName("A1 강사가 수락하면 CONFIRMED 가 되고 캘린더에 확정 1명으로 반영된다")
+    @DisplayName("A1 강사가 수락하면 PAYMENT_PENDING(결제 대기)이 되고 캘린더엔 점유 1명으로 반영된다")
     void acceptConfirms() throws Exception {
         Account ins = account("ins8@pd.com", "강사8");
         enterInstructorTrack(ins);
@@ -386,8 +388,10 @@ class EnrollmentUseCaseTest {
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(ins)))
                 .andExpect(status().isOk());
 
+        // 수락 = 결제 대기(아직 확정 아님). 결제 승인이 CONFIRMED 로 넘긴다(PaymentUseCaseTest).
         assertThat(enrollmentRepo.findById(e.getId()).orElseThrow().getStatus())
-                .isEqualTo(EnrollmentStatus.CONFIRMED);
+                .isEqualTo(EnrollmentStatus.PAYMENT_PENDING);
+        // 캘린더는 점유(결제대기+확정)를 confirmed 버킷으로 합산 — 슬롯은 차지된 것으로 표시(v1).
         mockMvc.perform(get("/instructor/availability")
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(ins))
                 .param("from", D1.minusDays(1).toString()).param("to", D1.plusDays(1).toString()))

@@ -176,7 +176,7 @@ erDiagram
 | GET `/instructor/availability?from&to` | ✅ | — | 내 coverage[]+sessions[] 만 |
 | POST `/instructor/availability/sessions` | ✅ | 강사신청 보유 | 시간 역전/override<1/venueRef 무효 = 400 |
 | GET `/instructor/availability/sessions/{id}` | ✅ | — | 비소유 = 400(존재 숨김) |
-| DELETE `/instructor/availability/sessions/{id}` | ✅ | — | 비소유 = 400 / 활성(PENDING·CONFIRMED) 신청 있으면 400 |
+| DELETE `/instructor/availability/sessions/{id}` | ✅ | — | 비소유 = 400 / 활성(PENDING·PAYMENT_PENDING·CONFIRMED) 신청 있으면 400 |
 | PATCH `/instructor/availability/sessions/{id}/capacity` | ✅ | — | 비소유 = 400 / capacity<1 = 400 |
 | DELETE `/instructor/availability/sessions/{id}/capacity` | ✅ | — | 비소유 = 400 (override 해제) |
 | POST `/instructor/availability/sessions/{id}/holds` | ✅ | — | 비소유 = 400 / count<1 = 400 |

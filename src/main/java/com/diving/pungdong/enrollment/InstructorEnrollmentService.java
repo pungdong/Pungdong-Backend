@@ -51,13 +51,14 @@ public class InstructorEnrollmentService {
         if (e.getStatus() != EnrollmentStatus.PENDING) {
             throw new BadRequestException(); // 대기 건만 수락
         }
-        // 정원 재검증 — 확정 + 외부 hold 가 유효정원에 도달했으면 더 못 받음(거절로 정리)
-        int confirmed = enrollmentRepo.countByAvailabilitySessionIdAndStatus(
-                e.getAvailabilitySession().getId(), EnrollmentStatus.CONFIRMED);
-        if (confirmed + e.getAvailabilitySession().heldCount() >= e.getAvailabilitySession().effectiveCapacity()) {
+        // 정원 재검증 — 점유(결제대기+확정) + 외부 hold 가 유효정원에 도달했으면 더 못 받음(거절로 정리)
+        int occupying = enrollmentRepo.countByAvailabilitySessionIdAndStatusIn(
+                e.getAvailabilitySession().getId(), EnrollmentStatus.OCCUPYING);
+        if (occupying + e.getAvailabilitySession().heldCount() >= e.getAvailabilitySession().effectiveCapacity()) {
             throw new BadRequestException(); // 정원 초과 — 수락 불가
         }
-        e.setStatus(EnrollmentStatus.CONFIRMED);
+        // 수락 = 결제 대기(슬롯 점유). 결제 승인 시 PaymentService 가 CONFIRMED 로 확정.
+        e.setStatus(EnrollmentStatus.PAYMENT_PENDING);
         e.setRespondedAt(LocalDateTime.now());
         return InstructorEnrollmentResponse.of(e, venueName(e.getVenueRefId()));
     }
