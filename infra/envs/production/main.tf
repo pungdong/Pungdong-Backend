@@ -14,7 +14,9 @@ locals {
   db_url = "jdbc:mysql://${module.data.db_endpoint}:${module.data.db_port}/${module.data.db_name}?characterEncoding=UTF-8&serverTimezone=Asia/Seoul&useSSL=false&allowPublicKeyRetrieval=true"
 
   # 운영 시크릿은 /plop/production/<NAME> (staging 과 분리). 사용자가 SSM 에 미리 생성.
-  user_secret_names = ["JWT_SECRET", "ADMIN_MAIL_ID", "ADMIN_MAIL_PASSWORD", "JUSO_SEARCH_KEY", "JUSO_COORD_KEY"]
+  # TOSS_*: 토스페이먼츠 결제위젯 키. 현재 테스트 키(test_*) — PG 심사/실결제 시 운영키로 교체.
+  # client-key 는 공개값이지만 사용자가 SSM(SecureString)에 같이 넣어 일괄 참조.
+  user_secret_names = ["JWT_SECRET", "ADMIN_MAIL_ID", "ADMIN_MAIL_PASSWORD", "JUSO_SEARCH_KEY", "JUSO_COORD_KEY", "TOSS_SECRET_KEY", "TOSS_CLIENT_KEY"]
   user_secrets = {
     for n in local.user_secret_names :
     n => "arn:aws:ssm:${var.aws_region}:${local.account_id}:parameter${local.ssm_prefix}/${n}"
@@ -41,6 +43,9 @@ locals {
     # 심사 끝나면 두 값 false 로 되돌리고 DemoAutoAcceptScheduler 제거(application.yml 주석 참고).
     DEMO_AUTO_ACCEPT       = "true"
     DEMO_SEED_AVAILABILITY = "true"
+    # 결제: 토스 실연동(stub→toss). 키(TOSS_SECRET_KEY/CLIENT_KEY)는 위 secrets(SSM)에서 주입.
+    # 현재 테스트 키라 실결제 안 됨(테스트 카드로 시뮬레이션). 심사 후 운영키 교체.
+    PAYMENT_MODE = "toss"
   }
 }
 
