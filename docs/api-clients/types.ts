@@ -1160,6 +1160,66 @@ export interface EnrollmentResponse extends HalLinks {
   respondedAt: string | null;
 }
 
+// ── 수강생 강의일정 hub — GET /enrollments/mine/schedule (authenticated) ──
+// 내 신청을 강의(course) 단위로 그룹핑 + 진행상태 파생. docs/features/student-schedule.md.
+// ⚠️ 설계의 done/finalizing/completed/메모/세션채팅/일정변경/환불은 BE 미구현이라 여기 없음(로드맵).
+//   응답은 EntityModel(HAL) — { filters, courses, _links }.
+
+/** 회차(=enrollment 1건) 진행상태. BE EnrollmentStatus 파생: PENDING→WAITING, PAYMENT_PENDING→PAYMENT_DUE … */
+export type RoundScheduleStatus =
+  | 'WAITING'
+  | 'PAYMENT_DUE'
+  | 'CONFIRMED'
+  | 'REJECTED'
+  | 'CANCELLED';
+
+/** 강의(=회차들) 진행상태. 회차들에서 액션 우선으로 파생(결제대기>일정변경>수락대기>진행중>취소). */
+export type CourseScheduleStatus =
+  | 'PAYMENT_DUE'
+  | 'RESCHEDULING'
+  | 'WAITING'
+  | 'PROGRESS'
+  | 'CANCELLED';
+
+export interface ScheduleRound {
+  enrollmentId: number;
+  roundIndex: number;
+  status: RoundScheduleStatus;
+  date: string | null;
+  blockStart: string | null;
+  blockEnd: string | null;
+  venueRefId: string | null;
+  venueName: string | null;
+  /** 신청 시점 추정 총액 스냅샷(원). 권위 결제금액은 POST /payments/prepare. */
+  amount: number;
+  rejectionReason: string | null; // REJECTED만
+  createdAt: string | null;
+  respondedAt: string | null;
+}
+
+export interface ScheduleCourse {
+  courseId: number | null;
+  title: string | null;
+  organizationCode: string | null; // 자격 단체 코드(Sanity)
+  disciplineCode: string | null;
+  levels: CertLevel[];
+  instructorName: string | null;
+  status: CourseScheduleStatus;
+  rounds: ScheduleRound[]; // roundIndex 순
+}
+
+/** 필터 칩 — id='all' 또는 CourseScheduleStatus 이름, label 한글, count. */
+export interface ScheduleFilterCount {
+  id: string;
+  label: string;
+  count: number;
+}
+
+export interface ScheduleHubResponse extends HalLinks {
+  filters: ScheduleFilterCount[];
+  courses: ScheduleCourse[]; // 액션 우선 정렬
+}
+
 /**
  * 강사가 받은 신청 — GET /instructor/enrollments?status= · accept/reject 응답.
  * 목록은 `_embedded.enrollments`. status 생략 시 PENDING.

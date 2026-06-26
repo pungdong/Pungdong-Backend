@@ -8,8 +8,9 @@
 
 학생이 코스의 **첫 만남(1회차)**을 강사가 연 예약가능시간 안의 슬롯에 신청 → 강사 답변 대기 → 수락/거절. availability 의 풍덩 점유(`PENDING`/`CONFIRMED`/`applicants[]`)를 **실제로 채우고**, venue·availability 메모가 "venue 가 존재하는 궁극적 이유"라 한 **`강사 coverage(예약가능시간) ∩ Venue 운영블록 ∩ 코스 1회차 위치` 교집합**을 구현한다(venue 부가 coverage 에 통째로 ⊆ 일 때만).
 
-- **컨트롤러**: `EnrollmentController`(`/enrollments/**` — 옵션·신청·내목록·취소, 학생), `InstructorEnrollmentController`(`/instructor/enrollments/**` — 받은 신청·수락·거절, 강사).
-- **서비스**: `EnrollmentOptionsService`(교집합 슬롯 계산), `EnrollmentService`(신청/취소/내목록 + session find-or-create), `InstructorEnrollmentService`(수락/거절/목록), `BookableSlotDeriver`(venue 운영블록 도출 — 옵션·신청 검증 공유). (옛 `WindowBinder` 제거 — session 이 생성 시점부터 위치를 소유해 bind/unbind 가 없다.)
+- **컨트롤러**: `EnrollmentController`(`/enrollments/**` — 옵션·신청·내목록·**강의일정 hub**·취소, 학생), `InstructorEnrollmentController`(`/instructor/enrollments/**` — 받은 신청·수락·거절, 강사).
+- **서비스**: `EnrollmentOptionsService`(교집합 슬롯 계산), `EnrollmentService`(신청/취소/내목록 + session find-or-create + **`mySchedule` hub 그룹핑**), `InstructorEnrollmentService`(수락/거절/목록), `BookableSlotDeriver`(venue 운영블록 도출 — 옵션·신청 검증 공유). (옛 `WindowBinder` 제거 — session 이 생성 시점부터 위치를 소유해 bind/unbind 가 없다.)
+- **강의일정 hub** (`GET /enrollments/mine/schedule`): 내 신청을 강의(course) 단위로 그룹핑 + 진행상태 파생(`RoundScheduleStatus`/`CourseScheduleStatus` — EnrollmentStatus 매핑, **저장 X 파생값**). `ScheduleHubResponse{filters, courses[rounds]}`. 추가 조회 없이 enrollment 스냅샷만. 설계의 done/finalizing/completed/메모/세션채팅/일정변경/환불은 BE 미구현(로드맵) → 응답에 없음. 정책·갭·로드맵 = [docs/features/student-schedule.md](../../../../../../../docs/features/student-schedule.md).
 - **엔티티**: `Enrollment`(student·course·roundIndex·**availabilitySession**·venueRefId·**date**·blockStart/End·ticketRef·status·가격 스냅샷) → `EnrollmentEquipment`(장비 스냅샷). enum `EnrollmentStatus`(PENDING/**PAYMENT_PENDING**/CONFIRMED/REJECTED/CANCELLED — `isActive()`/`occupiesCapacity()` + `ACTIVE`/`OCCUPYING` 집합 상수).
 - **레포**: `EnrollmentJpaRepo`(session별 집계·강사 코스별·내 목록).
 

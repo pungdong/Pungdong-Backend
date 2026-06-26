@@ -15,6 +15,7 @@ import com.diving.pungdong.course.CourseStatus;
 import com.diving.pungdong.course.RoundKind;
 import com.diving.pungdong.enrollment.dto.EnrollmentCreateRequest;
 import com.diving.pungdong.enrollment.dto.EnrollmentResponse;
+import com.diving.pungdong.enrollment.dto.ScheduleHubResponse;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.venue.VenueRefResolver;
@@ -27,7 +28,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -155,6 +158,85 @@ public class EnrollmentService {
         return list.stream()
                 .map(e -> EnrollmentResponse.of(e, names.get(e.getVenueRefId()), instructorName(e)))
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 수강생 강의일정 hub — 내 신청을 <b>강의(course) 단위로 그룹핑</b>하고 설계 상태어휘로 파생.
+     * 추가 조회/조인 없이 enrollment 스냅샷만 사용(payment·memo·채팅 등 enrichment 는 후속).
+     * docs/features/student-schedule.md.
+     */
+    public ScheduleHubResponse mySchedule(Account student) {
+        List<Enrollment> list = enrollmentRepo.findByStudentIdOrderByIdDesc(student.getId());
+        Map<String, String> venueNames = resolveNames(list);
+
+        // 최근 신청 먼저(OrderByIdDesc) → 강의 첫 등장 순서 보존
+        Map<Long, List<Enrollment>> byCourse = new LinkedHashMap<>();
+        for (Enrollment e : list) {
+            Long courseId = e.getCourse() == null ? null : e.getCourse().getId();
+            byCourse.computeIfAbsent(courseId, k -> new ArrayList<>()).add(e);
+        }
+
+        List<ScheduleHubResponse.ScheduleCourse> courses = byCourse.values().stream()
+                .map(group -> buildScheduleCourse(group, venueNames))
+                .sorted(Comparator.comparingInt(c -> CourseScheduleStatus.ORDER.indexOf(c.getStatus())))
+                .collect(Collectors.toList());
+
+        return new ScheduleHubResponse(buildScheduleFilters(courses), courses);
+    }
+
+    private ScheduleHubResponse.ScheduleCourse buildScheduleCourse(List<Enrollment> group,
+                                                                   Map<String, String> venueNames) {
+        List<ScheduleHubResponse.ScheduleRound> rounds = group.stream()
+                .sorted(Comparator.comparingInt(Enrollment::getRoundIndex))
+                .map(e -> ScheduleHubResponse.ScheduleRound.builder()
+                        .enrollmentId(e.getId())
+                        .roundIndex(e.getRoundIndex())
+                        .status(RoundScheduleStatus.from(e.getStatus()))
+                        .date(e.getDate())
+                        .blockStart(e.getBlockStart())
+                        .blockEnd(e.getBlockEnd())
+                        .venueRefId(e.getVenueRefId())
+                        .venueName(venueNames.get(e.getVenueRefId()))
+                        .amount(e.estimatedTotal())
+                        .rejectionReason(e.getRejectionReason())
+                        .createdAt(e.getCreatedAt())
+                        .respondedAt(e.getRespondedAt())
+                        .build())
+                .collect(Collectors.toList());
+
+        CourseScheduleStatus status = CourseScheduleStatus.derive(rounds.stream()
+                .map(ScheduleHubResponse.ScheduleRound::getStatus).collect(Collectors.toList()));
+
+        Enrollment any = group.get(0);
+        Course course = any.getCourse();
+        return ScheduleHubResponse.ScheduleCourse.builder()
+                .courseId(course == null ? null : course.getId())
+                .title(course == null ? null : course.getTitle())
+                .organizationCode(course == null ? null : course.getOrganizationCode())
+                .disciplineCode(course == null ? null : course.getDisciplineCode())
+                .levels(course == null ? List.of() : new ArrayList<>(course.getLevels()))
+                .instructorName(instructorName(any))
+                .status(status)
+                .rounds(rounds)
+                .build();
+    }
+
+    private static final Map<CourseScheduleStatus, String> COURSE_STATUS_LABEL = Map.of(
+            CourseScheduleStatus.PAYMENT_DUE, "결제 대기",
+            CourseScheduleStatus.RESCHEDULING, "일정 변경",
+            CourseScheduleStatus.WAITING, "수락 대기",
+            CourseScheduleStatus.PROGRESS, "진행중",
+            CourseScheduleStatus.CANCELLED, "취소");
+
+    private List<ScheduleHubResponse.FilterCount> buildScheduleFilters(
+            List<ScheduleHubResponse.ScheduleCourse> courses) {
+        List<ScheduleHubResponse.FilterCount> filters = new ArrayList<>();
+        filters.add(new ScheduleHubResponse.FilterCount("all", "전체", courses.size()));
+        for (CourseScheduleStatus s : CourseScheduleStatus.ORDER) {
+            int count = (int) courses.stream().filter(c -> c.getStatus() == s).count();
+            filters.add(new ScheduleHubResponse.FilterCount(s.name(), COURSE_STATUS_LABEL.get(s), count));
+        }
+        return filters;
     }
 
     /* ─── helpers ─── */
