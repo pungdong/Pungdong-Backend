@@ -18,7 +18,9 @@ locals {
 
   # 사용자가 SSM 콘솔에 미리 만들 SecureString. (container env var 이름 = SSM 파라미터 이름)
   # 경로: /plop/staging/<NAME>
-  user_secret_names = ["JWT_SECRET", "ADMIN_MAIL_ID", "ADMIN_MAIL_PASSWORD", "JUSO_SEARCH_KEY", "JUSO_COORD_KEY"]
+  # TOSS_*: 토스 결제위젯 키(테스트). ⚠️ staging-up 전에 /plop/staging/TOSS_{SECRET,CLIENT}_KEY 를
+  # SSM 에 미리 넣어야 task 가 기동된다(secret 미존재면 ECS 가 task 시작 실패).
+  user_secret_names = ["JWT_SECRET", "ADMIN_MAIL_ID", "ADMIN_MAIL_PASSWORD", "JUSO_SEARCH_KEY", "JUSO_COORD_KEY", "TOSS_SECRET_KEY", "TOSS_CLIENT_KEY"]
   user_secrets = {
     for n in local.user_secret_names :
     n => "arn:aws:ssm:${var.aws_region}:${local.account_id}:parameter${local.ssm_prefix}/${n}"
@@ -50,6 +52,8 @@ locals {
     IDENTITY_VERIFICATION_MODE = "stub"
     ADDRESS_GEOCODE_MODE       = "juso"
     JUSO_REFERER               = "https://staging.plop.cool"
+    # 결제: 토스 실연동(PG 심사용). 키는 위 secrets(SSM) 주입. 현재 테스트 키(실결제 X).
+    PAYMENT_MODE = "toss"
   }
 }
 
