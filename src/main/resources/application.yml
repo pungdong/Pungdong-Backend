@@ -107,6 +107,10 @@ pungdong:
     toss:
       secret-key: ${TOSS_SECRET_KEY:}             # 결제 승인 Basic 인증 (BE 전용, 노출 금지)
       client-key: ${TOSS_CLIENT_KEY:}             # 위젯 클라이언트 키 (FE 노출용 공개값)
+  # 🧪 [DEMO] PG 심사용 임시 — true 면 코스 보유 강사 프리다이빙+가용시간 전체 개방 + 신청 ~3초 후 자동수락.
+  # 운영 코드 아님. 심사 끝나면 demo 패키지/이 토글 제거. 기본 false.
+  demo:
+    enabled: ${DEMO_ENABLED:false}                # true|false (심사 환경에서만 true)
   # 공식(OFFICIAL) 위치 Sanity 캐시 reconcile. venue.md "캐싱·동기화·모니터링 설계".
   venue:
     reconcile:
