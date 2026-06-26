@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-공모전 데모 시드 — 강사 6명 + 강의 6개 + 투어 5개(총 11)를 실 REST API 로 생성한다.
+공모전 데모 시드 — 강사 6명 + 강의 6개를 실 REST API 로 생성한다. (투어는 INCLUDE_TOURS=True 시 +5)
 
 전제:
   - 앱이 localhost:8080 에서 구동 중 (master = 런칭 인프라 #77 포함 → course.seeded 컬럼 존재).
@@ -23,6 +23,10 @@ from pathlib import Path
 
 BASE = "http://localhost:8080"
 PASSWORD = "Pungdong!23"
+
+# 투어(OCEAN venue) 코스 생성 여부. 투어는 별도로 다룰 예정이라 이번 데모에선 끔.
+# True 로 바꾸면 각 강사의 tour 정의로 투어 코스도 다시 생성된다.
+INCLUDE_TOURS = False
 
 # 이미지는 Sanity 에셋(공개 CDN URL) 사용 — FE 가 어느 origin 에서 띄워도 보이게.
 # 맵은 scripts/upload_demo_to_sanity.py 가 생성. (없으면 먼저 그 스크립트를 실행할 것.)
@@ -213,7 +217,7 @@ INSTRUCTORS = [
     {
         "email": "demo_inst1@plop.cool", "nick": "김도현", "discipline": "FREEDIVING", "org": "AIDA",
         "lecture": {
-            "slug": "lecture-1", "title": "프리다이빙 입문 체험 클래스", "kind": "TRIAL", "price": 89000,
+            "slug": "lecture-1", "title": "프리다이빙 입문 체험 클래스", "kind": "TRIAL", "price": 50000,
             "rounds": ["수심 5m 풀에서 첫 호흡 정지와 이퀄라이징을 배우는 1:1 입문 세션입니다."],
             "description": "숨을 참고 물속으로 내려가는 첫 경험. 호흡법·이퀄라이징·안전 수칙을 1:1로 차근차근 익히는 입문 체험 클래스입니다. 장비 없이 수영만 가능하면 누구나 참여할 수 있어요.",
         },
@@ -273,7 +277,7 @@ INSTRUCTORS = [
         "email": "demo_inst4@plop.cool", "nick": "최예린", "discipline": "FREEDIVING", "org": "AIDA",
         "lecture": {
             "slug": "lecture-4", "title": "AIDA 레벨2 프리다이버 자격 과정", "kind": "CERTIFICATION",
-            "org": "AIDA", "levels": ["LEVEL_2"], "price": 380000,
+            "org": "AIDA", "levels": ["LEVEL_2"], "price": 250000,
             "rounds": [
                 "이론과 호흡 — 프리다이빙 생리학과 안전, 호흡 테크닉.",
                 "풀 세션 — 스태틱·다이내믹 기록과 레스큐 훈련.",
@@ -316,7 +320,7 @@ INSTRUCTORS = [
         "email": "demo_inst6@plop.cool", "nick": "정우진", "discipline": "FREEDIVING", "org": "AIDA",
         "lecture": {
             "slug": "lecture-6", "title": "AIDA 레벨3 딥 프리다이버 자격 과정", "kind": "CERTIFICATION",
-            "org": "AIDA", "levels": ["LEVEL_3"], "price": 620000,
+            "org": "AIDA", "levels": ["LEVEL_3"], "price": 400000,
             "rounds": [
                 "심화 이론 — 마우스필·역압평형(프렌젤/마우스필)과 깊은 수심의 생리학.",
                 "딥풀 세션 — FRC 다이빙과 깊은 수심 적응, 레스큐 심화.",
@@ -354,8 +358,8 @@ def main():
         created["instructors"].append(inst["nick"])
         created["lectures"].append((lid, inst["lecture"]["title"]))
 
-        # 투어용 해양 위치 + 코스 (투어 없는 강사는 생략)
-        if inst.get("tour"):
+        # 투어용 해양 위치 + 코스 (INCLUDE_TOURS=False 면 전체 생략, 투어 없는 강사도 생략)
+        if INCLUDE_TOURS and inst.get("tour"):
             inst["tour"]["discipline"] = d
             o = inst["ocean"]
             vref, tref = create_venue(token, d, "OCEAN", *o)
