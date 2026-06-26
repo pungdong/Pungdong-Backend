@@ -107,6 +107,14 @@ pungdong:
     toss:
       secret-key: ${TOSS_SECRET_KEY:}             # 결제 승인 Basic 인증 (BE 전용, 노출 금지)
       client-key: ${TOSS_CLIENT_KEY:}             # 위젯 클라이언트 키 (FE 노출용 공개값)
+  # 데모/심사 토글 (둘 다 기본 false, @Profile("!test")).
+  demo:
+    # 유지: 시드 강의(seeded) 강사에게 가용시간 전체 개방 → 시드 강의가 신청 가능해짐. coverage 는 한 번
+    # 쓰면 DB 에 남아 멱등. 켜서 한 번 부팅하면 됨.
+    seed-availability: ${DEMO_SEED_AVAILABILITY:false}
+    # 🧪 DROP 대상: PG 심사 동안만 — 신청을 ~3초 뒤 자동 수락(강사 수동수락 대체). 심사 끝나면 이 토글 +
+    # DemoAutoAcceptScheduler 제거.
+    auto-accept: ${DEMO_AUTO_ACCEPT:false}
   # 공식(OFFICIAL) 위치 Sanity 캐시 reconcile. venue.md "캐싱·동기화·모니터링 설계".
   venue:
     reconcile:
