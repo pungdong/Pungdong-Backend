@@ -37,6 +37,10 @@ locals {
     IDENTITY_VERIFICATION_MODE = "stub" # 실 본인확인기관 연동 전까지(심사용). 정식 출시 전 disabled/real 검토.
     ADDRESS_GEOCODE_MODE       = "juso"
     JUSO_REFERER               = "https://plop.cool" # 운영 juso 키 등록 referer 와 일치
+    # 🧪 공모전/PG심사 데모 동안만 — 신청 자동수락(강사 수동수락 대체) + seeded 강의 가용시간 개방.
+    # 심사 끝나면 두 값 false 로 되돌리고 DemoAutoAcceptScheduler 제거(application.yml 주석 참고).
+    DEMO_AUTO_ACCEPT       = "true"
+    DEMO_SEED_AVAILABILITY = "true"
   }
 }
 
