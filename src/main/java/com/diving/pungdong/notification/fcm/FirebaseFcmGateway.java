@@ -7,14 +7,19 @@ import com.google.firebase.messaging.MessagingErrorCode;
 import com.google.firebase.messaging.Notification;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
 
+/**
+ * firebase 활성 시 실제 FCM 전송 게이트웨이. {@code firebase.enabled=true} 일 때만 — 그 경우
+ * {@link com.diving.pungdong.global.config.FirebaseConfig} 가 {@link FirebaseMessaging} 빈을 만든다.
+ * {@code @ConditionalOnBean} 대신 프로퍼티 키잉으로 바꾼 이유는 {@link LoggingFcmGateway} 주석 참고.
+ */
 @Slf4j
 @Component("firebaseFcmGateway")
-@ConditionalOnBean(FirebaseMessaging.class)
+@ConditionalOnProperty(name = "firebase.enabled", havingValue = "true")
 @RequiredArgsConstructor
 public class FirebaseFcmGateway implements FcmGateway {
 
