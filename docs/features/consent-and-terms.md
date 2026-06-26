@@ -65,6 +65,7 @@
 | 2026-06-12 | **bump 깜빡 = Studio validation 으로 방어** (BE content-hash 키잉은 보류) | 신뢰 주체(관리자)의 실수라 방어는 FE 레이어. 단일 admin 단계엔 hash 과함 — 비기술 운영자 여럿 생기면 재검토 |
 | 2026-06-12 | 기존 `agreedRequiredTerms` boolean 게이트와 **공존** | consent 는 그 위의 감사 이력. 수렴은 후속 |
 | 2026-06-26 | 게시 전문은 별도 `legalDocument` 타입(slug=terms/privacy/refund) | 앱 심사·푸터가 요구하는 "전문 한 장". `term`(동의 체크박스)과 다른 표면 — FE 가 CDN 직접, BE 박제 대상 아님. FE 가 임시 하드코딩하던 걸 Sanity 로 환원 |
+| 2026-06-26 | legalDocument 를 **FE-direct → BE 프록시(`GET /legal/{slug}`)** 로 (임시 우회) | 이 Sanity 프로젝트가 **2026-06-11 이후 생성 문서를 익명 읽기에서 거부**(`reason:permission`, 생성일 기반·플랜상 콘솔로 못 풀어 지원 문의 중). BE 가 read 토큰으로 읽어 공개 제공([legal/CLAUDE.md](../../src/main/java/com/diving/pungdong/legal/CLAUDE.md)). 접근 고쳐지면 FE-direct 로 되돌릴 수 있음. 원인 규명: 메모리 `sanity_node22_manifest` |
 | 2026-06-12 | Sanity Studio 를 **FE 레포 → BE 레포 `sanity/`** 로 이관 | 스키마 계약을 BE 도메인이 소유 + BE 가 term 서버사이드로 읽음 + back-office 성격. 독립 레포(C안)는 프로젝트 커지면 재검토. queries 도 BE 단일 출처(FE 복사) |
 
 ## 미해결 / 확장

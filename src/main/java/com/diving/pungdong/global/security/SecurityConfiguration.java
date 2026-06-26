@@ -56,6 +56,7 @@ public class SecurityConfiguration {
                         .antMatchers(HttpMethod.GET, "/courses/level-labels").permitAll()
                         .antMatchers(HttpMethod.GET, "/courses/*/detail").permitAll()
                         .antMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
+                        .antMatchers(HttpMethod.GET, "/legal/**").permitAll()
                         .antMatchers(HttpMethod.POST, "/webhooks/sanity/venue").permitAll()
                         .antMatchers("/admin/instructor-applications/**").hasRole("ADMIN")
                         .antMatchers("/instructor-applications/**").authenticated()
