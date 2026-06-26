@@ -252,6 +252,20 @@ INSTRUCTORS = [
         },
         "pool": ("서울 스쿠버 트레이닝풀", "서울특별시 송파구 올림픽로 424", 37.520, 127.121, 5, 30000, 40000),
         "ocean": ("문섬 다이빙 포인트", "제주특별자치도 서귀포시 남성중로 40", 33.227, 126.567, 30, 70000, 80000),
+        # 추가 패키지 강의 — 이미지는 안 쓰인 tour-2(제주 문섬 스쿠버) 재사용. 레벨1+2 = 자동 패키지.
+        "extra": [{
+            "slug": "tour-2", "title": "PADI 오픈워터 + 어드밴스드 패키지", "kind": "CERTIFICATION",
+            "org": "PADI", "levels": ["LEVEL_1", "LEVEL_2"], "price": 690000,
+            "rounds": [
+                "이론 & 장비 — 다이빙 원리·안전·장비 셋업.",
+                "제한수역(풀) 실습 — 호흡·중성부력·마스크 클리어링.",
+                "해양 실습 1 — 첫 바다 다이빙.",
+                "해양 실습 2 — 오픈워터(L1) 자격 완수.",
+                "어드밴스드 1 — 딥 다이빙 + 수중 내비게이션.",
+                "어드밴스드 2 — 보트·드리프트 다이브 + 어드밴스드(L2) 자격 완수.",
+            ],
+            "description": "PADI 오픈워터와 어드밴스드 오픈워터를 한 번에 — 입문부터 수심 30m 어드밴스드까지 끊김 없이 연속으로 취득하는 패키지 과정입니다. 따로 등록하는 것보다 합리적인 가격에, 같은 강사와 호흡을 이어가며 빠르게 성장할 수 있어요.",
+        }],
     },
     {
         "email": "demo_inst3@plop.cool", "nick": "박준영", "discipline": "SCUBA", "org": "SSI",
@@ -357,6 +371,13 @@ def main():
         print(f"    ↳ 강의 #{lid}  {inst['lecture']['title']}")
         created["instructors"].append(inst["nick"])
         created["lectures"].append((lid, inst["lecture"]["title"]))
+
+        # 추가 강의(예: 패키지 과정) — 같은 강사·같은 풀 위치 재사용
+        for ex in inst.get("extra", []):
+            ex["discipline"] = d
+            exid = create_course(token, ex, vref, tref)
+            print(f"    ↳ 강의 #{exid}  {ex['title']}")
+            created["lectures"].append((exid, ex["title"]))
 
         # 투어용 해양 위치 + 코스 (INCLUDE_TOURS=False 면 전체 생략, 투어 없는 강사도 생략)
         if INCLUDE_TOURS and inst.get("tour"):
