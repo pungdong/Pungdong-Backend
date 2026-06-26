@@ -10,7 +10,7 @@
 - **이벤트**: `event/ReservationCreatedEvent`, `ReservationCancelledEvent`, `LectureNotificationEvent` — 도메인에서 `ApplicationEventPublisher` 로 발행
 - **Outbox**: `NotificationOutboxWriter`(리스너, PENDING 행 기록), `NotificationOutbox` 엔티티, `NotificationStatus`(PENDING/FAILED/SENT/GAVE_UP), `NotificationType`
 - **워커**: `NotificationDeliveryWorker`(@Scheduled, PENDING/FAILED 픽업 → 전송 → 상태전이, exp backoff 10회 → GAVE_UP), `NotificationDispatcher`, `NotificationPayload`
-- **FCM**: `fcm/FcmGateway`(인터페이스), `FirebaseFcmGateway`(실전송 + UNREGISTERED/INVALID/NOT_FOUND 시 토큰 행 삭제), `LoggingFcmGateway`(로컬/스텁)
+- **FCM**: `fcm/FcmGateway`(인터페이스), `FirebaseFcmGateway`(실전송 + UNREGISTERED/INVALID/NOT_FOUND 시 토큰 행 삭제), `LoggingFcmGateway`(로컬/스텁). **둘은 `firebase.enabled` 프로퍼티로 상호배타 키잉**(true=Firebase, false/미설정=Logging) — `@ConditionalOnMissingBean`/`@ConditionalOnBean` 으로 바꾸지 말 것(↓ 결정 히스토리).
 - **retention**: `NotificationOutboxRetention`(@Scheduled 매일 4am, SENT 30일↑ 삭제. FAILED/GAVE_UP 영구보존)
 - **레포**: `NotificationOutboxJpaRepo`
 
@@ -27,6 +27,7 @@
 - **상태 머신**: PENDING→(worker)→SENT / 실패 시 FAILED→재시도(exp backoff 10회)→GAVE_UP(human attention, log.warn). 어드민 엔드포인트는 출시 후 운영 필요 시.
 - **reactive 토큰 정리만**: FCM 에러 응답(UNREGISTERED 등)으로 죽은 토큰 삭제. 시간 기반 정리 없음 — 저빈도 사용자(수강생은 1년에 한 번급) 도메인이라 last_seen 기반 정리는 틀린 축.
 - **retention**: SENT 만 30일 후 삭제, FAILED/GAVE_UP 영구보존(포렌식).
+- **FCM 게이트웨이 선택 = 프로퍼티 키잉 (`@ConditionalOnMissingBean` 금지)** — `LoggingFcmGateway`/`FirebaseFcmGateway` 는 `@ConditionalOnProperty("firebase.enabled")` 의 반대값으로 잠근다. 예전 `@ConditionalOnMissingBean(name="firebaseFcmGateway")` 은 **컴포넌트 스캔에서 평가 순서가 비보장**이라, 무관한 클래스(#93·#94)가 추가돼 스캔 순서가 바뀌자 prod(`FIREBASE_ENABLED=false`)에서 FcmGateway 빈이 하나도 안 떠 **부팅이 크래시 루프**(APPLICATION FAILED TO START, #97). 6/24 이미지는 우연히 순서가 맞아 동작했음. **컴포넌트 스캔 빈끼리 `@ConditionalOnMissingBean`/`@ConditionalOnBean` 금지** — 프로퍼티로 결정론적 키잉(회귀 테스트 `FcmGatewayWiringTest`). 메모리 `feedback_conditional_bean_wiring`.
 
 ## 안전망 테스트
 
