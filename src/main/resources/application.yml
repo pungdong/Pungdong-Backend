@@ -85,11 +85,14 @@ pungdong:
   admin:
     emails: ${ADMIN_EMAILS:}
   # 약관 콘텐츠 소스 (Sanity). 동의 기록 시 BE 가 (key,version) 으로 전문을 직접 받아 박제한다.
-  # public dataset 읽기라 토큰 불필요. projectId 는 공개값 — FE 와 동일.
+  # public dataset 읽기라 대부분 토큰 불필요(projectId 는 공개값). 단 legalDocument 는 익명 거부라
+  # legal 프록시(GET /legal/{slug})만 read 토큰으로 읽는다(legal/LegalDocumentClient 주석 참고).
   sanity:
     project-id: ${SANITY_PROJECT_ID:rc448mwo}
     dataset: ${SANITY_DATASET:production}
     api-version: ${SANITY_API_VERSION:2024-01-01}
+    token: ${SANITY_TOKEN:}                       # Viewer read-only. 없으면 legal 프록시 빈 응답(로컬 기본)
+    legal-ttl-ms: ${SANITY_LEGAL_TTL_MS:300000}   # legal 프록시 slug 캐시 TTL (기본 5분)
   # 주소 검색 + 좌표 변환 (juso). 좌표제공 API 는 개발용 승인키가 없어 로컬은 stub 기본.
   # staging/prod 만 juso 실호출: ADDRESS_GEOCODE_MODE=juso + 키 2개(검색/좌표) + 등록 URL referer.
   address:

@@ -1262,16 +1262,17 @@ export interface SiteSettings {
 }
 
 // ============================================================
-// 법적 고지 문서 (legalDocument) — 이용약관/개인정보처리방침/취소·환불 전문
-// ⚠️ BE 엔드포인트가 아니라 **Sanity 문서**. FE 가 Sanity CDN 에서 직접 읽어 /{slug} 페이지 + 푸터 모달에 렌더.
-//   GROQ: *[_type == "legalDocument" && slug.current == $slug && active == true][0]
-//         { "slug": slug.current, title, body, version, effectiveDate }
-//   `term`(동의 체크박스)과 다른 타입 — 이건 **공개 게시 전문 한 장**(표시 전용).
+// 법적 고지 (legal) — 이용약관/개인정보처리방침/취소·환불 전문
+// ★ GET /legal/{slug} (slug = terms | privacy | refund). 공개(인증 불필요), 404 = 없음.
+//   BE 가 Sanity legalDocument 를 read 토큰으로 서버사이드 조회해 제공한다.
+//   (원래는 FE 가 Sanity CDN 직접 읽기였으나, 이 Sanity 프로젝트가 2026-06-11 이후 생성 문서를
+//    익명에서 거부 → BE 프록시로 전환. Sanity 지원이 접근을 고치면 FE-direct 로 되돌릴 수 있음.)
 //   body 는 Portable Text(블록 배열) — <PortableTextBody/> 로 렌더.
 // ============================================================
 
 export type LegalDocumentSlug = 'terms' | 'privacy' | 'refund';
 
+/** GET /legal/{slug} 응답. */
 export interface LegalDocument {
   slug: LegalDocumentSlug;
   title: string;

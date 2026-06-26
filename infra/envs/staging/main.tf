@@ -18,9 +18,10 @@ locals {
 
   # 사용자가 SSM 콘솔에 미리 만들 SecureString. (container env var 이름 = SSM 파라미터 이름)
   # 경로: /plop/staging/<NAME>
-  # TOSS_*: 토스 결제위젯 키(테스트). ⚠️ staging-up 전에 /plop/staging/TOSS_{SECRET,CLIENT}_KEY 를
-  # SSM 에 미리 넣어야 task 가 기동된다(secret 미존재면 ECS 가 task 시작 실패).
-  user_secret_names = ["JWT_SECRET", "ADMIN_MAIL_ID", "ADMIN_MAIL_PASSWORD", "JUSO_SEARCH_KEY", "JUSO_COORD_KEY", "TOSS_SECRET_KEY", "TOSS_CLIENT_KEY"]
+  # TOSS_*: 토스 결제위젯 키(테스트). SANITY_TOKEN: legal 프록시용 Viewer read 토큰(legal/CLAUDE.md).
+  # ⚠️ staging-up 전에 /plop/staging/{TOSS_SECRET_KEY,TOSS_CLIENT_KEY,SANITY_TOKEN} 를 SSM 에 미리
+  # 넣어야 task 가 기동된다(secret 미존재면 ECS 가 task 시작 실패). SANITY_TOKEN 은 이미 존재.
+  user_secret_names = ["JWT_SECRET", "ADMIN_MAIL_ID", "ADMIN_MAIL_PASSWORD", "JUSO_SEARCH_KEY", "JUSO_COORD_KEY", "TOSS_SECRET_KEY", "TOSS_CLIENT_KEY", "SANITY_TOKEN"]
   user_secrets = {
     for n in local.user_secret_names :
     n => "arn:aws:ssm:${var.aws_region}:${local.account_id}:parameter${local.ssm_prefix}/${n}"
