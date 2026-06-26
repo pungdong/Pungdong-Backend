@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-공모전 데모 시드 — 강사 6명 + 강의 6개 + 투어 5개(총 11)를 실 REST API 로 생성한다.
+공모전 데모 시드 — 강사 6명 + 강의 6개를 실 REST API 로 생성한다. (투어는 INCLUDE_TOURS=True 시 +5)
 
 전제:
   - 앱이 localhost:8080 에서 구동 중 (master = 런칭 인프라 #77 포함 → course.seeded 컬럼 존재).
@@ -19,10 +19,15 @@ import subprocess
 import sys
 import urllib.request
 import urllib.error
+from datetime import date, timedelta
 from pathlib import Path
 
 BASE = "http://localhost:8080"
 PASSWORD = "Pungdong!23"
+
+# 투어(OCEAN venue) 코스 생성 여부. 투어는 별도로 다룰 예정이라 이번 데모에선 끔.
+# True 로 바꾸면 각 강사의 tour 정의로 투어 코스도 다시 생성된다.
+INCLUDE_TOURS = False
 
 # 이미지는 Sanity 에셋(공개 CDN URL) 사용 — FE 가 어느 origin 에서 띄워도 보이게.
 # 맵은 scripts/upload_demo_to_sanity.py 가 생성. (없으면 먼저 그 스크립트를 실행할 것.)
@@ -177,6 +182,24 @@ def create_venue(token, discipline, vtype, name, address, lat, lng, depth, fee_w
     return b["venueRefId"], b["tickets"][0]["ticketRef"]
 
 
+_WEEKDAYS = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"]
+
+
+def open_availability(token):
+    """데모 강사 가용시간 전체 개방(오늘~+8주, 매일 00:00–23:59). FOUR_WEEKS x2(week0·week4).
+    시드 안에서 직접 열어, 재시드 후 재기동 없이도 신청 슬롯이 바로 생기게 한다(coverage 는 머지·멱등)."""
+    today = date.today()
+    monday = today - timedelta(days=today.weekday())  # 이번 주 월요일
+    # 1블록=오늘부터(주0~3), 2블록=4주차 월요일부터(주4~7) → 경계 빈틈 없이 연속 8주
+    for anchor in (today, monday + timedelta(weeks=4)):
+        s, b = http("POST", "/instructor/availability/coverage", token, {
+            "mode": "FOUR_WEEKS", "date": anchor.isoformat(), "dayOfWeeks": _WEEKDAYS,
+            "startTime": "00:00:00", "endTime": "23:59:00",
+        })
+        if s not in (200, 201):
+            raise RuntimeError(f"가용시간 개방 실패: {s} {b}")
+
+
 def create_course(token, course, venue_ref, ticket_ref):
     rounds = []
     for r in course["rounds"]:
@@ -213,7 +236,7 @@ INSTRUCTORS = [
     {
         "email": "demo_inst1@plop.cool", "nick": "김도현", "discipline": "FREEDIVING", "org": "AIDA",
         "lecture": {
-            "slug": "lecture-1", "title": "프리다이빙 입문 체험 클래스", "kind": "TRIAL", "price": 89000,
+            "slug": "lecture-1", "title": "프리다이빙 입문 체험 클래스", "kind": "TRIAL", "price": 50000,
             "rounds": ["수심 5m 풀에서 첫 호흡 정지와 이퀄라이징을 배우는 1:1 입문 세션입니다."],
             "description": "숨을 참고 물속으로 내려가는 첫 경험. 호흡법·이퀄라이징·안전 수칙을 1:1로 차근차근 익히는 입문 체험 클래스입니다. 장비 없이 수영만 가능하면 누구나 참여할 수 있어요.",
         },
@@ -224,6 +247,20 @@ INSTRUCTORS = [
         },
         "pool": ("부산 프리다이빙 센터", "부산광역시 해운대구 센텀중앙로 90", 35.169, 129.130, 7, 35000, 45000),
         "ocean": ("오륙도 다이빙 포인트", "부산광역시 남구 오륙도로 137", 35.094, 129.122, 18, 60000, 70000),
+        # 추가 패키지 강의 — PADI 프리다이빙(AIDA 가 2개라 PADI 로). 레벨1+2 = 자동 패키지.
+        # 이미지는 안 쓰인 tour-4(제주 범섬 블루홀, 프리다이빙) 재사용.
+        "extra": [{
+            "slug": "tour-4", "title": "PADI 프리다이버 + 어드밴스드 패키지", "kind": "CERTIFICATION",
+            "org": "PADI", "levels": ["LEVEL_1", "LEVEL_2"], "price": 390000,
+            "rounds": [
+                "이론 & 호흡 — 프리다이빙 생리학·안전·호흡법.",
+                "풀 세션 1 — 스태틱·다이내믹 기본기 (프리다이버 L1).",
+                "해양 세션 1 — CWT 라인 다이빙으로 프리다이버(L1) 완수.",
+                "풀 세션 2 — 다이내믹 거리 향상·레스큐 (어드밴스드).",
+                "해양 세션 2 — 수심 20m+ 프리폴로 어드밴스드 프리다이버(L2) 완수.",
+            ],
+            "description": "PADI 프리다이버와 어드밴스드 프리다이버를 한 번에 — 호흡·안전부터 수심 20m+ 프리폴까지 끊김 없이 연속으로 취득하는 패키지 과정입니다. 따로 등록하는 것보다 합리적인 가격에, 같은 강사와 호흡을 이어가며 빠르게 성장할 수 있어요.",
+        }],
     },
     {
         "email": "demo_inst2@plop.cool", "nick": "이서윤", "discipline": "SCUBA", "org": "PADI",
@@ -273,7 +310,7 @@ INSTRUCTORS = [
         "email": "demo_inst4@plop.cool", "nick": "최예린", "discipline": "FREEDIVING", "org": "AIDA",
         "lecture": {
             "slug": "lecture-4", "title": "AIDA 레벨2 프리다이버 자격 과정", "kind": "CERTIFICATION",
-            "org": "AIDA", "levels": ["LEVEL_2"], "price": 380000,
+            "org": "AIDA", "levels": ["LEVEL_2"], "price": 250000,
             "rounds": [
                 "이론과 호흡 — 프리다이빙 생리학과 안전, 호흡 테크닉.",
                 "풀 세션 — 스태틱·다이내믹 기록과 레스큐 훈련.",
@@ -316,7 +353,7 @@ INSTRUCTORS = [
         "email": "demo_inst6@plop.cool", "nick": "정우진", "discipline": "FREEDIVING", "org": "AIDA",
         "lecture": {
             "slug": "lecture-6", "title": "AIDA 레벨3 딥 프리다이버 자격 과정", "kind": "CERTIFICATION",
-            "org": "AIDA", "levels": ["LEVEL_3"], "price": 620000,
+            "org": "AIDA", "levels": ["LEVEL_3"], "price": 400000,
             "rounds": [
                 "심화 이론 — 마우스필·역압평형(프렌젤/마우스필)과 깊은 수심의 생리학.",
                 "딥풀 세션 — FRC 다이빙과 깊은 수심 적응, 레스큐 심화.",
@@ -342,7 +379,8 @@ def main():
         token = signup_or_login(inst["email"], inst["nick"])
         vid = verify_identity(token, inst["nick"])
         apply_instructor(token, d, vid, inst["org"], inst.get("org_other"))
-        print(f"  강사{i} {inst['nick']} ({d}) — 가입·본인확인·신청 완료")
+        open_availability(token)  # 오늘~+8주 가용시간 전체 개방 → 신청 슬롯 즉시 생성(재기동 불필요)
+        print(f"  강사{i} {inst['nick']} ({d}) — 가입·본인확인·신청·가용시간 완료")
 
         inst["lecture"]["discipline"] = d
 
@@ -354,8 +392,15 @@ def main():
         created["instructors"].append(inst["nick"])
         created["lectures"].append((lid, inst["lecture"]["title"]))
 
-        # 투어용 해양 위치 + 코스 (투어 없는 강사는 생략)
-        if inst.get("tour"):
+        # 추가 강의(예: 패키지 과정) — 같은 강사·같은 풀 위치 재사용
+        for ex in inst.get("extra", []):
+            ex["discipline"] = d
+            exid = create_course(token, ex, vref, tref)
+            print(f"    ↳ 강의 #{exid}  {ex['title']}")
+            created["lectures"].append((exid, ex["title"]))
+
+        # 투어용 해양 위치 + 코스 (INCLUDE_TOURS=False 면 전체 생략, 투어 없는 강사도 생략)
+        if INCLUDE_TOURS and inst.get("tour"):
             inst["tour"]["discipline"] = d
             o = inst["ocean"]
             vref, tref = create_venue(token, d, "OCEAN", *o)
