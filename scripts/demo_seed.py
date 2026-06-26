@@ -15,6 +15,7 @@
    생성한 코스는 seeded=1 로 표시 — 런칭 시 Sanity siteSettings.showSeededCourses=false 로 가린다(데이터 보존).
 """
 import json
+import os
 import subprocess
 import sys
 import urllib.request
@@ -22,8 +23,17 @@ import urllib.error
 from datetime import date, timedelta
 from pathlib import Path
 
-BASE = "http://localhost:8080"
+# 기본은 로컬(localhost:8080 + docker mysql). 환경변수로 staging/prod 타겟 가능:
+#   SEED_BASE=https://api.plop.cool SEED_DB_HOST=<rds-endpoint> SEED_DB_USER/PASS/NAME=...
+BASE = os.environ.get("SEED_BASE", "http://localhost:8080")
 PASSWORD = "Pungdong!23"
+
+# DB 접속 — 항상 로컬 docker(pungdong-mysql) 컨테이너의 mysql 클라이언트를 쓰되,
+# SEED_DB_HOST 가 있으면 그 클라이언트로 원격 호스트(RDS)에 붙는다(컨테이너는 인터넷 도달 가능).
+DB_HOST = os.environ.get("SEED_DB_HOST", "")  # 빈 값 = 로컬(호스트 생략 = 컨테이너 내부 mysql)
+DB_USER = os.environ.get("SEED_DB_USER", "pungdong")
+DB_PASS = os.environ.get("SEED_DB_PASS", "pungdongpw")
+DB_NAME = os.environ.get("SEED_DB_NAME", "pungdong")
 
 # 투어(OCEAN venue) 코스 생성 여부. 투어는 별도로 다룰 예정이라 이번 데모에선 끔.
 # True 로 바꾸면 각 강사의 tour 정의로 투어 코스도 다시 생성된다.
@@ -71,11 +81,11 @@ DEMO_LIKE = "email LIKE 'demo\\_%'"  # demo_inst{N}@plop.cool
 
 
 def mysql(sql, capture=False):
-    res = subprocess.run(
-        ["docker", "exec", "-i", "pungdong-mysql",
-         "mysql", "-upungdong", "-ppungdongpw", "pungdong", "-N", "-e", sql],
-        capture_output=True, text=True,
-    )
+    cmd = ["docker", "exec", "-i", "pungdong-mysql", "mysql"]
+    if DB_HOST:
+        cmd += ["-h", DB_HOST]
+    cmd += [f"-u{DB_USER}", f"-p{DB_PASS}", DB_NAME, "-N", "-e", sql]
+    res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
         raise RuntimeError("mysql 실패: " + res.stderr.strip()[:300])
     return res.stdout if capture else None
