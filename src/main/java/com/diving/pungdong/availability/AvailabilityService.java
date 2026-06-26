@@ -143,12 +143,12 @@ public class AvailabilityService {
         return toResponse(session);
     }
 
-    /** 일정 삭제 — 활성(PENDING/CONFIRMED) 신청이 있으면 거부(확정 취소 없음). coverage 는 그대로(독립). */
+    /** 일정 삭제 — 활성(대기/결제대기/확정) 신청이 있으면 거부(확정 취소 없음). coverage 는 그대로(독립). */
     @Transactional
     public void deleteSession(Account instructor, Long id) {
         AvailabilitySession s = requireOwned(instructor, id);
         boolean hasActive = !enrollmentRepo.findByAvailabilitySessionIdAndStatusIn(
-                id, List.of(EnrollmentStatus.PENDING, EnrollmentStatus.CONFIRMED)).isEmpty();
+                id, EnrollmentStatus.ACTIVE).isEmpty();
         if (hasActive) {
             throw new BadRequestException(); // 신청이 있는 일정은 못 지움
         }
@@ -198,7 +198,7 @@ public class AvailabilityService {
      */
     private void bumpCapacityIfExceeded(AvailabilitySession s) {
         int occupancy = s.heldCount()
-                + enrollmentRepo.countByAvailabilitySessionIdAndStatus(s.getId(), EnrollmentStatus.CONFIRMED);
+                + enrollmentRepo.countByAvailabilitySessionIdAndStatusIn(s.getId(), EnrollmentStatus.OCCUPYING);
         if (occupancy > s.effectiveCapacity()) {
             s.setCapacityOverride(occupancy);
         }
@@ -345,7 +345,8 @@ public class AvailabilityService {
     private AvailabilitySessionResponse toResponse(AvailabilitySession s, Map<String, VenueResponse> venueByRef,
                                                    Map<Long, List<Enrollment>> activeBySession) {
         List<Enrollment> active = activeBySession.getOrDefault(s.getId(), List.of());
-        int confirmed = (int) active.stream().filter(e -> e.getStatus() == EnrollmentStatus.CONFIRMED).count();
+        // 점유(결제대기+확정)는 confirmed 버킷으로 합산 — 둘 다 좌석을 차지(v1; FE 별도 표시는 후속).
+        int confirmed = (int) active.stream().filter(e -> e.getStatus().occupiesCapacity()).count();
         int pending = (int) active.stream().filter(e -> e.getStatus() == EnrollmentStatus.PENDING).count();
         int external = s.heldCount();
         SlotStatus status = deriveStatus(s, confirmed, pending);
@@ -372,7 +373,7 @@ public class AvailabilityService {
             return Map.of();
         }
         return enrollmentRepo.findByAvailabilitySessionIdInAndStatusIn(
-                        sessionIds, List.of(EnrollmentStatus.PENDING, EnrollmentStatus.CONFIRMED))
+                        sessionIds, EnrollmentStatus.ACTIVE)
                 .stream().collect(Collectors.groupingBy(e -> e.getAvailabilitySession().getId()));
     }
 

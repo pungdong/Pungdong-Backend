@@ -15,7 +15,7 @@
 | venue | [venue.md](../architecture/venue.md) | 운영 시간블록·입장료(daypart fee)·장비 |
 | course | [course.md](../architecture/course.md) | 1회차 후보 위치·이용권·수강료 |
 | account · instructor-application | — | 학생/강사 · 강사 게이트 |
-| (후속) payment | — | 강사 확정 후 결제(PG)·정산 |
+| payment | [payment.md](payment.md) · [architecture](../architecture/payment.md) | 강사 수락 후 결제(토스 결제위젯) → 확정. 정산 후속 |
 
 ## 정책 (requirements)
 

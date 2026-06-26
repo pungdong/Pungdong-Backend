@@ -1061,9 +1061,11 @@ export interface AvailabilityCalendarResponse {
 // venue 부가 coverage 에 통째로 ⊆ 일 때만 옵션이 됨(부분겹침 불가). 강사 기존 일정과 시간 겹치는 부는 제외
 // (이중부킹 방지 — submit 도 -1015 로 재검증). 첫 신청이 그 (위치,블록) session 생성, 같은 (위치,블록) 신청은
 // join. 슬롯 식별자 = (date, venueRefId, blockStart, blockEnd) — windowId 없음.
-// 신청 시 결제 없음 — 강사 수락(CONFIRMED) 후 결제(PG, 후속).
+// 흐름: 신청(PENDING) → 강사 수락(PAYMENT_PENDING, 결제 대기·슬롯 점유) → 결제 승인(CONFIRMED).
+// 결제는 payment 섹션(POST /payments/prepare·confirm, 토스 결제위젯) 참고.
 
-export type EnrollmentStatus = 'PENDING' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED';
+// PAYMENT_PENDING = 강사가 수락해 결제를 기다리는 상태(좌석 점유). 결제 완료 시 CONFIRMED.
+export type EnrollmentStatus = 'PENDING' | 'PAYMENT_PENDING' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED';
 
 /**
  * 신청 옵션 — GET /enrollments/options?courseId= (authenticated). 교집합 평탄 슬롯 + 위치별 장비.
@@ -1134,7 +1136,7 @@ export interface EnrollmentEquipmentLine {
 
 /**
  * 내 신청(학생) — 신청 직후 / GET /enrollments/mine. 목록은 `_embedded.enrollments`.
- * 금액은 신청 시점 추정 스냅샷(권위 금액은 확정/결제 시점, 후속).
+ * 금액은 신청 시점 추정 스냅샷 — 권위(청구) 금액은 결제 시점 POST /payments/prepare 응답의 amount.
  */
 export interface EnrollmentResponse extends HalLinks {
   id: number;
@@ -1177,6 +1179,50 @@ export interface InstructorEnrollmentResponse extends HalLinks {
   total: number;
   equipment: EnrollmentEquipmentLine[];
   createdAt: string | null;
+}
+
+// ============================================================
+// 결제 (payment 도메인) — 토스페이먼츠 결제위젯 v2
+// docs/features/payment.md · docs/architecture/payment.md 참고
+// ============================================================
+// 흐름: 강사 수락(enrollment = PAYMENT_PENDING) → POST /payments/prepare(주문 생성, 위젯 구동값)
+//   → FE 위젯 렌더 + requestPayment → 토스가 successUrl?paymentKey&orderId&amount 로 리다이렉트
+//   → POST /payments/confirm(그 3개 값) → 서버가 금액 대조 후 토스 승인 → enrollment CONFIRMED.
+// ★ amount·orderId 는 서버가 정한 값(권위) — FE 는 prepare 응답값을 그대로 위젯/confirm 에 넘긴다.
+//   임의 변경 시 승인 거절(서버가 저장한 금액과 대조 + 토스도 같은 금액으로 승인). clientKey 만 공개값.
+// 로컬/테스트는 stub(토스 미호출·즉시 DONE), staging/prod 만 실연동(PAYMENT_MODE=toss).
+
+export type PaymentStatus = 'READY' | 'DONE' | 'CANCELED' | 'FAILED';
+
+/** 결제 준비 — POST /payments/prepare (authenticated). 수락된(PAYMENT_PENDING) 신청에 대해 주문 생성. */
+export interface PaymentPrepareRequest {
+  enrollmentId: number;
+}
+
+/** 위젯 구동값. amount·orderId·orderName 은 서버 권위값 — 그대로 위젯에 넘긴다. clientKey 는 공개. */
+export interface PaymentPrepareResponse {
+  orderId: string;
+  amount: number;       // 원 — 수강료(라이브) + 입장료 + 장비
+  orderName: string;    // "코스명 (N회차)"
+  clientKey: string;    // 토스 위젯 클라이언트 키(공개값)
+  customerKey: string;  // 위젯 customerKey(계정 식별, PII 아님)
+}
+
+/** 결제 승인 — POST /payments/confirm (authenticated). 위젯 성공 리다이렉트의 3개 값 그대로. */
+export interface PaymentConfirmRequest {
+  paymentKey: string;
+  orderId: string;
+  amount: number;       // 서버 권위 금액과 다르면 400 (FE 는 prepare 의 amount 를 그대로)
+}
+
+/** 승인 결과 + 그 결과로 확정된 신청 상태. 멱등 — 이미 DONE 인 주문 재승인도 200 DONE. */
+export interface PaymentConfirmResponse {
+  orderId: string;
+  status: PaymentStatus;          // 성공 = 'DONE'
+  amount: number;
+  approvedAt: string | null;      // ISO-8601 offset
+  enrollmentId: number | null;
+  enrollmentStatus: EnrollmentStatus; // 성공 후 'CONFIRMED'
 }
 
 // ============================================================

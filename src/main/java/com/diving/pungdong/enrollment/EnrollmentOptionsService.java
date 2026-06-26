@@ -94,11 +94,12 @@ public class EnrollmentOptionsService {
                 sessionKey(s.getDate(), s.getVenueRefId(), s.getStartTime(), s.getEndTime()), s));
         Map<LocalDate, List<AvailabilitySession>> sessionsByDate = sessions.stream()
                 .collect(Collectors.groupingBy(AvailabilitySession::getDate));
-        Map<Long, Integer> confirmedBySession = enrollmentRepo
+        // 점유(결제대기+확정) 합산 — 남은 좌석 계산. PENDING 은 하드캡 안 함이라 제외.
+        Map<Long, Integer> occupiedBySession = enrollmentRepo
                 .findByAvailabilitySessionIdInAndStatusIn(
                         sessions.stream().map(AvailabilitySession::getId).collect(Collectors.toList()),
-                        List.of(EnrollmentStatus.PENDING, EnrollmentStatus.CONFIRMED))
-                .stream().filter(e -> e.getStatus() == EnrollmentStatus.CONFIRMED)
+                        EnrollmentStatus.OCCUPYING)
+                .stream()
                 .collect(Collectors.groupingBy(e -> e.getAvailabilitySession().getId(),
                         Collectors.summingInt(e -> 1)));
 
@@ -125,7 +126,7 @@ public class EnrollmentOptionsService {
                     AvailabilitySession s = sessionByKey.get(sessionKey(date, venueRef, b.getStart(), b.getEnd()));
                     int capacity = s == null ? defaultCapacity : s.effectiveCapacity();
                     int occupied = s == null ? 0
-                            : confirmedBySession.getOrDefault(s.getId(), 0) + s.heldCount();
+                            : occupiedBySession.getOrDefault(s.getId(), 0) + s.heldCount();
                     int remaining = Math.max(0, capacity - occupied);
                     slots.add(EnrollmentOptionsResponse.Slot.builder()
                             .date(date)

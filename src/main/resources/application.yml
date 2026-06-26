@@ -99,6 +99,14 @@ pungdong:
       coord-key: ${JUSO_COORD_KEY:}               # 좌표제공 승인키 (검색 키와 별개)
       referer: ${JUSO_REFERER:}                   # 운영 키 등록 URL (서버 호출 referer)
       # source-crs: 좌표제공 entX/entY 의 좌표계(기본 EPSG:5179). 실응답 검증 후 필요 시 override.
+  # 결제(토스페이먼츠 결제위젯 v2). 로컬은 stub 기본(토스 미호출, 즉시 DONE).
+  # staging/prod 만 실연동: PAYMENT_MODE=toss + 시크릿/클라이언트 키. 시크릿 키는 BE 밖으로 안 나간다
+  # (승인은 BE 가 /v1/payments/confirm 으로). FE 엔 client-key(공개)만 내려간다.
+  payment:
+    mode: ${PAYMENT_MODE:stub}                    # stub | toss
+    toss:
+      secret-key: ${TOSS_SECRET_KEY:}             # 결제 승인 Basic 인증 (BE 전용, 노출 금지)
+      client-key: ${TOSS_CLIENT_KEY:}             # 위젯 클라이언트 키 (FE 노출용 공개값)
   # 공식(OFFICIAL) 위치 Sanity 캐시 reconcile. venue.md "캐싱·동기화·모니터링 설계".
   venue:
     reconcile:

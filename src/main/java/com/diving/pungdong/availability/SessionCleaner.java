@@ -5,10 +5,8 @@ import com.diving.pungdong.enrollment.EnrollmentStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
-import java.util.List;
-
 /**
- * 빈 일정 정리 — <b>session 존재 ⟺ 점유 &gt; 0</b> 불변식을 지킨다. 점유(활성 PENDING/CONFIRMED 신청 +
+ * 빈 일정 정리 — <b>session 존재 ⟺ 점유 &gt; 0</b> 불변식을 지킨다. 점유(활성 대기/결제대기/확정 신청 +
  * 외부/수동 hold)가 0 이 되면 그 일정을 삭제한다. 외부예약 hold 제거·신청 거절/취소로 0명이 된 카드를 없앤다.
  *
  * <p>과거 신청(취소/거절)은 {@code session_id} 만 끊고(enrollment 의 date/위치/블록 스냅샷은 보존) session
@@ -27,7 +25,7 @@ public class SessionCleaner {
             return false;
         }
         boolean hasActive = !enrollmentRepo.findByAvailabilitySessionIdAndStatusIn(
-                session.getId(), List.of(EnrollmentStatus.PENDING, EnrollmentStatus.CONFIRMED)).isEmpty();
+                session.getId(), EnrollmentStatus.ACTIVE).isEmpty();
         if (hasActive || session.heldCount() > 0) {
             return false;
         }
