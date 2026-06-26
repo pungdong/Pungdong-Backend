@@ -15,8 +15,8 @@
 
 | 대상 | 무엇 | 비고 |
 |---|---|---|
-| `src/main/java/com/diving/pungdong/demo/SeededCourseAvailabilitySeeder.java` | 시드 강의 강사에게 오늘~+8주 가용시간(coverage) 전체 개방 → 시드 강의 신청 가능 | 기존 `AvailabilityCoverage` 모델에 데이터만 넣음(구조 변경 0). 끄면 비활성. 데모 유지 시 둬도 됨 |
-| `pungdong.demo.seed-availability` + `DEMO_SEED_AVAILABILITY` | 위 시더 토글 | |
+| `src/main/java/com/diving/pungdong/demo/SeededCourseAvailabilitySeeder.java` | 부팅 시 시드 강의 강사에게 가용시간 전체 개방 | **이제 `demo_seed.py` 가 REST 로 직접 coverage 를 열어서(재기동 불필요) 이 부팅 시더는 사실상 redundant.** 둘 다 멱등이라 공존 무해 — 제거해도 됨 |
+| `pungdong.demo.seed-availability` + `DEMO_SEED_AVAILABILITY` | 위 부팅 시더 토글 | 위와 같이 redundant |
 | `com.diving.pungdong.demo` 패키지 자체 | ①②가 다 빠지면 빈 패키지 | 통째로 삭제 |
 
 ## ③ 플래그/토글 상태

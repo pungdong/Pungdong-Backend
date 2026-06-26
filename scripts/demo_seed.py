@@ -19,6 +19,7 @@ import subprocess
 import sys
 import urllib.request
 import urllib.error
+from datetime import date, timedelta
 from pathlib import Path
 
 BASE = "http://localhost:8080"
@@ -181,6 +182,24 @@ def create_venue(token, discipline, vtype, name, address, lat, lng, depth, fee_w
     return b["venueRefId"], b["tickets"][0]["ticketRef"]
 
 
+_WEEKDAYS = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"]
+
+
+def open_availability(token):
+    """데모 강사 가용시간 전체 개방(오늘~+8주, 매일 00:00–23:59). FOUR_WEEKS x2(week0·week4).
+    시드 안에서 직접 열어, 재시드 후 재기동 없이도 신청 슬롯이 바로 생기게 한다(coverage 는 머지·멱등)."""
+    today = date.today()
+    monday = today - timedelta(days=today.weekday())  # 이번 주 월요일
+    # 1블록=오늘부터(주0~3), 2블록=4주차 월요일부터(주4~7) → 경계 빈틈 없이 연속 8주
+    for anchor in (today, monday + timedelta(weeks=4)):
+        s, b = http("POST", "/instructor/availability/coverage", token, {
+            "mode": "FOUR_WEEKS", "date": anchor.isoformat(), "dayOfWeeks": _WEEKDAYS,
+            "startTime": "00:00:00", "endTime": "23:59:00",
+        })
+        if s not in (200, 201):
+            raise RuntimeError(f"가용시간 개방 실패: {s} {b}")
+
+
 def create_course(token, course, venue_ref, ticket_ref):
     rounds = []
     for r in course["rounds"]:
@@ -228,6 +247,20 @@ INSTRUCTORS = [
         },
         "pool": ("부산 프리다이빙 센터", "부산광역시 해운대구 센텀중앙로 90", 35.169, 129.130, 7, 35000, 45000),
         "ocean": ("오륙도 다이빙 포인트", "부산광역시 남구 오륙도로 137", 35.094, 129.122, 18, 60000, 70000),
+        # 추가 패키지 강의 — PADI 프리다이빙(AIDA 가 2개라 PADI 로). 레벨1+2 = 자동 패키지.
+        # 이미지는 안 쓰인 tour-4(제주 범섬 블루홀, 프리다이빙) 재사용.
+        "extra": [{
+            "slug": "tour-4", "title": "PADI 프리다이버 + 어드밴스드 패키지", "kind": "CERTIFICATION",
+            "org": "PADI", "levels": ["LEVEL_1", "LEVEL_2"], "price": 390000,
+            "rounds": [
+                "이론 & 호흡 — 프리다이빙 생리학·안전·호흡법.",
+                "풀 세션 1 — 스태틱·다이내믹 기본기 (프리다이버 L1).",
+                "해양 세션 1 — CWT 라인 다이빙으로 프리다이버(L1) 완수.",
+                "풀 세션 2 — 다이내믹 거리 향상·레스큐 (어드밴스드).",
+                "해양 세션 2 — 수심 20m+ 프리폴로 어드밴스드 프리다이버(L2) 완수.",
+            ],
+            "description": "PADI 프리다이버와 어드밴스드 프리다이버를 한 번에 — 호흡·안전부터 수심 20m+ 프리폴까지 끊김 없이 연속으로 취득하는 패키지 과정입니다. 따로 등록하는 것보다 합리적인 가격에, 같은 강사와 호흡을 이어가며 빠르게 성장할 수 있어요.",
+        }],
     },
     {
         "email": "demo_inst2@plop.cool", "nick": "이서윤", "discipline": "SCUBA", "org": "PADI",
@@ -252,20 +285,6 @@ INSTRUCTORS = [
         },
         "pool": ("서울 스쿠버 트레이닝풀", "서울특별시 송파구 올림픽로 424", 37.520, 127.121, 5, 30000, 40000),
         "ocean": ("문섬 다이빙 포인트", "제주특별자치도 서귀포시 남성중로 40", 33.227, 126.567, 30, 70000, 80000),
-        # 추가 패키지 강의 — 이미지는 안 쓰인 tour-2(제주 문섬 스쿠버) 재사용. 레벨1+2 = 자동 패키지.
-        "extra": [{
-            "slug": "tour-2", "title": "PADI 오픈워터 + 어드밴스드 패키지", "kind": "CERTIFICATION",
-            "org": "PADI", "levels": ["LEVEL_1", "LEVEL_2"], "price": 690000,
-            "rounds": [
-                "이론 & 장비 — 다이빙 원리·안전·장비 셋업.",
-                "제한수역(풀) 실습 — 호흡·중성부력·마스크 클리어링.",
-                "해양 실습 1 — 첫 바다 다이빙.",
-                "해양 실습 2 — 오픈워터(L1) 자격 완수.",
-                "어드밴스드 1 — 딥 다이빙 + 수중 내비게이션.",
-                "어드밴스드 2 — 보트·드리프트 다이브 + 어드밴스드(L2) 자격 완수.",
-            ],
-            "description": "PADI 오픈워터와 어드밴스드 오픈워터를 한 번에 — 입문부터 수심 30m 어드밴스드까지 끊김 없이 연속으로 취득하는 패키지 과정입니다. 따로 등록하는 것보다 합리적인 가격에, 같은 강사와 호흡을 이어가며 빠르게 성장할 수 있어요.",
-        }],
     },
     {
         "email": "demo_inst3@plop.cool", "nick": "박준영", "discipline": "SCUBA", "org": "SSI",
@@ -360,7 +379,8 @@ def main():
         token = signup_or_login(inst["email"], inst["nick"])
         vid = verify_identity(token, inst["nick"])
         apply_instructor(token, d, vid, inst["org"], inst.get("org_other"))
-        print(f"  강사{i} {inst['nick']} ({d}) — 가입·본인확인·신청 완료")
+        open_availability(token)  # 오늘~+8주 가용시간 전체 개방 → 신청 슬롯 즉시 생성(재기동 불필요)
+        print(f"  강사{i} {inst['nick']} ({d}) — 가입·본인확인·신청·가용시간 완료")
 
         inst["lecture"]["discipline"] = d
 
