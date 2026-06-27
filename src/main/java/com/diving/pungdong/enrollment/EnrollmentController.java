@@ -4,6 +4,7 @@ import com.diving.pungdong.account.Account;
 import com.diving.pungdong.enrollment.dto.EnrollmentCreateRequest;
 import com.diving.pungdong.enrollment.dto.EnrollmentOptionsResponse;
 import com.diving.pungdong.enrollment.dto.EnrollmentResponse;
+import com.diving.pungdong.enrollment.dto.ScheduleHubResponse;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.security.CurrentUser;
 import lombok.RequiredArgsConstructor;
@@ -56,6 +57,14 @@ public class EnrollmentController {
     public ResponseEntity<?> mine(@CurrentUser Account account) {
         List<EnrollmentResponse> list = enrollmentService.listMine(account);
         CollectionModel<EnrollmentResponse> model = CollectionModel.of(list);
+        model.add(Link.of("/docs/api.html#resource-enrollments").withRel("profile"));
+        return ResponseEntity.ok().body(model);
+    }
+
+    /** 수강생 강의일정 hub — 내 신청을 강의 단위로 그룹핑 + 진행상태 파생 + 필터 카운트. */
+    @GetMapping("/mine/schedule")
+    public ResponseEntity<?> mySchedule(@CurrentUser Account account) {
+        EntityModel<ScheduleHubResponse> model = EntityModel.of(enrollmentService.mySchedule(account));
         model.add(Link.of("/docs/api.html#resource-enrollments").withRel("profile"));
         return ResponseEntity.ok().body(model);
     }

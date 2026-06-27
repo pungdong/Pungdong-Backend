@@ -2,8 +2,8 @@ package com.diving.pungdong.demo;
 
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.course.CourseJpaRepo;
-import com.diving.pungdong.enrollment.Enrollment;
-import com.diving.pungdong.enrollment.EnrollmentJpaRepo;
+import com.diving.pungdong.enrollment.EnrollmentRound;
+import com.diving.pungdong.enrollment.EnrollmentRoundJpaRepo;
 import com.diving.pungdong.enrollment.EnrollmentStatus;
 import com.diving.pungdong.enrollment.InstructorEnrollmentService;
 import lombok.extern.slf4j.Slf4j;
@@ -37,15 +37,15 @@ public class DemoAutoAcceptScheduler {
     private static final long DELAY_SECONDS = 3;
 
     private final CourseJpaRepo courseRepo;
-    private final EnrollmentJpaRepo enrollmentRepo;
+    private final EnrollmentRoundJpaRepo roundRepo;
     private final InstructorEnrollmentService instructorEnrollmentService;
     private final TransactionTemplate tx;
 
-    public DemoAutoAcceptScheduler(CourseJpaRepo courseRepo, EnrollmentJpaRepo enrollmentRepo,
+    public DemoAutoAcceptScheduler(CourseJpaRepo courseRepo, EnrollmentRoundJpaRepo roundRepo,
                                    InstructorEnrollmentService instructorEnrollmentService,
                                    PlatformTransactionManager txManager) {
         this.courseRepo = courseRepo;
-        this.enrollmentRepo = enrollmentRepo;
+        this.roundRepo = roundRepo;
         this.instructorEnrollmentService = instructorEnrollmentService;
         this.tx = new TransactionTemplate(txManager);
     }
@@ -56,10 +56,10 @@ public class DemoAutoAcceptScheduler {
             LocalDateTime cutoff = LocalDateTime.now().minusSeconds(DELAY_SECONDS);
             List<Object[]> list = new ArrayList<>();
             for (Account ins : SeededCourseAvailabilitySeeder.seededCourseInstructors(courseRepo)) {
-                for (Enrollment e : enrollmentRepo.findByCourse_Instructor_IdAndStatusOrderByIdDesc(
+                for (EnrollmentRound r : roundRepo.findByEnrollment_Course_Instructor_IdAndStatusOrderByIdDesc(
                         ins.getId(), EnrollmentStatus.PENDING)) {
-                    if (e.getCreatedAt() == null || e.getCreatedAt().isBefore(cutoff)) {
-                        list.add(new Object[]{ins, e.getId()}); // ins 는 detached 후 getId() 만 쓰임
+                    if (r.getCreatedAt() == null || r.getCreatedAt().isBefore(cutoff)) {
+                        list.add(new Object[]{ins, r.getId()}); // ins 는 detached 후 getId() 만 쓰임
                     }
                 }
             }

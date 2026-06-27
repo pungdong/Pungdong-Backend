@@ -11,9 +11,9 @@ import com.diving.pungdong.availability.dto.CoverageRangeResponse;
 import com.diving.pungdong.availability.dto.CoverageRequest;
 import com.diving.pungdong.availability.dto.HoldRequest;
 import com.diving.pungdong.availability.dto.SessionCreateRequest;
-import com.diving.pungdong.enrollment.Enrollment;
-import com.diving.pungdong.enrollment.EnrollmentEquipment;
-import com.diving.pungdong.enrollment.EnrollmentJpaRepo;
+import com.diving.pungdong.enrollment.EnrollmentRound;
+import com.diving.pungdong.enrollment.EnrollmentRoundEquipment;
+import com.diving.pungdong.enrollment.EnrollmentRoundJpaRepo;
 import com.diving.pungdong.enrollment.EnrollmentStatus;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.CoverageHasSessionException;
@@ -60,7 +60,7 @@ public class AvailabilityService {
     private final InstructorApplicationJpaRepo applicationRepo;
     private final VenueRefValidator venueRefValidator;
     private final VenueRefResolver venueRefResolver;
-    private final EnrollmentJpaRepo enrollmentRepo;
+    private final EnrollmentRoundJpaRepo roundRepo;
     private final SessionCleaner sessionCleaner;
     private final SessionOverlapGuard overlapGuard;
 
@@ -147,7 +147,7 @@ public class AvailabilityService {
     @Transactional
     public void deleteSession(Account instructor, Long id) {
         AvailabilitySession s = requireOwned(instructor, id);
-        boolean hasActive = !enrollmentRepo.findByAvailabilitySessionIdAndStatusIn(
+        boolean hasActive = !roundRepo.findByAvailabilitySessionIdAndStatusIn(
                 id, EnrollmentStatus.ACTIVE).isEmpty();
         if (hasActive) {
             throw new BadRequestException(); // 신청이 있는 일정은 못 지움
@@ -198,7 +198,7 @@ public class AvailabilityService {
      */
     private void bumpCapacityIfExceeded(AvailabilitySession s) {
         int occupancy = s.heldCount()
-                + enrollmentRepo.countByAvailabilitySessionIdAndStatusIn(s.getId(), EnrollmentStatus.OCCUPYING);
+                + roundRepo.countByAvailabilitySessionIdAndStatusIn(s.getId(), EnrollmentStatus.OCCUPYING);
         if (occupancy > s.effectiveCapacity()) {
             s.setCapacityOverride(occupancy);
         }
@@ -246,7 +246,7 @@ public class AvailabilityService {
         List<AvailabilitySession> sessions =
                 sessionRepo.findByInstructorIdAndDateBetweenOrderByDateAscStartTimeAsc(instructor.getId(), from, to);
         Map<String, VenueResponse> venueByRef = resolveVenues(sessions);
-        Map<Long, List<Enrollment>> activeBySession = activeBySession(
+        Map<Long, List<EnrollmentRound>> activeBySession = activeBySession(
                 sessions.stream().map(AvailabilitySession::getId).collect(Collectors.toList()));
         return AvailabilityCalendarResponse.builder()
                 .coverage(coverageRanges(instructor, from, to))
@@ -343,8 +343,8 @@ public class AvailabilityService {
     }
 
     private AvailabilitySessionResponse toResponse(AvailabilitySession s, Map<String, VenueResponse> venueByRef,
-                                                   Map<Long, List<Enrollment>> activeBySession) {
-        List<Enrollment> active = activeBySession.getOrDefault(s.getId(), List.of());
+                                                   Map<Long, List<EnrollmentRound>> activeBySession) {
+        List<EnrollmentRound> active = activeBySession.getOrDefault(s.getId(), List.of());
         // 점유(결제대기+확정)는 confirmed 버킷으로 합산 — 둘 다 좌석을 차지(v1; FE 별도 표시는 후속).
         int confirmed = (int) active.stream().filter(e -> e.getStatus().occupiesCapacity()).count();
         int pending = (int) active.stream().filter(e -> e.getStatus() == EnrollmentStatus.PENDING).count();
@@ -368,26 +368,28 @@ public class AvailabilityService {
                 .map(VenueResponse.Ticket::getName).findFirst().orElse(null);
     }
 
-    private Map<Long, List<Enrollment>> activeBySession(Collection<Long> sessionIds) {
+    private Map<Long, List<EnrollmentRound>> activeBySession(Collection<Long> sessionIds) {
         if (sessionIds.isEmpty()) {
             return Map.of();
         }
-        return enrollmentRepo.findByAvailabilitySessionIdInAndStatusIn(
+        return roundRepo.findByAvailabilitySessionIdInAndStatusIn(
                         sessionIds, EnrollmentStatus.ACTIVE)
-                .stream().collect(Collectors.groupingBy(e -> e.getAvailabilitySession().getId()));
+                .stream().collect(Collectors.groupingBy(r -> r.getAvailabilitySession().getId()));
     }
 
-    /** enrollment → 슬롯 안 학생 요약. 단체·레벨은 평탄 3종(FE 가 Sanity 로 표시명 해석 — [[sanity-read-principle]]). */
-    private static ApplicantSummaryResponse toApplicant(Enrollment e) {
-        var course = e.getCourse();
+    /** 회차 → 슬롯 안 학생 요약. 단체·레벨은 평탄 3종(FE 가 Sanity 로 표시명 해석 — [[sanity-read-principle]]). */
+    private static ApplicantSummaryResponse toApplicant(EnrollmentRound r) {
+        var enrollment = r.getEnrollment();
+        var course = enrollment == null ? null : enrollment.getCourse();
+        var student = enrollment == null ? null : enrollment.getStudent();
         List<String> levels = course == null || course.getLevels() == null ? List.of()
                 : course.getLevels().stream().sorted().map(Enum::name).collect(Collectors.toList());
         return ApplicantSummaryResponse.builder()
-                .name(e.getStudent() == null ? null : e.getStudent().getNickName())
+                .name(student == null ? null : student.getNickName())
                 .organizationCode(course == null ? null : course.getOrganizationCode())
                 .disciplineCode(course == null ? null : course.getDisciplineCode())
                 .levels(levels)
-                .gear(e.getEquipment().stream().map(EnrollmentEquipment::getName).collect(Collectors.toList()))
+                .gear(r.getEquipment().stream().map(EnrollmentRoundEquipment::getName).collect(Collectors.toList()))
                 .kind(null)
                 .build();
     }
