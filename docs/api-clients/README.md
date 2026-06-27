@@ -7,14 +7,15 @@
 | 파일 | 역할 |
 |---|---|
 | [`types.ts`](types.ts) | **BE API** request / response / 공통 envelope 타입. **FE Claude 가 처음 읽는 파일.** 도메인별 섹션 주석에 호출 흐름/순서도 포함(예: 코스 작성 = 종목→단체→자격증 캐스케이드). |
-| [`../../sanity/queries.ts`](../../sanity/queries.ts) | **공개 카탈로그를 FE 가 Sanity 에서 직접 읽는 GROQ** (cert org·약관·공식 위치). types.ts 와 **별개의 두 번째 소스** — 아래 "Sanity 직접 읽기". |
+| [`../../sanity/queries.ts`](../../sanity/queries.ts) | **공개 카탈로그를 FE 가 Sanity 에서 직접 읽는 GROQ** (cert org·약관 동의(term)·공식 위치). types.ts 와 **별개의 두 번째 소스** — 아래 "Sanity 직접 읽기". (약관 *전문*(legalDocument)은 예외 — BE 프록시, 아래 참고.) |
 | `../architecture/<domain>.md` | 사람이 도메인을 이해하는 그림 / 흐름. Claude 가 동작 의미를 파악할 때 참고. |
 
 ## Sanity 직접 읽기 (공개 카탈로그 — `types.ts` 밖)
 
 일부 데이터는 BE 가 아니라 **Sanity(헤드리스 CMS)** 가 소유한다 → `types.ts` 에 없고, FE 가 `@sanity/client` 로 **직접** 읽는다(BE 안 거침).
 
-- **대상**: 자격증 발급 단체(cert org), 약관(term), **공식 수영장(official venue)**.
+- **대상**: 자격증 발급 단체(cert org), **약관 동의 체크박스(term)**, **공식 수영장(official venue)**.
+- **⚠️ 예외 — 약관 전문(legalDocument)은 BE 프록시로**: 이용약관/개인정보처리방침/취소·환불 *전문 페이지*는 Sanity 소유지만 이 프로젝트가 익명(CDN) 읽기를 거부(`reason:permission`)하므로 FE 가 **직접 읽지 않고** BE 프록시 `GET /legal/{slug}`(slug = terms/privacy/refund, 응답 타입 `types.ts` `LegalDocument`)로 읽는다. `queries.ts` 의 `legalDocumentBySlug` 는 do-not-use(BE read 모양·되돌림용 참고). Sanity 접근 복구 시 FE-direct 로 원복 가능.
 - **방법**: `createClient({ projectId: 'rc448mwo', dataset: 'production', apiVersion: '2024-01-01', useCdn: true })` + GROQ 문자열을 [`sanity/queries.ts`](../../sanity/queries.ts) 에서 복사(types.ts 복사와 동일 방식).
 - **`useCdn: true` 필수** — 공개 콘텐츠는 CDN 캐시 읽기(빠름·저렴·API 한도 비차감). publish 시 Sanity 가 CDN 자동 purge 라 freshness 도 자동(수 초).
 - **private 데이터는 Sanity 아님** — 강사 커스텀 위치 등은 BE `/venues`(types.ts).
