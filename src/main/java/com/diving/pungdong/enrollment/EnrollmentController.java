@@ -4,6 +4,8 @@ import com.diving.pungdong.account.Account;
 import com.diving.pungdong.enrollment.dto.EnrollmentCreateRequest;
 import com.diving.pungdong.enrollment.dto.EnrollmentOptionsResponse;
 import com.diving.pungdong.enrollment.dto.EnrollmentResponse;
+import com.diving.pungdong.enrollment.dto.PickDateRequest;
+import com.diving.pungdong.enrollment.dto.RoundScheduleRequest;
 import com.diving.pungdong.enrollment.dto.ScheduleHubResponse;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.security.CurrentUser;
@@ -51,6 +53,35 @@ public class EnrollmentController {
             throw new BadRequestException();
         }
         return ResponseEntity.status(201).body(model(enrollmentService.submit(account, request)));
+    }
+
+    /** 다음 회차 옵션 — 이 수강에서 지금 잡을 수 있는 회차의 교집합 슬롯+장비. 없으면 슬롯 비어 옴. */
+    @GetMapping("/{enrollmentId}/next-options")
+    public ResponseEntity<?> nextOptions(@CurrentUser Account account, @PathVariable Long enrollmentId) {
+        EnrollmentOptionsResponse options = optionsService.getNextOptions(account, enrollmentId, LocalDate.now());
+        EntityModel<EnrollmentOptionsResponse> model = EntityModel.of(options);
+        model.add(Link.of("/docs/api.html#resource-enrollments").withRel("profile"));
+        return ResponseEntity.ok().body(model);
+    }
+
+    /** 2회차+ 일정 신청 — 다음 schedulable 회차를 PENDING 으로 추가(순차 게이트·EXTRA). */
+    @PostMapping("/{enrollmentId}/rounds")
+    public ResponseEntity<?> scheduleRound(@CurrentUser Account account, @PathVariable Long enrollmentId,
+                                           @Valid @RequestBody RoundScheduleRequest request, BindingResult result) {
+        if (result.hasErrors()) {
+            throw new BadRequestException();
+        }
+        return ResponseEntity.status(201).body(model(enrollmentService.scheduleNextRound(account, enrollmentId, request)));
+    }
+
+    /** 강사 일정변경요청 중 제안 날짜 선택 — 사전 수락이라 곧장 결제 대기(PAYMENT_PENDING). */
+    @PostMapping("/rounds/{roundId}/pick-date")
+    public ResponseEntity<?> pickDate(@CurrentUser Account account, @PathVariable Long roundId,
+                                      @Valid @RequestBody PickDateRequest request, BindingResult result) {
+        if (result.hasErrors()) {
+            throw new BadRequestException();
+        }
+        return ResponseEntity.ok().body(model(enrollmentService.pickDate(account, roundId, request.getDate())));
     }
 
     @GetMapping("/mine")

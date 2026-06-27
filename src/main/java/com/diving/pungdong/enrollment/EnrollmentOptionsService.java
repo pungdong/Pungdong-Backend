@@ -52,6 +52,7 @@ public class EnrollmentOptionsService {
     private static final int LOOKAHEAD_WEEKS = 8;
 
     private final CourseJpaRepo courseRepo;
+    private final EnrollmentJpaRepo enrollmentRepo;
     private final AvailabilityCoverageJpaRepo coverageRepo;
     private final AvailabilitySessionJpaRepo sessionRepo;
     private final EnrollmentRoundJpaRepo roundRepo;
@@ -59,18 +60,41 @@ public class EnrollmentOptionsService {
     private final VenueEquipmentService equipmentService;
     private final BookableSlotDeriver slotDeriver;
 
+    /** 1회차 신청 옵션 — 코스 첫 만남 회차의 교집합. */
     public EnrollmentOptionsResponse getOptions(Account student, Long courseId, LocalDate today) {
         Course course = courseRepo.findById(courseId)
                 .filter(c -> c.getStatus() == CourseStatus.OPEN)
                 .orElseThrow(ResourceNotFoundException::new);
-        Account instructor = course.getInstructor();
-        CourseRound round1 = firstMeetingRound(course);
+        return buildOptions(course.getInstructor(), course, firstMeetingRound(course), today);
+    }
 
-        // 1회차 후보 (venueRef, ticketRef) 쌍
+    /** 다음 회차 옵션 — 이 수강의 다음 schedulable 회차(게이트)의 교집합. 잡을 회차 없으면 슬롯 빈 응답. */
+    public EnrollmentOptionsResponse getNextOptions(Account student, Long enrollmentId, LocalDate today) {
+        Enrollment enrollment = enrollmentRepo.findById(enrollmentId).orElseThrow(ResourceNotFoundException::new);
+        if (enrollment.getStudent() == null || !enrollment.getStudent().getId().equals(student.getId())) {
+            throw new ResourceNotFoundException(); // 없음/남의 수강 — 존재 숨김
+        }
+        Course course = enrollment.getCourse();
+        if (course == null) {
+            throw new ResourceNotFoundException();
+        }
+        CourseRound next = RoundGate.nextSchedulable(enrollment);
+        if (next == null) {
+            return EnrollmentOptionsResponse.builder()
+                    .course(courseSummary(course, null))
+                    .slots(List.of())
+                    .equipmentByVenue(Map.of())
+                    .build();
+        }
+        return buildOptions(course.getInstructor(), course, next, today);
+    }
+
+    private EnrollmentOptionsResponse buildOptions(Account instructor, Course course, CourseRound round, LocalDate today) {
+        // 회차 후보 (venueRef, ticketRef) 쌍
         List<String[]> candidates = new ArrayList<>();
         Set<String> venueRefs = new LinkedHashSet<>();
-        if (round1 != null) {
-            for (RoundVenue rv : round1.getVenues()) {
+        if (round != null) {
+            for (RoundVenue rv : round.getVenues()) {
                 venueRefs.add(rv.getVenueRefId());
                 rv.getTickets().forEach(t -> candidates.add(new String[]{rv.getVenueRefId(), t.getTicketRef()}));
             }
@@ -148,7 +172,7 @@ public class EnrollmentOptionsService {
         }
 
         return EnrollmentOptionsResponse.builder()
-                .course(courseSummary(course, round1))
+                .course(courseSummary(course, round))
                 .slots(slots)
                 .equipmentByVenue(equipmentOptions(equipByRef))
                 .build();
@@ -176,9 +200,16 @@ public class EnrollmentOptionsService {
                 .orElse(course.getRounds().isEmpty() ? null : course.getRounds().get(0));
     }
 
-    private EnrollmentOptionsResponse.CourseSummary courseSummary(Course course, CourseRound round1) {
-        String roundLabel = round1 == null ? "1회차 · 첫 만남"
-                : (round1.getRoundIndex() == null ? 1 : round1.getRoundIndex()) + "회차 · 첫 만남";
+    private EnrollmentOptionsResponse.CourseSummary courseSummary(Course course, CourseRound round) {
+        String roundLabel;
+        if (round == null) {
+            roundLabel = "다음 회차 없음";
+        } else if (round.getRoundKind() == RoundKind.EXTRA) {
+            roundLabel = "추가 세션";
+        } else {
+            int idx = round.getRoundIndex() == null ? 1 : round.getRoundIndex();
+            roundLabel = idx + "회차" + (idx == 1 ? " · 첫 만남" : "");
+        }
         Account ins = course.getInstructor();
         return EnrollmentOptionsResponse.CourseSummary.builder()
                 .id(course.getId())

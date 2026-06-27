@@ -2,6 +2,7 @@ package com.diving.pungdong.enrollment;
 
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.enrollment.dto.InstructorEnrollmentResponse;
+import com.diving.pungdong.enrollment.dto.ProposeDatesRequest;
 import com.diving.pungdong.enrollment.dto.RejectRequest;
 import com.diving.pungdong.global.security.CurrentUser;
 import lombok.RequiredArgsConstructor;
@@ -46,6 +47,14 @@ public class InstructorEnrollmentController {
                                     @RequestBody(required = false) RejectRequest request) {
         String reason = request == null ? null : request.getReason();
         return ResponseEntity.ok().body(model(instructorEnrollmentService.reject(account, id, reason)));
+    }
+
+    /** 일정변경요청 — 같은 위치/이용권/블록으로 가능한 대안 날짜 제안. 학생이 고르면 사전 수락(곧장 결제 대기). */
+    @PostMapping("/{id}/propose-dates")
+    public ResponseEntity<?> proposeDates(@CurrentUser Account account, @PathVariable Long id,
+                                          @RequestBody ProposeDatesRequest request) {
+        List<java.time.LocalDate> dates = request == null ? null : request.getDates();
+        return ResponseEntity.ok().body(model(instructorEnrollmentService.proposeDates(account, id, dates)));
     }
 
     private EntityModel<InstructorEnrollmentResponse> model(InstructorEnrollmentResponse response) {

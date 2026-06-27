@@ -1123,9 +1123,32 @@ export interface EnrollmentCreateRequest {
   equipmentRefs?: string[]; // 선택 장비 itemRef
 }
 
-/** 강사 거절 — POST /instructor/enrollments/{id}/reject. */
+/** 강사 거절 — POST /instructor/enrollments/{roundId}/reject. 거절은 1회차(진입)만(진행 중은 일정변경요청). */
 export interface RejectRequest {
   reason?: string;
+}
+
+/**
+ * 2회차+ 일정 신청 — POST /enrollments/{enrollmentId}/rounds → 201 PENDING. 어느 회차인지는 서버가 판정
+ * (다음 schedulable 회차 — 직전 정규 CONFIRMED 게이트, 정규 끝나면 EXTRA). 옵션은 GET /enrollments/{enrollmentId}/next-options.
+ */
+export interface RoundScheduleRequest {
+  date: string;             // "YYYY-MM-DD"
+  venueRefId: string;
+  ticketRef: string;
+  blockStart: string;       // "14:00:00"
+  blockEnd: string;
+  equipmentRefs?: string[];
+}
+
+/** 강사 일정변경요청 — POST /instructor/enrollments/{roundId}/propose-dates. 같은 위치/이용권/블록, 날짜만 대안 제안. */
+export interface ProposeDatesRequest {
+  dates: string[];          // "YYYY-MM-DD"[] — 서버가 bookable 한 것만 채택
+}
+
+/** 제안 날짜 선택 — POST /enrollments/rounds/{roundId}/pick-date → 200. 사전 수락이라 곧장 PAYMENT_PENDING. */
+export interface PickDateRequest {
+  date: string;             // proposedDates 중 하나
 }
 
 export interface EnrollmentEquipmentLine {
@@ -1163,13 +1186,14 @@ export interface EnrollmentResponse extends HalLinks {
 }
 
 // ── 수강생 강의일정 hub — GET /enrollments/mine/schedule (authenticated) ──
-// 내 신청을 강의(course) 단위로 그룹핑 + 진행상태 파생. docs/features/student-schedule.md.
-// ⚠️ 설계의 done/finalizing/completed/메모/세션채팅/일정변경/환불은 BE 미구현이라 여기 없음(로드맵).
+// 내 수강을 강의(course) 단위로 묶고 회차 진행상태 파생. 2회차+ 진행·일정변경요청 반영. docs/features/student-schedule.md.
+// ⚠️ 설계의 done/finalizing/completed/메모/세션채팅/환불은 BE 미구현이라 여기 없음(로드맵).
 //   응답은 EntityModel(HAL) — { filters, courses, _links }.
 
-/** 회차(=enrollment 1건) 진행상태. BE EnrollmentStatus 파생: PENDING→WAITING, PAYMENT_PENDING→PAYMENT_DUE … */
+/** 회차(=EnrollmentRound 1건) 진행상태. BE EnrollmentStatus + 일정변경 제안 파생. */
 export type RoundScheduleStatus =
-  | 'WAITING'
+  | 'WAITING'       // PENDING(제안 없음) — 강사 확인 중
+  | 'RESCHEDULING'  // 강사 일정변경 제안 — 학생이 proposedDates 중 골라 pick-date
   | 'PAYMENT_DUE'
   | 'CONFIRMED'
   | 'REJECTED'
@@ -1186,6 +1210,7 @@ export type CourseScheduleStatus =
 export interface ScheduleRound {
   roundId: number; // 회차 id — 취소·결제·일정변경 행위 단위
   roundIndex: number | null; // REGULAR 1..N, EXTRA null
+  roundKind: 'REGULAR' | 'EXTRA' | null;
   status: RoundScheduleStatus;
   date: string | null;
   blockStart: string | null;
@@ -1194,12 +1219,15 @@ export interface ScheduleRound {
   venueName: string | null;
   /** 신청 시점 추정 총액 스냅샷(원). 권위 결제금액은 POST /payments/prepare. */
   amount: number;
+  /** 강사 일정변경 제안 날짜(RESCHEDULING). 학생이 골라 POST /enrollments/rounds/{roundId}/pick-date. */
+  proposedDates: string[];
   rejectionReason: string | null; // REJECTED만
   createdAt: string | null;
   respondedAt: string | null;
 }
 
 export interface ScheduleCourse {
+  enrollmentId: number | null; // 수강 id — 다음 회차 신청(POST /enrollments/{enrollmentId}/rounds) 대상
   courseId: number | null;
   title: string | null;
   organizationCode: string | null; // 자격 단체 코드(Sanity)
@@ -1207,7 +1235,10 @@ export interface ScheduleCourse {
   levels: CertLevel[];
   instructorName: string | null;
   status: CourseScheduleStatus;
-  rounds: ScheduleRound[]; // roundIndex 순
+  totalRounds: number;             // 정규 회차 총 수 — FE 가 미잡힌(locked) 회차 placeholder 렌더
+  nextRoundIndex: number | null;   // 지금 신청 가능한 다음 정규 회차 번호(없으면 null)
+  canScheduleExtra: boolean;       // 정규 끝나 추가세션(EXTRA) 신청 가능
+  rounds: ScheduleRound[];         // 잡은 회차만, roundIndex 순
 }
 
 /** 필터 칩 — id='all' 또는 CourseScheduleStatus 이름, label 한글, count. */

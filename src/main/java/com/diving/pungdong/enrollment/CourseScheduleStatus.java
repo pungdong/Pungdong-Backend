@@ -24,7 +24,8 @@ public enum CourseScheduleStatus {
     /** 회차 상태들에서 강의 상태 파생. 액션 우선순위로 가장 앞서는 것. */
     public static CourseScheduleStatus derive(Collection<RoundScheduleStatus> rounds) {
         if (rounds.contains(RoundScheduleStatus.PAYMENT_DUE)) return PAYMENT_DUE;
-        if (rounds.contains(RoundScheduleStatus.REJECTED))    return RESCHEDULING;
+        if (rounds.contains(RoundScheduleStatus.RESCHEDULING)
+                || rounds.contains(RoundScheduleStatus.REJECTED)) return RESCHEDULING; // 변경제안/거절 = 학생 액션
         if (rounds.contains(RoundScheduleStatus.WAITING))     return WAITING;
         if (rounds.contains(RoundScheduleStatus.CONFIRMED))   return PROGRESS;
         return CANCELLED;

@@ -90,7 +90,7 @@
 
 ## 미해결 / 확장
 
-- 🟡 **다회차 재설계 구현** (2026-06-28~, PR 분할): PR1 엔티티 분할+1회차 흐름(pay-first), PR2 다회차 진행(2+ 일정신청·강사 일정변경요청·EXTRA·locked 게이트), PR3 완료(done — 자동+24h·강사 일괄/개별·finalizing/completed 파생·정산 훅), PR4 환불 상태기계.
+- 🟡 **다회차 재설계 구현** (2026-06-28~, PR 분할): ✅PR1 엔티티 분할+1회차 흐름(pay-first), ✅좌석lock+TTL, ✅PR2 다회차 진행(2+ 일정신청 `POST /enrollments/{id}/rounds`·`GET .../next-options`·locked 게이트(직전 CONFIRMED, done 추적 후 done 으로)·강사 일정변경요청(`propose-dates`→`pick-date`, 사전수락)·EXTRA), 남음: PR3 완료(done — 자동+24h·강사 일괄/개별·finalizing/completed·정산 훅), PR4 환불 상태기계.
 - 🟡 **정산** — 수수료(PG 3.4% + 플랫폼 6.6%, 실비 0%) 분해. done → 정산 연계.
 - 🟢 **다이브로그**(수강생별 done 연계) · 강사 회차 메모 · 세션 단체채팅/공지 · enrollment-management 강사 검토 시트 풀 UI.
 - 🟢 venue 운영 공휴일·OPEN 세분화 정밀도.
