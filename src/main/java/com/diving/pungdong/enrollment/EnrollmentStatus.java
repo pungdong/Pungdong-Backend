@@ -6,11 +6,10 @@ import java.util.List;
  * 수강신청 상태 — V2 디자인 booking 흐름 "신청 → 강사 답변 대기 → 수락 → 결제 → 확정".
  *
  * <ul>
- *   <li>{@link #PENDING} — 신청 완료, 강사 답변 대기(디자인 ⑥ "강사 답변 대기"). 정원 하드캡 안 함(여러 건
- *       쌓여도 강사가 수락/거절로 정리). availability 캘린더에서 pending dot.</li>
+ *   <li>{@link #PENDING} — 신청 완료, 강사 답변 대기(디자인 ⑥ "강사 답변 대기"). <b>신청 시점에 좌석 lock</b>
+ *       (선착순 — 정원 차면 새 신청 거절). 24h 무응답 시 자동 만료(슬롯 해제). availability 캘린더 pending dot.</li>
  *   <li>{@link #PAYMENT_PENDING} — 강사 수락 직후 결제 대기(디자인 "강사 확정 후 결제 링크 푸시"). 슬롯을
- *       점유(좌석 hold) — 결제가 끝날 때까지 남이 못 채간다. 결제 승인 시 {@link #CONFIRMED} 로 넘어감.
- *       (결제 미완 자동 만료·환불 상태기계는 후속.)</li>
+ *       계속 점유(좌석 hold). 결제 승인 시 {@link #CONFIRMED} 로 넘어감. 12h 미결제 시 자동 만료(슬롯 해제).</li>
  *   <li>{@link #CONFIRMED} — 결제 완료 = 확정. 정원(점유)을 차지. availability 캘린더 confirmed.</li>
  *   <li>{@link #REJECTED} — 강사 거절(복구 가능 — 학생이 다른 일정 재신청).</li>
  *   <li>{@link #CANCELLED} — 학생이 대기 중 취소.</li>
@@ -23,19 +22,20 @@ public enum EnrollmentStatus {
     REJECTED,
     CANCELLED;
 
-    /** 정원·바인딩을 점유하는 활성 상태(대기·결제대기·확정). 거절/취소는 슬롯을 비운다. */
+    /** 좌석을 점유하는 활성 상태(대기·결제대기·확정) — <b>신청 시점 lock</b> 이라 PENDING 도 만석 판정에 포함.
+     *  거절/취소/만료는 슬롯을 비운다. */
     public boolean isActive() {
         return this == PENDING || this == PAYMENT_PENDING || this == CONFIRMED;
     }
 
-    /** 정원을 점유(만석 판정)하는 상태 — 결제대기·확정. PENDING 은 하드캡 안 함(강사가 수락으로 정리). */
+    /** <b>확정 점유</b>(결제대기·확정) — 캘린더 confirmed 버킷 표시용. (만석 판정은 {@link #ACTIVE} — 신청 시점 lock.) */
     public boolean occupiesCapacity() {
         return this == PAYMENT_PENDING || this == CONFIRMED;
     }
 
-    /** 활성(세션 삭제 가드·캘린더 집계용) 상태 집합 — {@link #isActive()} 의 컬렉션 형태. */
+    /** 좌석 점유(만석 판정·세션 삭제 가드·캘린더 집계) 상태 집합 — 신청 시점 lock. {@link #isActive()} 컬렉션. */
     public static final List<EnrollmentStatus> ACTIVE = List.of(PENDING, PAYMENT_PENDING, CONFIRMED);
 
-    /** 정원 점유(만석 판정) 상태 집합 — {@link #occupiesCapacity()} 의 컬렉션 형태. */
+    /** 확정 점유(결제대기+확정) — 캘린더 confirmed 버킷 표시. {@link #occupiesCapacity()} 컬렉션. (만석=ACTIVE.) */
     public static final List<EnrollmentStatus> OCCUPYING = List.of(PAYMENT_PENDING, CONFIRMED);
 }

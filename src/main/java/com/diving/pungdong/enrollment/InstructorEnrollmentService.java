@@ -52,13 +52,8 @@ public class InstructorEnrollmentService {
         if (r.getStatus() != EnrollmentStatus.PENDING) {
             throw new BadRequestException(); // 대기 건만 수락
         }
-        AvailabilitySession session = r.getAvailabilitySession();
-        // 정원 재검증 — 점유(결제대기+확정) + 외부 hold 가 유효정원에 도달했으면 더 못 받음(거절로 정리)
-        int occupying = roundRepo.countByAvailabilitySessionIdAndStatusIn(session.getId(), EnrollmentStatus.OCCUPYING);
-        if (occupying + session.heldCount() >= session.effectiveCapacity()) {
-            throw new BadRequestException(); // 정원 초과 — 수락 불가
-        }
-        // 수락 = 결제 대기(슬롯 점유). 결제 승인 시 PaymentService 가 CONFIRMED 로 확정. (pay-first: 강사는 결제 후 풀 예약)
+        // 좌석은 신청(PENDING) 시점에 이미 lock(선착순) — 수락은 그 슬롯을 결제 대기로 전환만(정원 재검증 불필요).
+        // 수락 = 결제 대기. 결제 승인 시 PaymentService 가 CONFIRMED 로 확정. (pay-first: 강사는 결제 후 풀 예약)
         r.setStatus(EnrollmentStatus.PAYMENT_PENDING);
         r.setRespondedAt(LocalDateTime.now());
         return InstructorEnrollmentResponse.of(r, venueName(r.getVenueRefId()));

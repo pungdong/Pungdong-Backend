@@ -94,11 +94,11 @@ public class EnrollmentOptionsService {
                 sessionKey(s.getDate(), s.getVenueRefId(), s.getStartTime(), s.getEndTime()), s));
         Map<LocalDate, List<AvailabilitySession>> sessionsByDate = sessions.stream()
                 .collect(Collectors.groupingBy(AvailabilitySession::getDate));
-        // 점유(결제대기+확정) 합산 — 남은 좌석 계산. PENDING 은 하드캡 안 함이라 제외.
+        // 점유 합산 — 남은 좌석 계산. 신청 시점 좌석 lock 이라 활성(대기+결제대기+확정) 전부 점유로 친다.
         Map<Long, Integer> occupiedBySession = roundRepo
                 .findByAvailabilitySessionIdInAndStatusIn(
                         sessions.stream().map(AvailabilitySession::getId).collect(Collectors.toList()),
-                        EnrollmentStatus.OCCUPYING)
+                        EnrollmentStatus.ACTIVE)
                 .stream()
                 .collect(Collectors.groupingBy(r -> r.getAvailabilitySession().getId(),
                         Collectors.summingInt(r -> 1)));

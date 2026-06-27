@@ -1314,13 +1314,15 @@ export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
 // 사이트 설정 (siteSettings) — 런칭 토글
 // ⚠️ BE 엔드포인트가 아니라 **Sanity 싱글톤**. FE 가 Sanity CDN 에서 직접 읽는다
 //   (cert org/term 과 동일 패턴). 값 하나 바꿔 publish 하면 FE/BE 양쪽 무배포로 런칭 전환.
-//   GROQ: *[_type == "siteSettings"][0]{launched, showSeededCourses}
-//   BE 도 같은 문서를 서버사이드로 읽어 신청 차단(PRE_LAUNCH)·데모 필터를 강제한다.
+//   GROQ: *[_type == "siteSettings"][0]{launched, showSeededCourses, pendingTtlHours, paymentTtlHours}
+//   BE 도 같은 문서를 서버사이드로 읽어 신청 차단(PRE_LAUNCH)·데모 필터·좌석 lock 만료를 강제한다.
 // ============================================================
 
 export interface SiteSettings {
   launched: boolean; // false → 전 코스 신청 차단(BE 403 PRE_LAUNCH) + "정식 런칭을 기다려주세요" 배너
   showSeededCourses: boolean; // false → 데모(seeded) 코스가 둘러보기/상세에서 빠짐(데이터는 보존)
+  pendingTtlHours: number;  // BE 내부 — 신청 좌석 lock 만료(강사 무응답, 기본 24). FE 미사용
+  paymentTtlHours: number;  // BE 내부 — 결제 대기 만료(미결제, 기본 12). FE 미사용
 }
 
 // ============================================================

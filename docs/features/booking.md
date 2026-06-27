@@ -28,7 +28,8 @@
 - 슬롯의 capacity 단위 = 강사 `AvailabilitySession`(위치·시간블록·정원). **session 은 강사가 직접 추가하거나, 학생 첫 신청이 그 (위치,블록)으로 생성**한다 — coverage(예약가능시간) 위에 놓인 한 일정. (2026-06-18 분리에서 옛 `AvailabilityWindow` 가 coverage+session 둘로 쪼개졌고, 예약은 session 에 붙는다. → [docs/features/instructor-availability.md](instructor-availability.md).)
 - 이후 신청은 **같은 venue + 정확히 같은 시간블록**(같은 session)만 합류(group session). **부분겹침은 불허** — venue 운영블록은 이산 카탈로그(1부/2부…)라 통째로만 선택하므로 부분겹침이 구조적으로 표현 불가. (사용자 결정.) 슬롯 식별자 = `(date, 위치, 블록)`(옛 windowId 폐기).
 - **session 은 별도 bind/unbind 없음**(옛 `WindowBinder` 제거) — 생성 시점부터 위치를 소유. 대신 **점유 0 = 일정 삭제**: 거절/취소(또는 외부 hold 제거)로 활성 신청+hold 가 0 이 되면 `SessionCleaner` 가 그 session 을 지운다(화면 카드 제거). **단 enrollment 이력은 보존** — CANCELLED/REJECTED 신청은 안 지우고 `session_id` 만 끊는다(날짜·위치·블록·가격·사유 스냅샷은 enrollment 에 남아 CS/환불 증빙 가능). coverage 는 안 건드림.
-- **만석** = `확정 + 외부 hold >= 유효정원`. PENDING 은 정원 넘게 쌓여도 허용 — 강사가 수락/거절로 정리(디자인 PendingBanner). 수락 시 정원 재검증.
+- **만석(신청 시점 좌석 lock · 선착순)** = `활성(대기+결제대기+확정) + 외부 hold >= 유효정원`. **신청과 동시에 좌석을 잡는다**(영화관 좌석식 — 정원 차면 새 신청 400). 정원 ~5명 소규모라 먼저 신청한 사람이 밀리지 않게(2026-06-28 결정 — 옛 "PENDING 하드캡 안 함" 폐기). 수락은 잠긴 슬롯을 결제대기로 전환만(정원 재검증 없음).
+- **lock 자동 만료(TTL)** — 방치된 점유 해제: 신청(PENDING) **24h** 무응답 / 결제대기(PAYMENT_PENDING) **12h** 미결제면 만료(CANCELLED·좌석 해제, `EnrollmentExpiryService` 주기 스위프). 값은 `SiteSettings`(Sanity) **런타임 config**(기본 24/12, Studio 에서 무배포 조정). 만료 전 학생 무료취소 가능. (만료 푸시 알림은 후속.)
 
 ### 다회차 모델 (붕어빵) — Course ⊃ rounds, Enrollment(수강) ⊃ EnrollmentRound(회차)
 

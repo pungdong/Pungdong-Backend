@@ -87,7 +87,7 @@ class LaunchFlagsUseCaseTest {
     @Test
     @DisplayName("P1: 런칭 전(launched=false)에는 수강신청이 전역 차단된다 (403, code -1016)")
     void preLaunchBlocksEnrollment() throws Exception {
-        given(siteSettings.current()).willReturn(new SiteSettings(false, true));
+        given(siteSettings.current()).willReturn(new SiteSettings(false, true, 24, 12));
         Account student = account("stud-p1@plop.cool", "p1");
 
         mockMvc.perform(post("/enrollments")
@@ -102,7 +102,7 @@ class LaunchFlagsUseCaseTest {
     @Test
     @DisplayName("P2: 런칭 후(launched=true)에는 런칭 게이트를 통과한다 (없는 코스라 403 아닌 400)")
     void launchedPassesGate() throws Exception {
-        given(siteSettings.current()).willReturn(new SiteSettings(true, true));
+        given(siteSettings.current()).willReturn(new SiteSettings(true, true, 24, 12));
         Account student = account("stud-p2@plop.cool", "p2");
 
         mockMvc.perform(post("/enrollments")
@@ -116,7 +116,7 @@ class LaunchFlagsUseCaseTest {
     @Test
     @DisplayName("S1: 데모 노출 OFF(showSeededCourses=false)면 둘러보기에서 seeded 코스가 빠진다")
     void browseHidesSeededWhenOff() throws Exception {
-        given(siteSettings.current()).willReturn(new SiteSettings(true, false));
+        given(siteSettings.current()).willReturn(new SiteSettings(true, false, 24, 12));
         Account inst = account("inst-s1@plop.cool", "s1inst");
         openCourse(inst, "실강사 강의", false);
         openCourse(inst, "샘플 강의", true);
@@ -130,7 +130,7 @@ class LaunchFlagsUseCaseTest {
     @Test
     @DisplayName("S2: 데모 노출 ON(showSeededCourses=true)면 seeded 코스도 함께 노출된다")
     void browseShowsSeededWhenOn() throws Exception {
-        given(siteSettings.current()).willReturn(new SiteSettings(true, true));
+        given(siteSettings.current()).willReturn(new SiteSettings(true, true, 24, 12));
         Account inst = account("inst-s2@plop.cool", "s2inst");
         openCourse(inst, "실강사 강의", false);
         openCourse(inst, "샘플 강의", true);
@@ -143,7 +143,7 @@ class LaunchFlagsUseCaseTest {
     @Test
     @DisplayName("D1: 데모 노출 OFF면 seeded 코스의 공개 상세도 숨겨진다 (400, 존재 숨김)")
     void detailHidesSeededWhenOff() throws Exception {
-        given(siteSettings.current()).willReturn(new SiteSettings(true, false));
+        given(siteSettings.current()).willReturn(new SiteSettings(true, false, 24, 12));
         Account inst = account("inst-d1@plop.cool", "d1inst");
         Course seeded = openCourse(inst, "샘플 강의", true);
 
@@ -154,7 +154,7 @@ class LaunchFlagsUseCaseTest {
     @Test
     @DisplayName("D2: 데모 노출 ON이면 seeded 코스 상세가 보이고 seeded=true 로 내려간다")
     void detailShowsSeededWhenOn() throws Exception {
-        given(siteSettings.current()).willReturn(new SiteSettings(true, true));
+        given(siteSettings.current()).willReturn(new SiteSettings(true, true, 24, 12));
         Account inst = account("inst-d2@plop.cool", "d2inst");
         Course seeded = openCourse(inst, "샘플 강의", true);
 
