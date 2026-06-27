@@ -89,6 +89,20 @@ public class EnrollmentOptionsService {
         return buildOptions(course.getInstructor(), course, next, today);
     }
 
+    /** 회차 직접 일정수정용 옵션 — 그 회차의 CourseRound 교집합 슬롯(1회차 옵션과 동일 shape). */
+    public EnrollmentOptionsResponse getRoundOptions(Account student, Long roundId, LocalDate today) {
+        EnrollmentRound round = roundRepo.findById(roundId).orElseThrow(ResourceNotFoundException::new);
+        Account owner = round.getEnrollment() == null ? null : round.getEnrollment().getStudent();
+        if (owner == null || !owner.getId().equals(student.getId())) {
+            throw new ResourceNotFoundException(); // 없음/남의 회차 — 존재 숨김
+        }
+        Course course = round.getEnrollment().getCourse();
+        if (course == null) {
+            throw new ResourceNotFoundException();
+        }
+        return buildOptions(course.getInstructor(), course, round.getCourseRound(), today);
+    }
+
     private EnrollmentOptionsResponse buildOptions(Account instructor, Course course, CourseRound round, LocalDate today) {
         // 회차 후보 (venueRef, ticketRef) 쌍
         List<String[]> candidates = new ArrayList<>();

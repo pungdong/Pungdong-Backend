@@ -1157,11 +1157,29 @@ export interface ProposeSlotsRequest {
 /** 제안 슬롯 선택 — POST /enrollments/rounds/{roundId}/pick-slot → 200. 사전 수락이라 곧장 PAYMENT_PENDING. */
 export type PickSlotRequest = SlotProposal; // proposedSlots 중 하나
 
+/**
+ * 직접 일정 수정 (제안 외 원하는 슬롯) — POST /enrollments/rounds/{roundId}/reschedule (body = RoundScheduleRequest) → 200.
+ * 회차를 **제자리 변경**(취소 아님 — 회차 id 유지, 옛 슬롯은 slotHistory 적재). 날짜에 따라 위치가 다를 수 있어 위치/장비
+ * 재선택 가능. 강사가 제안 안 한 슬롯이라 → status **PENDING**(강사 재수락). 결제 전(PENDING) 회차만.
+ * 슬롯 후보는 GET /enrollments/rounds/{roundId}/options (1회차 옵션과 동일 EnrollmentOptionsResponse — 슬롯 UI 재사용).
+ * (제안 슬롯을 그대로 고르는 빠른 길은 pick-slot → 즉시 PAYMENT_PENDING.)
+ */
+
 export interface EnrollmentEquipmentLine {
   itemRef: string;
   name: string;
   price: number;
   size: string | null; // 선택 사이즈(SHOE_MM/APPAREL_SXL), NONE 형식이면 null
+}
+
+/** 슬롯 변경 이력 1줄 — 일정 수정/제안 선택으로 슬롯이 바뀐 기록(CS 추적). 변경 없으면 빈 배열. */
+export interface SlotHistoryLine {
+  date: string | null;
+  venueRefId: string | null;
+  ticketRef: string | null;
+  blockStart: string | null;
+  blockEnd: string | null;
+  changedAt: string | null; // ISO date-time
 }
 
 /**
@@ -1189,6 +1207,7 @@ export interface EnrollmentResponse extends HalLinks {
   equipment: EnrollmentEquipmentLine[];
   createdAt: string | null;
   respondedAt: string | null;
+  slotHistory: SlotHistoryLine[]; // 슬롯 변경 이력(reschedule/pick-slot 시 적재) — CS 추적
 }
 
 // ── 수강생 강의일정 hub — GET /enrollments/mine/schedule (authenticated) ──
