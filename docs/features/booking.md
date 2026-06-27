@@ -90,7 +90,8 @@
 
 ## 미해결 / 확장
 
-- 🟡 **다회차 재설계 구현** (2026-06-28~, PR 분할): PR1 엔티티 분할+1회차 흐름(pay-first), PR2 다회차 진행(2+ 일정신청·강사 일정변경요청·EXTRA·locked 게이트), PR3 완료(done — 자동+24h·강사 일괄/개별·finalizing/completed 파생·정산 훅), PR4 환불 상태기계.
+- 🟡 **다회차 재설계 구현** (2026-06-28~, PR 분할): ✅PR1 엔티티 분할+1회차(pay-first), ✅좌석lock+TTL, ✅PR2+PR3 다회차 진행·완료(2+ 일정신청 `POST /enrollments/{id}/rounds`·`GET .../next-options`·**locked 게이트=직전 회차 done**·강사 **일정변경요청(`propose-slots`→`pick-slot`, 완전한 슬롯[날짜+이용권+블록], 사전수락)**·EXTRA·**완료 done**(강사 `complete`/세션 일괄 `sessions/{id}/complete`/세션일+24h 자동 sweep, hub DONE/COMPLETED 파생)). 남음: PR4 환불 상태기계·정산 연계·다이브로그.
+  - **일정변경요청은 완전한 슬롯 제안** — 날짜만 바꾸면 요일(평일↔주말)이 바뀌며 daypart(이용권·입장료·블록)가 달라지므로, 강사가 이용권·블록까지 정해 제안해야 학생 선택이 곧 사전 수락(입장료는 그 슬롯 daypart 로 재산정). 위치는 회차 고정(장비 재사용).
 - 🟡 **정산** — 수수료(PG 3.4% + 플랫폼 6.6%, 실비 0%) 분해. done → 정산 연계.
 - 🟢 **다이브로그**(수강생별 done 연계) · 강사 회차 메모 · 세션 단체채팅/공지 · enrollment-management 강사 검토 시트 풀 UI.
 - 🟢 venue 운영 공휴일·OPEN 세분화 정밀도.

@@ -1123,10 +1123,39 @@ export interface EnrollmentCreateRequest {
   equipmentRefs?: string[]; // 선택 장비 itemRef
 }
 
-/** 강사 거절 — POST /instructor/enrollments/{id}/reject. */
+/** 강사 거절 — POST /instructor/enrollments/{roundId}/reject. 거절은 1회차(진입)만(진행 중은 일정변경요청). */
 export interface RejectRequest {
   reason?: string;
 }
+
+/**
+ * 2회차+ 일정 신청 — POST /enrollments/{enrollmentId}/rounds → 201 PENDING. 어느 회차인지는 서버가 판정
+ * (다음 schedulable 회차 — 직전 정규 CONFIRMED 게이트, 정규 끝나면 EXTRA). 옵션은 GET /enrollments/{enrollmentId}/next-options.
+ */
+export interface RoundScheduleRequest {
+  date: string;             // "YYYY-MM-DD"
+  venueRefId: string;
+  ticketRef: string;
+  blockStart: string;       // "14:00:00"
+  blockEnd: string;
+  equipmentRefs?: string[];
+}
+
+/** 완전한 슬롯 — 날짜+이용권+블록. 위치는 회차에 고정(날짜만 바꾸면 daypart=이용권·입장료·블록이 달라지므로). */
+export interface SlotProposal {
+  date: string;             // "YYYY-MM-DD"
+  ticketRef: string;
+  blockStart: string;       // "14:00:00"
+  blockEnd: string;
+}
+
+/** 강사 일정변경요청 — POST /instructor/enrollments/{roundId}/propose-slots. 완전한 대안 슬롯 제안(서버가 bookable 한 것만 채택). */
+export interface ProposeSlotsRequest {
+  slots: SlotProposal[];
+}
+
+/** 제안 슬롯 선택 — POST /enrollments/rounds/{roundId}/pick-slot → 200. 사전 수락이라 곧장 PAYMENT_PENDING. */
+export type PickSlotRequest = SlotProposal; // proposedSlots 중 하나
 
 export interface EnrollmentEquipmentLine {
   itemRef: string;
@@ -1163,29 +1192,33 @@ export interface EnrollmentResponse extends HalLinks {
 }
 
 // ── 수강생 강의일정 hub — GET /enrollments/mine/schedule (authenticated) ──
-// 내 신청을 강의(course) 단위로 그룹핑 + 진행상태 파생. docs/features/student-schedule.md.
-// ⚠️ 설계의 done/finalizing/completed/메모/세션채팅/일정변경/환불은 BE 미구현이라 여기 없음(로드맵).
+// 내 수강을 강의(course) 단위로 묶고 회차 진행상태 파생. 2회차+ 진행·일정변경요청 반영. docs/features/student-schedule.md.
+// ⚠️ 설계의 done/finalizing/completed/메모/세션채팅/환불은 BE 미구현이라 여기 없음(로드맵).
 //   응답은 EntityModel(HAL) — { filters, courses, _links }.
 
-/** 회차(=enrollment 1건) 진행상태. BE EnrollmentStatus 파생: PENDING→WAITING, PAYMENT_PENDING→PAYMENT_DUE … */
+/** 회차(=EnrollmentRound 1건) 진행상태. BE EnrollmentStatus + 일정변경 제안 파생. */
 export type RoundScheduleStatus =
-  | 'WAITING'
+  | 'WAITING'       // PENDING(제안 없음) — 강사 확인 중
+  | 'RESCHEDULING'  // 강사 일정변경 제안 — 학생이 proposedSlots 중 골라 pick-slot
   | 'PAYMENT_DUE'
-  | 'CONFIRMED'
+  | 'CONFIRMED'     // 확정·미완료(진행 대기)
+  | 'DONE'          // 회차 수강 완료(강사 complete 또는 세션일 +24h 자동)
   | 'REJECTED'
   | 'CANCELLED';
 
-/** 강의(=회차들) 진행상태. 회차들에서 액션 우선으로 파생(결제대기>일정변경>수락대기>진행중>취소). */
+/** 강의(=회차들) 진행상태. 회차들에서 액션 우선으로 파생(결제대기>일정변경>수락대기>진행중>완료>취소). */
 export type CourseScheduleStatus =
   | 'PAYMENT_DUE'
   | 'RESCHEDULING'
   | 'WAITING'
   | 'PROGRESS'
+  | 'COMPLETED'   // 모든 정규회차 수강 완료
   | 'CANCELLED';
 
 export interface ScheduleRound {
   roundId: number; // 회차 id — 취소·결제·일정변경 행위 단위
   roundIndex: number | null; // REGULAR 1..N, EXTRA null
+  roundKind: 'REGULAR' | 'EXTRA' | null;
   status: RoundScheduleStatus;
   date: string | null;
   blockStart: string | null;
@@ -1194,12 +1227,15 @@ export interface ScheduleRound {
   venueName: string | null;
   /** 신청 시점 추정 총액 스냅샷(원). 권위 결제금액은 POST /payments/prepare. */
   amount: number;
+  /** 강사 일정변경 제안 슬롯(RESCHEDULING). 학생이 골라 POST /enrollments/rounds/{roundId}/pick-slot. */
+  proposedSlots: SlotProposal[];
   rejectionReason: string | null; // REJECTED만
   createdAt: string | null;
   respondedAt: string | null;
 }
 
 export interface ScheduleCourse {
+  enrollmentId: number | null; // 수강 id — 다음 회차 신청(POST /enrollments/{enrollmentId}/rounds) 대상
   courseId: number | null;
   title: string | null;
   organizationCode: string | null; // 자격 단체 코드(Sanity)
@@ -1207,7 +1243,10 @@ export interface ScheduleCourse {
   levels: CertLevel[];
   instructorName: string | null;
   status: CourseScheduleStatus;
-  rounds: ScheduleRound[]; // roundIndex 순
+  totalRounds: number;             // 정규 회차 총 수 — FE 가 미잡힌(locked) 회차 placeholder 렌더
+  nextRoundIndex: number | null;   // 지금 신청 가능한 다음 정규 회차 번호(없으면 null)
+  canScheduleExtra: boolean;       // 정규 끝나 추가세션(EXTRA) 신청 가능
+  rounds: ScheduleRound[];         // 잡은 회차만, roundIndex 순
 }
 
 /** 필터 칩 — id='all' 또는 CourseScheduleStatus 이름, label 한글, count. */
@@ -1223,8 +1262,13 @@ export interface ScheduleHubResponse extends HalLinks {
 }
 
 /**
- * 강사가 받은 신청 — GET /instructor/enrollments?status= · accept/reject 응답.
+ * 강사가 받은 신청 — GET /instructor/enrollments?status= · accept/reject/propose-slots/complete 응답.
  * 목록은 `_embedded.enrollments`. status 생략 시 PENDING.
+ *
+ * 완료(done) 엔드포인트:
+ * - POST /instructor/enrollments/{roundId}/complete → 회차 done(확정 회차만). 다음 회차 게이트가 열림. 응답=이 타입.
+ * - POST /instructor/enrollments/sessions/{sessionId}/complete → 그 세션의 모든 확정 회차 일괄 done. 응답={ completed: number }.
+ *   (세션일 +24h 지나면 서버가 자동 done — 강사 미마킹 fallback.)
  */
 export interface InstructorEnrollmentResponse extends HalLinks {
   id: number;
