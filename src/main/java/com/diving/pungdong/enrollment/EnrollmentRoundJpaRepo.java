@@ -36,4 +36,7 @@ public interface EnrollmentRoundJpaRepo extends JpaRepository<EnrollmentRound, L
 
     /** 만료 스위프 — 결제 대기(PAYMENT_PENDING) 미결제: respondedAt(수락 시각)이 cutoff 이전인 그 상태 회차들. */
     List<EnrollmentRound> findByStatusAndRespondedAtBefore(EnrollmentStatus status, java.time.LocalDateTime cutoff);
+
+    /** 자동 완료 스위프 — 세션 날짜가 cutoff 이전(지남)이고 아직 done 안 된 확정(CONFIRMED) 회차들. */
+    List<EnrollmentRound> findByStatusAndDoneAtIsNullAndDateBefore(EnrollmentStatus status, java.time.LocalDate cutoff);
 }

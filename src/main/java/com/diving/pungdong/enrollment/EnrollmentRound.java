@@ -76,8 +76,18 @@ public class EnrollmentRound {
     private LocalDateTime doneAt;
 
     private LocalDateTime createdAt;
-    /** 강사 수락/거절 시점. */
+    /** 강사 수락/거절/일정변경요청 시점. */
     private LocalDateTime respondedAt;
+
+    /**
+     * 강사 일정변경요청 — 위치 고정, <b>완전한 대안 슬롯(날짜+이용권+블록)</b> 목록(서버 검증). 비어있지 않으면
+     * 학생이 그 중 하나를 골라야(pick) 한다(= 강사 사전 수락 → 고르면 바로 PAYMENT_PENDING). PENDING 에서만 의미.
+     */
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "enrollment_round_proposed_slot", joinColumns = @JoinColumn(name = "round_id"))
+    @OrderColumn(name = "slot_order")
+    @Builder.Default
+    private List<ProposedSlot> proposedSlots = new ArrayList<>();
 
     @OneToMany(mappedBy = "enrollmentRound", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @OrderBy("id asc")
@@ -107,5 +117,10 @@ public class EnrollmentRound {
 
     public boolean isDone() {
         return status == EnrollmentStatus.CONFIRMED && doneAt != null;
+    }
+
+    /** 강사가 일정변경요청(대안 슬롯 제안)을 보냈고 학생이 아직 안 고른 상태. */
+    public boolean hasRescheduleOffer() {
+        return status == EnrollmentStatus.PENDING && proposedSlots != null && !proposedSlots.isEmpty();
     }
 }

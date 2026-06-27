@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -69,6 +70,44 @@ public class EnrollmentExpiryService {
             }
         }
         return expired;
+    }
+
+    /**
+     * 자동 완료 — 세션 날짜가 지난(date &lt; today, +24h 그레이스) 확정 회차를 done 처리(강사 미마킹 대비 fallback).
+     * 각 건 자기 트랜잭션. 완료 건수 반환.
+     */
+    public int sweepAutoDone(LocalDate today) {
+        List<Long> ids = tx.execute(st -> {
+            List<Long> out = new ArrayList<>();
+            roundRepo.findByStatusAndDoneAtIsNullAndDateBefore(EnrollmentStatus.CONFIRMED, today)
+                    .forEach(r -> out.add(r.getId()));
+            return out;
+        });
+        if (ids == null || ids.isEmpty()) {
+            return 0;
+        }
+        int done = 0;
+        for (Long id : ids) {
+            try {
+                Boolean ok = tx.execute(st -> markDone(id));
+                if (Boolean.TRUE.equals(ok)) {
+                    done++;
+                }
+            } catch (RuntimeException e) {
+                log.warn("[auto-done] 회차 {} 완료 건너뜀 ({})", id, e.toString());
+            }
+        }
+        return done;
+    }
+
+    private boolean markDone(Long id) {
+        EnrollmentRound r = roundRepo.findById(id).orElse(null);
+        if (r == null || r.getStatus() != EnrollmentStatus.CONFIRMED || r.getDoneAt() != null) {
+            return false; // 그새 변경됨 — 멱등
+        }
+        r.setDoneAt(LocalDateTime.now());
+        roundRepo.save(r);
+        return true;
     }
 
     private boolean expireOne(Long id, LocalDateTime now) {

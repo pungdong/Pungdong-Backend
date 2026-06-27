@@ -58,6 +58,11 @@ class EnrollmentExpiryUseCaseTest {
 
     private EnrollmentRound persist(String tag, EnrollmentStatus status,
                                     LocalDateTime createdAt, LocalDateTime respondedAt, boolean withSession) {
+        return persist(tag, status, createdAt, respondedAt, withSession, LocalDate.now().plusWeeks(1));
+    }
+
+    private EnrollmentRound persist(String tag, EnrollmentStatus status, LocalDateTime createdAt,
+                                    LocalDateTime respondedAt, boolean withSession, LocalDate roundDate) {
         Account ins = accountRepo.save(Account.builder().email("ins-" + tag + "@pd.com").password("x")
                 .nickName("강사" + tag).roles(new HashSet<>(Set.of(Role.INSTRUCTOR))).build());
         Account stu = accountRepo.save(Account.builder().email("stu-" + tag + "@pd.com").password("x")
@@ -66,13 +71,13 @@ class EnrollmentExpiryUseCaseTest {
                 .kind(CourseKind.CERTIFICATION).organizationCode("AIDA").disciplineCode("FREEDIVING")
                 .totalRounds(1).price(100000).status(CourseStatus.OPEN).createdAt(LocalDateTime.now()).build());
         AvailabilitySession sess = withSession ? sessionRepo.save(AvailabilitySession.builder()
-                .instructor(ins).date(LocalDate.now().plusWeeks(1))
+                .instructor(ins).date(roundDate)
                 .startTime(LocalTime.of(14, 0)).endTime(LocalTime.of(17, 0))
                 .venueRefId("CUSTOM:1").createdAt(LocalDateTime.now()).build()) : null;
         Enrollment e = Enrollment.builder().student(stu).course(c).tuitionSnapshot(100000).createdAt(createdAt).build();
         EnrollmentRound r = EnrollmentRound.builder()
                 .roundIndex(1).roundKind(RoundKind.REGULAR).availabilitySession(sess)
-                .venueRefId("CUSTOM:1").date(LocalDate.now().plusWeeks(1))
+                .venueRefId("CUSTOM:1").date(roundDate)
                 .blockStart(LocalTime.of(14, 0)).blockEnd(LocalTime.of(17, 0))
                 .status(status).createdAt(createdAt).respondedAt(respondedAt).build();
         e.addRound(r);
@@ -115,5 +120,21 @@ class EnrollmentExpiryUseCaseTest {
 
         assertThat(n).isZero();
         assertThat(roundRepo.findById(r.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("T4 세션일이 지난 확정(CONFIRMED) 회차는 자동 완료(done)되고, 미래 회차는 안 된다")
+    void autoDoneAfterSessionDate() {
+        EnrollmentRound past = persist("t4a", EnrollmentStatus.CONFIRMED,
+                LocalDateTime.now().minusWeeks(1), LocalDateTime.now().minusWeeks(1), false,
+                LocalDate.now().minusDays(2)); // 세션 지남
+        EnrollmentRound future = persist("t4b", EnrollmentStatus.CONFIRMED,
+                LocalDateTime.now(), LocalDateTime.now(), false, LocalDate.now().plusWeeks(1)); // 아직 안 지남
+
+        int n = expiryService.sweepAutoDone(LocalDate.now());
+
+        assertThat(n).isEqualTo(1);
+        assertThat(roundRepo.findById(past.getId()).orElseThrow().getDoneAt()).isNotNull();
+        assertThat(roundRepo.findById(future.getId()).orElseThrow().getDoneAt()).isNull();
     }
 }

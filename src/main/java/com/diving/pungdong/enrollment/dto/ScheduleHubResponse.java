@@ -34,10 +34,11 @@ public class ScheduleHubResponse {
         private final int count;
     }
 
-    /** 강의 카드(같은 course 의 회차들). */
+    /** 강의 카드(한 수강 = 한 강의). */
     @Getter
     @Builder
     public static class ScheduleCourse {
+        private final Long enrollmentId; // 수강 id — 다음 회차 신청(POST /enrollments/{id}/rounds) 대상
         private final Long courseId;
         private final String title;
         private final String organizationCode; // 자격 단체 코드(Sanity) — CERTIFICATION만
@@ -45,7 +46,13 @@ public class ScheduleHubResponse {
         private final List<CertLevel> levels;
         private final String instructorName;
         private final CourseScheduleStatus status;
-        private final List<ScheduleRound> rounds; // roundIndex 순
+        /** 정규 회차 총 수. FE 가 미잡힌(locked) 회차 placeholder 를 그릴 기준. */
+        private final int totalRounds;
+        /** 지금 신청 가능한 다음 정규 회차 번호(없으면 null — 직전 미확정/전부 완료). */
+        private final Integer nextRoundIndex;
+        /** 정규 다 끝나 추가세션(EXTRA) 신청 가능 여부. */
+        private final boolean canScheduleExtra;
+        private final List<ScheduleRound> rounds; // roundIndex 순(잡은 회차만)
     }
 
     /** 회차(=EnrollmentRound 1건). */
@@ -56,6 +63,7 @@ public class ScheduleHubResponse {
         private final Long roundId;
         /** 정규 회차 번호(1..N). EXTRA 는 null. */
         private final Integer roundIndex;
+        private final String roundKind; // REGULAR | EXTRA
         private final RoundScheduleStatus status;
         private final LocalDate date;
         private final LocalTime blockStart;
@@ -64,6 +72,8 @@ public class ScheduleHubResponse {
         private final String venueName;
         /** 신청 시점 추정 총액 스냅샷(원). 권위 결제금액은 POST /payments/prepare. */
         private final int amount;
+        /** 강사 일정변경 제안 슬롯(RESCHEDULING 일 때) — 날짜+이용권+블록 완전 슬롯. 학생이 골라 pick-slot. */
+        private final List<com.diving.pungdong.enrollment.ProposedSlot> proposedSlots;
         private final String rejectionReason; // REJECTED만
         private final LocalDateTime createdAt;
         private final LocalDateTime respondedAt;
