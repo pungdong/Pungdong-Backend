@@ -45,6 +45,7 @@
 - [강사 가용시간 캘린더(instructor-availability)](instructor-availability.md) — availability + account + instructor-application + venue (2층 모델 · 외부/수동 점유 · enrollment 후속)
 - [수강신청(booking)](booking.md) — enrollment + availability + venue + course (교집합 = 학생 선택지 · exact-match join · 강사 수락/거절 · 결제는 payment 로)
 - [결제(payment)](payment.md) — payment + enrollment + course + venue (토스 결제위젯 v2 · 수락→결제→확정 · 서버 권위 금액 · stub/toss · webhook 후속)
+- [수강생 강의일정 hub(student-schedule)](student-schedule.md) — enrollment 그룹핑 read 허브(GET /enrollments/mine/schedule) · 강의 7/회차 9상태 중 buildable 5 파생 · 설계↔BE 갭/로드맵(메모·채팅·일정변경·환불·완료·리뷰·자격증 미구현)
 
 ## 톤
 

@@ -1,6 +1,6 @@
 package com.diving.pungdong.payment;
 
-import com.diving.pungdong.enrollment.Enrollment;
+import com.diving.pungdong.enrollment.EnrollmentRound;
 import lombok.*;
 
 import javax.persistence.*;
@@ -8,7 +8,8 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 
 /**
- * 결제 주문 1건 — 한 {@link Enrollment}(수락된 수강신청)의 결제. 토스 결제위젯 v2 흐름의 BE 측 기록.
+ * 결제 주문 1건 — 한 {@link EnrollmentRound}(수락된 회차)의 결제. 토스 결제위젯 v2 흐름의 BE 측 기록.
+ * 다회차: 결제 단위는 회차 — 1회차는 수강료+부대, 2회차~ 부대만(수강료는 1회차에 전액).
  *
  * <p><b>왜 새 엔티티인가</b>: 레거시 {@code domain/payment/Payment} 는 옛 예약 플로우 전용(가격 산술만, PG
  * 트랜잭션 필드 없음)이라 건드리지 않는다. enrollment 도메인 옆에 결제를 1급으로 둔다(package-by-feature).
@@ -35,8 +36,8 @@ public class PaymentOrder {
     private String orderId;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "enrollment_id")
-    private Enrollment enrollment;
+    @JoinColumn(name = "enrollment_round_id")
+    private EnrollmentRound enrollmentRound;
 
     /** 서버가 정한 권위 금액(원). 클라이언트 입력 신뢰 금지 — confirm 시 일치 검증. */
     private int amount;

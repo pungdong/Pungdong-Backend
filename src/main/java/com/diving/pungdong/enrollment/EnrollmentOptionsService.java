@@ -54,7 +54,7 @@ public class EnrollmentOptionsService {
     private final CourseJpaRepo courseRepo;
     private final AvailabilityCoverageJpaRepo coverageRepo;
     private final AvailabilitySessionJpaRepo sessionRepo;
-    private final EnrollmentJpaRepo enrollmentRepo;
+    private final EnrollmentRoundJpaRepo roundRepo;
     private final VenueRefResolver venueRefResolver;
     private final VenueEquipmentService equipmentService;
     private final BookableSlotDeriver slotDeriver;
@@ -95,13 +95,13 @@ public class EnrollmentOptionsService {
         Map<LocalDate, List<AvailabilitySession>> sessionsByDate = sessions.stream()
                 .collect(Collectors.groupingBy(AvailabilitySession::getDate));
         // 점유(결제대기+확정) 합산 — 남은 좌석 계산. PENDING 은 하드캡 안 함이라 제외.
-        Map<Long, Integer> occupiedBySession = enrollmentRepo
+        Map<Long, Integer> occupiedBySession = roundRepo
                 .findByAvailabilitySessionIdInAndStatusIn(
                         sessions.stream().map(AvailabilitySession::getId).collect(Collectors.toList()),
                         EnrollmentStatus.OCCUPYING)
                 .stream()
-                .collect(Collectors.groupingBy(e -> e.getAvailabilitySession().getId(),
-                        Collectors.summingInt(e -> 1)));
+                .collect(Collectors.groupingBy(r -> r.getAvailabilitySession().getId(),
+                        Collectors.summingInt(r -> 1)));
 
         List<EnrollmentOptionsResponse.Slot> slots = new ArrayList<>();
         for (Map.Entry<LocalDate, List<Span>> day : coverageByDate.entrySet()) {

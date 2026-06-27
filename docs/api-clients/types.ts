@@ -549,7 +549,7 @@ export interface VenueResponse extends HalLinks {
 // 모두 인증(강사 트랙). GET /venue-equipment(?venueRefId= 단건/전체) · PUT /venue-equipment(upsert).
 
 /** 사이즈 표기 형식. 미입력 시 SHOE_MM/APPAREL_SXL 은 서버 프리셋 자동, NONE 은 빈 목록, CUSTOM 은 직접. */
-export type SizeFormat = 'NONE' | 'SHOE_MM' | 'APPAREL_SXL' | 'CUSTOM';
+export type SizeFormat = 'NONE' | 'SHOE_MM' | 'APPAREL_SXL';
 
 /** 장비 1종 (요청·응답 공용 모양). price 0 = 무료. */
 export interface VenueEquipmentItem {
@@ -1132,18 +1132,20 @@ export interface EnrollmentEquipmentLine {
   itemRef: string;
   name: string;
   price: number;
+  size: string | null; // 선택 사이즈(SHOE_MM/APPAREL_SXL), NONE 형식이면 null
 }
 
 /**
- * 내 신청(학생) — 신청 직후 / GET /enrollments/mine. 목록은 `_embedded.enrollments`.
+ * 내 회차(학생) — 신청 직후 / GET /enrollments/mine. 목록은 `_embedded.enrollments`.
+ * 다회차: `id` 는 **회차 id**(취소·결제 등 행위 단위). 수강료(tuition)는 첫 만남 회차만, 부대비용은 회차별.
  * 금액은 신청 시점 추정 스냅샷 — 권위(청구) 금액은 결제 시점 POST /payments/prepare 응답의 amount.
  */
 export interface EnrollmentResponse extends HalLinks {
-  id: number;
+  id: number; // 회차 id
   courseId: number | null;
   courseTitle: string | null;
   instructorName: string | null;
-  roundIndex: number;
+  roundIndex: number | null; // REGULAR 1..N, EXTRA null
   date: string | null;
   blockStart: string | null;
   blockEnd: string | null;
@@ -1158,6 +1160,66 @@ export interface EnrollmentResponse extends HalLinks {
   equipment: EnrollmentEquipmentLine[];
   createdAt: string | null;
   respondedAt: string | null;
+}
+
+// ── 수강생 강의일정 hub — GET /enrollments/mine/schedule (authenticated) ──
+// 내 신청을 강의(course) 단위로 그룹핑 + 진행상태 파생. docs/features/student-schedule.md.
+// ⚠️ 설계의 done/finalizing/completed/메모/세션채팅/일정변경/환불은 BE 미구현이라 여기 없음(로드맵).
+//   응답은 EntityModel(HAL) — { filters, courses, _links }.
+
+/** 회차(=enrollment 1건) 진행상태. BE EnrollmentStatus 파생: PENDING→WAITING, PAYMENT_PENDING→PAYMENT_DUE … */
+export type RoundScheduleStatus =
+  | 'WAITING'
+  | 'PAYMENT_DUE'
+  | 'CONFIRMED'
+  | 'REJECTED'
+  | 'CANCELLED';
+
+/** 강의(=회차들) 진행상태. 회차들에서 액션 우선으로 파생(결제대기>일정변경>수락대기>진행중>취소). */
+export type CourseScheduleStatus =
+  | 'PAYMENT_DUE'
+  | 'RESCHEDULING'
+  | 'WAITING'
+  | 'PROGRESS'
+  | 'CANCELLED';
+
+export interface ScheduleRound {
+  roundId: number; // 회차 id — 취소·결제·일정변경 행위 단위
+  roundIndex: number | null; // REGULAR 1..N, EXTRA null
+  status: RoundScheduleStatus;
+  date: string | null;
+  blockStart: string | null;
+  blockEnd: string | null;
+  venueRefId: string | null;
+  venueName: string | null;
+  /** 신청 시점 추정 총액 스냅샷(원). 권위 결제금액은 POST /payments/prepare. */
+  amount: number;
+  rejectionReason: string | null; // REJECTED만
+  createdAt: string | null;
+  respondedAt: string | null;
+}
+
+export interface ScheduleCourse {
+  courseId: number | null;
+  title: string | null;
+  organizationCode: string | null; // 자격 단체 코드(Sanity)
+  disciplineCode: string | null;
+  levels: CertLevel[];
+  instructorName: string | null;
+  status: CourseScheduleStatus;
+  rounds: ScheduleRound[]; // roundIndex 순
+}
+
+/** 필터 칩 — id='all' 또는 CourseScheduleStatus 이름, label 한글, count. */
+export interface ScheduleFilterCount {
+  id: string;
+  label: string;
+  count: number;
+}
+
+export interface ScheduleHubResponse extends HalLinks {
+  filters: ScheduleFilterCount[];
+  courses: ScheduleCourse[]; // 액션 우선 정렬
 }
 
 /**
@@ -1194,15 +1256,15 @@ export interface InstructorEnrollmentResponse extends HalLinks {
 
 export type PaymentStatus = 'READY' | 'DONE' | 'CANCELED' | 'FAILED';
 
-/** 결제 준비 — POST /payments/prepare (authenticated). 수락된(PAYMENT_PENDING) 신청에 대해 주문 생성. */
+/** 결제 준비 — POST /payments/prepare (authenticated). 수락된(PAYMENT_PENDING) 회차에 대해 주문 생성. */
 export interface PaymentPrepareRequest {
-  enrollmentId: number;
+  enrollmentId: number; // ★ 회차 id (다회차: 결제 단위는 회차). 필드명은 호환 유지.
 }
 
 /** 위젯 구동값. amount·orderId·orderName 은 서버 권위값 — 그대로 위젯에 넘긴다. clientKey 는 공개. */
 export interface PaymentPrepareResponse {
   orderId: string;
-  amount: number;       // 원 — 수강료(라이브) + 입장료 + 장비
+  amount: number;       // 원 — (첫 만남이면 수강료 스냅샷) + 입장료 + 장비 + 추가세션비. 회차 단위
   orderName: string;    // "코스명 (N회차)"
   clientKey: string;    // 토스 위젯 클라이언트 키(공개값)
   customerKey: string;  // 위젯 customerKey(계정 식별, PII 아님)
@@ -1221,8 +1283,8 @@ export interface PaymentConfirmResponse {
   status: PaymentStatus;          // 성공 = 'DONE'
   amount: number;
   approvedAt: string | null;      // ISO-8601 offset
-  enrollmentId: number | null;
-  enrollmentStatus: EnrollmentStatus; // 성공 후 'CONFIRMED'
+  enrollmentId: number | null;        // ★ 회차 id (다회차)
+  enrollmentStatus: EnrollmentStatus; // 회차 상태 — 성공 후 'CONFIRMED'
 }
 
 // ============================================================

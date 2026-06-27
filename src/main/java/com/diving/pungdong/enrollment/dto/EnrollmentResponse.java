@@ -1,7 +1,7 @@
 package com.diving.pungdong.enrollment.dto;
 
-import com.diving.pungdong.enrollment.Enrollment;
-import com.diving.pungdong.enrollment.EnrollmentEquipment;
+import com.diving.pungdong.enrollment.EnrollmentRound;
+import com.diving.pungdong.enrollment.EnrollmentRoundEquipment;
 import com.diving.pungdong.enrollment.EnrollmentStatus;
 import lombok.*;
 import org.springframework.hateoas.server.core.Relation;
@@ -13,8 +13,8 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * 내 신청 응답(학생) — 신청 직후 / 내 신청 목록. 목록은 {@code _embedded.enrollments}.
- * venueName 은 호출자가 {@code VenueRefResolver} 로 해석해 넘긴다(미해석 시 null).
+ * 내 회차 응답(학생) — 신청 직후 / 내 회차 목록. {@code id} = 회차 id(취소·결제 등 행위 단위). 목록은
+ * {@code _embedded.enrollments}. venueName 은 호출자가 {@code VenueRefResolver} 로 해석해 넘긴다(미해석 시 null).
  */
 @Getter @Setter
 @Builder
@@ -26,7 +26,7 @@ public class EnrollmentResponse {
     private Long courseId;
     private String courseTitle;
     private String instructorName;
-    private int roundIndex;
+    private Integer roundIndex;
 
     private LocalDate date;
     private LocalTime blockStart;
@@ -37,7 +37,7 @@ public class EnrollmentResponse {
     private EnrollmentStatus status;
     private String rejectionReason;
 
-    /** 추정 금액(신청 시점 스냅샷). 권위 금액은 확정/결제 시점(후속). */
+    /** 추정 금액(스냅샷). 수강료는 첫 만남 회차만, 부대비용은 회차별. 권위 금액은 결제 시점 재계산. */
     private int tuition;
     private int entry;
     private int equipmentTotal;
@@ -47,27 +47,28 @@ public class EnrollmentResponse {
     private LocalDateTime createdAt;
     private LocalDateTime respondedAt;
 
-    public static EnrollmentResponse of(Enrollment e, String venueName, String instructorName) {
+    public static EnrollmentResponse of(EnrollmentRound r, String venueName, String instructorName) {
+        var course = r.getEnrollment() == null ? null : r.getEnrollment().getCourse();
         return EnrollmentResponse.builder()
-                .id(e.getId())
-                .courseId(e.getCourse() == null ? null : e.getCourse().getId())
-                .courseTitle(e.getCourse() == null ? null : e.getCourse().getTitle())
+                .id(r.getId())
+                .courseId(course == null ? null : course.getId())
+                .courseTitle(course == null ? null : course.getTitle())
                 .instructorName(instructorName)
-                .roundIndex(e.getRoundIndex())
-                .date(e.getDate())
-                .blockStart(e.getBlockStart())
-                .blockEnd(e.getBlockEnd())
-                .venueRefId(e.getVenueRefId())
+                .roundIndex(r.getRoundIndex())
+                .date(r.getDate())
+                .blockStart(r.getBlockStart())
+                .blockEnd(r.getBlockEnd())
+                .venueRefId(r.getVenueRefId())
                 .venueName(venueName)
-                .status(e.getStatus())
-                .rejectionReason(e.getRejectionReason())
-                .tuition(e.getTuitionSnapshot())
-                .entry(e.getEntrySnapshot())
-                .equipmentTotal(e.getEquipmentSnapshot())
-                .total(e.estimatedTotal())
-                .equipment(e.getEquipment().stream().map(EquipmentLine::from).collect(Collectors.toList()))
-                .createdAt(e.getCreatedAt())
-                .respondedAt(e.getRespondedAt())
+                .status(r.getStatus())
+                .rejectionReason(r.getRejectionReason())
+                .tuition(r.isFirstMeeting() && r.getEnrollment() != null ? r.getEnrollment().getTuitionSnapshot() : 0)
+                .entry(r.getEntrySnapshot())
+                .equipmentTotal(r.getEquipmentSnapshot())
+                .total(r.chargeTotal())
+                .equipment(r.getEquipment().stream().map(EquipmentLine::from).collect(Collectors.toList()))
+                .createdAt(r.getCreatedAt())
+                .respondedAt(r.getRespondedAt())
                 .build();
     }
 
@@ -76,10 +77,11 @@ public class EnrollmentResponse {
         private String itemRef;
         private String name;
         private int price;
+        private String size;
 
-        static EquipmentLine from(EnrollmentEquipment x) {
+        static EquipmentLine from(EnrollmentRoundEquipment x) {
             return EquipmentLine.builder()
-                    .itemRef(x.getItemRef()).name(x.getName()).price(x.getPriceSnapshot()).build();
+                    .itemRef(x.getItemRef()).name(x.getName()).price(x.getPriceSnapshot()).size(x.getSize()).build();
         }
     }
 }

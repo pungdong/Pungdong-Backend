@@ -8,8 +8,9 @@ import com.diving.pungdong.availability.AvailabilityCoverageJpaRepo;
 import com.diving.pungdong.availability.AvailabilitySession;
 import com.diving.pungdong.availability.AvailabilitySessionJpaRepo;
 import com.diving.pungdong.course.*;
-import com.diving.pungdong.enrollment.Enrollment;
 import com.diving.pungdong.enrollment.EnrollmentJpaRepo;
+import com.diving.pungdong.enrollment.EnrollmentRound;
+import com.diving.pungdong.enrollment.EnrollmentRoundJpaRepo;
 import com.diving.pungdong.enrollment.EnrollmentStatus;
 import com.diving.pungdong.enrollment.dto.EnrollmentCreateRequest;
 import com.diving.pungdong.global.security.JwtTokenProvider;
@@ -71,6 +72,7 @@ class EnrollmentUseCaseTest {
     @Autowired VenueJpaRepo venueRepo;
     @Autowired VenueEquipmentExtensionJpaRepo equipmentRepo;
     @Autowired EnrollmentJpaRepo enrollmentRepo;
+    @Autowired EnrollmentRoundJpaRepo roundRepo;
 
     private static final LocalDate D1 = LocalDate.now().plusWeeks(1);
     private static final LocalTime B_START = LocalTime.of(14, 0);
@@ -325,7 +327,7 @@ class EnrollmentUseCaseTest {
 
         assertThat(sessionRepo.findAll()).hasSize(1); // 하나의 session 으로 합류
         long sid = sessionRepo.findAll().get(0).getId();
-        assertThat(enrollmentRepo.findByAvailabilitySessionIdAndStatusIn(
+        assertThat(roundRepo.findByAvailabilitySessionIdAndStatusIn(
                 sid, List.of(EnrollmentStatus.PENDING))).hasSize(2);
     }
 
@@ -361,7 +363,7 @@ class EnrollmentUseCaseTest {
         String venueRef = (String) s[2];
         String ticketRef = ticketRefOf((Venue) s[1]);
 
-        Enrollment first = submitOk(account("c@pd.com", "학생C"), course, venueRef, ticketRef);
+        EnrollmentRound first = submitOk(account("c@pd.com", "학생C"), course, venueRef, ticketRef);
         // 수락 = 결제 대기(슬롯 점유). 결제 전이라도 정원을 차지하므로 새 신청은 만석.
         mockMvc.perform(post("/instructor/enrollments/{id}/accept", first.getId())
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(ins)))
@@ -382,14 +384,14 @@ class EnrollmentUseCaseTest {
         Account ins = account("ins8@pd.com", "강사8");
         enterInstructorTrack(ins);
         Object[] s = setup(ins, 4);
-        Enrollment e = submitOk(account("e@pd.com", "학생E"), (Course) s[0], (String) s[2], ticketRefOf((Venue) s[1]));
+        EnrollmentRound e = submitOk(account("e@pd.com", "학생E"), (Course) s[0], (String) s[2], ticketRefOf((Venue) s[1]));
 
         mockMvc.perform(post("/instructor/enrollments/{id}/accept", e.getId())
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(ins)))
                 .andExpect(status().isOk());
 
         // 수락 = 결제 대기(아직 확정 아님). 결제 승인이 CONFIRMED 로 넘긴다(PaymentUseCaseTest).
-        assertThat(enrollmentRepo.findById(e.getId()).orElseThrow().getStatus())
+        assertThat(roundRepo.findById(e.getId()).orElseThrow().getStatus())
                 .isEqualTo(EnrollmentStatus.PAYMENT_PENDING);
         // 캘린더는 점유(결제대기+확정)를 confirmed 버킷으로 합산 — 슬롯은 차지된 것으로 표시(v1).
         mockMvc.perform(get("/instructor/availability")
@@ -405,7 +407,7 @@ class EnrollmentUseCaseTest {
         Account ins = account("ins9@pd.com", "강사9");
         enterInstructorTrack(ins);
         Object[] s = setup(ins, 4);
-        Enrollment e = submitOk(account("f@pd.com", "학생F"), (Course) s[0], (String) s[2], ticketRefOf((Venue) s[1]));
+        EnrollmentRound e = submitOk(account("f@pd.com", "학생F"), (Course) s[0], (String) s[2], ticketRefOf((Venue) s[1]));
 
         mockMvc.perform(post("/instructor/enrollments/{id}/reject", e.getId())
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(ins))
@@ -421,7 +423,7 @@ class EnrollmentUseCaseTest {
         assertThat(sessionRepo.findAll()).isEmpty();
 
         // 거절 이력은 보존 — enrollment 는 REJECTED·사유·스냅샷(날짜·위치·블록) 그대로, session FK 만 끊김
-        Enrollment hist = enrollmentRepo.findById(e.getId()).orElseThrow();
+        EnrollmentRound hist = roundRepo.findById(e.getId()).orElseThrow();
         assertThat(hist.getStatus()).isEqualTo(EnrollmentStatus.REJECTED);
         assertThat(hist.getRejectionReason()).isEqualTo("일정이 안 맞아요");
         assertThat(hist.getDate()).isEqualTo(D1);
@@ -438,7 +440,7 @@ class EnrollmentUseCaseTest {
         enterInstructorTrack(ins);
         Object[] s = setup(ins, 4);
         Account stu = account("g@pd.com", "학생G");
-        Enrollment e = submitOk(stu, (Course) s[0], (String) s[2], ticketRefOf((Venue) s[1]));
+        EnrollmentRound e = submitOk(stu, (Course) s[0], (String) s[2], ticketRefOf((Venue) s[1]));
 
         mockMvc.perform(post("/enrollments/{id}/cancel", e.getId())
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(stu)))
@@ -446,7 +448,7 @@ class EnrollmentUseCaseTest {
 
         assertThat(sessionRepo.findAll()).isEmpty(); // 빈 일정 삭제
         // 취소 이력 보존 — enrollment 는 CANCELLED·스냅샷 그대로
-        Enrollment hist = enrollmentRepo.findById(e.getId()).orElseThrow();
+        EnrollmentRound hist = roundRepo.findById(e.getId()).orElseThrow();
         assertThat(hist.getStatus()).isEqualTo(EnrollmentStatus.CANCELLED);
         assertThat(hist.getDate()).isEqualTo(D1);
         assertThat(hist.getAvailabilitySession()).isNull();
@@ -476,7 +478,7 @@ class EnrollmentUseCaseTest {
         Account ins = account("ins11@pd.com", "강사11");
         enterInstructorTrack(ins);
         Object[] s = setup(ins, 4);
-        Enrollment e = submitOk(account("owner@pd.com", "주인"), (Course) s[0], (String) s[2], ticketRefOf((Venue) s[1]));
+        EnrollmentRound e = submitOk(account("owner@pd.com", "주인"), (Course) s[0], (String) s[2], ticketRefOf((Venue) s[1]));
 
         mockMvc.perform(post("/enrollments/{id}/cancel", e.getId())
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(account("other@pd.com", "남"))))
@@ -489,7 +491,7 @@ class EnrollmentUseCaseTest {
         Account ins = account("ins12@pd.com", "강사12");
         enterInstructorTrack(ins);
         Object[] s = setup(ins, 4);
-        Enrollment e = submitOk(account("h@pd.com", "학생H"), (Course) s[0], (String) s[2], ticketRefOf((Venue) s[1]));
+        EnrollmentRound e = submitOk(account("h@pd.com", "학생H"), (Course) s[0], (String) s[2], ticketRefOf((Venue) s[1]));
 
         Account otherIns = account("ins13@pd.com", "강사13");
         enterInstructorTrack(otherIns);
@@ -500,12 +502,12 @@ class EnrollmentUseCaseTest {
 
     /* ─── helper ─── */
 
-    private Enrollment submitOk(Account student, Course course, String venueRef, String ticketRef) throws Exception {
+    private EnrollmentRound submitOk(Account student, Course course, String venueRef, String ticketRef) throws Exception {
         mockMvc.perform(post("/enrollments")
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(student))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json(req(course.getId(), venueRef, ticketRef, B_START, B_END, List.of()))))
                 .andExpect(status().isCreated());
-        return enrollmentRepo.findByStudentIdOrderByIdDesc(student.getId()).get(0);
+        return roundRepo.findByEnrollment_Student_IdOrderByIdDesc(student.getId()).get(0);
     }
 }

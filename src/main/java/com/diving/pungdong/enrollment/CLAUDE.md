@@ -8,9 +8,10 @@
 
 학생이 코스의 **첫 만남(1회차)**을 강사가 연 예약가능시간 안의 슬롯에 신청 → 강사 답변 대기 → 수락/거절. availability 의 풍덩 점유(`PENDING`/`CONFIRMED`/`applicants[]`)를 **실제로 채우고**, venue·availability 메모가 "venue 가 존재하는 궁극적 이유"라 한 **`강사 coverage(예약가능시간) ∩ Venue 운영블록 ∩ 코스 1회차 위치` 교집합**을 구현한다(venue 부가 coverage 에 통째로 ⊆ 일 때만).
 
-- **컨트롤러**: `EnrollmentController`(`/enrollments/**` — 옵션·신청·내목록·취소, 학생), `InstructorEnrollmentController`(`/instructor/enrollments/**` — 받은 신청·수락·거절, 강사).
-- **서비스**: `EnrollmentOptionsService`(교집합 슬롯 계산), `EnrollmentService`(신청/취소/내목록 + session find-or-create), `InstructorEnrollmentService`(수락/거절/목록), `BookableSlotDeriver`(venue 운영블록 도출 — 옵션·신청 검증 공유). (옛 `WindowBinder` 제거 — session 이 생성 시점부터 위치를 소유해 bind/unbind 가 없다.)
-- **엔티티**: `Enrollment`(student·course·roundIndex·**availabilitySession**·venueRefId·**date**·blockStart/End·ticketRef·status·가격 스냅샷) → `EnrollmentEquipment`(장비 스냅샷). enum `EnrollmentStatus`(PENDING/**PAYMENT_PENDING**/CONFIRMED/REJECTED/CANCELLED — `isActive()`/`occupiesCapacity()` + `ACTIVE`/`OCCUPYING` 집합 상수).
+- **컨트롤러**: `EnrollmentController`(`/enrollments/**` — 옵션·신청·내목록·**강의일정 hub**·취소, 학생), `InstructorEnrollmentController`(`/instructor/enrollments/**` — 받은 신청·수락·거절, 강사).
+- **서비스**: `EnrollmentOptionsService`(교집합 슬롯 계산), `EnrollmentService`(신청/취소/내목록 + session find-or-create + **`mySchedule` hub 그룹핑**), `InstructorEnrollmentService`(수락/거절/목록), `BookableSlotDeriver`(venue 운영블록 도출 — 옵션·신청 검증 공유). (옛 `WindowBinder` 제거 — session 이 생성 시점부터 위치를 소유해 bind/unbind 가 없다.)
+- **강의일정 hub** (`GET /enrollments/mine/schedule`): 내 신청을 강의(course) 단위로 그룹핑 + 진행상태 파생(`RoundScheduleStatus`/`CourseScheduleStatus` — EnrollmentStatus 매핑, **저장 X 파생값**). `ScheduleHubResponse{filters, courses[rounds]}`. 추가 조회 없이 enrollment 스냅샷만. 설계의 done/finalizing/completed/메모/세션채팅/일정변경/환불은 BE 미구현(로드맵) → 응답에 없음. 정책·갭·로드맵 = [docs/features/student-schedule.md](../../../../../../../docs/features/student-schedule.md).
+- **엔티티 (다회차 2026-06-28)**: **`Enrollment`(수강 컨테이너 — student·course·**tuitionSnapshot**·createdAt·`rounds[]`)** ⊃ **`EnrollmentRound`(회차 — courseRound FK·roundIndex·roundKind·**availabilitySession**·venueRefId·date·block·ticketRef·status·**entry/equip/extra 스냅샷**·doneAt·rejectionReason)** ⊃ **`EnrollmentRoundEquipment`(itemRef·name·price·**size**)**. 수강료는 수강에 1번(1회차 결제에 전액), 부대비용은 회차별. 강의 상태는 회차들에서 파생(`RoundScheduleStatus`/`CourseScheduleStatus`). API 의 `{id}`·payment `enrollmentId` = **회차 id**. enum `EnrollmentStatus`(PENDING/**PAYMENT_PENDING**/CONFIRMED/REJECTED/CANCELLED — `isActive()`/`occupiesCapacity()` + `ACTIVE`/`OCCUPYING` 집합 상수, done=CONFIRMED+doneAt). 슬롯·상태·점유 집계는 `EnrollmentRoundJpaRepo`.
 - **레포**: `EnrollmentJpaRepo`(session별 집계·강사 코스별·내 목록).
 
 ## 핵심 모델 — "session 이 첫 신청으로 생성, 같은 (위치,블록)이면 join"
@@ -30,7 +31,9 @@
 
 ## 결정 히스토리 (왜 이렇게 됐나)
 
-- **첫 만남(1회차)만 신청** — 디자인 "나머지 일정은 수강하면서 결정". 나머지 회차 일정 결정은 후속.
+- **다회차 재설계 (2026-06-28)** — 옛 "첫 만남(1회차)만, Enrollment=단일 슬롯"은 v1 축소였다. 자격과정은 주1회×N회가 본 모델이라 **`Enrollment(수강) ⊃ EnrollmentRound(회차) ⊃ RoundEquipment`** 로 분할(붕어빵: Course=틀). 슬롯·상태·부대비용이 회차로 내려가고 수강은 묶음+수강료 보유. PR1=엔티티 분할+1회차 흐름 보존(pay-first), 2회차+ 진행·완료·환불은 후속 PR. **정책·왜·액션매트릭스·환불율은 [docs/features/booking.md](../../../../../../../docs/features/booking.md)·[payment.md](../../../../../../../docs/features/payment.md)**.
+- **pay-first (2026-06-28)** — 수락→**결제(CONFIRMED)**→강사 수영장 예약. 옛 "풀 먼저 예약 후 수락"은 미결제 시 강사 수영장 패널티 구멍이라 폐기. 무료취소 경계 = 결제(PENDING·PAYMENT_PENDING 까지 무료, cancel 이 PAYMENT_PENDING 도 허용). 수강료=enrollment 스냅샷 고정(라이브 폐기).
+- ~~**첫 만남(1회차)만 신청**~~ — (위 재설계로 대체) 디자인 "나머지 일정은 수강하면서 결정".
 - **수락 → 결제 → 확정 (2026-06-26 결제 연동)** — 디자인 "강사 확정 후 결제 링크 푸시". 수락은 `PAYMENT_PENDING`(결제 대기·슬롯 점유), 결제 승인이 `CONFIRMED` 로 넘긴다. 결제는 [payment 도메인](../payment/CLAUDE.md)(토스 결제위젯) — [docs/features/payment.md](../../../../../../../docs/features/payment.md). 정산 수수료(PG 3.4% + 플랫폼 6.6%, 실비 0%)는 후속.
 - **session-bound 모델 (2026-06-18 분리 반영)** — exact-match join 을 구조적으로 떨어뜨림(사용자 결정: "같은 venue·정확히 같은 시간대만 합류, 부분겹침 불가"). enrollment 는 `AvailabilitySession`(위치·블록·정원 단위)에 붙고, 슬롯 식별자는 `(date, venueRefId, blockStart, blockEnd)`. 첫 신청이 session 을 생성, 같은 (위치,블록)이면 join. 자격은 그 블록이 강사 coverage 에 통째로 ⊆ 일 때만. (옛 `availabilityWindowId` → `date` + 위치 + 블록으로 바뀜; `WindowBinder` 제거.)
 - **교집합 = 평탄 슬롯** — UX(날짜→위치→시간)와 계산순서 분리. BE 가 `availability ∩ venue 운영블록 ∩ 코스 위치`를 평탄 `slots[]` 로 계산, FE 가 그룹핑.
