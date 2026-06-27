@@ -144,6 +144,7 @@ public class EnrollmentService {
                 round.getVenueRefId(), ticketRef);
         requireSeat(newSession); // 이 회차는 아직 새 세션에 없음 — 순수 잔여 확인
 
+        round.archiveCurrentSlot(LocalDateTime.now()); // 옛 슬롯 이력 (취소 아님)
         round.setAvailabilitySession(newSession);
         round.setDate(date);
         round.setTicketRef(ticketRef);
@@ -153,6 +154,59 @@ public class EnrollmentService {
         round.getProposedSlots().clear();
         round.setStatus(EnrollmentStatus.PAYMENT_PENDING); // 강사 사전 수락 → 결제 대기
         round.setRespondedAt(LocalDateTime.now());
+        if (oldSession != null && !oldSession.getId().equals(newSession.getId())) {
+            sessionCleaner.deleteIfEmpty(oldSession);
+        }
+        return EnrollmentResponse.of(round, venue.getName(), instructor.getNickName());
+    }
+
+    /**
+     * 직접 일정 수정 — 학생이 (제안 외) 원하는 슬롯으로 회차를 바꾼다. 날짜에 따라 위치가 다를 수 있어 위치·이용권·
+     * 장비까지 재선택 가능. <b>취소 아님</b> — 회차 유지, 옛 슬롯은 이력 적재. 강사가 제안 안 한 슬롯이라 → PENDING(재수락).
+     * 결제 전(PENDING)만. {@code roundId} = 회차 id.
+     */
+    @Transactional
+    public EnrollmentResponse reschedule(Account student, Long roundId, RoundScheduleRequest req) {
+        EnrollmentRound round = requireMyRound(student, roundId);
+        if (round.getStatus() != EnrollmentStatus.PENDING) {
+            throw new BadRequestException(); // 결제 전(강사 응답 대기) 회차만 직접 수정
+        }
+        Course course = round.getEnrollment() == null ? null : round.getEnrollment().getCourse();
+        if (course == null) {
+            throw new BadRequestException();
+        }
+        Account instructor = course.getInstructor();
+        requireRoundCandidate(round.getCourseRound(), req.getVenueRefId(), req.getTicketRef());
+        VenueResponse venue = venueRefResolver.resolveVenues(List.of(req.getVenueRefId())).get(req.getVenueRefId());
+        if (venue == null) {
+            throw new BadRequestException();
+        }
+        BookableSlotDeriver.Block block = bookableBlock(venue, req.getTicketRef(), req.getDate(),
+                req.getBlockStart(), req.getBlockEnd());
+        requireCoverageAndNoOverlap(instructor, req.getDate(), req.getVenueRefId(),
+                req.getBlockStart(), req.getBlockEnd());
+
+        AvailabilitySession oldSession = round.getAvailabilitySession();
+        AvailabilitySession newSession = findOrCreateSession(instructor, req.getDate(),
+                req.getBlockStart(), req.getBlockEnd(), req.getVenueRefId(), req.getTicketRef());
+        requireSeat(newSession);
+
+        LocalDateTime now = LocalDateTime.now();
+        round.archiveCurrentSlot(now); // 옛 슬롯 이력 (취소 아님)
+        round.setAvailabilitySession(newSession);
+        round.setVenueRefId(req.getVenueRefId());
+        round.setDate(req.getDate());
+        round.setBlockStart(req.getBlockStart());
+        round.setBlockEnd(req.getBlockEnd());
+        round.setTicketRef(req.getTicketRef());
+        round.setEntrySnapshot(block.getFee());
+        round.getEquipment().clear(); // 위치 바뀔 수 있어 장비 재선택
+        round.setEquipmentSnapshot(addEquipment(round, req.getEquipmentRefs(),
+                equipmentItems(instructor, req.getVenueRefId())));
+        round.getProposedSlots().clear();
+        round.setStatus(EnrollmentStatus.PENDING); // 제안 외 슬롯 → 강사 재수락
+        round.setCreatedAt(now);     // 새 요청 = PENDING 24h 클럭 재시작
+        round.setRespondedAt(null);  // 아직 강사 응답 전
         if (oldSession != null && !oldSession.getId().equals(newSession.getId())) {
             sessionCleaner.deleteIfEmpty(oldSession);
         }
