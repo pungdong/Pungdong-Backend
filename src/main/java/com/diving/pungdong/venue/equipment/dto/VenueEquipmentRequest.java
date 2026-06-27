@@ -38,7 +38,7 @@ public class VenueEquipmentRequest {
         private int price;
         /** null 이면 NONE 으로 취급. */
         private SizeFormat sizeFormat;
-        /** 비우면 sizeFormat 프리셋으로 채움(SHOE_MM/APPAREL_SXL). CUSTOM 은 준 값 그대로. */
+        /** 비우면 sizeFormat 프리셋으로 채움(SHOE_MM/APPAREL_SXL). 강사는 보유분으로 필터(부분집합). */
         @Builder.Default
         private List<String> sizeOptions = new ArrayList<>();
     }
