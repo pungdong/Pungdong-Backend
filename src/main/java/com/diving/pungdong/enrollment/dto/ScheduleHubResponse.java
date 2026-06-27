@@ -72,8 +72,8 @@ public class ScheduleHubResponse {
         private final String venueName;
         /** 신청 시점 추정 총액 스냅샷(원). 권위 결제금액은 POST /payments/prepare. */
         private final int amount;
-        /** 강사 일정변경 제안 날짜들(RESCHEDULING 일 때) — 학생이 골라 pick-date. */
-        private final List<LocalDate> proposedDates;
+        /** 강사 일정변경 제안 슬롯(RESCHEDULING 일 때) — 날짜+이용권+블록 완전 슬롯. 학생이 골라 pick-slot. */
+        private final List<com.diving.pungdong.enrollment.ProposedSlot> proposedSlots;
         private final String rejectionReason; // REJECTED만
         private final LocalDateTime createdAt;
         private final LocalDateTime respondedAt;

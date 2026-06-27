@@ -2,7 +2,7 @@ package com.diving.pungdong.enrollment;
 
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.enrollment.dto.InstructorEnrollmentResponse;
-import com.diving.pungdong.enrollment.dto.ProposeDatesRequest;
+import com.diving.pungdong.enrollment.dto.ProposeSlotsRequest;
 import com.diving.pungdong.enrollment.dto.RejectRequest;
 import com.diving.pungdong.global.security.CurrentUser;
 import lombok.RequiredArgsConstructor;
@@ -49,12 +49,25 @@ public class InstructorEnrollmentController {
         return ResponseEntity.ok().body(model(instructorEnrollmentService.reject(account, id, reason)));
     }
 
-    /** 일정변경요청 — 같은 위치/이용권/블록으로 가능한 대안 날짜 제안. 학생이 고르면 사전 수락(곧장 결제 대기). */
-    @PostMapping("/{id}/propose-dates")
-    public ResponseEntity<?> proposeDates(@CurrentUser Account account, @PathVariable Long id,
-                                          @RequestBody ProposeDatesRequest request) {
-        List<java.time.LocalDate> dates = request == null ? null : request.getDates();
-        return ResponseEntity.ok().body(model(instructorEnrollmentService.proposeDates(account, id, dates)));
+    /** 일정변경요청 — 위치 고정, 완전한 대안 슬롯(날짜+이용권+블록) 제안. 학생이 고르면 사전 수락(곧장 결제 대기). */
+    @PostMapping("/{id}/propose-slots")
+    public ResponseEntity<?> proposeSlots(@CurrentUser Account account, @PathVariable Long id,
+                                          @RequestBody ProposeSlotsRequest request) {
+        return ResponseEntity.ok().body(model(instructorEnrollmentService.proposeSlots(account, id,
+                request == null ? null : request.getSlots())));
+    }
+
+    /** 회차 완료 — 강사가 그 회차 수강을 마쳤다고 표시(done). 확정 회차만. 다음 회차 게이트가 열린다. */
+    @PostMapping("/{id}/complete")
+    public ResponseEntity<?> complete(@CurrentUser Account account, @PathVariable Long id) {
+        return ResponseEntity.ok().body(model(instructorEnrollmentService.completeRound(account, id)));
+    }
+
+    /** 일정 통째 완료 — 그 세션의 모든 확정 회차를 일괄 done(빠른 정산). */
+    @PostMapping("/sessions/{sessionId}/complete")
+    public ResponseEntity<?> completeSession(@CurrentUser Account account, @PathVariable Long sessionId) {
+        int completed = instructorEnrollmentService.completeSession(account, sessionId);
+        return ResponseEntity.ok().body(java.util.Map.of("completed", completed));
     }
 
     private EntityModel<InstructorEnrollmentResponse> model(InstructorEnrollmentResponse response) {

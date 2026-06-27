@@ -4,7 +4,7 @@ import com.diving.pungdong.account.Account;
 import com.diving.pungdong.enrollment.dto.EnrollmentCreateRequest;
 import com.diving.pungdong.enrollment.dto.EnrollmentOptionsResponse;
 import com.diving.pungdong.enrollment.dto.EnrollmentResponse;
-import com.diving.pungdong.enrollment.dto.PickDateRequest;
+import com.diving.pungdong.enrollment.dto.PickSlotRequest;
 import com.diving.pungdong.enrollment.dto.RoundScheduleRequest;
 import com.diving.pungdong.enrollment.dto.ScheduleHubResponse;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
@@ -74,14 +74,14 @@ public class EnrollmentController {
         return ResponseEntity.status(201).body(model(enrollmentService.scheduleNextRound(account, enrollmentId, request)));
     }
 
-    /** 강사 일정변경요청 중 제안 날짜 선택 — 사전 수락이라 곧장 결제 대기(PAYMENT_PENDING). */
-    @PostMapping("/rounds/{roundId}/pick-date")
-    public ResponseEntity<?> pickDate(@CurrentUser Account account, @PathVariable Long roundId,
-                                      @Valid @RequestBody PickDateRequest request, BindingResult result) {
+    /** 강사 일정변경요청 중 제안 슬롯(날짜+이용권+블록) 선택 — 사전 수락이라 곧장 결제 대기(PAYMENT_PENDING). */
+    @PostMapping("/rounds/{roundId}/pick-slot")
+    public ResponseEntity<?> pickSlot(@CurrentUser Account account, @PathVariable Long roundId,
+                                      @Valid @RequestBody PickSlotRequest request, BindingResult result) {
         if (result.hasErrors()) {
             throw new BadRequestException();
         }
-        return ResponseEntity.ok().body(model(enrollmentService.pickDate(account, roundId, request.getDate())));
+        return ResponseEntity.ok().body(model(enrollmentService.pickSlot(account, roundId, request)));
     }
 
     @GetMapping("/mine")

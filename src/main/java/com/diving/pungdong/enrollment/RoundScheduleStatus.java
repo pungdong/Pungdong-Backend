@@ -9,15 +9,19 @@ package com.diving.pungdong.enrollment;
  */
 public enum RoundScheduleStatus {
     WAITING,       // PENDING(제안 없음) — 강사 확인 중
-    RESCHEDULING,  // PENDING + 강사 일정변경 제안 — 학생이 제안 날짜 선택 대기
+    RESCHEDULING,  // PENDING + 강사 일정변경 제안 — 학생이 제안 슬롯 선택 대기
     PAYMENT_DUE,   // PAYMENT_PENDING — 결제 필요(수락됨)
-    CONFIRMED,     // CONFIRMED — 확정(결제 완료)
+    CONFIRMED,     // CONFIRMED, 미완료 — 확정(결제 완료), 진행 대기
+    DONE,          // CONFIRMED + doneAt — 회차 수강 완료
     REJECTED,      // REJECTED — 강사 거절(1회차 한정, 복구 가능)
     CANCELLED;     // CANCELLED — 취소/만료
 
     public static RoundScheduleStatus from(EnrollmentRound r) {
         if (r.hasRescheduleOffer()) {
             return RESCHEDULING;
+        }
+        if (r.isDone()) {
+            return DONE;
         }
         switch (r.getStatus()) {
             case PENDING:         return WAITING;

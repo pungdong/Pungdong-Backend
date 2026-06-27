@@ -3,10 +3,12 @@ package com.diving.pungdong.enrollment;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.availability.AvailabilityCoverageJpaRepo;
 import com.diving.pungdong.availability.AvailabilitySession;
+import com.diving.pungdong.availability.AvailabilitySessionJpaRepo;
 import com.diving.pungdong.availability.CoverageMerger;
 import com.diving.pungdong.availability.CoverageMerger.Span;
 import com.diving.pungdong.availability.SessionCleaner;
 import com.diving.pungdong.enrollment.dto.InstructorEnrollmentResponse;
+import com.diving.pungdong.enrollment.dto.ProposeSlotsRequest.SlotProposal;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
@@ -41,6 +43,7 @@ public class InstructorEnrollmentService {
     private final SessionCleaner sessionCleaner;
     private final BookableSlotDeriver slotDeriver;
     private final AvailabilityCoverageJpaRepo coverageRepo;
+    private final AvailabilitySessionJpaRepo sessionRepo;
 
     public List<InstructorEnrollmentResponse> list(Account instructor, EnrollmentStatus status) {
         requireInstructorTrack(instructor);
@@ -61,7 +64,7 @@ public class InstructorEnrollmentService {
         }
         // 좌석은 신청(PENDING) 시점에 이미 lock(선착순) — 수락은 그 슬롯을 결제 대기로 전환만(정원 재검증 불필요).
         r.setStatus(EnrollmentStatus.PAYMENT_PENDING);
-        r.getProposedDates().clear(); // 혹시 남은 제안 정리
+        r.getProposedSlots().clear(); // 혹시 남은 제안 정리
         r.setRespondedAt(LocalDateTime.now());
         return InstructorEnrollmentResponse.of(r, venueName(r.getVenueRefId()));
     }
@@ -86,46 +89,87 @@ public class InstructorEnrollmentService {
     }
 
     /**
-     * 일정변경요청 — 같은 위치/이용권/블록으로 가능한 대안 날짜 제안. 각 날짜는 venue 운영블록 존재 + 강사
+     * 일정변경요청 — 위치 고정, 완전한 대안 슬롯(날짜+이용권+블록) 제안. 각 슬롯은 venue 운영블록 존재 + 강사
      * coverage 에 통째로 ⊆ 여야(정원은 학생 pick 시점에 재확인). 학생이 고르면 사전 수락 → 결제 대기.
      */
     @Transactional
-    public InstructorEnrollmentResponse proposeDates(Account instructor, Long roundId, List<LocalDate> dates) {
+    public InstructorEnrollmentResponse proposeSlots(Account instructor, Long roundId, List<SlotProposal> slots) {
         EnrollmentRound r = requireForInstructor(instructor, roundId);
         if (r.getStatus() != EnrollmentStatus.PENDING) {
             throw new BadRequestException(); // 대기 건에만 일정변경요청
         }
-        if (dates == null || dates.isEmpty()) {
+        if (slots == null || slots.isEmpty()) {
             throw new BadRequestException();
         }
         VenueResponse venue = venueRefResolver.resolveVenues(List.of(r.getVenueRefId())).get(r.getVenueRefId());
         if (venue == null) {
             throw new BadRequestException();
         }
-        List<LocalDate> valid = dates.stream().distinct()
-                .filter(d -> bookableDate(instructor, venue, r, d))
+        List<ProposedSlot> valid = slots.stream()
+                .filter(s -> bookableSlot(instructor, venue, s))
+                .map(s -> ProposedSlot.builder().date(s.getDate()).ticketRef(s.getTicketRef())
+                        .blockStart(s.getBlockStart()).blockEnd(s.getBlockEnd()).build())
                 .collect(Collectors.toList());
         if (valid.isEmpty()) {
-            throw new BadRequestException(); // 제안한 날짜 중 가능한 게 없음
+            throw new BadRequestException(); // 제안한 슬롯 중 가능한 게 없음
         }
-        r.getProposedDates().clear();
-        r.getProposedDates().addAll(valid);
+        r.getProposedSlots().clear();
+        r.getProposedSlots().addAll(valid);
         r.setRespondedAt(LocalDateTime.now());
         return InstructorEnrollmentResponse.of(r, venueName(r.getVenueRefId()));
     }
 
+    /**
+     * 회차 완료(done) — 강사가 그 회차 수강을 마쳤다고 표시. CONFIRMED(결제 확정)만 완료 가능. 멱등(이미 done 이면 유지).
+     * done = 다음 회차 게이트를 열고, 정산 대상이 된다(정산 연계는 후속).
+     */
+    @Transactional
+    public InstructorEnrollmentResponse completeRound(Account instructor, Long roundId) {
+        EnrollmentRound r = requireForInstructor(instructor, roundId);
+        if (r.getStatus() != EnrollmentStatus.CONFIRMED) {
+            throw new BadRequestException(); // 확정(결제 완료)된 회차만 완료 처리
+        }
+        if (r.getDoneAt() == null) {
+            r.setDoneAt(LocalDateTime.now());
+        }
+        return InstructorEnrollmentResponse.of(r, venueName(r.getVenueRefId()));
+    }
+
+    /**
+     * 일정(session) 통째 완료 — 그 세션의 모든 확정 회차(여러 수강생)를 일괄 done. 빠른 정산용. 완료 건수 반환.
+     */
+    @Transactional
+    public int completeSession(Account instructor, Long sessionId) {
+        AvailabilitySession session = sessionRepo.findById(sessionId).orElseThrow(ResourceNotFoundException::new);
+        if (session.getInstructor() == null || !session.getInstructor().getId().equals(instructor.getId())) {
+            throw new ResourceNotFoundException(); // 없음/남의 일정 — 존재 숨김
+        }
+        int done = 0;
+        for (EnrollmentRound r : roundRepo.findByAvailabilitySessionIdAndStatusIn(
+                sessionId, List.of(EnrollmentStatus.CONFIRMED))) {
+            if (r.getDoneAt() == null) {
+                r.setDoneAt(LocalDateTime.now());
+                done++;
+            }
+        }
+        return done;
+    }
+
     /* ─── helpers ─── */
 
-    /** 그 날짜에 같은 위치/이용권/블록이 가능한가 — venue 운영블록 존재 + 강사 coverage 에 통째로 ⊆. */
-    private boolean bookableDate(Account instructor, VenueResponse venue, EnrollmentRound r, LocalDate date) {
-        boolean blockOk = slotDeriver.blocksFor(venue, r.getTicketRef(), date).stream()
-                .anyMatch(b -> b.sameTime(r.getBlockStart(), r.getBlockEnd()));
+    /** 그 슬롯(날짜+이용권+블록)이 가능한가 — venue 운영블록 존재 + 강사 coverage 에 통째로 ⊆. (위치는 회차 고정.) */
+    private boolean bookableSlot(Account instructor, VenueResponse venue, SlotProposal s) {
+        if (s.getDate() == null || s.getTicketRef() == null || s.getBlockStart() == null || s.getBlockEnd() == null) {
+            return false;
+        }
+        boolean blockOk = slotDeriver.blocksFor(venue, s.getTicketRef(), s.getDate()).stream()
+                .anyMatch(b -> b.sameTime(s.getBlockStart(), s.getBlockEnd()));
         if (!blockOk) {
             return false;
         }
-        List<Span> spans = coverageRepo.findByInstructorIdAndDate(instructor.getId(), date).stream()
+        List<Span> spans = coverageRepo.findByInstructorIdAndDate(instructor.getId(), s.getDate()).stream()
                 .map(c -> new Span(c.getStartTime(), c.getEndTime())).collect(Collectors.toList());
-        return CoverageMerger.containsWhole(spans, new Span(r.getBlockStart(), r.getBlockEnd()));
+        return CoverageMerger.containsWhole(spans, new Span(s.getBlockStart(), s.getBlockEnd()));
     }
 
     private void requireInstructorTrack(Account instructor) {

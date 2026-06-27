@@ -6,6 +6,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
@@ -23,12 +24,20 @@ public class EnrollmentExpiryScheduler {
     @Scheduled(fixedDelayString = "${pungdong.enrollment.expiry-sweep-ms:300000}")
     public void sweep() {
         try {
-            int n = expiryService.sweepExpired(LocalDateTime.now());
-            if (n > 0) {
-                log.info("[expiry] {} 건 자동 만료(좌석 해제)", n);
+            int expired = expiryService.sweepExpired(LocalDateTime.now());
+            if (expired > 0) {
+                log.info("[expiry] {} 건 자동 만료(좌석 해제)", expired);
             }
         } catch (RuntimeException e) {
             log.warn("[expiry] sweep 실패", e);
+        }
+        try {
+            int done = expiryService.sweepAutoDone(LocalDate.now());
+            if (done > 0) {
+                log.info("[auto-done] {} 건 자동 완료(세션일 경과)", done);
+            }
+        } catch (RuntimeException e) {
+            log.warn("[auto-done] sweep 실패", e);
         }
     }
 }

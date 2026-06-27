@@ -15,6 +15,7 @@ import com.diving.pungdong.course.CourseStatus;
 import com.diving.pungdong.course.RoundKind;
 import com.diving.pungdong.enrollment.dto.EnrollmentCreateRequest;
 import com.diving.pungdong.enrollment.dto.EnrollmentResponse;
+import com.diving.pungdong.enrollment.dto.PickSlotRequest;
 import com.diving.pungdong.enrollment.dto.RoundScheduleRequest;
 import com.diving.pungdong.enrollment.dto.RoundSlotInput;
 import com.diving.pungdong.enrollment.dto.ScheduleHubResponse;
@@ -114,36 +115,42 @@ public class EnrollmentService {
     }
 
     /**
-     * 강사 일정변경요청 중 학생이 날짜 선택 — 같은 위치/이용권/블록, 날짜만 변경해 재검증 후 reschedule. 강사가
-     * 이미 제안 = 사전 수락이라 곧장 PAYMENT_PENDING(결제 대기). 날짜 바뀌면 세션 재결합 + 입장료 재산정.
+     * 강사 일정변경요청 중 학생이 슬롯 선택 — 위치 고정, 날짜/이용권/블록을 그 제안 슬롯으로 바꿔 재검증 후
+     * reschedule. 강사가 이용권·블록까지 정해 제안 = 사전 수락이라 곧장 PAYMENT_PENDING(입장료는 그 daypart 로 재산정).
      */
     @Transactional
-    public EnrollmentResponse pickDate(Account student, Long roundId, LocalDate date) {
+    public EnrollmentResponse pickSlot(Account student, Long roundId, PickSlotRequest req) {
         EnrollmentRound round = requireMyRound(student, roundId);
         if (!round.hasRescheduleOffer()) {
             throw new BadRequestException(); // 강사 제안 받은 회차만
         }
-        if (round.getProposedDates().stream().noneMatch(d -> d.equals(date))) {
-            throw new BadRequestException(); // 제안 목록 밖 날짜
+        LocalDate date = req.getDate();
+        String ticketRef = req.getTicketRef();
+        LocalTime start = req.getBlockStart();
+        LocalTime end = req.getBlockEnd();
+        if (round.getProposedSlots().stream().noneMatch(p -> p.sameAs(date, ticketRef, start, end))) {
+            throw new BadRequestException(); // 제안 목록 밖 슬롯
         }
         Account instructor = round.getEnrollment().getCourse().getInstructor();
         VenueResponse venue = venueRefResolver.resolveVenues(List.of(round.getVenueRefId())).get(round.getVenueRefId());
         if (venue == null) {
             throw new BadRequestException();
         }
-        BookableSlotDeriver.Block block = bookableBlock(venue, round.getTicketRef(), date,
-                round.getBlockStart(), round.getBlockEnd());
-        requireCoverageAndNoOverlap(instructor, date, round.getVenueRefId(), round.getBlockStart(), round.getBlockEnd());
+        BookableSlotDeriver.Block block = bookableBlock(venue, ticketRef, date, start, end);
+        requireCoverageAndNoOverlap(instructor, date, round.getVenueRefId(), start, end);
 
         AvailabilitySession oldSession = round.getAvailabilitySession();
-        AvailabilitySession newSession = findOrCreateSession(instructor, date,
-                round.getBlockStart(), round.getBlockEnd(), round.getVenueRefId(), round.getTicketRef());
+        AvailabilitySession newSession = findOrCreateSession(instructor, date, start, end,
+                round.getVenueRefId(), ticketRef);
         requireSeat(newSession); // 이 회차는 아직 새 세션에 없음 — 순수 잔여 확인
 
         round.setAvailabilitySession(newSession);
         round.setDate(date);
-        round.setEntrySnapshot(block.getFee()); // 새 날짜 daypart 입장료
-        round.getProposedDates().clear();
+        round.setTicketRef(ticketRef);
+        round.setBlockStart(start);
+        round.setBlockEnd(end);
+        round.setEntrySnapshot(block.getFee()); // 그 슬롯 daypart 입장료
+        round.getProposedSlots().clear();
         round.setStatus(EnrollmentStatus.PAYMENT_PENDING); // 강사 사전 수락 → 결제 대기
         round.setRespondedAt(LocalDateTime.now());
         if (oldSession != null && !oldSession.getId().equals(newSession.getId())) {
@@ -211,7 +218,7 @@ public class EnrollmentService {
                         .venueRefId(r.getVenueRefId())
                         .venueName(venueNames.get(r.getVenueRefId()))
                         .amount(r.chargeTotal())
-                        .proposedDates(new ArrayList<>(r.getProposedDates()))
+                        .proposedSlots(new ArrayList<>(r.getProposedSlots()))
                         .rejectionReason(r.getRejectionReason())
                         .createdAt(r.getCreatedAt())
                         .respondedAt(r.getRespondedAt())
@@ -224,6 +231,14 @@ public class EnrollmentService {
         Course course = e.getCourse();
         int totalRounds = course == null ? 0 : (int) course.getRounds().stream()
                 .filter(cr -> cr.getRoundKind() == RoundKind.REGULAR).count();
+        // COMPLETED 는 모든 정규회차가 잡혀 done 일 때만 — 아직 안 잡은 회차가 남으면 진행중.
+        if (status == CourseScheduleStatus.COMPLETED) {
+            long doneRegular = e.getRounds().stream()
+                    .filter(r -> r.getRoundKind() == RoundKind.REGULAR && r.isDone()).count();
+            if (doneRegular < totalRounds) {
+                status = CourseScheduleStatus.PROGRESS;
+            }
+        }
         CourseRound next = course == null ? null : RoundGate.nextSchedulable(e);
         Integer nextRoundIndex = next != null && next.getRoundKind() == RoundKind.REGULAR ? next.getRoundIndex() : null;
         boolean canScheduleExtra = next != null && next.getRoundKind() == RoundKind.EXTRA;
@@ -250,6 +265,7 @@ public class EnrollmentService {
             CourseScheduleStatus.RESCHEDULING, "일정 변경",
             CourseScheduleStatus.WAITING, "수락 대기",
             CourseScheduleStatus.PROGRESS, "진행중",
+            CourseScheduleStatus.COMPLETED, "수강 완료",
             CourseScheduleStatus.CANCELLED, "취소");
 
     private List<ScheduleHubResponse.FilterCount> buildScheduleFilters(
