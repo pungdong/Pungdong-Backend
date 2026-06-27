@@ -2,6 +2,7 @@ package com.diving.pungdong.enrollment;
 
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.enrollment.dto.InstructorEnrollmentResponse;
+import com.diving.pungdong.enrollment.dto.InstructorScheduleHubResponse;
 import com.diving.pungdong.enrollment.dto.ProposeSlotsRequest;
 import com.diving.pungdong.enrollment.dto.RejectRequest;
 import com.diving.pungdong.global.security.CurrentUser;
@@ -26,6 +27,19 @@ import java.util.List;
 public class InstructorEnrollmentController {
 
     private final InstructorEnrollmentService instructorEnrollmentService;
+
+    /**
+     * 강사 수강관리 hub — 거래 단위(수강생×강의) 카드 + 필터 카운트. 신청검토·일정변경검토·마무리를 한 곳에서.
+     * {@code filter} = all(기본)|action|progress|completed. 학생 hub(GET /enrollments/mine/schedule)의 강사 거울.
+     */
+    @GetMapping("/hub")
+    public ResponseEntity<?> hub(@CurrentUser Account account,
+                                 @RequestParam(required = false) String filter) {
+        EntityModel<InstructorScheduleHubResponse> model =
+                EntityModel.of(instructorEnrollmentService.hub(account, filter));
+        model.add(Link.of("/docs/api.html#resource-instructor-enrollments").withRel("profile"));
+        return ResponseEntity.ok().body(model);
+    }
 
     /** 받은 신청 목록 — 상태별(기본 PENDING). */
     @GetMapping

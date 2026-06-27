@@ -12,4 +12,7 @@ public interface EnrollmentJpaRepo extends JpaRepository<Enrollment, Long> {
 
     /** 내 수강 목록 — 최신순. 회차는 {@code enrollment.getRounds()}. */
     List<Enrollment> findByStudentIdOrderByIdDesc(Long studentId);
+
+    /** 강사가 받은 수강(이 강사 코스의 모든 수강) — 강사 수강관리 hub. 회차는 {@code enrollment.getRounds()}. */
+    List<Enrollment> findByCourse_Instructor_IdOrderByIdDesc(Long instructorId);
 }

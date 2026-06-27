@@ -7,7 +7,17 @@ import com.diving.pungdong.availability.AvailabilitySessionJpaRepo;
 import com.diving.pungdong.availability.CoverageMerger;
 import com.diving.pungdong.availability.CoverageMerger.Span;
 import com.diving.pungdong.availability.SessionCleaner;
+import com.diving.pungdong.course.CertLevel;
+import com.diving.pungdong.course.Course;
+import com.diving.pungdong.course.CourseRound;
+import com.diving.pungdong.course.RoundKind;
 import com.diving.pungdong.enrollment.dto.InstructorEnrollmentResponse;
+import com.diving.pungdong.enrollment.dto.InstructorScheduleHubResponse;
+import com.diving.pungdong.enrollment.dto.InstructorScheduleHubResponse.EnrollmentCard;
+import com.diving.pungdong.enrollment.dto.InstructorScheduleHubResponse.FilterCount;
+import com.diving.pungdong.enrollment.dto.InstructorScheduleHubResponse.RoundCard;
+import com.diving.pungdong.enrollment.dto.InstructorScheduleHubResponse.SlotRef;
+import com.diving.pungdong.enrollment.dto.InstructorScheduleHubResponse.StudentSummary;
 import com.diving.pungdong.enrollment.dto.ProposeSlotsRequest.SlotProposal;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
@@ -21,6 +31,8 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -38,6 +50,7 @@ import java.util.stream.Collectors;
 public class InstructorEnrollmentService {
 
     private final EnrollmentRoundJpaRepo roundRepo;
+    private final EnrollmentJpaRepo enrollmentRepo;
     private final InstructorApplicationJpaRepo applicationRepo;
     private final VenueRefResolver venueRefResolver;
     private final SessionCleaner sessionCleaner;
@@ -54,6 +67,180 @@ public class InstructorEnrollmentService {
         return rounds.stream()
                 .map(r -> InstructorEnrollmentResponse.of(r, names.get(r.getVenueRefId())))
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 강사 수강관리 hub — 거래 단위(수강생×강의) 카드 목록 + 필터 카운트. 학생 hub 의 강사 거울. 회차들에서
+     * 강사 시점 상태/플래그/액션 한 줄을 파생(저장 X). {@code filter} = all|action|progress|completed.
+     */
+    public InstructorScheduleHubResponse hub(Account instructor, String filter) {
+        requireInstructorTrack(instructor);
+        LocalDate today = LocalDate.now();
+        List<Enrollment> all = enrollmentRepo.findByCourse_Instructor_IdOrderByIdDesc(instructor.getId());
+
+        // venue 이름 배치 해석
+        List<String> refs = all.stream().flatMap(e -> e.getRounds().stream())
+                .map(EnrollmentRound::getVenueRefId).filter(StringUtils::hasText).distinct()
+                .collect(Collectors.toList());
+        Map<String, String> venueNames = refs.isEmpty() ? Map.of()
+                : venueRefResolver.resolveAll(refs).entrySet().stream()
+                        .collect(Collectors.toMap(Map.Entry::getKey, x -> x.getValue().getName()));
+
+        // 학생별 "실제 수강(done 회차 보유)" 수강 수 — 로드된 집합에서 in-memory (이 강사와의 이력)
+        Map<Long, Long> attendedByStudent = all.stream()
+                .filter(e -> e.getStudent() != null && hasDoneRound(e))
+                .collect(Collectors.groupingBy(e -> e.getStudent().getId(), Collectors.counting()));
+
+        List<EnrollmentCard> cards = all.stream()
+                .map(e -> card(e, today, venueNames, attendedByStudent))
+                .collect(Collectors.toList());
+
+        List<FilterCount> filters = List.of(
+                new FilterCount("all", "전체", cards.size()),
+                new FilterCount("action", "액션 필요", count(cards, InstructorEnrollmentStatus.ACTION_NEEDED)),
+                new FilterCount("progress", "진행중", count(cards, InstructorEnrollmentStatus.PROGRESS)),
+                new FilterCount("completed", "완료", count(cards, InstructorEnrollmentStatus.COMPLETED)));
+
+        List<EnrollmentCard> filtered = cards.stream()
+                .filter(c -> matchesFilter(c, filter))
+                .sorted(Comparator.comparingInt(c -> c.getStatus().ordinal())) // 액션필요(0)→진행중→완료→취소
+                .collect(Collectors.toList());
+
+        return new InstructorScheduleHubResponse(filters, filtered);
+    }
+
+    private EnrollmentCard card(Enrollment e, LocalDate today, Map<String, String> venueNames,
+                                Map<Long, Long> attendedByStudent) {
+        Course course = e.getCourse();
+        int totalRegular = course == null ? 0 : (int) course.getRounds().stream()
+                .filter(cr -> cr.getRoundKind() == RoundKind.REGULAR).count();
+
+        // 회차 정렬: 정규(roundIndex) → EXTRA(뒤). 파생용 전체 상태 + 표시용(취소 제외) 분리.
+        List<EnrollmentRound> sorted = e.getRounds().stream()
+                .sorted(Comparator.comparing((EnrollmentRound r) -> r.getRoundKind() == RoundKind.EXTRA)
+                        .thenComparing(r -> r.getRoundIndex() == null ? Integer.MAX_VALUE : r.getRoundIndex())
+                        .thenComparing(EnrollmentRound::getId))
+                .collect(Collectors.toList());
+        List<InstructorRoundStatus> allStatuses = sorted.stream()
+                .map(r -> InstructorRoundStatus.from(r, today)).collect(Collectors.toList());
+        int doneRegular = (int) sorted.stream()
+                .filter(r -> r.getRoundKind() == RoundKind.REGULAR && r.isDone()).count();
+
+        InstructorEnrollmentStatus status = InstructorEnrollmentStatus.derive(allStatuses, totalRegular, doneRegular);
+        InstructorActionFlag flag = InstructorActionFlag.derive(allStatuses);
+
+        List<RoundCard> roundCards = new ArrayList<>();
+        for (EnrollmentRound r : sorted) {
+            InstructorRoundStatus rs = InstructorRoundStatus.from(r, today);
+            if (rs == InstructorRoundStatus.CANCELLED) {
+                continue; // 죽은 회차는 카드에서 숨김(파생엔 반영됨)
+            }
+            roundCards.add(roundCard(r, rs, venueNames));
+        }
+
+        long attended = e.getStudent() == null ? 0 : attendedByStudent.getOrDefault(e.getStudent().getId(), 0L);
+        long history = attended - (hasDoneRound(e) ? 1 : 0); // 현재 수강 제외
+        StudentSummary student = e.getStudent() == null ? null : StudentSummary.builder()
+                .accountId(e.getStudent().getId())
+                .name(e.getStudent().getNickName())
+                .initials(initials(e.getStudent().getNickName()))
+                .isNew(history <= 0)
+                .historyCount((int) Math.max(0, history))
+                .build();
+
+        return EnrollmentCard.builder()
+                .enrollmentId(e.getId())
+                .student(student)
+                .courseId(course == null ? null : course.getId())
+                .courseTitle(course == null ? null : course.getTitle())
+                .organizationCode(course == null ? null : course.getOrganizationCode())
+                .disciplineCode(course == null ? null : course.getDisciplineCode())
+                .levels(course == null ? List.<CertLevel>of() : new ArrayList<>(course.getLevels()))
+                .status(status)
+                .flag(flag)
+                .actionLine(actionLine(flag, student, sorted, today))
+                .totalRounds(totalRegular)
+                .rounds(roundCards)
+                .build();
+    }
+
+    private RoundCard roundCard(EnrollmentRound r, InstructorRoundStatus rs, Map<String, String> venueNames) {
+        SlotRef prev = null;
+        if (rs == InstructorRoundStatus.CHANGING && !r.getSlotHistory().isEmpty()) {
+            PastSlot p = r.getSlotHistory().get(r.getSlotHistory().size() - 1); // 직전 슬롯
+            prev = SlotRef.builder().date(p.getDate()).venueRefId(p.getVenueRefId()).ticketRef(p.getTicketRef())
+                    .blockStart(p.getBlockStart()).blockEnd(p.getBlockEnd()).build();
+        }
+        return RoundCard.builder()
+                .roundId(r.getId())
+                .roundIndex(r.getRoundIndex())
+                .roundKind(r.getRoundKind() == null ? null : r.getRoundKind().name())
+                .status(rs)
+                .date(r.getDate())
+                .blockStart(r.getBlockStart())
+                .blockEnd(r.getBlockEnd())
+                .venueRefId(r.getVenueRefId())
+                .venueName(venueNames.get(r.getVenueRefId()))
+                .amount(r.chargeTotal())
+                .gearCount(r.getEquipment().size())
+                .previousSlot(prev)
+                .build();
+    }
+
+    /** 액션 안내 한 줄 — flag + 학생/회차 기반. 없으면 null. */
+    private String actionLine(InstructorActionFlag flag, StudentSummary student, List<EnrollmentRound> rounds,
+                              LocalDate today) {
+        if (flag == null) {
+            return null;
+        }
+        String who = student == null ? "학생" : student.getName();
+        switch (flag) {
+            case NEW_REQUEST:
+                return who + " 학생의 신규 신청 · 응답해주세요";
+            case CHANGE_REQUEST:
+                return actionRoundLabel(rounds, today, InstructorRoundStatus.CHANGING) + " 일정 변경 요청 · 검토해주세요";
+            case CLOSING:
+                return actionRoundLabel(rounds, today, InstructorRoundStatus.CLOSING) + " 종료 · 세션을 마무리해주세요";
+            default:
+                return null;
+        }
+    }
+
+    private String actionRoundLabel(List<EnrollmentRound> rounds, LocalDate today, InstructorRoundStatus target) {
+        return rounds.stream()
+                .filter(r -> InstructorRoundStatus.from(r, today) == target)
+                .map(r -> r.getRoundKind() == RoundKind.EXTRA ? "추가세션"
+                        : (r.getRoundIndex() == null ? "회차" : r.getRoundIndex() + "회차"))
+                .findFirst().orElse("회차");
+    }
+
+    private boolean hasDoneRound(Enrollment e) {
+        return e.getRounds().stream().anyMatch(EnrollmentRound::isDone);
+    }
+
+    private boolean matchesFilter(EnrollmentCard c, String filter) {
+        if (filter == null || filter.isBlank() || "all".equals(filter)) {
+            return true;
+        }
+        switch (filter) {
+            case "action":
+                return c.getStatus() == InstructorEnrollmentStatus.ACTION_NEEDED;
+            case "progress":
+                return c.getStatus() == InstructorEnrollmentStatus.ACTION_NEEDED
+                        || c.getStatus() == InstructorEnrollmentStatus.PROGRESS;
+            case "completed":
+                return c.getStatus() == InstructorEnrollmentStatus.COMPLETED;
+            default:
+                return true;
+        }
+    }
+
+    private int count(List<EnrollmentCard> cards, InstructorEnrollmentStatus status) {
+        return (int) cards.stream().filter(c -> c.getStatus() == status).count();
+    }
+
+    private String initials(String name) {
+        return StringUtils.hasText(name) ? name.trim().substring(0, 1) : "·";
     }
 
     @Transactional

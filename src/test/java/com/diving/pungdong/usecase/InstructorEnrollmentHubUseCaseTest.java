@@ -1,0 +1,202 @@
+package com.diving.pungdong.usecase;
+
+import com.diving.pungdong.account.Account;
+import com.diving.pungdong.account.AccountJpaRepo;
+import com.diving.pungdong.account.Role;
+import com.diving.pungdong.availability.AvailabilityCoverage;
+import com.diving.pungdong.availability.AvailabilityCoverageJpaRepo;
+import com.diving.pungdong.availability.AvailabilitySessionJpaRepo;
+import com.diving.pungdong.course.*;
+import com.diving.pungdong.enrollment.EnrollmentJpaRepo;
+import com.diving.pungdong.enrollment.EnrollmentRound;
+import com.diving.pungdong.enrollment.EnrollmentRoundJpaRepo;
+import com.diving.pungdong.global.security.JwtTokenProvider;
+import com.diving.pungdong.instructorapplication.InstructorApplication;
+import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
+import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
+import com.diving.pungdong.venue.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/**
+ * 강사 수강관리 hub use-case — {@code GET /instructor/enrollments/hub}. 거래 단위(수강생×강의) 카드 + 강사 시점
+ * 상태/플래그 파생. {@code @DisplayName} = 사양. 실 H2 + 시큐리티 + 실 서비스. ⚠️ Authorization raw JWT.
+ */
+@SpringBootTest
+@AutoConfigureMockMvc
+@ActiveProfiles("test")
+class InstructorEnrollmentHubUseCaseTest {
+
+    private static final LocalDate D1 = LocalDate.now().plusWeeks(1);
+    private static final LocalDate D2 = LocalDate.now().plusWeeks(2);
+    private static final LocalTime START = LocalTime.of(14, 0);
+    private static final LocalTime END = LocalTime.of(17, 0);
+
+    @Autowired MockMvc mockMvc;
+    @Autowired ObjectMapper objectMapper;
+    @Autowired JwtTokenProvider jwt;
+    @Autowired AccountJpaRepo accountRepo;
+    @Autowired InstructorApplicationJpaRepo applicationRepo;
+    @Autowired VenueJpaRepo venueRepo;
+    @Autowired CourseJpaRepo courseRepo;
+    @Autowired AvailabilityCoverageJpaRepo coverageRepo;
+    @Autowired AvailabilitySessionJpaRepo sessionRepo;
+    @Autowired EnrollmentJpaRepo enrollmentRepo;
+    @Autowired EnrollmentRoundJpaRepo roundRepo;
+
+    @AfterEach
+    void clean() {
+        enrollmentRepo.deleteAll();
+        sessionRepo.deleteAll();
+        coverageRepo.deleteAll();
+        courseRepo.deleteAll();
+        venueRepo.deleteAll();
+        applicationRepo.deleteAll();
+        accountRepo.deleteAll();
+    }
+
+    private Account account(String email, String nick, Role role) {
+        return accountRepo.save(Account.builder().email(email).password("x").nickName(nick)
+                .roles(new HashSet<>(Set.of(role))).build());
+    }
+
+    private String token(Account a) {
+        return jwt.createAccessToken(String.valueOf(a.getId()), a.getRoles());
+    }
+
+    private Account instructor(String email, String nick) {
+        Account ins = account(email, nick, Role.INSTRUCTOR);
+        ins.setDefaultCapacity(4);
+        accountRepo.save(ins);
+        applicationRepo.save(InstructorApplication.builder().account(ins).disciplineCode("FREEDIVING")
+                .status(InstructorApplicationStatus.SUBMITTED)
+                .submittedAt(LocalDateTime.now()).createdAt(LocalDateTime.now()).build());
+        return ins;
+    }
+
+    private Venue venue(Account owner) {
+        VenueDaypart weekday = VenueDaypart.builder().kind(DaypartKind.WEEKDAY).sold(true).fee(15000).timeMode(TimeMode.FIXED).build();
+        weekday.addTimeBlock(VenueTimeBlock.builder().startTime(START).endTime(END).sortOrder(0).build());
+        VenueDaypart weekend = VenueDaypart.builder().kind(DaypartKind.WEEKEND).sold(true).fee(15000).timeMode(TimeMode.FIXED).build();
+        weekend.addTimeBlock(VenueTimeBlock.builder().startTime(START).endTime(END).sortOrder(0).build());
+        VenueTicket ticket = VenueTicket.builder().name("일반권").sortOrder(0)
+                .disciplineCodes(new java.util.LinkedHashSet<>(Set.of("FREEDIVING"))).build();
+        ticket.addDaypart(weekday); ticket.addDaypart(weekend);
+        Venue venue = Venue.builder().owner(owner).name("잠실 잠수풀장").type(VenueType.SWIMMING_POOL)
+                .address("서울 송파구").lockedDisciplineCode("FREEDIVING").createdAt(LocalDateTime.now()).build();
+        venue.addTicket(ticket);
+        return venueRepo.save(venue);
+    }
+
+    private Course course(Account ins, String venueRef, String ticketRef) {
+        Course course = Course.builder().instructor(ins).title("AIDA2 과정")
+                .kind(CourseKind.CERTIFICATION).organizationCode("AIDA").disciplineCode("FREEDIVING")
+                .totalRounds(2).price(300000).status(CourseStatus.OPEN).createdAt(LocalDateTime.now()).build();
+        course.addRound(courseRound(1, venueRef, ticketRef));
+        course.addRound(courseRound(2, venueRef, ticketRef));
+        return courseRepo.save(course);
+    }
+
+    private CourseRound courseRound(int idx, String venueRef, String ticketRef) {
+        CourseRound round = CourseRound.builder().roundKind(RoundKind.REGULAR).roundIndex(idx).build();
+        RoundVenue rv = RoundVenue.builder().venueRefId(venueRef).sortOrder(0).build();
+        rv.addTicket(RoundVenueTicket.builder().ticketRef(ticketRef).daypart(DaypartKind.WEEKDAY).sortOrder(0).build());
+        round.addVenue(rv);
+        return round;
+    }
+
+    private void openCoverage(Account ins, LocalDate date) {
+        coverageRepo.save(AvailabilityCoverage.builder().instructor(ins).date(date)
+                .startTime(LocalTime.of(9, 0)).endTime(LocalTime.of(18, 0)).build());
+    }
+
+    private String json(Object o) {
+        try {
+            return objectMapper.writeValueAsString(o);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void applyRound1(Account stu, Course course, String ref, String ticket, LocalDate date) throws Exception {
+        mockMvc.perform(post("/enrollments").header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("courseId", course.getId(), "date", date.toString(),
+                                "venueRefId", ref, "ticketRef", ticket,
+                                "blockStart", START.toString(), "blockEnd", END.toString()))))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("I1 신규 1회차 신청은 강사 hub 에서 ACTION_NEEDED · NEW_REQUEST · 회차 WAITING 으로 뜬다")
+    void newRequestSurfaces() throws Exception {
+        Account ins = instructor("ins-i1@pd.com", "강사I1");
+        Venue v = venue(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String ticket = v.getTickets().get(0).getRef();
+        Course course = course(ins, ref, ticket);
+        openCoverage(ins, D1);
+        Account stu = account("stu-i1@pd.com", "지원", Role.STUDENT);
+        applyRound1(stu, course, ref, ticket, D1);
+
+        mockMvc.perform(get("/instructor/enrollments/hub").header(HttpHeaders.AUTHORIZATION, token(ins)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enrollments[0].status").value("ACTION_NEEDED"))
+                .andExpect(jsonPath("$.enrollments[0].flag").value("NEW_REQUEST"))
+                .andExpect(jsonPath("$.enrollments[0].student.name").value("지원"))
+                .andExpect(jsonPath("$.enrollments[0].student.isNew").value(true))
+                .andExpect(jsonPath("$.enrollments[0].rounds[0].status").value("WAITING"))
+                .andExpect(jsonPath("$.filters[1].id").value("action"))
+                .andExpect(jsonPath("$.filters[1].count").value(1));
+    }
+
+    @Test
+    @DisplayName("I2 학생이 직접 일정수정하면 강사 hub 에서 CHANGE_REQUEST · 회차 CHANGING · 직전 슬롯(previousSlot) 노출")
+    void changeRequestSurfacesWithPreviousSlot() throws Exception {
+        Account ins = instructor("ins-i2@pd.com", "강사I2");
+        Venue v = venue(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String ticket = v.getTickets().get(0).getRef();
+        Course course = course(ins, ref, ticket);
+        openCoverage(ins, D1); openCoverage(ins, D2);
+        Account stu = account("stu-i2@pd.com", "수민", Role.STUDENT);
+        applyRound1(stu, course, ref, ticket, D1);
+        EnrollmentRound r1 = roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).get(0);
+
+        // 학생 직접 일정수정 D1 → D2
+        mockMvc.perform(post("/enrollments/rounds/{id}/reschedule", r1.getId())
+                        .header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("date", D2.toString(), "venueRefId", ref, "ticketRef", ticket,
+                                "blockStart", START.toString(), "blockEnd", END.toString()))))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/instructor/enrollments/hub?filter=action").header(HttpHeaders.AUTHORIZATION, token(ins)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enrollments[0].flag").value("CHANGE_REQUEST"))
+                .andExpect(jsonPath("$.enrollments[0].rounds[0].status").value("CHANGING"))
+                .andExpect(jsonPath("$.enrollments[0].rounds[0].date").value(D2.toString()))
+                .andExpect(jsonPath("$.enrollments[0].rounds[0].previousSlot.date").value(D1.toString()));
+    }
+}
