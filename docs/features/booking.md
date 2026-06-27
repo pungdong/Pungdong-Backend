@@ -58,7 +58,7 @@
 
 - **결제 전**(`PENDING`·`PAYMENT_PENDING`) = 순수 취소(무료). pay-first 라 강사가 풀을 안 잡아 손해 0. (cancel 허용을 PAYMENT_PENDING 까지 확장.)
 - **결제 후** = 취소 = **환불 거래**. 강사/venue 사유(풀부킹 실패 등) = 전액 무료, **학생 사유 = 환불정책 페널티**. done 회차 = 0, 미배정 회차 = 수강료÷N 전액.
-- 환불 율·상태기계는 [payment.md](payment.md) 소유(실행 후속 PR).
+- 환불 **구현 완료**(2026-06-28): `POST /enrollments/{enrollmentId}/refund`(수강 종료=남은 회차 환불). 회차별 산정(`RefundCalculator`) + 토스 부분취소(수강료=1회차 주문, 부대=각 회차 주문). 율·실행 메커니즘은 [payment.md](payment.md).
 
 ### 상태 / 권한
 

@@ -27,4 +27,14 @@ public interface TossPaymentClient {
     /** 승인 결과 — 후속 표시/정산에 필요한 최소 필드만. */
     record TossConfirmResult(String status, String method, OffsetDateTime approvedAt, String receiptUrl) {
     }
+
+    /**
+     * 결제 취소(환불) — 토스 {@code POST /v1/payments/{paymentKey}/cancel}. {@code cancelAmount} 로 <b>부분 취소</b>
+     * (수강료=1회차 주문 부분취소, 부대=각 회차 주문). 토스 거절 시 {@link com.diving.pungdong.global.advice.exception.BadRequestException}.
+     */
+    TossCancelResult cancel(String paymentKey, int cancelAmount, String reason);
+
+    /** 취소 결과 — status(보통 CANCELED/PARTIAL_CANCELED) + 취소 시각. */
+    record TossCancelResult(String status, OffsetDateTime canceledAt) {
+    }
 }

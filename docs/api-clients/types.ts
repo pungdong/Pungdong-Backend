@@ -1331,6 +1331,27 @@ export interface PaymentConfirmResponse {
   enrollmentStatus: EnrollmentStatus; // 회차 상태 — 성공 후 'CONFIRMED'
 }
 
+/**
+ * 수강 환불(남은 회차 환불) — POST /enrollments/{enrollmentId}/refund (authenticated). 진행 중 "환불신청".
+ * 활성·미완료 회차를 전부 취소하고 회차별로 환불(토스 부분취소). 응답 = 회차별 환불 내역.
+ *
+ * 정책(회차당): 수강 완료(done)=0 · 미배정 회차=수강료/N(100%) · 배정취소=(수강료/N+부대)×환불율.
+ * 환불율 = 당일0/전날50/2일전70/3일전+100, 신청 1h 내 100. 수강료는 1회차에 전액 냈으므로 1회차 결제주문 부분취소.
+ */
+export interface RefundQuote {
+  total: number;          // 총 환불액(원)
+  lines: RefundLine[];
+}
+export interface RefundLine {
+  roundIndex: number | null; // 정규 회차 번호(미배정도 번호 있음), EXTRA는 null
+  roundId: number | null;    // 잡힌 회차만(미배정은 null)
+  amount: number;            // 이 줄 환불액 = tuitionPart + extraPart
+  tuitionPart: number;       // 수강료 몫(→1회차 주문 부분취소)
+  extraPart: number;         // 부대 몫(→그 회차 주문 부분취소)
+  ratePct: number;           // 적용 환불율 0~100
+  reason: string;            // "수강 완료" | "미배정 수강료" | "배정취소(50%)" 등
+}
+
 // ============================================================
 // 인증 실패 응답 코드 (참고용)
 // docs/architecture/sign-up.md 의 "보안 / 권한 매트릭스" 참고
