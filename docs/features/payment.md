@@ -59,7 +59,7 @@
 ## 미해결 / 확장
 
 - 🔴 **webhook** — 비동기 상태(가상계좌 입금·취소·부분취소) 수신 + 서명 검증.
-- 🟡 **결제 미완 만료·환불 상태기계** — PAYMENT_PENDING 무기한 점유 해소(만료 → 슬롯 해제, 환불 → CANCELED).
+- 🟢 **결제 대기 만료** — PAYMENT_PENDING **12h** 미결제 자동 만료(슬롯 해제) **구현**(2026-06-28, `EnrollmentExpiryService` + `SiteSettings` TTL). 만료 푸시 알림·환불(CANCELED) 상태기계는 후속.
 - 🟡 **입장료/장비 live 재계산** — 현재 수강료만 라이브, 나머진 신청 스냅샷.
 - 🟢 **정산 수수료 분해** — PG 3.4% + 플랫폼 6.6%(enrollment `아직 안 한 것`과 함께).
 - 🟢 **캘린더 미결제 별도 표시** — 현재 PAYMENT_PENDING 은 confirmed 점유 버킷에 합산.

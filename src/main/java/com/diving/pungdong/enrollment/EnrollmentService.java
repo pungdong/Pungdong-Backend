@@ -97,9 +97,9 @@ public class EnrollmentService {
         AvailabilitySession session = findOrCreateSession(instructor, req.getDate(),
                 req.getBlockStart(), req.getBlockEnd(), req.getVenueRefId(), req.getTicketRef());
 
-        // 만석 — 점유(결제대기+확정) + 외부 hold 가 유효정원을 채웠으면 신청 불가(PENDING 은 하드캡 안 함)
-        int occupying = roundRepo.countByAvailabilitySessionIdAndStatusIn(session.getId(), EnrollmentStatus.OCCUPYING);
-        if (occupying + session.heldCount() >= session.effectiveCapacity()) {
+        // 만석 — 신청 시점 좌석 lock(선착순): 활성(대기+결제대기+확정) + 외부 hold 가 유효정원을 채웠으면 신청 불가.
+        int occupied = roundRepo.countByAvailabilitySessionIdAndStatusIn(session.getId(), EnrollmentStatus.ACTIVE);
+        if (occupied + session.heldCount() >= session.effectiveCapacity()) {
             throw new BadRequestException(); // 만석
         }
 

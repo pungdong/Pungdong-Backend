@@ -37,7 +37,7 @@ public class AvailabilitySessionResponse {
     /** 파생 표시 상태(AVAILABLE/PENDING/CONFIRMED/EXTERNAL/FULL). */
     private SlotStatus status;
 
-    /** 찬 자리 = confirmedCount + externalCount. */
+    /** 찬 자리 = confirmedCount + pendingCount + externalCount (신청 시점 좌석 lock — 대기도 점유). */
     private int filled;
     /** 풍덩 확정 점유. */
     private int confirmedCount;

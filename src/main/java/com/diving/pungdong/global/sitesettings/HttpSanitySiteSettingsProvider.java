@@ -29,7 +29,8 @@ import java.time.Duration;
 @Profile("!test") // 테스트는 네트워크 호출 대신 TestSiteSettingsConfig 의 고정 bean 사용(ES 스캐폴드와 동일)
 public class HttpSanitySiteSettingsProvider implements SiteSettingsProvider {
 
-    private static final String QUERY = "*[_type == \"siteSettings\"][0]{launched, showSeededCourses}";
+    private static final String QUERY =
+            "*[_type == \"siteSettings\"][0]{launched, showSeededCourses, pendingTtlHours, paymentTtlHours}";
 
     private final String projectId;
     private final String dataset;
@@ -93,7 +94,9 @@ public class HttpSanitySiteSettingsProvider implements SiteSettingsProvider {
             }
             return new SiteSettings(
                     result.path("launched").asBoolean(false),
-                    result.path("showSeededCourses").asBoolean(true));
+                    result.path("showSeededCourses").asBoolean(true),
+                    result.path("pendingTtlHours").asInt(24),
+                    result.path("paymentTtlHours").asInt(12));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Sanity siteSettings query interrupted", e);

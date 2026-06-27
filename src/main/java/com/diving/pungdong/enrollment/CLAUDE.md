@@ -18,7 +18,8 @@
 
 - enrollment 는 **`AvailabilitySession`(위치·시간블록·정원 단위)** 에 붙는다(`session_id`). 첫 신청이 그 (위치, 시간블록) session 을 **생성**하고(`findOrCreateSession`), 같은 **(venueRefId, blockStart, blockEnd)** 신청은 그 session 에 **join**. session 이 처음부터 위치를 소유하므로 bind/unbind 없음. 대신 **점유 0 = 일정 삭제**: 거절/취소로 활성 신청+hold 가 0 이 되면 `availability.SessionCleaner.deleteIfEmpty` 가 session 을 지운다. **단 enrollment 이력은 보존** — CANCELLED/REJECTED 는 안 지우고 `session_id` 만 끊음(스냅샷 date/위치/블록/가격/사유 남아 CS·환불 증빙). 외부 hold 제거(`removeHold`)도 점유 0 이면 같은 정리 → 204.
 - **자격 = 블록이 강사 coverage(예약가능시간)에 통째로 ⊆**(`CoverageMerger.containsWhole`, 부분겹침 불가). 블록은 venue 운영 카탈로그의 이산 단위라 통째로만 선택.
-- **만석** = `점유(결제대기+확정, OCCUPYING) + 외부hold >= effectiveCapacity` 일 때만 새 신청 거절. **PENDING 은 하드캡 안 함**(여러 건 쌓여도 강사가 수락/거절로 정리). 수락 시 정원 재검증(결제대기도 점유로 카운트 — 좌석 중복판매 방지).
+- **만석(신청 시점 좌석 lock · 선착순, 2026-06-28)** = `활성(ACTIVE: 대기+결제대기+확정) + 외부hold >= effectiveCapacity` 면 새 신청 거절. **PENDING 도 좌석을 잠근다**(옛 "하드캡 안 함" 폐기 — 소규모 정원 선착순). 수락은 잠긴 슬롯 전환만(정원 재검증 제거). `occupiesCapacity()`/`OCCUPYING`(=결제대기+확정)은 이제 캘린더 confirmed **표시 버킷** 전용 — 만석 판정은 `ACTIVE`.
+- **lock 자동 만료(TTL)** = `EnrollmentExpiryService`(주기 스위프, 스케줄러는 `EnrollmentExpiryScheduler` @Profile("!test")) — PENDING `createdAt`+pendingTtlHours(24) / PAYMENT_PENDING `respondedAt`+paymentTtlHours(12) 지나면 CANCELLED + `SessionCleaner` 좌석 해제. TTL 값은 `SiteSettings`(Sanity 런타임). 각 건 자기 트랜잭션. 만료 알림은 후속(notification 미연동).
 - **availability 캘린더 연동**: `availability/AvailabilityService.toResponse` 가 **session별** enrollment 를 집계해 `confirmedCount`/`pendingCount`/`applicants[]` 를 채운다 → **availability → enrollment(repo) 단방향 의존**(읽기 전용). 5상태 모델 실가동.
 
 ## 작업 전 반드시 읽기
