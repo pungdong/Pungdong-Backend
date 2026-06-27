@@ -48,12 +48,14 @@ public class ScheduleHubResponse {
         private final List<ScheduleRound> rounds; // roundIndex 순
     }
 
-    /** 회차(=enrollment 1건). */
+    /** 회차(=EnrollmentRound 1건). */
     @Getter
     @Builder
     public static class ScheduleRound {
-        private final Long enrollmentId;
-        private final int roundIndex;
+        /** 회차 id — 취소·결제·일정변경 등 행위 단위. */
+        private final Long roundId;
+        /** 정규 회차 번호(1..N). EXTRA 는 null. */
+        private final Integer roundIndex;
         private final RoundScheduleStatus status;
         private final LocalDate date;
         private final LocalTime blockStart;

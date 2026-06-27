@@ -1,6 +1,6 @@
 package com.diving.pungdong.enrollment.dto;
 
-import com.diving.pungdong.enrollment.Enrollment;
+import com.diving.pungdong.enrollment.EnrollmentRound;
 import com.diving.pungdong.enrollment.EnrollmentStatus;
 import lombok.*;
 import org.springframework.hateoas.server.core.Relation;
@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * 강사가 받은 신청 1건(검토용) — V2 enrollment-management 검토 시트의 BE 데이터. 목록은
+ * 강사가 받은 회차 1건(검토용) — V2 enrollment-management 검토 시트의 BE 데이터. {@code id} = 회차 id. 목록은
  * {@code _embedded.enrollments}. 학생 식별·일정·장비·추정 금액을 강사 측에서 본다.
  */
 @Getter @Setter
@@ -26,6 +26,7 @@ public class InstructorEnrollmentResponse {
     private String studentName;
     private Long courseId;
     private String courseTitle;
+    private Integer roundIndex;
 
     private LocalDate date;
     private LocalTime blockStart;
@@ -39,23 +40,27 @@ public class InstructorEnrollmentResponse {
 
     private LocalDateTime createdAt;
 
-    public static InstructorEnrollmentResponse of(Enrollment e, String venueName) {
+    public static InstructorEnrollmentResponse of(EnrollmentRound r, String venueName) {
+        var enrollment = r.getEnrollment();
+        var student = enrollment == null ? null : enrollment.getStudent();
+        var course = enrollment == null ? null : enrollment.getCourse();
         return InstructorEnrollmentResponse.builder()
-                .id(e.getId())
-                .studentId(e.getStudent() == null ? null : e.getStudent().getId())
-                .studentName(e.getStudent() == null ? null : e.getStudent().getNickName())
-                .courseId(e.getCourse() == null ? null : e.getCourse().getId())
-                .courseTitle(e.getCourse() == null ? null : e.getCourse().getTitle())
-                .date(e.getDate())
-                .blockStart(e.getBlockStart())
-                .blockEnd(e.getBlockEnd())
-                .venueRefId(e.getVenueRefId())
+                .id(r.getId())
+                .studentId(student == null ? null : student.getId())
+                .studentName(student == null ? null : student.getNickName())
+                .courseId(course == null ? null : course.getId())
+                .courseTitle(course == null ? null : course.getTitle())
+                .roundIndex(r.getRoundIndex())
+                .date(r.getDate())
+                .blockStart(r.getBlockStart())
+                .blockEnd(r.getBlockEnd())
+                .venueRefId(r.getVenueRefId())
                 .venueName(venueName)
-                .status(e.getStatus())
-                .total(e.estimatedTotal())
-                .equipment(e.getEquipment().stream()
+                .status(r.getStatus())
+                .total(r.chargeTotal())
+                .equipment(r.getEquipment().stream()
                         .map(EnrollmentResponse.EquipmentLine::from).collect(Collectors.toList()))
-                .createdAt(e.getCreatedAt())
+                .createdAt(r.getCreatedAt())
                 .build();
     }
 }

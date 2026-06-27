@@ -7,8 +7,9 @@ import com.diving.pungdong.availability.AvailabilityCoverage;
 import com.diving.pungdong.availability.AvailabilityCoverageJpaRepo;
 import com.diving.pungdong.availability.AvailabilitySessionJpaRepo;
 import com.diving.pungdong.course.*;
-import com.diving.pungdong.enrollment.Enrollment;
 import com.diving.pungdong.enrollment.EnrollmentJpaRepo;
+import com.diving.pungdong.enrollment.EnrollmentRound;
+import com.diving.pungdong.enrollment.EnrollmentRoundJpaRepo;
 import com.diving.pungdong.enrollment.EnrollmentStatus;
 import com.diving.pungdong.enrollment.dto.EnrollmentCreateRequest;
 import com.diving.pungdong.global.security.JwtTokenProvider;
@@ -78,6 +79,7 @@ class PaymentUseCaseTest {
     @Autowired CourseJpaRepo courseRepo;
     @Autowired VenueJpaRepo venueRepo;
     @Autowired EnrollmentJpaRepo enrollmentRepo;
+    @Autowired EnrollmentRoundJpaRepo roundRepo;
     @Autowired PaymentOrderJpaRepo orderRepo;
 
     @MockBean TossPaymentClient tossClient; // 외부 PG 경계만 mock
@@ -113,7 +115,7 @@ class PaymentUseCaseTest {
     void prepareCreatesReadyOrder() throws Exception {
         Object[] s = setup(4);
         Account stu = (Account) s[3];
-        Enrollment e = accepted(stu, s);
+        EnrollmentRound e = accepted(stu, s);
 
         mockMvc.perform(post("/payments/prepare")
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(stu))
@@ -124,7 +126,7 @@ class PaymentUseCaseTest {
                 .andExpect(jsonPath("$.orderId").exists())
                 .andExpect(jsonPath("$.customerKey").value("cust-" + stu.getId()));
 
-        PaymentOrder order = orderRepo.findByEnrollmentIdAndStatus(e.getId(), PaymentStatus.READY).orElseThrow();
+        PaymentOrder order = orderRepo.findByEnrollmentRoundIdAndStatus(e.getId(), PaymentStatus.READY).orElseThrow();
         assertThat(order.getAmount()).isEqualTo(EXPECTED_AMOUNT);
         assertThat(order.getStatus()).isEqualTo(PaymentStatus.READY);
     }
@@ -134,7 +136,7 @@ class PaymentUseCaseTest {
     void confirmConfirmsEnrollment() throws Exception {
         Object[] s = setup(4);
         Account stu = (Account) s[3];
-        Enrollment e = accepted(stu, s);
+        EnrollmentRound e = accepted(stu, s);
         String orderId = prepareOrderId(stu, e);
 
         mockMvc.perform(post("/payments/confirm")
@@ -146,7 +148,7 @@ class PaymentUseCaseTest {
                 .andExpect(jsonPath("$.enrollmentStatus").value("CONFIRMED"));
 
         assertThat(orderRepo.findByOrderId(orderId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.DONE);
-        assertThat(enrollmentRepo.findById(e.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.CONFIRMED);
+        assertThat(roundRepo.findById(e.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.CONFIRMED);
     }
 
     @Test
@@ -154,7 +156,7 @@ class PaymentUseCaseTest {
     void confirmRejectsAmountMismatch() throws Exception {
         Object[] s = setup(4);
         Account stu = (Account) s[3];
-        Enrollment e = accepted(stu, s);
+        EnrollmentRound e = accepted(stu, s);
         String orderId = prepareOrderId(stu, e);
 
         mockMvc.perform(post("/payments/confirm")
@@ -164,7 +166,7 @@ class PaymentUseCaseTest {
                 .andExpect(status().isBadRequest());
 
         verifyNoInteractions(tossClient); // 금액 대조에서 막혀 PG 미호출
-        assertThat(enrollmentRepo.findById(e.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.PAYMENT_PENDING);
+        assertThat(roundRepo.findById(e.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.PAYMENT_PENDING);
         assertThat(orderRepo.findByOrderId(orderId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.READY);
     }
 
@@ -173,7 +175,7 @@ class PaymentUseCaseTest {
     void confirmIsIdempotent() throws Exception {
         Object[] s = setup(4);
         Account stu = (Account) s[3];
-        Enrollment e = accepted(stu, s);
+        EnrollmentRound e = accepted(stu, s);
         String orderId = prepareOrderId(stu, e);
         String body = json(Map.of("paymentKey", "pk_test_1", "orderId", orderId, "amount", EXPECTED_AMOUNT));
 
@@ -191,7 +193,7 @@ class PaymentUseCaseTest {
     void prepareRejectsNonPaymentPending() throws Exception {
         Object[] s = setup(4);
         Account stu = (Account) s[3];
-        Enrollment e = submitOk(stu, s); // PENDING — 강사 수락 전
+        EnrollmentRound e = submitOk(stu, s); // PENDING — 강사 수락 전
 
         mockMvc.perform(post("/payments/prepare")
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(stu))
@@ -205,7 +207,7 @@ class PaymentUseCaseTest {
     void prepareHidesOthers() throws Exception {
         Object[] s = setup(4);
         Account stu = (Account) s[3];
-        Enrollment e = accepted(stu, s);
+        EnrollmentRound e = accepted(stu, s);
         Account other = account("other@pd.com", "남");
 
         mockMvc.perform(post("/payments/prepare")
@@ -220,8 +222,8 @@ class PaymentUseCaseTest {
     void acceptBlockedByPaymentPendingOccupancy() throws Exception {
         Object[] s = setup(1); // 정원 1
         Account ins = (Account) s[4];
-        Enrollment first = submitOk(account("p7a@pd.com", "학생7A"), s);
-        Enrollment second = submitOk(account("p7b@pd.com", "학생7B"), s); // PENDING 은 캡 안 함 → 둘 다 신청 OK
+        EnrollmentRound first = submitOk(account("p7a@pd.com", "학생7A"), s);
+        EnrollmentRound second = submitOk(account("p7b@pd.com", "학생7B"), s); // PENDING 은 캡 안 함 → 둘 다 신청 OK
 
         mockMvc.perform(post("/instructor/enrollments/{id}/accept", first.getId())
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(ins)))
@@ -234,16 +236,16 @@ class PaymentUseCaseTest {
     /* ─── helpers ─── */
 
     /** 신청 → 강사 수락(PAYMENT_PENDING)까지 진행한 enrollment 반환. */
-    private Enrollment accepted(Account student, Object[] s) throws Exception {
-        Enrollment e = submitOk(student, s);
+    private EnrollmentRound accepted(Account student, Object[] s) throws Exception {
+        EnrollmentRound e = submitOk(student, s);
         Account ins = (Account) s[4];
         mockMvc.perform(post("/instructor/enrollments/{id}/accept", e.getId())
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(ins)))
                 .andExpect(status().isOk());
-        return enrollmentRepo.findById(e.getId()).orElseThrow();
+        return roundRepo.findById(e.getId()).orElseThrow();
     }
 
-    private String prepareOrderId(Account student, Enrollment e) throws Exception {
+    private String prepareOrderId(Account student, EnrollmentRound e) throws Exception {
         String resp = mockMvc.perform(post("/payments/prepare")
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(student))
                 .contentType(MediaType.APPLICATION_JSON)
@@ -253,7 +255,7 @@ class PaymentUseCaseTest {
         return objectMapper.readTree(resp).path("orderId").asText();
     }
 
-    private Enrollment submitOk(Account student, Object[] s) throws Exception {
+    private EnrollmentRound submitOk(Account student, Object[] s) throws Exception {
         Course course = (Course) s[0];
         String venueRef = (String) s[2];
         String ticketRef = ticketRefOf((Venue) s[1]);
@@ -262,7 +264,7 @@ class PaymentUseCaseTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json(req(course.getId(), venueRef, ticketRef))))
                 .andExpect(status().isCreated());
-        return enrollmentRepo.findByStudentIdOrderByIdDesc(student.getId()).get(0);
+        return roundRepo.findByEnrollment_Student_IdOrderByIdDesc(student.getId()).get(0);
     }
 
     /** 강사·venue·course 한 세트 + coverage 09–18. 인덱스 [course, venue, venueRef, student, instructor]. */

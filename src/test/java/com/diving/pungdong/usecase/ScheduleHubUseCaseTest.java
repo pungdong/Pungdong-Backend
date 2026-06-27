@@ -8,8 +8,10 @@ import com.diving.pungdong.course.Course;
 import com.diving.pungdong.course.CourseJpaRepo;
 import com.diving.pungdong.course.CourseKind;
 import com.diving.pungdong.course.CourseStatus;
+import com.diving.pungdong.course.RoundKind;
 import com.diving.pungdong.enrollment.Enrollment;
 import com.diving.pungdong.enrollment.EnrollmentJpaRepo;
+import com.diving.pungdong.enrollment.EnrollmentRound;
 import com.diving.pungdong.enrollment.EnrollmentStatus;
 import com.diving.pungdong.global.security.JwtTokenProvider;
 import org.junit.jupiter.api.AfterEach;
@@ -35,8 +37,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * 수강생 강의일정 hub use-case — {@code GET /enrollments/mine/schedule}. {@code @DisplayName} 위→아래 = 사양.
  *
- * <p>실 H2 + Security 필터 + 실 서비스. enrollment 를 <b>직접 저장</b>해(허브는 순수 read, 전체 자격흐름 불필요)
- * 강의 그룹핑·상태 파생·정렬·필터 카운트를 검증. ⚠️ Authorization raw JWT.
+ * <p>실 H2 + Security 필터 + 실 서비스. 수강(Enrollment) + 회차(EnrollmentRound)를 <b>직접 저장</b>해(허브는 순수
+ * read) 강의 그룹핑·상태 파생·정렬·필터 카운트를 검증. 한 Enrollment = 한 강의 카드, 회차들이 round 행. ⚠️ raw JWT.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -51,7 +53,7 @@ class ScheduleHubUseCaseTest {
 
     @AfterEach
     void clean() {
-        enrollmentRepo.deleteAll();
+        enrollmentRepo.deleteAll(); // cascade → rounds
         courseRepo.deleteAll();
         accountRepo.deleteAll();
     }
@@ -71,14 +73,22 @@ class ScheduleHubUseCaseTest {
                 .createdAt(LocalDateTime.now()).build());
     }
 
-    private void enroll(Account student, Course course, int round, EnrollmentStatus status, int total) {
-        enrollmentRepo.save(Enrollment.builder()
-                .student(student).course(course).roundIndex(round)
+    private EnrollmentRound roundOf(int idx, EnrollmentStatus status) {
+        return EnrollmentRound.builder()
+                .roundIndex(idx).roundKind(RoundKind.REGULAR)
                 .date(LocalDate.now().plusWeeks(1)).blockStart(LocalTime.of(14, 0)).blockEnd(LocalTime.of(17, 0))
-                .venueRefId("CUSTOM:1").status(status)
-                .tuitionSnapshot(total).entrySnapshot(0).equipmentSnapshot(0)
+                .venueRefId("CUSTOM:1").status(status).entrySnapshot(0).equipmentSnapshot(0)
                 .rejectionReason(status == EnrollmentStatus.REJECTED ? "그날은 일정이 있어요. 12/5 어떠세요?" : null)
-                .createdAt(LocalDateTime.now()).build());
+                .createdAt(LocalDateTime.now()).build();
+    }
+
+    private void enroll(Account student, Course course, int tuition, EnrollmentRound... rounds) {
+        Enrollment e = Enrollment.builder()
+                .student(student).course(course).tuitionSnapshot(tuition).createdAt(LocalDateTime.now()).build();
+        for (EnrollmentRound r : rounds) {
+            e.addRound(r);
+        }
+        enrollmentRepo.save(e);
     }
 
     private String token(Account a) {
@@ -86,7 +96,7 @@ class ScheduleHubUseCaseTest {
     }
 
     @Test
-    @DisplayName("SH1 내 신청을 강의 단위로 그룹핑하고 진행상태를 파생한다(액션 우선 정렬 + 필터 카운트)")
+    @DisplayName("SH1 내 수강을 강의 단위로 묶고 회차 진행상태를 파생한다(액션 우선 정렬 + 필터 카운트)")
     void groupsAndDerives() throws Exception {
         Account student = account("stu@pd.com", "학생");
         Account instructor = account("ins@pd.com", "김민지");
@@ -94,13 +104,12 @@ class ScheduleHubUseCaseTest {
         Course b = course(instructor, "PADI 프리다이버 과정");
         Course c = course(instructor, "SSI 베이직 프리다이버");
 
-        // 강의 A: 1회차 결제대기(90,000) + 2회차 수락대기 → 강의=결제대기
-        enroll(student, a, 1, EnrollmentStatus.PAYMENT_PENDING, 90000);
-        enroll(student, a, 2, EnrollmentStatus.PENDING, 90000);
+        // 강의 A: 1회차 결제대기(수강료 90,000 → 1회차에 전액) + 2회차 수락대기 → 강의=결제대기
+        enroll(student, a, 90000, roundOf(1, EnrollmentStatus.PAYMENT_PENDING), roundOf(2, EnrollmentStatus.PENDING));
         // 강의 B: 확정 → 진행중
-        enroll(student, b, 1, EnrollmentStatus.CONFIRMED, 350000);
+        enroll(student, b, 350000, roundOf(1, EnrollmentStatus.CONFIRMED));
         // 강의 C: 강사 거절 → 일정 변경
-        enroll(student, c, 1, EnrollmentStatus.REJECTED, 50000);
+        enroll(student, c, 50000, roundOf(1, EnrollmentStatus.REJECTED));
 
         mockMvc.perform(get("/enrollments/mine/schedule").header(HttpHeaders.AUTHORIZATION, token(student)))
                 .andExpect(status().isOk())
@@ -111,7 +120,7 @@ class ScheduleHubUseCaseTest {
                 .andExpect(jsonPath("$.courses[0].organizationCode").value("AIDA"))
                 .andExpect(jsonPath("$.courses[0].instructorName").value("김민지"))
                 .andExpect(jsonPath("$.courses[0].rounds.length()").value(2))
-                // 회차는 roundIndex 순
+                // 회차는 roundIndex 순. 1회차 = 결제대기 + 수강료(90,000) 청구
                 .andExpect(jsonPath("$.courses[0].rounds[0].roundIndex").value(1))
                 .andExpect(jsonPath("$.courses[0].rounds[0].status").value("PAYMENT_DUE"))
                 .andExpect(jsonPath("$.courses[0].rounds[0].amount").value(90000))

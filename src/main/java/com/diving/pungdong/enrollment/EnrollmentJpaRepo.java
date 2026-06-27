@@ -2,30 +2,14 @@ package com.diving.pungdong.enrollment;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
-import java.util.Collection;
 import java.util.List;
 
+/**
+ * 수강(Enrollment) 부모 레포. 슬롯·상태 단위 집계는 회차로 내려가 {@link EnrollmentRoundJpaRepo} 가 가진다 —
+ * 여기는 학생별 수강 컨테이너 조회만 남는다.
+ */
 public interface EnrollmentJpaRepo extends JpaRepository<Enrollment, Long> {
 
-    /** 내 신청 목록 — 최신순. */
+    /** 내 수강 목록 — 최신순. 회차는 {@code enrollment.getRounds()}. */
     List<Enrollment> findByStudentIdOrderByIdDesc(Long studentId);
-
-    /** 강사 — 내 코스로 들어온 신청(상태별). enrollment.course.instructor.id 경유. */
-    List<Enrollment> findByCourse_Instructor_IdAndStatusOrderByIdDesc(Long instructorId, EnrollmentStatus status);
-
-    /** 한 일정(session)의 특정 상태 신청 수 — 정원 집계. */
-    int countByAvailabilitySessionIdAndStatus(Long sessionId, EnrollmentStatus status);
-
-    /** 한 일정의 상태 집합에 드는 신청 수 — 점유(결제대기+확정, {@link EnrollmentStatus#OCCUPYING}) 합산용. */
-    int countByAvailabilitySessionIdAndStatusIn(Long sessionId, Collection<EnrollmentStatus> statuses);
-
-    /** 한 일정의 상태 집합에 드는 신청들 — 활성(PENDING/PAYMENT_PENDING/CONFIRMED) 조회·join/삭제 판정. */
-    List<Enrollment> findByAvailabilitySessionIdAndStatusIn(Long sessionId, Collection<EnrollmentStatus> statuses);
-
-    /** 한 일정의 모든 신청(상태 무관) — 빈 일정 삭제 시 FK 끊기용. */
-    List<Enrollment> findByAvailabilitySessionId(Long sessionId);
-
-    /** 여러 일정의 활성 신청 일괄 조회 — 캘린더 N+1 회피. */
-    List<Enrollment> findByAvailabilitySessionIdInAndStatusIn(Collection<Long> sessionIds,
-                                                              Collection<EnrollmentStatus> statuses);
 }
