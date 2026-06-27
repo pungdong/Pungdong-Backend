@@ -109,7 +109,7 @@ class VenueEquipmentUseCaseTest {
         String json = body(ref, List.of(
                 Map.of("name", "롱핀", "price", 5000, "sizeFormat", "SHOE_MM"),
                 Map.of("name", "마스크·스노클", "price", 0, "sizeFormat", "NONE"),
-                Map.of("name", "슈트", "price", 3000, "sizeFormat", "CUSTOM", "sizeOptions", List.of("3mm", "5mm"))));
+                Map.of("name", "슈트", "price", 3000, "sizeFormat", "APPAREL_SXL")));
 
         mockMvc.perform(put("/venue-equipment").header(HttpHeaders.AUTHORIZATION, tokenFor(me))
                         .contentType(MediaType.APPLICATION_JSON).content(json))
@@ -124,8 +124,8 @@ class VenueEquipmentUseCaseTest {
                 .andExpect(jsonPath("$._embedded.extensions[0].items[0].sizeOptions").value(hasItem("250")))
                 // 마스크: NONE → 빈 옵션
                 .andExpect(jsonPath("$._embedded.extensions[0].items[1].sizeOptions").value(hasSize(0)))
-                // 슈트: CUSTOM → 준 값 그대로
-                .andExpect(jsonPath("$._embedded.extensions[0].items[2].sizeOptions").value(contains("3mm", "5mm")))
+                // 슈트: APPAREL_SXL 프리셋 자동(XS~XXL)
+                .andExpect(jsonPath("$._embedded.extensions[0].items[2].sizeOptions").value(hasItem("L")))
                 .andExpect(jsonPath("$._embedded.extensions[0].items[0].price").value(5000));
     }
 
