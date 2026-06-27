@@ -218,19 +218,17 @@ class PaymentUseCaseTest {
     }
 
     @Test
-    @DisplayName("P7 정원 1 인 슬롯에 둘이 신청해도 수락은 한 명만 — 결제대기 점유가 둘째 수락을 막는다(400)")
-    void acceptBlockedByPaymentPendingOccupancy() throws Exception {
+    @DisplayName("P7 정원 1 — 첫 신청이 좌석을 lock(선착순), 둘째 신청은 만석 400(수락 전에 신청 단계에서 막힘)")
+    void firstComeLocksSeatOnApply() throws Exception {
         Object[] s = setup(1); // 정원 1
-        Account ins = (Account) s[4];
-        EnrollmentRound first = submitOk(account("p7a@pd.com", "학생7A"), s);
-        EnrollmentRound second = submitOk(account("p7b@pd.com", "학생7B"), s); // PENDING 은 캡 안 함 → 둘 다 신청 OK
+        submitOk(account("p7a@pd.com", "학생7A"), s); // 첫 신청 — PENDING 이 1석을 잠금(아직 수락/결제 전)
 
-        mockMvc.perform(post("/instructor/enrollments/{id}/accept", first.getId())
-                .header(HttpHeaders.AUTHORIZATION, tokenFor(ins)))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("PAYMENT_PENDING"));
-        mockMvc.perform(post("/instructor/enrollments/{id}/accept", second.getId())
-                .header(HttpHeaders.AUTHORIZATION, tokenFor(ins)))
-                .andExpect(status().isBadRequest()); // 결제대기 1명이 정원 1 을 채움
+        Account second = account("p7b@pd.com", "학생7B");
+        mockMvc.perform(post("/enrollments")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(second))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json(req(((Course) s[0]).getId(), (String) s[2], ticketRefOf((Venue) s[1])))))
+                .andExpect(status().isBadRequest()); // 만석 — 첫 신청이 좌석을 선점
     }
 
     /* ─── helpers ─── */

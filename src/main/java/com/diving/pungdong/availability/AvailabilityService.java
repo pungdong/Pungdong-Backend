@@ -198,7 +198,7 @@ public class AvailabilityService {
      */
     private void bumpCapacityIfExceeded(AvailabilitySession s) {
         int occupancy = s.heldCount()
-                + roundRepo.countByAvailabilitySessionIdAndStatusIn(s.getId(), EnrollmentStatus.OCCUPYING);
+                + roundRepo.countByAvailabilitySessionIdAndStatusIn(s.getId(), EnrollmentStatus.ACTIVE);
         if (occupancy > s.effectiveCapacity()) {
             s.setCapacityOverride(occupancy);
         }
@@ -322,15 +322,15 @@ public class AvailabilityService {
 
     SlotStatus deriveStatus(AvailabilitySession s, int confirmed, int pending) {
         int external = s.heldCount();
-        int filled = confirmed + external;
-        if (pending > 0 && filled == 0) {
-            return SlotStatus.PENDING;
-        }
-        if (filled == 0) {
+        int occupied = confirmed + pending + external; // 신청 시점 좌석 lock — PENDING 도 자리를 차지
+        if (occupied == 0) {
             return SlotStatus.AVAILABLE;
         }
-        if (filled >= s.effectiveCapacity()) {
+        if (occupied >= s.effectiveCapacity()) {
             return SlotStatus.FULL;
+        }
+        if (confirmed + external == 0) {
+            return SlotStatus.PENDING; // 대기만 — 아직 확정/외부 점유 없음
         }
         if (external > 0) {
             return SlotStatus.EXTERNAL;
@@ -355,8 +355,9 @@ public class AvailabilityService {
         String ticketName = ticketName(vr, s.getTicketRef());
         List<ApplicantSummaryResponse> applicants = active.stream()
                 .map(AvailabilityService::toApplicant).collect(Collectors.toList());
+        // filled = 찬 자리 = 확정 + 대기 + 외부 (신청 시점 좌석 lock — PENDING 도 점유)
         return AvailabilitySessionResponse.of(
-                s, status, confirmed + external, confirmed, external, pending, venueName, ticketName, applicants);
+                s, status, confirmed + pending + external, confirmed, external, pending, venueName, ticketName, applicants);
     }
 
     /** ticketRef → venue 이용권 명칭(단일 출처). 미지정/미존재면 null. */
