@@ -36,7 +36,13 @@ export const termsByContext = `
 /**
  * 법적 고지 문서 1건(전문 페이지) — 웹 /{slug} + 푸터 모달. params: { slug }
  *   slug: 'terms' | 'privacy' | 'refund'
- * `term`(동의 체크박스)과 다른 타입 — 이건 표시 전용 전문. FE 가 useCdn:true 직접 읽기.
+ * `term`(동의 체크박스)과 다른 타입 — 이건 표시 전용 전문.
+ *
+ * ⚠️ FE 는 이 GROQ 로 직접 읽지 말 것. 이 Sanity 프로젝트가 익명(CDN) 읽기에서 legalDocument 를
+ *    거부(`reason:permission`, 생성일 기반)하므로, FE 는 **BE 프록시 `GET /legal/{slug}`** 로 읽는다
+ *    (응답 타입 = `types.ts` `LegalDocument`). 이 쿼리는 BE 가 서버사이드로 읽을 때 쓰는 모양이자,
+ *    Sanity 가 접근을 고치면 FE-direct(useCdn:true)로 되돌릴 때를 위한 참고용으로 남겨둔다.
+ *    배경: docs/features/consent-and-terms.md, src/main/java/.../legal/CLAUDE.md.
  */
 export const legalDocumentBySlug = `
 *[_type == "legalDocument" && slug.current == $slug && active == true][0]
