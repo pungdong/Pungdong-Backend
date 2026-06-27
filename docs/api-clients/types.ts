@@ -1306,6 +1306,67 @@ export interface InstructorEnrollmentResponse extends HalLinks {
   createdAt: string | null;
 }
 
+// ── 강사 수강관리 hub — GET /instructor/enrollments/hub?filter= (authenticated, 강사) ──
+// 거래 단위 = 수강(수강생×강의). 학생 hub(/enrollments/mine/schedule)의 강사 거울. 신청검토·일정변경검토·마무리를
+// 한 곳에서. 액션은 기존 엔드포인트 재사용(accept/reject/propose-slots/complete). 응답은 EntityModel(HAL).
+// 정렬: ACTION_NEEDED → PROGRESS → COMPLETED → CANCELLED. filter = all(기본)|action|progress|completed.
+// 회차 채팅·다이브로그는 미구현(별도 피처)이라 없음.
+
+/** 거래 카드 상태(강사 시점, 회차들에서 파생). */
+export type InstructorEnrollmentStatus = 'ACTION_NEEDED' | 'PROGRESS' | 'COMPLETED' | 'CANCELLED';
+/** 카드 1차 액션 플래그. 없으면 null. */
+export type InstructorActionFlag = 'NEW_REQUEST' | 'CHANGE_REQUEST' | 'CLOSING';
+/** 회차 상태(강사 시점). */
+export type InstructorRoundStatus =
+  | 'WAITING'      // 신규 신청 — 수락/거절/일정변경요청
+  | 'CHANGING'     // 학생이 직접 일정수정 — 검토(previousSlot 노출)
+  | 'PROPOSED'     // 강사가 일정변경요청함 — 학생 선택 대기(강사 액션 아님)
+  | 'PAYMENT_DUE'  // 수락됨, 학생 결제 대기
+  | 'CONFIRMED'    // 확정·진행 예정
+  | 'CLOSING'      // 세션 종료 — 마무리(done) 필요
+  | 'DONE' | 'REJECTED' | 'CANCELLED';
+
+export interface InstructorScheduleHubResponse extends HalLinks {
+  filters: { id: string; label: string; count: number }[]; // all/action/progress/completed
+  enrollments: InstructorEnrollmentCard[];
+}
+export interface InstructorEnrollmentCard {
+  enrollmentId: number;
+  student: {
+    accountId: number;
+    name: string;        // nickName(실명 미수집)
+    initials: string;
+    isNew: boolean;      // 이 강사와 과거 수강 0
+    historyCount: number;
+  } | null;
+  courseId: number | null;
+  courseTitle: string | null;
+  organizationCode: string | null;
+  disciplineCode: string | null;
+  levels: CertLevel[];
+  status: InstructorEnrollmentStatus;
+  flag: InstructorActionFlag | null;
+  actionLine: string | null;     // 액션 안내 한 줄
+  totalRounds: number;
+  rounds: InstructorRoundCard[];  // 취소 회차 제외
+}
+export interface InstructorRoundCard {
+  roundId: number;
+  roundIndex: number | null;
+  roundKind: string;             // REGULAR | EXTRA
+  status: InstructorRoundStatus;
+  date: string | null;
+  blockStart: string | null;
+  blockEnd: string | null;
+  venueRefId: string | null;
+  venueName: string | null;
+  amount: number;
+  gearCount: number;
+  /** CHANGING 일 때 학생이 바꾸기 전 슬롯(변경 검토 diff). 없으면 null. */
+  previousSlot: { date: string | null; venueRefId: string | null; ticketRef: string | null;
+                  blockStart: string | null; blockEnd: string | null } | null;
+}
+
 // ============================================================
 // 결제 (payment 도메인) — 토스페이먼츠 결제위젯 v2
 // docs/features/payment.md · docs/architecture/payment.md 참고
