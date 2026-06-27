@@ -27,7 +27,7 @@ REST Docs HTML 도 빌드 산출물로 생성된다 (`./gradlew build` → `stat
 > 컨텍스트 프롬프트 템플릿:
 >
 > "백엔드 API 의 TypeScript 타입은 `https://raw.githubusercontent.com/pungdong/Pungdong-Backend/master/docs/api-clients/types.ts` 가 단일 출처다. 이 파일의 export 를 그대로 사용하거나, 필요하면 프로젝트로 복사해 두고 import 해라. 새 API 가 필요해서 타입이 없으면 BE 측에 추가 요청을 남길 것.
-> 단, **공개 카탈로그(자격증 단체·약관·공식 위치)는 BE 가 아니라 Sanity** 가 소유한다 — `@sanity/client` 로 `useCdn: true` 직접 읽고, GROQ 는 `https://raw.githubusercontent.com/pungdong/Pungdong-Backend/master/sanity/queries.ts` 에서 복사(projectId `rc448mwo`, dataset `production`). private 데이터는 Sanity 에 없고 BE 만."
+> 단, **공개 카탈로그(자격증 단체·공식 위치)는 BE 가 아니라 Sanity** 가 소유한다 — `@sanity/client` 로 `useCdn: true` 직접 읽고, GROQ 는 `https://raw.githubusercontent.com/pungdong/Pungdong-Backend/master/sanity/queries.ts` 에서 복사(projectId `rc448mwo`, dataset `production`). private 데이터는 Sanity 에 없고 BE 만. **약관(법적 고지 전문)만 예외 — 익명 CDN 읽기가 거부되어 BE 프록시 `GET /legal/{slug}`(slug = terms/privacy/refund, 응답 타입 `types.ts` `LegalDocument`)로 읽는다. Sanity CDN 직접(`legalDocumentBySlug`) 금지. 동의 체크박스 `term` 은 CDN 직접 그대로.**"
 
 복사해서 쓸 경우 권장 위치: FE 프로젝트의 `src/api/types.ts`. BE 측 변경 시 git pull 로 동기화하거나, 빌드 단계에서 raw URL 을 fetch 해서 자동 덮어쓰기 (`curl ... > src/api/types.ts`).
 
