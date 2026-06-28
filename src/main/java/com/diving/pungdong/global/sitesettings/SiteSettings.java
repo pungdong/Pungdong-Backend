@@ -8,13 +8,15 @@ package com.diving.pungdong.global.sitesettings;
  * @param showSeededCourses  데모(seeded) 코스 공개 노출 여부. false 면 둘러보기에서 제외.
  * @param pendingTtlHours    신청(PENDING) 좌석 lock 자동 만료 시간 — 강사 무응답 시 슬롯 해제. 기본 24h.
  * @param paymentTtlHours    결제 대기(PAYMENT_PENDING) 자동 만료 시간 — 미결제 시 슬롯 해제. 기본 12h.
+ * @param proposalTtlHours   강사 일정변경 제안(propose-slots) 좌석 hold 자동 만료 시간 — 학생 미선택 시 보장
+ *                           hold 해제(다른 학생을 막는 시간이라 짧게). 결제 TTL 과 분리. 기본 6h.
  */
 public record SiteSettings(boolean launched, boolean showSeededCourses,
-                           int pendingTtlHours, int paymentTtlHours) {
+                           int pendingTtlHours, int paymentTtlHours, int proposalTtlHours) {
 
     /**
-     * Sanity 도달 불가 + 캐시 없음일 때의 보수적 기본값 — <b>미런칭(신청 차단) + 데모 노출 + TTL 24h/12h</b>.
+     * Sanity 도달 불가 + 캐시 없음일 때의 보수적 기본값 — <b>미런칭(신청 차단) + 데모 노출 + TTL 24h/12h/6h</b>.
      * 사고 시 "실수로 신청이 열리는" 위험을 피하는 방향(런칭은 명시적 publish 로만 켜짐).
      */
-    public static final SiteSettings SAFE_DEFAULT = new SiteSettings(false, true, 24, 12);
+    public static final SiteSettings SAFE_DEFAULT = new SiteSettings(false, true, 24, 12, 6);
 }

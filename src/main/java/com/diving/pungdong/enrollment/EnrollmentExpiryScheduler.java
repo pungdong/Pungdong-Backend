@@ -32,6 +32,14 @@ public class EnrollmentExpiryScheduler {
             log.warn("[expiry] sweep 실패", e);
         }
         try {
+            int lapsed = expiryService.sweepExpiredProposals(LocalDateTime.now());
+            if (lapsed > 0) {
+                log.info("[proposal-expiry] {} 건 제안 만료(보장 hold 해제)", lapsed);
+            }
+        } catch (RuntimeException e) {
+            log.warn("[proposal-expiry] sweep 실패", e);
+        }
+        try {
             int done = expiryService.sweepAutoDone(LocalDate.now());
             if (done > 0) {
                 log.info("[auto-done] {} 건 자동 완료(세션일 경과)", done);

@@ -91,14 +91,17 @@ public class AvailabilitySessionResponse {
     public static class HoldResponse {
         private Long id;
         private int count;
-        /** null 이면 ± 빠른조정, 값 있으면 외부예약. */
+        /** null 이면 ± 빠른조정/제안, 값 있으면 외부예약. */
         private String memo;
+        /** 점유 종류 — PROPOSAL(강사 일정변경 제안 보장)·EXTERNAL(외부예약)·QUICK(± 빠른조정). FE 가 "제안중" 등 라벨/색 구분. */
+        private String kind;
 
         static HoldResponse from(AvailabilityHold h) {
             return HoldResponse.builder()
                     .id(h.getId())
                     .count(h.getCount())
                     .memo(h.getMemo())
+                    .kind(h.isProposal() ? "PROPOSAL" : h.isExternal() ? "EXTERNAL" : "QUICK")
                     .build();
         }
     }

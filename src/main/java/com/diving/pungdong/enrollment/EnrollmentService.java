@@ -2,6 +2,8 @@ package com.diving.pungdong.enrollment;
 
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.availability.AvailabilityCoverageJpaRepo;
+import com.diving.pungdong.availability.AvailabilityHold;
+import com.diving.pungdong.availability.AvailabilityHoldJpaRepo;
 import com.diving.pungdong.availability.AvailabilitySession;
 import com.diving.pungdong.availability.AvailabilitySessionJpaRepo;
 import com.diving.pungdong.availability.CoverageMerger;
@@ -59,6 +61,7 @@ public class EnrollmentService {
     private final CourseJpaRepo courseRepo;
     private final AvailabilitySessionJpaRepo sessionRepo;
     private final AvailabilityCoverageJpaRepo coverageRepo;
+    private final AvailabilityHoldJpaRepo holdRepo;
     private final VenueRefResolver venueRefResolver;
     private final VenueEquipmentService equipmentService;
     private final BookableSlotDeriver slotDeriver;
@@ -117,12 +120,16 @@ public class EnrollmentService {
     /**
      * 강사 일정변경요청 중 학생이 슬롯 선택 — 위치 고정, 날짜/이용권/블록을 그 제안 슬롯으로 바꿔 재검증 후
      * reschedule. 강사가 이용권·블록까지 정해 제안 = 사전 수락이라 곧장 PAYMENT_PENDING(입장료는 그 daypart 로 재산정).
+     *
+     * <p><b>좌석 보장</b>: 좌석은 제안 시점에 그 일정에 hold 로 잡아뒀으므로 pick 은 만석으로 막히지 않는다(하드캡
+     * 우회가 아니라 — 미리 잡아둔 자리를 쓰는 것). 고른 슬롯의 hold 를 회수해 실점유로 전환하고, 안 고른 나머지
+     * 제안 hold + 옛 슬롯은 풀어 좌석을 반납한다(빈 일정은 정리). 만료(TTL)로 제안이 사라졌으면 위 게이트에서 400.
      */
     @Transactional
     public EnrollmentResponse pickSlot(Account student, Long roundId, PickSlotRequest req) {
         EnrollmentRound round = requireMyRound(student, roundId);
         if (!round.hasRescheduleOffer()) {
-            throw new BadRequestException(); // 강사 제안 받은 회차만
+            throw new BadRequestException(); // 강사 제안 받은 회차만(만료로 제안 사라지면 여기서 막힘)
         }
         LocalDate date = req.getDate();
         String ticketRef = req.getTicketRef();
@@ -142,7 +149,8 @@ public class EnrollmentService {
         AvailabilitySession oldSession = round.getAvailabilitySession();
         AvailabilitySession newSession = findOrCreateSession(instructor, date, start, end,
                 round.getVenueRefId(), ticketRef);
-        requireSeat(newSession); // 이 회차는 아직 새 세션에 없음 — 순수 잔여 확인
+        // 제안 보장 hold 회수(고른 슬롯 것 포함) — 고른 자리는 곧 실점유로 전환되니 hold 를 풀어 이중계산 방지.
+        List<AvailabilitySession> heldSessions = releaseProposalHolds(round);
 
         round.archiveCurrentSlot(LocalDateTime.now()); // 옛 슬롯 이력 (취소 아님)
         round.setAvailabilitySession(newSession);
@@ -154,10 +162,32 @@ public class EnrollmentService {
         round.getProposedSlots().clear();
         round.setStatus(EnrollmentStatus.PAYMENT_PENDING); // 강사 사전 수락 → 결제 대기
         round.setRespondedAt(LocalDateTime.now());
+        // 옛 슬롯 + 안 고른 제안 슬롯 일정 정리(점유 0이면 삭제). 고른 newSession 은 실점유라 보존.
         if (oldSession != null && !oldSession.getId().equals(newSession.getId())) {
             sessionCleaner.deleteIfEmpty(oldSession);
         }
+        for (AvailabilitySession s : heldSessions) {
+            if (!s.getId().equals(newSession.getId())) {
+                sessionCleaner.deleteIfEmpty(s);
+            }
+        }
         return EnrollmentResponse.of(round, venue.getName(), instructor.getNickName());
+    }
+
+    /** 이 회차의 강사 제안 보장 hold 를 모두 해제(orphanRemoval). 영향받은(distinct) 일정 목록 반환 — 호출자가 정리. */
+    private List<AvailabilitySession> releaseProposalHolds(EnrollmentRound round) {
+        List<AvailabilityHold> holds = holdRepo.findByProposalRoundId(round.getId());
+        List<AvailabilitySession> touched = new ArrayList<>();
+        for (AvailabilityHold h : holds) {
+            AvailabilitySession s = h.getSession();
+            if (s != null) {
+                s.getHolds().remove(h);
+                if (touched.stream().noneMatch(t -> t.getId().equals(s.getId()))) {
+                    touched.add(s);
+                }
+            }
+        }
+        return touched;
     }
 
     /**

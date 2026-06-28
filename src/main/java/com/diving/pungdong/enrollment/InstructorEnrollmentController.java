@@ -1,6 +1,7 @@
 package com.diving.pungdong.enrollment;
 
 import com.diving.pungdong.account.Account;
+import com.diving.pungdong.enrollment.dto.EnrollmentOptionsResponse;
 import com.diving.pungdong.enrollment.dto.InstructorEnrollmentResponse;
 import com.diving.pungdong.enrollment.dto.InstructorScheduleHubResponse;
 import com.diving.pungdong.enrollment.dto.ProposeSlotsRequest;
@@ -14,6 +15,7 @@ import org.springframework.hateoas.MediaTypes;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -27,6 +29,7 @@ import java.util.List;
 public class InstructorEnrollmentController {
 
     private final InstructorEnrollmentService instructorEnrollmentService;
+    private final EnrollmentOptionsService optionsService;
 
     /**
      * 강사 수강관리 hub — 거래 단위(수강생×강의) 카드 + 필터 카운트. 신청검토·일정변경검토·마무리를 한 곳에서.
@@ -61,6 +64,18 @@ public class InstructorEnrollmentController {
                                     @RequestBody(required = false) RejectRequest request) {
         String reason = request == null ? null : request.getReason();
         return ResponseEntity.ok().body(model(instructorEnrollmentService.reject(account, id, reason)));
+    }
+
+    /**
+     * 일정변경 제안 옵션 — 강사가 그 회차에 제안할 대안 슬롯 후보(교집합, {@code remaining/full} 포함). 학생
+     * round options 와 대칭이라 FE 가 같은 컴포넌트로 캘린더를 채우고 만석 슬롯을 비활성화한다. 위치는 회차 고정.
+     */
+    @GetMapping("/{id}/propose-options")
+    public ResponseEntity<?> proposeOptions(@CurrentUser Account account, @PathVariable Long id) {
+        EnrollmentOptionsResponse options = optionsService.getInstructorRoundOptions(account, id, LocalDate.now());
+        EntityModel<EnrollmentOptionsResponse> model = EntityModel.of(options);
+        model.add(Link.of("/docs/api.html#resource-instructor-enrollments").withRel("profile"));
+        return ResponseEntity.ok().body(model);
     }
 
     /** 일정변경요청 — 위치 고정, 완전한 대안 슬롯(날짜+이용권+블록) 제안. 학생이 고르면 사전 수락(곧장 결제 대기). */

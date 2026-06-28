@@ -1,5 +1,7 @@
 package com.diving.pungdong.enrollment;
 
+import com.diving.pungdong.availability.AvailabilityHold;
+import com.diving.pungdong.availability.AvailabilityHoldJpaRepo;
 import com.diving.pungdong.availability.AvailabilitySession;
 import com.diving.pungdong.availability.SessionCleaner;
 import com.diving.pungdong.global.sitesettings.SiteSettings;
@@ -13,6 +15,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * 좌석 lock 자동 만료 — 신청 시점 좌석 lock(선착순)의 짝꿍. 방치된 점유를 풀어 슬롯을 다른 학생에게 돌린다.
@@ -31,13 +34,16 @@ import java.util.List;
 public class EnrollmentExpiryService {
 
     private final EnrollmentRoundJpaRepo roundRepo;
+    private final AvailabilityHoldJpaRepo holdRepo;
     private final SessionCleaner sessionCleaner;
     private final SiteSettingsProvider siteSettings;
     private final TransactionTemplate tx;
 
-    public EnrollmentExpiryService(EnrollmentRoundJpaRepo roundRepo, SessionCleaner sessionCleaner,
-                                   SiteSettingsProvider siteSettings, PlatformTransactionManager txManager) {
+    public EnrollmentExpiryService(EnrollmentRoundJpaRepo roundRepo, AvailabilityHoldJpaRepo holdRepo,
+                                   SessionCleaner sessionCleaner, SiteSettingsProvider siteSettings,
+                                   PlatformTransactionManager txManager) {
         this.roundRepo = roundRepo;
+        this.holdRepo = holdRepo;
         this.sessionCleaner = sessionCleaner;
         this.siteSettings = siteSettings;
         this.tx = new TransactionTemplate(txManager);
@@ -70,6 +76,53 @@ public class EnrollmentExpiryService {
             }
         }
         return expired;
+    }
+
+    /**
+     * 강사 일정변경 제안 보장 hold 만료 — 학생이 {@code proposalTtlHours}(기본 6h) 내 안 고르면 그 회차의 제안
+     * hold 를 풀어(다른 학생을 막던 좌석 반납) 빈 일정 정리 + {@code proposedSlots} 비움. <b>회차는 PENDING 유지</b>
+     * (취소 아님 — 제안만 lapse, 강사 재제안 가능). 회차 자체의 PENDING TTL 은 별개(sweepExpired). 각 건 자기 트랜잭션.
+     */
+    public int sweepExpiredProposals(LocalDateTime now) {
+        List<Long> roundIds = tx.execute(st ->
+                holdRepo.findByProposalRoundIdIsNotNullAndExpiresAtBefore(now).stream()
+                        .map(AvailabilityHold::getProposalRoundId).distinct().collect(Collectors.toList()));
+        if (roundIds == null || roundIds.isEmpty()) {
+            return 0;
+        }
+        int lapsed = 0;
+        for (Long roundId : roundIds) {
+            try {
+                Boolean ok = tx.execute(st -> lapseProposal(roundId));
+                if (Boolean.TRUE.equals(ok)) {
+                    lapsed++;
+                }
+            } catch (RuntimeException e) {
+                log.warn("[proposal-expiry] 회차 {} 제안 만료 건너뜀 ({})", roundId, e.toString());
+            }
+        }
+        return lapsed;
+    }
+
+    /** 한 회차의 제안 hold 를 모두 풀고(빈 일정 정리) proposedSlots 비움. 멱등(이미 풀렸으면 false). */
+    private boolean lapseProposal(Long roundId) {
+        List<AvailabilityHold> holds = holdRepo.findByProposalRoundId(roundId);
+        if (holds.isEmpty()) {
+            return false; // 그새 학생이 pick 했거나 강사가 재제안 — 멱등
+        }
+        List<AvailabilitySession> touched = new ArrayList<>();
+        for (AvailabilityHold h : holds) {
+            AvailabilitySession s = h.getSession();
+            if (s != null) {
+                s.getHolds().remove(h);
+                if (touched.stream().noneMatch(t -> t.getId().equals(s.getId()))) {
+                    touched.add(s);
+                }
+            }
+        }
+        roundRepo.findById(roundId).ifPresent(r -> r.getProposedSlots().clear());
+        touched.forEach(sessionCleaner::deleteIfEmpty);
+        return true;
     }
 
     /**

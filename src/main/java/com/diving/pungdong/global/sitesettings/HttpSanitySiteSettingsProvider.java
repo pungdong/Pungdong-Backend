@@ -96,7 +96,8 @@ public class HttpSanitySiteSettingsProvider implements SiteSettingsProvider {
                     result.path("launched").asBoolean(false),
                     result.path("showSeededCourses").asBoolean(true),
                     result.path("pendingTtlHours").asInt(24),
-                    result.path("paymentTtlHours").asInt(12));
+                    result.path("paymentTtlHours").asInt(12),
+                    result.path("proposalTtlHours").asInt(6));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Sanity siteSettings query interrupted", e);
