@@ -38,6 +38,7 @@
 | **배포 전략 (인프라/프로세스)** | [deployment.md](deployment.md) | ✅ (도메인 아님 — 트렁크 브랜치·build-once/promote·env 격리·피처플래그·prod 수동게이트) |
 | **관측 스택 (인프라/프로세스)** | [observability.md](observability.md) | ✅ (도메인 아님 — CloudWatch+Sentry+Amplitude 결정·왜 ES 아닌가) |
 | **보안 원칙 (크로스커팅)** | [security.md](security.md) | ✅ (도메인 아님 — 신원=세션·객체단위 인가 anti-IDOR·비순차 식별자) |
+| **테스트 아키텍처 (크로스커팅)** | [testing.md](testing.md) | ✅ (도메인 아님 — hermetic 원칙·외부 경계 격리 A:stub핀/B:@MockBean·env 누출·새 외부서비스 체크리스트) |
 
 > 검색은 별도 도메인이 아니다 — Phase 3 에서 Elasticsearch 를 제거하고 lecture 도메인의 **MySQL `JpaSpecification`**(제목·강사명 LIKE) 으로 흡수했다. course 도메인도 Specification 기반. 결정 근거는 [observability.md](observability.md) "왜 Elasticsearch 가 아닌가".
 
