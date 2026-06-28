@@ -63,6 +63,9 @@ dependencies {
     implementation 'org.locationtech.proj4j:proj4j:1.3.0'
     // 외부 식별자 난독화 — 순차 auto-increment id 를 비순차 가역 코드로(주문번호 등). 누적 수 유추 방지.
     implementation 'org.hashids:hashids:1.0.3'
+    // DB 스키마 마이그레이션 — 버전 SQL(V1,V2…)로 모든 환경 동일 스키마. hbm2ddl=update 졸업(#111). 버전은 Boot BOM.
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-mysql'
 }
 
 test {
