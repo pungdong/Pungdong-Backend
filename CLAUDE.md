@@ -53,7 +53,16 @@ Note: `bootJar` depends on `asciidoctor` which depends on `test`, so `./gradlew 
 
 Secrets (`spring.jwt.secret`, `AdminMail.id`, `AdminMail.password`) are externalized to env vars — see `.env.example` and `.env.local` (loaded by direnv). Fail-fast on missing vars at boot.
 
-The local Docker stack (`docker compose up -d`) provides MySQL 8 (port 3306, db `pungdong`, user `pungdong/pungdongpw`) and Redis 7 (port 6379). Spring connects via the values in the example yml files. Hibernate `hbm2ddl.auto: update` (in `application.yml`) auto-creates tables on first connect.
+The local Docker stack (`docker compose up -d`) provides MySQL 8 (port 3306, db `pungdong`, user `pungdong/pungdongpw`) and Redis 7 (port 6379). Spring connects via the values in the example yml files.
+
+### Schema = Flyway migrations (not hbm2ddl)
+
+**`hbm2ddl.auto: validate`** — Hibernate **validates** the schema against entities at boot and **never mutates** it. The schema is owned by **Flyway** migrations in `src/main/resources/db/migration/V<N>__<name>.sql`, run in order once each (tracked in `flyway_schema_history`). Adopted 2026-06-28 (#111) after `hbm2ddl=update` left drift (it only adds, never drops/alters — a removed entity field's column lingered as `NOT NULL` and broke inserts).
+
+- **Every schema change ships its own `V<N>__...sql` migration in the same PR.** Changing an entity's columns/tables without a matching migration → boot fails at `validate` (that's the point — drift surfaces immediately, not as a runtime 500).
+- `V1__baseline.sql` = the schema as of adoption (full `CREATE TABLE`s, dumped). Existing DBs (local/staging/prod) are **baselined** at V1 (`baseline-on-migrate`, marked applied without running); fresh DBs run V1 to create everything. `V2__...` = drop of the legacy `enrollment` leftover columns (conditional via `information_schema` — no-op where already clean, converges drifted envs).
+- **Tests stay on H2 `create-drop` + Flyway off** (`application-test.yml`) — H2 can't run MySQL migration SQL, so tests build the schema straight from entities. (So a forgotten migration won't fail tests — it fails at a real-DB `validate` boot. Manually boot `./scripts/dev.sh` after entity changes.)
+- New migration: next version number, plain MySQL SQL. For `DROP COLUMN IF EXISTS`-style idempotency (MySQL lacks it), use the `information_schema` + stored-procedure pattern in `V2`.
 
 ## Test setup
 
