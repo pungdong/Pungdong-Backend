@@ -181,6 +181,27 @@ export interface AccountBasicInfo extends HalLinks {
   roles: Role[];
 }
 
+// ── 회원탈퇴 / 복구 (account) — docs/features/account-deletion.md ──
+// DELETE /account (인증) — soft delete: isDeleted=true + 현재 access token 즉시 블랙리스트.
+//   유예기간(기본 30일) 동안은 PII 보유·복구 가능, 경과 후 서버가 PII 익명화(복구 불가).
+//   ★ 비밀번호는 PII 아님이지만 본인확인용으로 본문에 담아 검증한다(POST 가 아니라 DELETE + body).
+//   성공 = 204 No Content. 탈퇴 후 클라이언트는 토큰 폐기 + 로그인 화면으로.
+//   웹 삭제 경로(Google Play 요건): 로그인 → 설정 → 회원탈퇴 가 이 엔드포인트를 호출.
+
+/** DELETE /account 요청 본문 — 본인확인용 현재 비밀번호. */
+export interface DeleteAccountRequest {
+  password: string;
+}
+
+// PATCH /account/deleted-state (public) — 유예기간 내 탈퇴 계정 복구. 이메일 인증코드로 본인확인.
+//   익명화가 끝났거나 유예가 지난 계정은 복구 불가(4xx). 성공 = 204 No Content.
+
+/** PATCH /account/deleted-state 요청 본문. */
+export interface RestoreAccountRequest {
+  email: string;
+  emailAuthCode: string;
+}
+
 // ============================================================
 // 알림 / 디바이스 토큰 (notification 도메인)
 // docs/architecture/notification.md 참고

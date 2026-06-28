@@ -19,9 +19,12 @@ import com.diving.pungdong.account.AccountService;
 import com.diving.pungdong.account.dto.read.AccountBasicInfo;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.connection.RedisConnection;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.boot.test.autoconfigure.restdocs.AutoConfigureRestDocs;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -62,6 +65,21 @@ class AccountControllerTest {
 
     @Autowired
     private JwtTokenProvider jwtTokenProvider;
+
+    @Autowired
+    private RedisTemplate<String, String> redisTemplate;
+
+    /**
+     * 계정 삭제 테스트가 현재 access token 을 Redis 블랙리스트에 남긴다. 같은 초에 발급된 동일 계정(id=1)
+     * JWT 는 문자열이 같아, flush 안 하면 다음 테스트의 토큰이 블랙리스트에 걸려 401 이 된다. 매 테스트 후 비운다.
+     */
+    @AfterEach
+    void flushRedisBlacklist() {
+        redisTemplate.execute((RedisConnection conn) -> {
+            conn.flushDb();
+            return null;
+        });
+    }
 
     @MockBean
     private AccountService accountService;

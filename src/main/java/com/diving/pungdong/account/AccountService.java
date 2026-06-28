@@ -33,6 +33,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -166,6 +167,7 @@ public class AccountService implements UserDetailsService {
         checkCorrectPassword(password, account);
 
         account.setIsDeleted(true);
+        account.setDeletedAt(LocalDateTime.now());
         Account updatedAccount = accountJpaRepo.save(account);
 
         lectureService.closeAllLecture(updatedAccount);
@@ -175,7 +177,13 @@ public class AccountService implements UserDetailsService {
         emailService.verifyAuthCode(accountRestoreInfo.getEmail(), accountRestoreInfo.getEmailAuthCode());
 
         Account account = accountJpaRepo.findByEmail(accountRestoreInfo.getEmail()).orElseThrow(ResourceNotFoundException::new);
+        // 익명화가 끝난 계정은 복구 불가 — PII 가 이미 파기됐다(유예기간 경과). (findByEmail 도 익명화 후엔
+        // 이메일이 deleted_*로 바뀌어 사실상 못 찾지만, 명시 가드로 의도를 분명히 한다.)
+        if (account.getAnonymizedAt() != null) {
+            throw new BadRequestException();
+        }
         account.setIsDeleted(false);
+        account.setDeletedAt(null);
 
         return account;
     }

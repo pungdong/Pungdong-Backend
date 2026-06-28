@@ -7,6 +7,7 @@ import lombok.*;
 
 import javax.persistence.*;
 import javax.validation.constraints.Email;
+import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -68,6 +69,19 @@ public class Account {
     private Boolean isCertified;
 
     private Boolean isDeleted;
+
+    /**
+     * 회원탈퇴(soft delete) 시각. {@link #isDeleted}=true 가 된 순간 기록.
+     * 익명화 유예기간(grace)의 기준점 — 이 시각 + grace 가 지나면 PII 가 익명화된다.
+     */
+    private LocalDateTime deletedAt;
+
+    /**
+     * PII 익명화 완료 시각. null = 아직 식별정보 보유(유예기간 내 — 복구 가능).
+     * non-null = 익명화 완료(복구 불가). 익명화 잡의 멱등 가드로도 쓰인다.
+     * 자세한 정책·보존 항목은 docs/features/account-deletion.md.
+     */
+    private LocalDateTime anonymizedAt;
 
     /**
      * 강사가 한 일정에서 동시에 수용 가능한 기본 인원 — "내가 커버 가능한 인원"의 단일 출처(account 종속).

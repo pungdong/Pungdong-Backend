@@ -16,4 +16,7 @@ public interface FirebaseTokenJpaRepo extends JpaRepository<FirebaseToken, Long>
     void deleteByToken(String token);
 
     void deleteByAccountAndToken(Account account, String token);
+
+    /** 탈퇴 익명화 시 해당 계정의 모든 푸시 토큰(기기 식별자) 제거. */
+    void deleteByAccount_Id(Long accountId);
 }
