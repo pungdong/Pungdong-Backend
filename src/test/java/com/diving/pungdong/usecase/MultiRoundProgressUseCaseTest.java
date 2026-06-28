@@ -323,4 +323,44 @@ class MultiRoundProgressUseCaseTest {
                 .andExpect(jsonPath("$.courses[0].status").value("PROGRESS"))
                 .andExpect(jsonPath("$.courses[0].nextRoundIndex").value(2));
     }
+
+    @Test
+    @DisplayName("M6 학생 직접 일정수정(reschedule) — 회차 유지·옛 슬롯 이력 남고, 제안 외 슬롯이라 PENDING(강사 재수락)")
+    void studentReschedulesOwnSlot() throws Exception {
+        Account ins = instructor("ins-m6@pd.com", "강사M6", 4);
+        Venue v = venue(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String ticket = v.getTickets().get(0).getRef();
+        Course course = twoRoundCourse(ins, ref, ticket);
+        openCoverage(ins, D1); openCoverage(ins, D2);
+        LocalDate d3 = LocalDate.now().plusWeeks(3);
+        openCoverage(ins, d3);
+        Account stu = account("stu-m6@pd.com", "학생M6", Role.STUDENT);
+        Long enrollmentId = enrollWithDoneRound1(stu, course, ref, ticket);
+
+        // 2회차 신청(D2) → PENDING
+        mockMvc.perform(post("/enrollments/{id}/rounds", enrollmentId).header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON).content(roundBody(ref, ticket, D2)))
+                .andExpect(status().isCreated());
+        EnrollmentRound r2 = roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).get(0);
+
+        // 직접 일정수정용 옵션 — 그 회차 슬롯 제공(1회차 옵션 shape)
+        mockMvc.perform(get("/enrollments/rounds/{id}/options", r2.getId()).header(HttpHeaders.AUTHORIZATION, token(stu)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.slots").isArray());
+
+        // 직접 d3 로 수정(강사 제안 외) → PENDING(재수락) + 옛 슬롯(D2) 이력
+        mockMvc.perform(post("/enrollments/rounds/{id}/reschedule", r2.getId())
+                        .header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON).content(roundBody(ref, ticket, d3)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.date").value(d3.toString()))
+                .andExpect(jsonPath("$.slotHistory[0].date").value(D2.toString()));
+
+        // slotHistory(LAZY)·HTTP 응답에서 D2 이력 확인 완료. 비-LAZY 컬럼만 DB 재확인.
+        EnrollmentRound after = roundRepo.findById(r2.getId()).orElseThrow();
+        assertThat(after.getStatus()).isEqualTo(EnrollmentStatus.PENDING);
+        assertThat(after.getDate()).isEqualTo(d3);
+    }
 }

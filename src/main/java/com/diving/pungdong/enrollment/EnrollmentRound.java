@@ -89,6 +89,16 @@ public class EnrollmentRound {
     @Builder.Default
     private List<ProposedSlot> proposedSlots = new ArrayList<>();
 
+    /**
+     * 슬롯 변경 이력 — 일정 수정/제안 선택으로 슬롯이 바뀔 때 <b>변경 전</b> 슬롯을 쌓는다(취소 아님, 회차는 유지).
+     * CS 추적용("원래 X였다가 Y로").
+     */
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "enrollment_round_slot_history", joinColumns = @JoinColumn(name = "round_id"))
+    @OrderColumn(name = "history_order")
+    @Builder.Default
+    private List<PastSlot> slotHistory = new ArrayList<>();
+
     @OneToMany(mappedBy = "enrollmentRound", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @OrderBy("id asc")
     @Builder.Default
@@ -97,6 +107,13 @@ public class EnrollmentRound {
     public void addEquipment(EnrollmentRoundEquipment e) {
         e.setEnrollmentRound(this);
         this.equipment.add(e);
+    }
+
+    /** 슬롯 바꾸기 전, 현재 슬롯을 이력에 박제(취소 아님 — 일정 수정 추적). */
+    public void archiveCurrentSlot(java.time.LocalDateTime changedAt) {
+        slotHistory.add(PastSlot.builder()
+                .date(date).venueRefId(venueRefId).ticketRef(ticketRef)
+                .blockStart(blockStart).blockEnd(blockEnd).changedAt(changedAt).build());
     }
 
     /** 회차 부대비용 합 = 입장료 + 장비 + 추가세션비. (수강료는 부모 Enrollment.) */

@@ -1157,11 +1157,29 @@ export interface ProposeSlotsRequest {
 /** 제안 슬롯 선택 — POST /enrollments/rounds/{roundId}/pick-slot → 200. 사전 수락이라 곧장 PAYMENT_PENDING. */
 export type PickSlotRequest = SlotProposal; // proposedSlots 중 하나
 
+/**
+ * 직접 일정 수정 (제안 외 원하는 슬롯) — POST /enrollments/rounds/{roundId}/reschedule (body = RoundScheduleRequest) → 200.
+ * 회차를 **제자리 변경**(취소 아님 — 회차 id 유지, 옛 슬롯은 slotHistory 적재). 날짜에 따라 위치가 다를 수 있어 위치/장비
+ * 재선택 가능. 강사가 제안 안 한 슬롯이라 → status **PENDING**(강사 재수락). 결제 전(PENDING) 회차만.
+ * 슬롯 후보는 GET /enrollments/rounds/{roundId}/options (1회차 옵션과 동일 EnrollmentOptionsResponse — 슬롯 UI 재사용).
+ * (제안 슬롯을 그대로 고르는 빠른 길은 pick-slot → 즉시 PAYMENT_PENDING.)
+ */
+
 export interface EnrollmentEquipmentLine {
   itemRef: string;
   name: string;
   price: number;
   size: string | null; // 선택 사이즈(SHOE_MM/APPAREL_SXL), NONE 형식이면 null
+}
+
+/** 슬롯 변경 이력 1줄 — 일정 수정/제안 선택으로 슬롯이 바뀐 기록(CS 추적). 변경 없으면 빈 배열. */
+export interface SlotHistoryLine {
+  date: string | null;
+  venueRefId: string | null;
+  ticketRef: string | null;
+  blockStart: string | null;
+  blockEnd: string | null;
+  changedAt: string | null; // ISO date-time
 }
 
 /**
@@ -1189,6 +1207,7 @@ export interface EnrollmentResponse extends HalLinks {
   equipment: EnrollmentEquipmentLine[];
   createdAt: string | null;
   respondedAt: string | null;
+  slotHistory: SlotHistoryLine[]; // 슬롯 변경 이력(reschedule/pick-slot 시 적재) — CS 추적
 }
 
 // ── 수강생 강의일정 hub — GET /enrollments/mine/schedule (authenticated) ──
@@ -1285,6 +1304,67 @@ export interface InstructorEnrollmentResponse extends HalLinks {
   total: number;
   equipment: EnrollmentEquipmentLine[];
   createdAt: string | null;
+}
+
+// ── 강사 수강관리 hub — GET /instructor/enrollments/hub?filter= (authenticated, 강사) ──
+// 거래 단위 = 수강(수강생×강의). 학생 hub(/enrollments/mine/schedule)의 강사 거울. 신청검토·일정변경검토·마무리를
+// 한 곳에서. 액션은 기존 엔드포인트 재사용(accept/reject/propose-slots/complete). 응답은 EntityModel(HAL).
+// 정렬: ACTION_NEEDED → PROGRESS → COMPLETED → CANCELLED. filter = all(기본)|action|progress|completed.
+// 회차 채팅·다이브로그는 미구현(별도 피처)이라 없음.
+
+/** 거래 카드 상태(강사 시점, 회차들에서 파생). */
+export type InstructorEnrollmentStatus = 'ACTION_NEEDED' | 'PROGRESS' | 'COMPLETED' | 'CANCELLED';
+/** 카드 1차 액션 플래그. 없으면 null. */
+export type InstructorActionFlag = 'NEW_REQUEST' | 'CHANGE_REQUEST' | 'CLOSING';
+/** 회차 상태(강사 시점). */
+export type InstructorRoundStatus =
+  | 'WAITING'      // 신규 신청 — 수락/거절/일정변경요청
+  | 'CHANGING'     // 학생이 직접 일정수정 — 검토(previousSlot 노출)
+  | 'PROPOSED'     // 강사가 일정변경요청함 — 학생 선택 대기(강사 액션 아님)
+  | 'PAYMENT_DUE'  // 수락됨, 학생 결제 대기
+  | 'CONFIRMED'    // 확정·진행 예정
+  | 'CLOSING'      // 세션 종료 — 마무리(done) 필요
+  | 'DONE' | 'REJECTED' | 'CANCELLED';
+
+export interface InstructorScheduleHubResponse extends HalLinks {
+  filters: { id: string; label: string; count: number }[]; // all/action/progress/completed
+  enrollments: InstructorEnrollmentCard[];
+}
+export interface InstructorEnrollmentCard {
+  enrollmentId: number;
+  student: {
+    accountId: number;
+    name: string;        // nickName(실명 미수집)
+    initials: string;
+    isNew: boolean;      // 이 강사와 과거 수강 0
+    historyCount: number;
+  } | null;
+  courseId: number | null;
+  courseTitle: string | null;
+  organizationCode: string | null;
+  disciplineCode: string | null;
+  levels: CertLevel[];
+  status: InstructorEnrollmentStatus;
+  flag: InstructorActionFlag | null;
+  actionLine: string | null;     // 액션 안내 한 줄
+  totalRounds: number;
+  rounds: InstructorRoundCard[];  // 취소 회차 제외
+}
+export interface InstructorRoundCard {
+  roundId: number;
+  roundIndex: number | null;
+  roundKind: string;             // REGULAR | EXTRA
+  status: InstructorRoundStatus;
+  date: string | null;
+  blockStart: string | null;
+  blockEnd: string | null;
+  venueRefId: string | null;
+  venueName: string | null;
+  amount: number;
+  gearCount: number;
+  /** CHANGING 일 때 학생이 바꾸기 전 슬롯(변경 검토 diff). 없으면 null. */
+  previousSlot: { date: string | null; venueRefId: string | null; ticketRef: string | null;
+                  blockStart: string | null; blockEnd: string | null } | null;
 }
 
 // ============================================================

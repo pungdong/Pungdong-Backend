@@ -47,6 +47,9 @@ public class EnrollmentResponse {
     private LocalDateTime createdAt;
     private LocalDateTime respondedAt;
 
+    /** 슬롯 변경 이력(일정 수정/제안 선택으로 슬롯이 바뀐 기록 — CS 추적). 변경 없으면 빈 배열. */
+    private List<SlotHistoryLine> slotHistory;
+
     public static EnrollmentResponse of(EnrollmentRound r, String venueName, String instructorName) {
         var course = r.getEnrollment() == null ? null : r.getEnrollment().getCourse();
         return EnrollmentResponse.builder()
@@ -69,7 +72,24 @@ public class EnrollmentResponse {
                 .equipment(r.getEquipment().stream().map(EquipmentLine::from).collect(Collectors.toList()))
                 .createdAt(r.getCreatedAt())
                 .respondedAt(r.getRespondedAt())
+                .slotHistory(r.getSlotHistory().stream().map(SlotHistoryLine::from).collect(Collectors.toList()))
                 .build();
+    }
+
+    @Getter @Setter @Builder @NoArgsConstructor @AllArgsConstructor
+    public static class SlotHistoryLine {
+        private LocalDate date;
+        private String venueRefId;
+        private String ticketRef;
+        private LocalTime blockStart;
+        private LocalTime blockEnd;
+        private LocalDateTime changedAt;
+
+        static SlotHistoryLine from(com.diving.pungdong.enrollment.PastSlot p) {
+            return SlotHistoryLine.builder()
+                    .date(p.getDate()).venueRefId(p.getVenueRefId()).ticketRef(p.getTicketRef())
+                    .blockStart(p.getBlockStart()).blockEnd(p.getBlockEnd()).changedAt(p.getChangedAt()).build();
+        }
     }
 
     @Getter @Setter @Builder @NoArgsConstructor @AllArgsConstructor

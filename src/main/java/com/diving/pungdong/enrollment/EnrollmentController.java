@@ -84,6 +84,28 @@ public class EnrollmentController {
         return ResponseEntity.ok().body(model(enrollmentService.pickSlot(account, roundId, request)));
     }
 
+    /** 회차 직접 일정수정용 옵션 — 그 회차의 교집합 슬롯+장비(1회차 옵션과 동일 shape, 슬롯 UI 재사용). */
+    @GetMapping("/rounds/{roundId}/options")
+    public ResponseEntity<?> roundOptions(@CurrentUser Account account, @PathVariable Long roundId) {
+        EnrollmentOptionsResponse options = optionsService.getRoundOptions(account, roundId, LocalDate.now());
+        EntityModel<EnrollmentOptionsResponse> model = EntityModel.of(options);
+        model.add(Link.of("/docs/api.html#resource-enrollments").withRel("profile"));
+        return ResponseEntity.ok().body(model);
+    }
+
+    /**
+     * 직접 일정 수정 — (강사 제안 외) 원하는 슬롯으로 회차 변경. 날짜 따라 위치가 다를 수 있어 위치/장비 재선택.
+     * <b>취소 아님</b>(회차 유지·옛 슬롯 이력) → PENDING(강사 재수락). 결제 전(PENDING) 회차만.
+     */
+    @PostMapping("/rounds/{roundId}/reschedule")
+    public ResponseEntity<?> reschedule(@CurrentUser Account account, @PathVariable Long roundId,
+                                        @Valid @RequestBody RoundScheduleRequest request, BindingResult result) {
+        if (result.hasErrors()) {
+            throw new BadRequestException();
+        }
+        return ResponseEntity.ok().body(model(enrollmentService.reschedule(account, roundId, request)));
+    }
+
     @GetMapping("/mine")
     public ResponseEntity<?> mine(@CurrentUser Account account) {
         List<EnrollmentResponse> list = enrollmentService.listMine(account);
