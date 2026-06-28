@@ -7,7 +7,6 @@ import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.Gender;
 import com.diving.pungdong.account.Role;
 import com.diving.pungdong.domain.lecture.Organization;
-import com.diving.pungdong.account.dto.delete.PasswordInfo;
 import com.diving.pungdong.account.dto.instructor.certificate.InstructorCertificateInfo;
 import com.diving.pungdong.account.dto.restore.AccountRestoreInfo;
 import com.diving.pungdong.account.dto.update.AccountUpdateInfo;
@@ -302,25 +301,16 @@ class AccountControllerTest {
         Account account = createAccount(Role.STUDENT);
         String accessToken = jwtTokenProvider.createAccessToken(String.valueOf(account.getId()), account.getRoles());
 
-        PasswordInfo passwordInfo = PasswordInfo.builder()
-                .password("1234")
-                .build();
-
+        // 세션(access token)만으로 본인 증명 — 요청 본문(비밀번호) 없이 탈퇴.
         mockMvc.perform(delete("/account")
-                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                .header(HttpHeaders.AUTHORIZATION, accessToken)
-                .content(objectMapper.writeValueAsString(passwordInfo)))
+                .header(HttpHeaders.AUTHORIZATION, accessToken))
                 .andDo(print())
                 .andExpect(status().isNoContent())
                 .andDo(
                         document(
                                 "account-delete",
                                 requestHeaders(
-                                        headerWithName(HttpHeaders.CONTENT_TYPE).description("application json 타입"),
                                         headerWithName(HttpHeaders.AUTHORIZATION).description("access token 값")
-                                ),
-                                requestFields(
-                                        fieldWithPath("password").description("현재 패스워드")
                                 )
                         )
                 );

@@ -97,20 +97,20 @@ class AccountDeletionUseCaseTest {
         return jwtTokenProvider.createAccessToken(String.valueOf(a.getId()), a.getRoles());
     }
 
+    // 복구/익명화(R*·A*) 시나리오에서 탈퇴는 setup 일 뿐 — 구버전 본문을 그대로 흘려보낸다(무시됨).
     private String deleteBody() throws Exception {
         return objectMapper.writeValueAsString(java.util.Map.of("password", "1234"));
     }
 
     @Test
-    @DisplayName("W1: 탈퇴 요청 → isDeleted=true·deletedAt 기록, 이후 이메일/비번 로그인 차단")
+    @DisplayName("W1: 탈퇴 요청(본문 없음) → isDeleted=true·deletedAt 기록, 이후 이메일/비번 로그인 차단")
     void withdraw_marksDeleted_andBlocksLogin() throws Exception {
         Account student = createStudent("w1@test.com", "w1user");
         String token = tokenFor(student);
 
+        // 세션(JWT)만으로 본인 증명 — 비밀번호 재확인 없이 탈퇴
         mockMvc.perform(delete("/account")
-                .header(HttpHeaders.AUTHORIZATION, token)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(deleteBody()))
+                .header(HttpHeaders.AUTHORIZATION, token))
                 .andExpect(status().isNoContent());
 
         Account reloaded = accountJpaRepo.findById(student.getId()).orElseThrow();
@@ -133,9 +133,7 @@ class AccountDeletionUseCaseTest {
         String token = tokenFor(student);
 
         mockMvc.perform(delete("/account")
-                .header(HttpHeaders.AUTHORIZATION, token)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(deleteBody()))
+                .header(HttpHeaders.AUTHORIZATION, token))
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(post("/sign/firebase-token")
@@ -146,6 +144,23 @@ class AccountDeletionUseCaseTest {
     }
 
     @Test
+    @DisplayName("W3: 구버전 앱이 본문에 {password} 를 동봉해도 무시하고 그대로 204 (하위호환)")
+    void withdraw_ignoresLegacyPasswordBody() throws Exception {
+        Account student = createStudent("w3@test.com", "w3user");
+        String token = tokenFor(student);
+
+        // 기존 앱 빌드는 비밀번호를 동봉한다 — 더 이상 읽지 않으므로 틀린 비번이어도 통과
+        mockMvc.perform(delete("/account")
+                .header(HttpHeaders.AUTHORIZATION, token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(java.util.Map.of("password", "wrong-pass"))))
+                .andExpect(status().isNoContent());
+
+        Account reloaded = accountJpaRepo.findById(student.getId()).orElseThrow();
+        assertThat(reloaded.getIsDeleted()).isTrue();
+    }
+
+    @Test
     @DisplayName("T1: 탈퇴 계정의 refresh token 으로 /sign/refresh → 거부 (재발급 우회 차단)")
     void withdraw_blocksRefresh() throws Exception {
         Account student = createStudent("t1@test.com", "t1user");
@@ -153,9 +168,7 @@ class AccountDeletionUseCaseTest {
         String refreshToken = jwtTokenProvider.createRefreshToken(String.valueOf(student.getId()));
 
         mockMvc.perform(delete("/account")
-                .header(HttpHeaders.AUTHORIZATION, accessToken)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(deleteBody()))
+                .header(HttpHeaders.AUTHORIZATION, accessToken))
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(post("/sign/refresh")
