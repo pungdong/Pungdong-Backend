@@ -4,7 +4,7 @@
 
 SET FOREIGN_KEY_CHECKS = 0;
 
-CREATE TABLE `account` (
+CREATE TABLE IF NOT EXISTS `account` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `birth` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `email` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -26,13 +26,13 @@ CREATE TABLE `account` (
   KEY `FKcyib4xu8sysggfhcocij8irfd` (`profile_photo_id`),
   CONSTRAINT `FKcyib4xu8sysggfhcocij8irfd` FOREIGN KEY (`profile_photo_id`) REFERENCES `profile_photo` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `account_roles` (
+CREATE TABLE IF NOT EXISTS `account_roles` (
   `account_id` bigint NOT NULL,
   `roles` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   KEY `FKtp61eta5i06bug3w1qr6286uf` (`account_id`),
   CONSTRAINT `FKtp61eta5i06bug3w1qr6286uf` FOREIGN KEY (`account_id`) REFERENCES `account` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `agreement_term_archive` (
+CREATE TABLE IF NOT EXISTS `agreement_term_archive` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `archived_at` datetime DEFAULT NULL,
   `body` longtext COLLATE utf8mb4_unicode_ci,
@@ -43,7 +43,7 @@ CREATE TABLE `agreement_term_archive` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_agreement_term_key_version` (`term_key`,`version`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `application_certificate` (
+CREATE TABLE IF NOT EXISTS `application_certificate` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `fileurl` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `sort_order` int NOT NULL,
@@ -54,7 +54,7 @@ CREATE TABLE `application_certificate` (
   KEY `FKfwtep9lcqie15oeubqnyljog0` (`application_id`),
   CONSTRAINT `FKfwtep9lcqie15oeubqnyljog0` FOREIGN KEY (`application_id`) REFERENCES `instructor_application` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `availability_coverage` (
+CREATE TABLE IF NOT EXISTS `availability_coverage` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `date` date DEFAULT NULL,
   `end_time` time DEFAULT NULL,
@@ -64,7 +64,7 @@ CREATE TABLE `availability_coverage` (
   KEY `FKelf7tpjtq9xmu0jtga6jqb4dg` (`instructor_id`),
   CONSTRAINT `FKelf7tpjtq9xmu0jtga6jqb4dg` FOREIGN KEY (`instructor_id`) REFERENCES `account` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `availability_hold` (
+CREATE TABLE IF NOT EXISTS `availability_hold` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `count` int NOT NULL,
   `created_at` datetime DEFAULT NULL,
@@ -74,7 +74,7 @@ CREATE TABLE `availability_hold` (
   KEY `FKj6hp598edi6k90gjnn7p2q6pt` (`session_id`),
   CONSTRAINT `FKj6hp598edi6k90gjnn7p2q6pt` FOREIGN KEY (`session_id`) REFERENCES `availability_session` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `availability_session` (
+CREATE TABLE IF NOT EXISTS `availability_session` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `capacity_override` int DEFAULT NULL,
   `created_at` datetime DEFAULT NULL,
@@ -89,7 +89,7 @@ CREATE TABLE `availability_session` (
   KEY `FK3lf0i8p9mlxuomtmd9mx6u3aw` (`instructor_id`),
   CONSTRAINT `FK3lf0i8p9mlxuomtmd9mx6u3aw` FOREIGN KEY (`instructor_id`) REFERENCES `account` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `consent` (
+CREATE TABLE IF NOT EXISTS `consent` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `agreed_at` datetime DEFAULT NULL,
   `context` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -101,7 +101,7 @@ CREATE TABLE `consent` (
   CONSTRAINT `FK7k3xyxolhexshbqjktwmpgoow` FOREIGN KEY (`agreement_term_id`) REFERENCES `agreement_term_archive` (`id`),
   CONSTRAINT `FK8oq7fur57qtjf5jlbeignpw90` FOREIGN KEY (`account_id`) REFERENCES `account` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `course` (
+CREATE TABLE IF NOT EXISTS `course` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `created_at` datetime DEFAULT NULL,
   `description` longtext COLLATE utf8mb4_unicode_ci,
@@ -120,13 +120,13 @@ CREATE TABLE `course` (
   KEY `FK3ns8ghd3m06t8uxhbho1gqqe9` (`instructor_id`),
   CONSTRAINT `FK3ns8ghd3m06t8uxhbho1gqqe9` FOREIGN KEY (`instructor_id`) REFERENCES `account` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `course_level` (
+CREATE TABLE IF NOT EXISTS `course_level` (
   `course_id` bigint NOT NULL,
   `cert_level` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   KEY `FK1sc11vscwxtx5t8stgelfi310` (`course_id`),
   CONSTRAINT `FK1sc11vscwxtx5t8stgelfi310` FOREIGN KEY (`course_id`) REFERENCES `course` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `course_media` (
+CREATE TABLE IF NOT EXISTS `course_media` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `kind` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `sort_order` int NOT NULL,
@@ -136,13 +136,13 @@ CREATE TABLE `course_media` (
   KEY `FKmno33h94ad9eik7nf5lqp4b0y` (`course_id`),
   CONSTRAINT `FKmno33h94ad9eik7nf5lqp4b0y` FOREIGN KEY (`course_id`) REFERENCES `course` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `course_region` (
+CREATE TABLE IF NOT EXISTS `course_region` (
   `course_id` bigint NOT NULL,
   `region` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   KEY `FKuveekl8utyur0yr06i1uv7wk` (`course_id`),
   CONSTRAINT `FKuveekl8utyur0yr06i1uv7wk` FOREIGN KEY (`course_id`) REFERENCES `course` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `course_round` (
+CREATE TABLE IF NOT EXISTS `course_round` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `description` longtext COLLATE utf8mb4_unicode_ci,
   `free_count` int DEFAULT NULL,
@@ -155,7 +155,7 @@ CREATE TABLE `course_round` (
   KEY `FKkyby36kl8unynuu8it3hde6mb` (`course_id`),
   CONSTRAINT `FKkyby36kl8unynuu8it3hde6mb` FOREIGN KEY (`course_id`) REFERENCES `course` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `discipline` (
+CREATE TABLE IF NOT EXISTS `discipline` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `active` bit(1) NOT NULL,
   `code` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -165,7 +165,7 @@ CREATE TABLE `discipline` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `UK_6o0nxtpchgrps1q1ogccw5vhw` (`code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `enrollment` (
+CREATE TABLE IF NOT EXISTS `enrollment` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `created_at` datetime DEFAULT NULL,
   `tuition_snapshot` int NOT NULL,
@@ -177,7 +177,7 @@ CREATE TABLE `enrollment` (
   CONSTRAINT `FKbhhcqkw1px6yljqg92m0sh2gt` FOREIGN KEY (`course_id`) REFERENCES `course` (`id`),
   CONSTRAINT `FKtbon18lxsy5o7qerc4wxb8l1o` FOREIGN KEY (`student_id`) REFERENCES `account` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `enrollment_equipment` (
+CREATE TABLE IF NOT EXISTS `enrollment_equipment` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `item_ref` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -187,7 +187,7 @@ CREATE TABLE `enrollment_equipment` (
   KEY `FK4enwq5x5oi1x2fxvkvmnvi19u` (`enrollment_id`),
   CONSTRAINT `FK4enwq5x5oi1x2fxvkvmnvi19u` FOREIGN KEY (`enrollment_id`) REFERENCES `enrollment` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `enrollment_round` (
+CREATE TABLE IF NOT EXISTS `enrollment_round` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `block_end` time DEFAULT NULL,
   `block_start` time DEFAULT NULL,
@@ -215,7 +215,7 @@ CREATE TABLE `enrollment_round` (
   CONSTRAINT `FKg9fqo4dokmc704fsp1ng5wdbj` FOREIGN KEY (`course_round_id`) REFERENCES `course_round` (`id`),
   CONSTRAINT `FKq7jxvcpm6if51lli031cd53gr` FOREIGN KEY (`enrollment_id`) REFERENCES `enrollment` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `enrollment_round_equipment` (
+CREATE TABLE IF NOT EXISTS `enrollment_round_equipment` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `item_ref` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -226,14 +226,14 @@ CREATE TABLE `enrollment_round_equipment` (
   KEY `FKhlc4ranh2q4g6c1hc3ia757hu` (`enrollment_round_id`),
   CONSTRAINT `FKhlc4ranh2q4g6c1hc3ia757hu` FOREIGN KEY (`enrollment_round_id`) REFERENCES `enrollment_round` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `enrollment_round_proposed_date` (
+CREATE TABLE IF NOT EXISTS `enrollment_round_proposed_date` (
   `round_id` bigint NOT NULL,
   `proposed_date` date DEFAULT NULL,
   `date_order` int NOT NULL,
   PRIMARY KEY (`round_id`,`date_order`),
   CONSTRAINT `FKbibxm7r2m6vgbslkv0ylt2ge6` FOREIGN KEY (`round_id`) REFERENCES `enrollment_round` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `enrollment_round_proposed_slot` (
+CREATE TABLE IF NOT EXISTS `enrollment_round_proposed_slot` (
   `round_id` bigint NOT NULL,
   `proposed_block_end` time DEFAULT NULL,
   `proposed_block_start` time DEFAULT NULL,
@@ -243,7 +243,7 @@ CREATE TABLE `enrollment_round_proposed_slot` (
   PRIMARY KEY (`round_id`,`slot_order`),
   CONSTRAINT `FKqnms26rw1yc0le6ae7tynnfvg` FOREIGN KEY (`round_id`) REFERENCES `enrollment_round` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `enrollment_round_slot_history` (
+CREATE TABLE IF NOT EXISTS `enrollment_round_slot_history` (
   `round_id` bigint NOT NULL,
   `past_block_end` time DEFAULT NULL,
   `past_block_start` time DEFAULT NULL,
@@ -255,7 +255,7 @@ CREATE TABLE `enrollment_round_slot_history` (
   PRIMARY KEY (`round_id`,`history_order`),
   CONSTRAINT `FKp94i5mlrnicueksvh0upeajwu` FOREIGN KEY (`round_id`) REFERENCES `enrollment_round` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `equipment` (
+CREATE TABLE IF NOT EXISTS `equipment` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `price` int DEFAULT NULL,
@@ -264,7 +264,7 @@ CREATE TABLE `equipment` (
   KEY `FKbaxndwjngfgjs39ver5hjdsy9` (`lecture_id`),
   CONSTRAINT `FKbaxndwjngfgjs39ver5hjdsy9` FOREIGN KEY (`lecture_id`) REFERENCES `lecture` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `equipment_stock` (
+CREATE TABLE IF NOT EXISTS `equipment_stock` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `quantity` int DEFAULT NULL,
   `size` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -273,7 +273,7 @@ CREATE TABLE `equipment_stock` (
   KEY `FKou155stjbmacstuhu4rmqvpu2` (`equipment_id`),
   CONSTRAINT `FKou155stjbmacstuhu4rmqvpu2` FOREIGN KEY (`equipment_id`) REFERENCES `equipment` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `firebase_token` (
+CREATE TABLE IF NOT EXISTS `firebase_token` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `created_at` datetime DEFAULT NULL,
   `device_type` varchar(16) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -285,7 +285,7 @@ CREATE TABLE `firebase_token` (
   KEY `FK71dl4i7hp9n3rc14q11h5jqqp` (`account_id`),
   CONSTRAINT `FK71dl4i7hp9n3rc14q11h5jqqp` FOREIGN KEY (`account_id`) REFERENCES `account` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `flyway_schema_history` (
+CREATE TABLE IF NOT EXISTS `flyway_schema_history` (
   `installed_rank` int NOT NULL,
   `version` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `description` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -299,10 +299,10 @@ CREATE TABLE `flyway_schema_history` (
   PRIMARY KEY (`installed_rank`),
   KEY `flyway_schema_history_s_idx` (`success`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `hibernate_sequence` (
+CREATE TABLE IF NOT EXISTS `hibernate_sequence` (
   `next_val` bigint DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `identity_verification` (
+CREATE TABLE IF NOT EXISTS `identity_verification` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `birth` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `ci` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -317,7 +317,7 @@ CREATE TABLE `identity_verification` (
   KEY `FK4nw9u3ldahhf2xrso6mqnfl73` (`account_id`),
   CONSTRAINT `FK4nw9u3ldahhf2xrso6mqnfl73` FOREIGN KEY (`account_id`) REFERENCES `account` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `instructor_application` (
+CREATE TABLE IF NOT EXISTS `instructor_application` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `created_at` datetime DEFAULT NULL,
   `organization_code` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -339,7 +339,7 @@ CREATE TABLE `instructor_application` (
   CONSTRAINT `FK8pej3475rkn7t4435rqgvnyra` FOREIGN KEY (`identity_verification_id`) REFERENCES `identity_verification` (`id`),
   CONSTRAINT `FKbq3nilr2myf0vmi1056q52jhk` FOREIGN KEY (`account_id`) REFERENCES `account` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `instructor_certificate` (
+CREATE TABLE IF NOT EXISTS `instructor_certificate` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `fileurl` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `instructor_id` bigint DEFAULT NULL,
@@ -347,7 +347,7 @@ CREATE TABLE `instructor_certificate` (
   KEY `FK95jt2j5vh9rkixr4k3co6vgrm` (`instructor_id`),
   CONSTRAINT `FK95jt2j5vh9rkixr4k3co6vgrm` FOREIGN KEY (`instructor_id`) REFERENCES `account` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `lecture` (
+CREATE TABLE IF NOT EXISTS `lecture` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `class_kind` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `description` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -371,7 +371,7 @@ CREATE TABLE `lecture` (
   CONSTRAINT `FKfs80f5eypwnlr8l7jbjiirg35` FOREIGN KEY (`instructor_id`) REFERENCES `account` (`id`),
   CONSTRAINT `FKkfj5sp8cocbelcv7ixhmnn3x` FOREIGN KEY (`location_id`) REFERENCES `location` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `lecture_image` (
+CREATE TABLE IF NOT EXISTS `lecture_image` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `fileuri` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `lecture_id` bigint DEFAULT NULL,
@@ -379,7 +379,7 @@ CREATE TABLE `lecture_image` (
   KEY `FK7c11tsu0esf549lx0ildli0r7` (`lecture_id`),
   CONSTRAINT `FK7c11tsu0esf549lx0ildli0r7` FOREIGN KEY (`lecture_id`) REFERENCES `lecture` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `lecture_mark` (
+CREATE TABLE IF NOT EXISTS `lecture_mark` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `account_id` bigint DEFAULT NULL,
   `lecture_id` bigint DEFAULT NULL,
@@ -389,20 +389,20 @@ CREATE TABLE `lecture_mark` (
   CONSTRAINT `FK1circa6cs9s26vao2ok451n01` FOREIGN KEY (`account_id`) REFERENCES `account` (`id`),
   CONSTRAINT `FKk8piu1tn34wmmm19y6ugggm9f` FOREIGN KEY (`lecture_id`) REFERENCES `lecture` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `lecture_service_tags` (
+CREATE TABLE IF NOT EXISTS `lecture_service_tags` (
   `lecture_id` bigint NOT NULL,
   `service_tags` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   KEY `FKcd8wcxounj7or0hyn8eoisjqp` (`lecture_id`),
   CONSTRAINT `FKcd8wcxounj7or0hyn8eoisjqp` FOREIGN KEY (`lecture_id`) REFERENCES `lecture` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `location` (
+CREATE TABLE IF NOT EXISTS `location` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `address` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `latitude` double DEFAULT NULL,
   `longitude` double DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `notification_outbox` (
+CREATE TABLE IF NOT EXISTS `notification_outbox` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `attempts` int NOT NULL,
   `created_at` datetime NOT NULL,
@@ -416,13 +416,13 @@ CREATE TABLE `notification_outbox` (
   PRIMARY KEY (`id`),
   KEY `idx_outbox_status_next_attempt` (`status`,`next_attempt_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `payment` (
+CREATE TABLE IF NOT EXISTS `payment` (
   `id` bigint NOT NULL,
   `equipment_rent_cost` int DEFAULT NULL,
   `lecture_cost` int DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `payment_order` (
+CREATE TABLE IF NOT EXISTS `payment_order` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `amount` int NOT NULL,
   `approved_at` datetime DEFAULT NULL,
@@ -442,12 +442,12 @@ CREATE TABLE `payment_order` (
   CONSTRAINT `FKl7pv7xeb1ek65ab8vv1k700dv` FOREIGN KEY (`enrollment_round_id`) REFERENCES `enrollment_round` (`id`),
   CONSTRAINT `FKotp6gggu43awmk49u8qoeqfv6` FOREIGN KEY (`enrollment_id`) REFERENCES `enrollment` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `profile_photo` (
+CREATE TABLE IF NOT EXISTS `profile_photo` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `image_url` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `refund_order` (
+CREATE TABLE IF NOT EXISTS `refund_order` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `amount` int NOT NULL,
   `created_at` datetime DEFAULT NULL,
@@ -458,7 +458,7 @@ CREATE TABLE `refund_order` (
   KEY `FK4r59o6m907hq6vnm5788n41yg` (`payment_order_id`),
   CONSTRAINT `FK4r59o6m907hq6vnm5788n41yg` FOREIGN KEY (`payment_order_id`) REFERENCES `payment_order` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `reservation` (
+CREATE TABLE IF NOT EXISTS `reservation` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `date_of_reservation` date DEFAULT NULL,
   `last_schedule_date_time` datetime DEFAULT NULL,
@@ -477,7 +477,7 @@ CREATE TABLE `reservation` (
   CONSTRAINT `FKpuht7aanh4i4be0i58jofg56b` FOREIGN KEY (`account_id`) REFERENCES `account` (`id`),
   CONSTRAINT `FKrqch34pw8aspb1gmgbdwjceya` FOREIGN KEY (`review_id`) REFERENCES `review` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `reservation_equipment` (
+CREATE TABLE IF NOT EXISTS `reservation_equipment` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `rent_number` int DEFAULT NULL,
   `reservation_id` bigint DEFAULT NULL,
@@ -488,7 +488,7 @@ CREATE TABLE `reservation_equipment` (
   CONSTRAINT `FKkgm2cilf7jbygd3slq6cn8y0u` FOREIGN KEY (`schedule_equipment_stock_id`) REFERENCES `schedule_equipment_stock` (`id`),
   CONSTRAINT `FKpft8kq6oc3s1vj27685hnu1xu` FOREIGN KEY (`reservation_id`) REFERENCES `reservation` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `review` (
+CREATE TABLE IF NOT EXISTS `review` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `description` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `instructor_star` float DEFAULT NULL,
@@ -504,7 +504,7 @@ CREATE TABLE `review` (
   CONSTRAINT `FKriucnk3m7hsvjnwtdxxoqp5l8` FOREIGN KEY (`lecture_id`) REFERENCES `lecture` (`id`),
   CONSTRAINT `FKsqonv0qdiobl9diogcugr40ej` FOREIGN KEY (`writer_id`) REFERENCES `account` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `review_image` (
+CREATE TABLE IF NOT EXISTS `review_image` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `url` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `review_id` bigint DEFAULT NULL,
@@ -512,7 +512,7 @@ CREATE TABLE `review_image` (
   KEY `FK16wp089tx9nm0obc217gvdd6l` (`review_id`),
   CONSTRAINT `FK16wp089tx9nm0obc217gvdd6l` FOREIGN KEY (`review_id`) REFERENCES `review` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `round_venue` (
+CREATE TABLE IF NOT EXISTS `round_venue` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `sort_order` int NOT NULL,
   `venue_ref_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -521,7 +521,7 @@ CREATE TABLE `round_venue` (
   KEY `FK92sdxcjvn1tvy5bv17esl2pg0` (`round_id`),
   CONSTRAINT `FK92sdxcjvn1tvy5bv17esl2pg0` FOREIGN KEY (`round_id`) REFERENCES `course_round` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `round_venue_ticket` (
+CREATE TABLE IF NOT EXISTS `round_venue_ticket` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `daypart` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `sort_order` int NOT NULL,
@@ -531,7 +531,7 @@ CREATE TABLE `round_venue_ticket` (
   KEY `FKtg1n3h60do2kw8cvynci1ncht` (`round_venue_id`),
   CONSTRAINT `FKtg1n3h60do2kw8cvynci1ncht` FOREIGN KEY (`round_venue_id`) REFERENCES `round_venue` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `schedule` (
+CREATE TABLE IF NOT EXISTS `schedule` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `current_number` int DEFAULT NULL,
   `lecture_id` bigint DEFAULT NULL,
@@ -539,7 +539,7 @@ CREATE TABLE `schedule` (
   KEY `FKdhqdej1p3232l393s9b6i6924` (`lecture_id`),
   CONSTRAINT `FKdhqdej1p3232l393s9b6i6924` FOREIGN KEY (`lecture_id`) REFERENCES `lecture` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `schedule_date_time` (
+CREATE TABLE IF NOT EXISTS `schedule_date_time` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `date` date DEFAULT NULL,
   `end_time` time DEFAULT NULL,
@@ -549,7 +549,7 @@ CREATE TABLE `schedule_date_time` (
   KEY `FKpocjfcrmfgh8drtpf6gbxd56b` (`schedule_id`),
   CONSTRAINT `FKpocjfcrmfgh8drtpf6gbxd56b` FOREIGN KEY (`schedule_id`) REFERENCES `schedule` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `schedule_equipment` (
+CREATE TABLE IF NOT EXISTS `schedule_equipment` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `price` int DEFAULT NULL,
@@ -558,7 +558,7 @@ CREATE TABLE `schedule_equipment` (
   KEY `FKtnlk2p9kgpjrqx0bqm0rau6ag` (`schedule_id`),
   CONSTRAINT `FKtnlk2p9kgpjrqx0bqm0rau6ag` FOREIGN KEY (`schedule_id`) REFERENCES `schedule` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `schedule_equipment_stock` (
+CREATE TABLE IF NOT EXISTS `schedule_equipment_stock` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `quantity` int DEFAULT NULL,
   `size` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -568,7 +568,7 @@ CREATE TABLE `schedule_equipment_stock` (
   KEY `FKs3tjcunw51jnal2otglw3i28u` (`schedule_equipment_id`),
   CONSTRAINT `FKs3tjcunw51jnal2otglw3i28u` FOREIGN KEY (`schedule_equipment_id`) REFERENCES `schedule_equipment` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `venue` (
+CREATE TABLE IF NOT EXISTS `venue` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `address` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` datetime DEFAULT NULL,
@@ -588,7 +588,7 @@ CREATE TABLE `venue` (
   KEY `FKmxvxcfqbes2maprrpe4dviv1j` (`owner_id`),
   CONSTRAINT `FKmxvxcfqbes2maprrpe4dviv1j` FOREIGN KEY (`owner_id`) REFERENCES `account` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `venue_closure` (
+CREATE TABLE IF NOT EXISTS `venue_closure` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `monthly_weekday` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `type` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -598,19 +598,19 @@ CREATE TABLE `venue_closure` (
   KEY `FKi8koxw3m9tgup65uygst9ayn5` (`venue_id`),
   CONSTRAINT `FKi8koxw3m9tgup65uygst9ayn5` FOREIGN KEY (`venue_id`) REFERENCES `venue` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `venue_closure_nth` (
+CREATE TABLE IF NOT EXISTS `venue_closure_nth` (
   `closure_id` bigint NOT NULL,
   `nth` int DEFAULT NULL,
   KEY `FKs2lrbof5y78g33y8wx6swn9ag` (`closure_id`),
   CONSTRAINT `FKs2lrbof5y78g33y8wx6swn9ag` FOREIGN KEY (`closure_id`) REFERENCES `venue_closure` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `venue_closure_weekday` (
+CREATE TABLE IF NOT EXISTS `venue_closure_weekday` (
   `closure_id` bigint NOT NULL,
   `weekday` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   KEY `FK8bxrr9qxp6x93l6mcmwg8oyqj` (`closure_id`),
   CONSTRAINT `FK8bxrr9qxp6x93l6mcmwg8oyqj` FOREIGN KEY (`closure_id`) REFERENCES `venue_closure` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `venue_daypart` (
+CREATE TABLE IF NOT EXISTS `venue_daypart` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `fee` int DEFAULT NULL,
   `hold_hours` int DEFAULT NULL,
@@ -624,7 +624,7 @@ CREATE TABLE `venue_daypart` (
   KEY `FKlstrxtq9t6wj547o5nmp2noxf` (`ticket_id`),
   CONSTRAINT `FKlstrxtq9t6wj547o5nmp2noxf` FOREIGN KEY (`ticket_id`) REFERENCES `venue_ticket` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `venue_equipment_extension` (
+CREATE TABLE IF NOT EXISTS `venue_equipment_extension` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `created_at` datetime DEFAULT NULL,
   `updated_at` datetime DEFAULT NULL,
@@ -634,7 +634,7 @@ CREATE TABLE `venue_equipment_extension` (
   UNIQUE KEY `uk_owner_venue_ref` (`owner_id`,`venue_ref_id`),
   CONSTRAINT `FK5doh5s1iv4fn3xs9qo5ldqsm1` FOREIGN KEY (`owner_id`) REFERENCES `account` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `venue_equipment_item` (
+CREATE TABLE IF NOT EXISTS `venue_equipment_item` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `price` int NOT NULL,
@@ -648,14 +648,14 @@ CREATE TABLE `venue_equipment_item` (
   CONSTRAINT `FK4fddcdb5hpgjbpb3grio35y49` FOREIGN KEY (`profile_id`) REFERENCES `venue_equipment_profile` (`id`),
   CONSTRAINT `FKewwu2bt0n95xg95bxotdl5uom` FOREIGN KEY (`extension_id`) REFERENCES `venue_equipment_extension` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `venue_equipment_item_size` (
+CREATE TABLE IF NOT EXISTS `venue_equipment_item_size` (
   `item_id` bigint NOT NULL,
   `size_option` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `size_order` int NOT NULL,
   PRIMARY KEY (`item_id`,`size_order`),
   CONSTRAINT `FKn6re04h03mlbq4j7io2jsct4c` FOREIGN KEY (`item_id`) REFERENCES `venue_equipment_item` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `venue_equipment_profile` (
+CREATE TABLE IF NOT EXISTS `venue_equipment_profile` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `created_at` datetime DEFAULT NULL,
   `updated_at` datetime DEFAULT NULL,
@@ -665,7 +665,7 @@ CREATE TABLE `venue_equipment_profile` (
   UNIQUE KEY `uk_owner_venue_ref` (`owner_id`,`venue_ref_id`),
   CONSTRAINT `FKk2oetwgt2v8yyoak4n9tffy3w` FOREIGN KEY (`owner_id`) REFERENCES `account` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `venue_media` (
+CREATE TABLE IF NOT EXISTS `venue_media` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `media_type` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `sort_order` int NOT NULL,
@@ -675,7 +675,7 @@ CREATE TABLE `venue_media` (
   KEY `FK88qt0c9rtafdemf5yv7e8jo73` (`venue_id`),
   CONSTRAINT `FK88qt0c9rtafdemf5yv7e8jo73` FOREIGN KEY (`venue_id`) REFERENCES `venue` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `venue_ticket` (
+CREATE TABLE IF NOT EXISTS `venue_ticket` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `sort_order` int NOT NULL,
@@ -685,13 +685,13 @@ CREATE TABLE `venue_ticket` (
   KEY `FK8gbsdvvwpbsrku42dnwm1fap` (`venue_id`),
   CONSTRAINT `FK8gbsdvvwpbsrku42dnwm1fap` FOREIGN KEY (`venue_id`) REFERENCES `venue` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `venue_ticket_discipline` (
+CREATE TABLE IF NOT EXISTS `venue_ticket_discipline` (
   `ticket_id` bigint NOT NULL,
   `discipline_code` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   KEY `FKk76lqlsbhap4ou4lx973le7cn` (`ticket_id`),
   CONSTRAINT `FKk76lqlsbhap4ou4lx973le7cn` FOREIGN KEY (`ticket_id`) REFERENCES `venue_ticket` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE `venue_time_block` (
+CREATE TABLE IF NOT EXISTS `venue_time_block` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `end_time` time DEFAULT NULL,
   `sort_order` int NOT NULL,
