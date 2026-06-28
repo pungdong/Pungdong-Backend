@@ -8,11 +8,11 @@
 
 수강신청 "수락 → 결제 → 확정" 의 결제 단계. FE 위젯이 결제하고 **승인은 BE 가** 시크릿 키로 호출한다.
 
-- **컨트롤러**: `PaymentController` — `POST /payments/prepare`(주문 생성·위젯 구동값), `POST /payments/confirm`(승인 → 신청 확정). 둘 다 학생 인증.
-- **서비스**: `PaymentService` — 권위 금액 재계산·멱등 prepare·소유/금액 검증·토스 승인·enrollment 확정. ⚠️ **명시적 빈 이름 `@Service("enrollmentPaymentService")`** — 레거시 `com.diving.pungdong.service.PaymentService`(죽은 예약 플로우)와 단순명이 같아 스캔 충돌하기 때문. 주입은 타입으로.
-- **외부 경계**: `TossPaymentClient`(interface) + `RealTossPaymentClient`(실 토스, `@ConditionalOnProperty pungdong.payment.mode=toss`) / `StubTossPaymentClient`(기본값, 즉시 DONE). address(`JusoAddressApiClient`)·identity 와 동일 패턴.
-- **엔티티**: `PaymentOrder`(orderId unique·enrollment·**amount(서버 권위 금액)**·orderName·status·paymentKey·method·approvedAt) → `PaymentOrderJpaRepo`. enum `PaymentStatus`(READY/DONE/CANCELED/FAILED).
-- **dto/**: `PaymentPrepareRequest`/`Response`, `PaymentConfirmRequest`/`Response`.
+- **컨트롤러**: `PaymentController` — `POST /payments/prepare`·`confirm`(둘 다 학생 인증). **`RefundController`** — `POST /enrollments/{enrollmentId}/refund`(수강 종료=남은 회차 환불; enrollment 경로지만 토스 취소라 payment 패키지 — enrollment→payment 역참조 방지).
+- **서비스**: `PaymentService`(권위 금액·멱등 prepare·토스 승인·회차 확정. ⚠️ **빈 이름 `@Service("enrollmentPaymentService")`** — 레거시 단순명 충돌 회피). **`RefundService`**(수강 종료 — `RefundCalculator` 산정 + 주문별 토스 부분취소 + 회차 CANCELLED + 좌석 해제). **`RefundCalculator`**(회차별 환불 정책: done=0·미배정=수강료/N·배정취소=(수강료/N+부대)×율; **수강료 몫은 1회차 주문**, 부대는 각 회차 주문).
+- **외부 경계**: `TossPaymentClient`(interface, `confirm`+**`cancel`(부분취소)**) + `RealTossPaymentClient`(`mode=toss`) / `StubTossPaymentClient`(기본값, 즉시 DONE/CANCELED).
+- **엔티티**: `PaymentOrder`(orderId·**enrollmentRound**·amount(권위 금액)·status·paymentKey…) → `PaymentOrderJpaRepo`. **`RefundOrder`**(paymentOrder·amount·reason·status — 주문별 환불 감사기록) → `RefundOrderJpaRepo`. enum `PaymentStatus`(READY/DONE/CANCELED/FAILED), `RefundStatus`(REQUESTED/DONE/FAILED).
+- **dto/**: `PaymentPrepare/Confirm Request/Response`, **`RefundQuote`**(total + 회차별 line: tuitionPart/extraPart 분리 — 실행 매핑용).
 
 레거시 `domain/payment/Payment` 는 **건드리지 않는다**(옛 예약 플로우 전용, PG 필드 없음).
 
@@ -45,6 +45,6 @@
 ## 아직 안 한 것 (후속 PR)
 
 - **webhook** — 비동기 상태(가상계좌·취소) + 서명 검증.
-- **결제 미완 만료·환불 상태기계** — PAYMENT_PENDING 무기한 점유 해소.
+- ~~결제 미완 만료~~(좌석 lock TTL 로 구현) · ~~환불~~(`RefundService`/`RefundCalculator` 구현 — 수강 종료 부분취소). 환불 **webhook**(부분취소 비동기 수신)·**정산 연계**는 후속.
 - **입장료/장비 live 재계산** · **정산 수수료 분해**(PG 3.4% + 플랫폼 6.6%).
 - REST Docs `document(...)`(use-case 로 대체).
