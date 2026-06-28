@@ -268,7 +268,7 @@ erDiagram
 
 | 환경 | 빈 | 동작 |
 |---|---|---|
-| 운영 (`firebase.enabled=true`) | `FirebaseFcmGateway` | 실제 FCM REST 호출. ADC (Application Default Credentials) 우선, `firebase.credentials.path` 있으면 service account JSON 로 fallback. Phase 4 에서 WIF (Workload Identity Federation) 키리스로 확장 예정. |
+| 운영 (`firebase.enabled=true`) | `FirebaseFcmGateway` | 실제 FCM REST 호출. ADC (Application Default Credentials) 우선, `firebase.credentials.path` 있으면 service account JSON 로 fallback. **자격증명 기조 = WIF 키리스(JSON 키 금지), GCP 프로젝트 `plop-5997b` → [features/push.md §계약](../features/push.md).** |
 | 로컬 / 테스트 | `LoggingFcmGateway` | `@ConditionalOnMissingBean` — 실제 FCM 빈 없으면 자동 활성화. 로그만 찍고 SUCCESS 반환. |
 
 **예외 분류** (`FirebaseFcmGateway`):
@@ -282,7 +282,7 @@ erDiagram
 
 | 엔드포인트 | 인증 | 권한 | 비고 |
 |---|---|---|---|
-| `POST /sign/firebase-token` | 인증 필요 | any | 디바이스 토큰 등록. `FirebaseTokenService.register` 가 upsert. |
+| `POST /sign/firebase-token` | 인증 필요 | any | 디바이스 토큰 등록. `FirebaseTokenService.register` 가 upsert. 🟡 **목표 계약 = `POST/DELETE /me/devices`(+platform)** 로 리네임 예정 → [features/push.md §계약](../features/push.md). |
 
 알림 도메인 자체는 외부에 노출된 발송 트리거 엔드포인트가 **없다** — 모든 알림은 비즈니스 흐름의 부수효과로 자동 발생.
 
@@ -298,6 +298,8 @@ erDiagram
 | 사용자 알림 설정 — 강의별 mute, 채널 opt-out | 출시 후 | `notification_preference` 테이블 신설 |
 | 이벤트 타입 추가 — `ReviewCreatedEvent`, `ScheduleReminderEvent`, `PaymentConfirmedEvent` | 해당 도메인 작업 시 | 같은 패턴 재사용 |
 | Email 채널 — 동일 outbox 에 `channel=EMAIL` 컬럼 추가, AWS SES 게이트웨이 | 출시 후 | 운영 결정 = SES (memory: `operations_decisions.md`) |
+| 디바이스 토큰 등록 계약 `/me/devices`(+platform·DELETE), `data.notificationId` dedup | 푸시 v2 PR | 정책·결정은 [features/push.md](../features/push.md) |
+| 인앱 알림함 (durable feed) — 푸시 유실 대비 서버 권위 레코드 | 출시 후 | [#132](https://github.com/pungdong/Pungdong-Backend/issues/132), [features/push.md](../features/push.md) |
 
 ---
 
