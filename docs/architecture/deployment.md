@@ -129,6 +129,43 @@ prod 에 Flyway 이미지를 처음 배포하며 3가지가 연쇄로 터졌다 
 
 ---
 
+## 10. DNS & 도메인 (plop.cool) — 2026-06-28
+
+한 줄: 도메인은 **Squarespace 가 등록 + DNS 관리**, 그중 **API 서브도메인(`api`/`api-staging`)만 Route53 으로 위임**해 terraform 으로 자동화. GCP 는 이 도메인과 **무관**(FCM 전용).
+
+### 어디서 관리하나 (단골 착각 주의)
+- **레지스트라 + DNS 호스팅 = Squarespace**(옛 Google Domains). 네임서버가 `ns-cloud-eX.googledomains.com` 라 GCP Cloud DNS 처럼 보이지만 — 이건 **Squarespace 의 관리형 DNS** 지 우리 GCP 존이 아니다. (계정의 GCP 프로젝트 6개 전부 확인 — plop.cool 존 없음, DNS API 도 off. GCP 는 FCM 만.)
+- Squarespace 는 **API/terraform provider 가 없어** 자동화 불가 → 거기 레코드는 전부 **수동**.
+
+### 분담
+| 레코드 | 어디 | 관리 |
+|---|---|---|
+| `api.plop.cool` → prod ALB | **Route53**(위임) | terraform `infra/envs/dns` (ALIAS) |
+| `api-staging.plop.cool` → staging ALB | **Route53**(위임) | terraform `infra/envs/staging/dns.tf` (ALIAS, up/down 자동) |
+| `@`·`www`·`staging` → Vercel(웹) | Squarespace | 수동 CNAME/A |
+| `admin`·`admin-staging` → Vercel(어드민) | Squarespace | 수동 CNAME |
+| MX(메일=Workspace)·TXT(인증) | Squarespace | 수동 |
+
+### 왜 `api`/`api-staging` 만 Route53 인가
+staging 은 on-demand(up/down)이라 **ALB DNS 가 띄울 때마다 바뀐다(churn)** → Squarespace 수동 CNAME 이면 매번 손편집. Route53 **ALIAS → ALB** 는 ALB 를 동적 추적하고, terraform(staging env)이 up/down 에 맞춰 레코드 생성/제거 → **수동질 0**. prod ALB 는 상시라 안 바뀌지만 일관성 위해 같이 위임.
+
+### 위임 구조 (terraform, PR #126)
+- `infra/envs/dns` (persistent, **수동 `terraform apply`**): Route53 존 2개 + prod ALIAS + ACM 검증 CNAME. 존은 staging churn 과 무관히 살아있어야 NS 위임이 안 깨짐.
+- `infra/envs/staging/dns.tf` (ephemeral): staging ALIAS — staging up 때 생성, down 때 제거(존은 위 레이어가 소유).
+- **일회성 사람 작업**: Squarespace Custom Records 에서 `api`/`api-staging` 를 `infra/envs/dns` output 의 Route53 NS(`*.awsdns-*`)로 위임(NS 레코드). 새 환경도 동일. ⚠️ "Domain Nameservers"(존 전체 NS)는 건드리지 말 것 — 서브도메인 NS 레코드만.
+
+### 새 origin 붙일 때 = CORS 가 최대 3곳 (막히는 단골)
+1. **BE** — `infra/envs/*/terraform.tfvars` 의 `cors_allowed_origins` (API 호출 허용)
+2. **Sanity** — Manage → API → CORS Origins (FE 가 Sanity CDN **직접** 읽기 허용; write 면 Allow credentials 도)
+3. **NCP** — 네이버 지도 쓰면 Web 서비스 URL 등록
+
+> 공개 "물놀이 지도"의 OFFICIAL venue 는 **FE 가 Sanity CDN 직접** 읽는다(BE 안 거침, `VenueController` 주석 참고). staging 에서 핀 안 뜨면 십중팔구 위 2번(staging origin 이 Sanity CORS 에 없음).
+
+### Sanity 데이터셋
+`production` 하나를 **prod·staging 공유**(staging BE·FE 모두 prod 읽음, FE 협의 2026-06-28). 분리 안 함 — staging 테스트 글이 prod CMS 에 들어가는 건 감수. 분리하려면 staging BE 의 `SANITY_DATASET` 도 같이 바꿔야 함(BE 도 Sanity read).
+
+---
+
 ## 후속 (미구현)
 
 - ✅ ~~⑤ GitHub Actions~~ — **구현됨**(#90, 2026-06-25): build.yml(자동) + deploy.yml(버튼) + OIDC role. §5 참고. (남은 정리: least-privilege 권한 축소, infra-only 변경 시 build skip)
