@@ -22,4 +22,10 @@ public class StubTossPaymentClient implements TossPaymentClient {
         log.info("[payment-stub] confirm orderId={} amount={} → DONE(고정)", orderId, amount);
         return new TossConfirmResult("DONE", "간편결제", OffsetDateTime.now(), null);
     }
+
+    @Override
+    public TossCancelResult cancel(String paymentKey, int cancelAmount, String reason) {
+        log.info("[payment-stub] cancel paymentKey={} amount={} → CANCELED(고정)", paymentKey, cancelAmount);
+        return new TossCancelResult("CANCELED", OffsetDateTime.now());
+    }
 }

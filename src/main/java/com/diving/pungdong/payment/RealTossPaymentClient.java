@@ -37,6 +37,7 @@ import java.util.Base64;
 public class RealTossPaymentClient implements TossPaymentClient {
 
     private static final String CONFIRM_URL = "https://api.tosspayments.com/v1/payments/confirm";
+    private static final String CANCEL_URL = "https://api.tosspayments.com/v1/payments/%s/cancel";
 
     private final String authHeader;
     private final ObjectMapper objectMapper;
@@ -82,6 +83,34 @@ public class RealTossPaymentClient implements TossPaymentClient {
             throw new IllegalStateException("toss confirm interrupted", e);
         } catch (java.io.IOException e) {
             throw new IllegalStateException("toss confirm transport error", e);
+        }
+    }
+
+    @Override
+    public TossCancelResult cancel(String paymentKey, int cancelAmount, String reason) {
+        String body = "{\"cancelReason\":\"" + esc(reason) + "\",\"cancelAmount\":" + cancelAmount + "}";
+        HttpRequest req = HttpRequest.newBuilder(URI.create(String.format(CANCEL_URL, paymentKey)))
+                .timeout(Duration.ofSeconds(15))
+                .header("Authorization", authHeader)
+                .header("Content-Type", "application/json")
+                .header("Idempotency-Key", paymentKey + ":" + cancelAmount)
+                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                .build();
+        try {
+            HttpResponse<String> res = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+            JsonNode json = objectMapper.readTree(res.body());
+            if (res.statusCode() / 100 != 2) {
+                log.warn("[payment-toss] cancel 거절 HTTP {} code={} msg={}",
+                        res.statusCode(), json.path("code").asText(""), json.path("message").asText(""));
+                throw new BadRequestException();
+            }
+            // 부분취소면 마지막 cancels[] 의 시각을 쓸 수 있으나, 표시엔 최상위 status + now 로 충분.
+            return new TossCancelResult(json.path("status").asText(null), OffsetDateTime.now());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("toss cancel interrupted", e);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("toss cancel transport error", e);
         }
     }
 
