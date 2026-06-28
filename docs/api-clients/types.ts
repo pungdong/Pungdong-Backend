@@ -1388,7 +1388,7 @@ export interface PaymentPrepareRequest {
 /** 위젯 구동값. amount·orderId·orderName 은 서버 권위값 — 그대로 위젯에 넘긴다. clientKey 는 공개. */
 export interface PaymentPrepareResponse {
   orderId: string;      // 토스 멱등키 — 위젯/confirm 에 그대로. 내부 식별(표시 X)
-  orderNo: string;      // CS·고객용 주문번호(PD-XXXXXXXX, 난독화). FE 의 "주문번호" 표시는 이걸로
+  orderNo: string;      // CS·고객용 주문번호(PD-YYMMDD-XXXXXXXX, 날짜+난독화). FE 의 "주문번호" 표시는 이걸로
   amount: number;       // 원 — (첫 만남이면 수강료 스냅샷) + 입장료 + 장비 + 추가세션비. 회차 단위
   orderName: string;    // "코스명 (N회차)"
   clientKey: string;    // 토스 위젯 클라이언트 키(공개값)
@@ -1405,7 +1405,7 @@ export interface PaymentConfirmRequest {
 /** 승인 결과 + 그 결과로 확정된 신청 상태. 멱등 — 이미 DONE 인 주문 재승인도 200 DONE. */
 export interface PaymentConfirmResponse {
   orderId: string;                // 토스 멱등키(내부). 완료 화면 "주문번호" 표시는 orderNo 사용
-  orderNo: string;                // CS·고객용 주문번호(PD-XXXXXXXX, 난독화·가역)
+  orderNo: string;                // CS·고객용 주문번호(PD-YYMMDD-XXXXXXXX, 날짜+난독화·가역)
   status: PaymentStatus;          // 성공 = 'DONE'
   amount: number;
   approvedAt: string | null;      // ISO-8601 offset
