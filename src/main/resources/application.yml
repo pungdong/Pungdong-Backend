@@ -72,6 +72,10 @@ cors:
 #   pungdong.storage.s3.enabled=true            (S3 실연동 — Phase 4 버킷 provision 후)
 #   pungdong.identity-verification.mode=disabled (실 본인확인기관 연동 전까지 fail-closed)
 pungdong:
+  # 외부 식별자 난독화 salt(Hashids). 순차 id → 비순차 코드(주문번호 등). 가역이라 salt 가 곧 키 — 노출/변경 금지
+  # (바꾸면 기존 코드 decode 불가). 로컬/테스트는 기본값, 운영은 env 로 고정.
+  hashids:
+    salt: ${HASHIDS_SALT:pungdong-local-dev-salt}
   storage:
     s3:
       enabled: ${STORAGE_S3_ENABLED:false}
