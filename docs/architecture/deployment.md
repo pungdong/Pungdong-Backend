@@ -103,6 +103,32 @@ feat/xxx (로컬 개발 + 테스트)  →  PR(CI 자동 테스트)  →  master 
 
 ---
 
+## 9. DB 스키마 = Flyway 마이그레이션 (2026-06-28 도입, #111)
+
+`hbm2ddl.auto: validate` — Hibernate 는 부팅 시 **검증만**, 스키마는 **Flyway** 가 소유(`src/main/resources/db/migration/V<N>__*.sql`, 순서대로 1회씩 실행, `flyway_schema_history` 기록). 앱 부팅에 통합 → **배포 = 마이그레이션 자동 실행**. 기존 DB 는 `baseline-on-migrate` 로 V1 "이미 적용" 표시만, 빈 DB 는 V1 부터 통째 생성. 작성 규약은 [CLAUDE.md](../../CLAUDE.md) "Schema = Flyway migrations".
+
+### 2026-06-28 prod 첫 배포 인시던트 (교훈)
+
+prod 에 Flyway 이미지를 처음 배포하며 3가지가 연쇄로 터졌다 — **유저·FE 없는 데모 상태라 실손해 0**, 복구 후 정상.
+
+| # | 무슨 일 | 왜 |
+|---|---|---|
+| ① | 새 이미지 `validate` 가 **`missing table enrollment_round`** 로 부팅 거부 | prod DB 가 다회차 재설계 *이전* 상태(여러 재설계 뒤처짐). **validate 가 깨진 채 서빙을 막은 것 = 안전장치 작동** |
+| ② | forward 마이그레이션 불가 → **wipe + V1 baseline** 으로 결정 | 옛 변경들이 hbm2ddl=update 로 만들어져 **마이그레이션 히스토리가 없음**. baseline(V1)에 맞춰 새로 = 표준 Flyway 도입 절차(데이터는 버려도 되는 데모) |
+| ③ | wipe 후 V1 이 **`table already exists`(1050)** 로 실패 → 실패 기록이 이후 부팅 전부 차단 | **circuit breaker OFF** 라 실패 태스크가 무한 재시도(churn) → V1 **동시 실행** → 충돌. V1 이 idempotent 아니었음(로컬은 `mysql` 직접/baseline 이라 Flyway 실행 버그를 못 봄) |
+
+**해결**: V1 을 `CREATE TABLE IF NOT EXISTS` 로 **idempotent 화**(#121) → 빈 DB 에 새 이미지 배포 + wipe → 동시/재시도에도 안전하게 62테이블 생성 → validate 통과.
+
+**방지 (→ 이슈 트래킹)**:
+- **마이그레이션은 항상 idempotent** (CLAUDE.md 규약 박음). 동시 실행/재시도가 흔한 분산 환경의 기본기.
+- **fresh-DB + Flyway 검증** 추가 — CI 가 H2+Flyway-off 라 Flyway 실행 경로를 못 잡음([#123](https://github.com/pungdong/Pungdong-Backend/issues/123)).
+- **ECS 배포 circuit breaker 켜기** — 실패 시 자동 롤백, churn 방지([#122](https://github.com/pungdong/Pungdong-Backend/issues/122)).
+- **prod 를 오래 미루지 말 것** — 자주 배포하면 각 마이그레이션이 작은 forward step, 이런 큰 retrofit 안 생김.
+
+> 운영 메모: private RDS 라 직접 접속 불가 — DB wipe/check 는 **prod VPC 안 one-off Fargate task**(mysql 이미지 + SSM 시크릿)로 했다. prod DB 는 현재 **빈 스키마**(데모 데이터 재시드 필요 시 별도).
+
+---
+
 ## 후속 (미구현)
 
 - ✅ ~~⑤ GitHub Actions~~ — **구현됨**(#90, 2026-06-25): build.yml(자동) + deploy.yml(버튼) + OIDC role. §5 참고. (남은 정리: least-privilege 권한 축소, infra-only 변경 시 build skip)
