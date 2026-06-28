@@ -2,7 +2,7 @@
 
 # 이미지 태그 — 빌드한 이미지를 ECR(plop)에 이 태그로 push 후 apply. CI(⑤)가 자동 갱신할 자리.
 image_tag            = "staging-latest"
-cors_allowed_origins = "https://staging.plop.cool"
+cors_allowed_origins = "https://staging.plop.cool,https://admin-staging.plop.cool"
 
 # HTTPS — ACM 인증서(api-staging.plop.cool, DNS 검증 완료 2026-06-24).
 # 이게 있어야 ALB 443 리스너 + 80→443 리다이렉트가 생김(없으면 HTTP only 로 회귀).
