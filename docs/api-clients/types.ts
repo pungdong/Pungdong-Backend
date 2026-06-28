@@ -990,8 +990,10 @@ export interface HoldRequest {
 export interface HoldResponse {
   id: number;
   count: number;
-  /** null=±빠른조정, 값=외부예약. */
+  /** null=±빠른조정/제안, 값=외부예약. */
   memo: string | null;
+  /** 점유 종류 — 'PROPOSAL'(강사 일정변경 제안 보장 hold, "제안중")·'EXTERNAL'(외부예약)·'QUICK'(±빠른조정). 라벨/색 구분용. */
+  kind: 'PROPOSAL' | 'EXTERNAL' | 'QUICK';
 }
 
 /**
@@ -1149,12 +1151,26 @@ export interface SlotProposal {
   blockEnd: string;
 }
 
-/** 강사 일정변경요청 — POST /instructor/enrollments/{roundId}/propose-slots. 완전한 대안 슬롯 제안(서버가 bookable 한 것만 채택). */
+/**
+ * 강사 일정변경 제안 옵션 — GET /instructor/enrollments/{roundId}/propose-options (강사, 내 코스 회차만).
+ * 강사가 대안 슬롯을 고를 때 보는 교집합(학생 GET /enrollments/rounds/{roundId}/options 와 동일 EnrollmentOptionsResponse —
+ * 슬롯 UI 재사용). 각 슬롯의 `remaining`/`full` 로 **만석 슬롯을 비활성화**해 강사가 안 고르게 한다(제안 보장 hold 도 잔여에 반영).
+ * 위치는 회차 고정.
+ */
+
+/**
+ * 강사 일정변경요청 — POST /instructor/enrollments/{roundId}/propose-slots. 완전한 대안 슬롯 제안(**최대 3개**).
+ * 서버가 bookable + **좌석 여유**인 것만 채택하고, 채택된 슬롯마다 그 일정에 **좌석 보장 hold**(proposalTtl, 기본 6h)를 잡아
+ * 학생 pick 이 만석으로 막히지 않게 한다(그 동안 다른 학생 신청은 막힘). 4개 이상이거나 전부 불가/만석이면 400.
+ */
 export interface ProposeSlotsRequest {
-  slots: SlotProposal[];
+  slots: SlotProposal[]; // 최대 3
 }
 
-/** 제안 슬롯 선택 — POST /enrollments/rounds/{roundId}/pick-slot → 200. 사전 수락이라 곧장 PAYMENT_PENDING. */
+/**
+ * 제안 슬롯 선택 — POST /enrollments/rounds/{roundId}/pick-slot → 200. 사전 수락이라 곧장 PAYMENT_PENDING.
+ * 좌석은 제안 시점 hold 로 보장돼 있어 만석으로 막히지 않는다(제안이 TTL 만료로 사라졌으면 400 — status 가 WAITING 으로 돌아감).
+ */
 export type PickSlotRequest = SlotProposal; // proposedSlots 중 하나
 
 /**

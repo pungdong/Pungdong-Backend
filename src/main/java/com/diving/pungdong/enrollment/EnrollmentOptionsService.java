@@ -103,6 +103,21 @@ public class EnrollmentOptionsService {
         return buildOptions(course.getInstructor(), course, round.getCourseRound(), today);
     }
 
+    /**
+     * 강사 일정변경 제안용 옵션 — 강사가 그 회차에 대안 슬롯을 고를 때 보는 교집합(학생 round options 와 대칭).
+     * {@code remaining/full} 을 그대로 내려줘 강사가 <b>만석 슬롯을 애초에 안 고르게</b> 한다(제안 보장 hold 도
+     * heldCount 로 잔여에 반영됨). 위치는 회차 고정이라 그 회차 CourseRound 후보가 곧 후보. 남의 회차면 404(숨김).
+     */
+    public EnrollmentOptionsResponse getInstructorRoundOptions(Account instructor, Long roundId, LocalDate today) {
+        EnrollmentRound round = roundRepo.findById(roundId).orElseThrow(ResourceNotFoundException::new);
+        Course course = round.getEnrollment() == null ? null : round.getEnrollment().getCourse();
+        Account owner = course == null ? null : course.getInstructor();
+        if (owner == null || !owner.getId().equals(instructor.getId())) {
+            throw new ResourceNotFoundException(); // 없음/내 코스 회차 아님 — 존재 숨김
+        }
+        return buildOptions(owner, course, round.getCourseRound(), today);
+    }
+
     private EnrollmentOptionsResponse buildOptions(Account instructor, Course course, CourseRound round, LocalDate today) {
         // 회차 후보 (venueRef, ticketRef) 쌍
         List<String[]> candidates = new ArrayList<>();

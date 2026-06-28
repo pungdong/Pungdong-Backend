@@ -5,8 +5,10 @@ import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.account.Role;
 import com.diving.pungdong.availability.AvailabilityCoverage;
 import com.diving.pungdong.availability.AvailabilityCoverageJpaRepo;
+import com.diving.pungdong.availability.AvailabilityHoldJpaRepo;
 import com.diving.pungdong.availability.AvailabilitySessionJpaRepo;
 import com.diving.pungdong.course.*;
+import com.diving.pungdong.enrollment.EnrollmentExpiryService;
 import com.diving.pungdong.enrollment.EnrollmentJpaRepo;
 import com.diving.pungdong.enrollment.EnrollmentRound;
 import com.diving.pungdong.enrollment.EnrollmentRoundJpaRepo;
@@ -27,6 +29,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -69,9 +72,12 @@ class MultiRoundProgressUseCaseTest {
     @Autowired AvailabilitySessionJpaRepo sessionRepo;
     @Autowired EnrollmentJpaRepo enrollmentRepo;
     @Autowired EnrollmentRoundJpaRepo roundRepo;
+    @Autowired AvailabilityHoldJpaRepo holdRepo;
+    @Autowired EnrollmentExpiryService expiryService;
 
     @AfterEach
     void clean() {
+        holdRepo.deleteAll();
         enrollmentRepo.deleteAll();
         sessionRepo.deleteAll();
         coverageRepo.deleteAll();
@@ -362,5 +368,165 @@ class MultiRoundProgressUseCaseTest {
         EnrollmentRound after = roundRepo.findById(r2.getId()).orElseThrow();
         assertThat(after.getStatus()).isEqualTo(EnrollmentStatus.PENDING);
         assertThat(after.getDate()).isEqualTo(d3);
+    }
+
+    /* ─── PH* 강사 제안 보장 hold (hold-and-guarantee) ─── */
+
+    /** 2회차 PENDING 회차를 만들어 반환(D2 슬롯). */
+    private EnrollmentRound round2Pending(Account ins, Course course, String ref, String ticket, Account stu)
+            throws Exception {
+        Long enrollmentId = enrollWithDoneRound1(stu, course, ref, ticket);
+        mockMvc.perform(post("/enrollments/{id}/rounds", enrollmentId).header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON).content(roundBody(ref, ticket, D2)))
+                .andExpect(status().isCreated());
+        return roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).get(0);
+    }
+
+    private ResultActions applyRound1(Account stu, Course course, String ref, String ticket, LocalDate date)
+            throws Exception {
+        return mockMvc.perform(post("/enrollments").header(HttpHeaders.AUTHORIZATION, token(stu))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json(Map.of("courseId", course.getId(), "date", date.toString(),
+                        "venueRefId", ref, "ticketRef", ticket,
+                        "blockStart", START.toString(), "blockEnd", END.toString()))));
+    }
+
+    private ResultActions propose(Account ins, Long roundId, List<Map<String, Object>> slots) throws Exception {
+        return mockMvc.perform(post("/instructor/enrollments/{id}/propose-slots", roundId)
+                .header(HttpHeaders.AUTHORIZATION, token(ins))
+                .contentType(MediaType.APPLICATION_JSON).content(json(Map.of("slots", slots))));
+    }
+
+    private Map<String, Object> slot(LocalDate date, String ticket) {
+        return Map.of("date", date.toString(), "ticketRef", ticket,
+                "blockStart", START.toString(), "blockEnd", END.toString());
+    }
+
+    @Test
+    @DisplayName("PH1 강사가 제안하면 그 슬롯에 보장 좌석 hold 가 잡혀 다른 학생의 같은 슬롯 신청이 막힌다(만석 400)")
+    void proposeHoldsSeatBlockingOthers() throws Exception {
+        Account ins = instructor("ins-ph1@pd.com", "강사PH1", 1); // 정원 1 — hold 하나로 만석
+        Venue v = venue(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String ticket = v.getTickets().get(0).getRef();
+        Course course = twoRoundCourse(ins, ref, ticket);
+        LocalDate d3 = LocalDate.now().plusWeeks(3);
+        openCoverage(ins, D1); openCoverage(ins, D2); openCoverage(ins, d3);
+        Account stu = account("stu-ph1@pd.com", "학생PH1", Role.STUDENT);
+        EnrollmentRound r2 = round2Pending(ins, course, ref, ticket, stu);
+
+        propose(ins, r2.getId(), List.of(slot(d3, ticket))).andExpect(status().isOk());
+        assertThat(holdRepo.findByProposalRoundId(r2.getId())).hasSize(1); // 보장 hold 1개
+
+        // 다른 학생이 같은 d3 슬롯 신청 → 보장 hold 가 유일 좌석을 잡아 만석(400)
+        Account other = account("stu-ph1b@pd.com", "학생PH1B", Role.STUDENT);
+        applyRound1(other, course, ref, ticket, d3).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("PH2 학생이 제안 슬롯을 고르면 보장대로 성공(PAYMENT_PENDING), 안 고른 제안 슬롯 hold 는 풀려 다른 학생이 신청 가능")
+    void pickGuaranteedAndReleasesOtherHolds() throws Exception {
+        Account ins = instructor("ins-ph2@pd.com", "강사PH2", 1);
+        Venue v = venue(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String ticket = v.getTickets().get(0).getRef();
+        Course course = twoRoundCourse(ins, ref, ticket);
+        LocalDate d3 = LocalDate.now().plusWeeks(3);
+        LocalDate d4 = LocalDate.now().plusWeeks(4);
+        openCoverage(ins, D1); openCoverage(ins, D2); openCoverage(ins, d3); openCoverage(ins, d4);
+        Account stu = account("stu-ph2@pd.com", "학생PH2", Role.STUDENT);
+        EnrollmentRound r2 = round2Pending(ins, course, ref, ticket, stu);
+
+        propose(ins, r2.getId(), List.of(slot(d3, ticket), slot(d4, ticket))).andExpect(status().isOk());
+        assertThat(holdRepo.findByProposalRoundId(r2.getId())).hasSize(2);
+
+        // d3 선택 → 보장대로 성공
+        mockMvc.perform(post("/enrollments/rounds/{id}/pick-slot", r2.getId())
+                        .header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON).content(json(slot(d3, ticket))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PAYMENT_PENDING"))
+                .andExpect(jsonPath("$.date").value(d3.toString()));
+        assertThat(holdRepo.findByProposalRoundId(r2.getId())).isEmpty(); // 모든 제안 hold 회수됨
+
+        // 안 고른 d4 의 hold 가 풀려 다른 학생이 d4 를 신청할 수 있다
+        Account other = account("stu-ph2b@pd.com", "학생PH2B", Role.STUDENT);
+        applyRound1(other, course, ref, ticket, d4).andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("PH3 제안 슬롯은 최대 3개 — 4개를 보내면 거부된다(400)")
+    void proposeRejectsMoreThanThree() throws Exception {
+        Account ins = instructor("ins-ph3@pd.com", "강사PH3", 4);
+        Venue v = venue(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String ticket = v.getTickets().get(0).getRef();
+        Course course = twoRoundCourse(ins, ref, ticket);
+        openCoverage(ins, D1); openCoverage(ins, D2);
+        Account stu = account("stu-ph3@pd.com", "학생PH3", Role.STUDENT);
+        EnrollmentRound r2 = round2Pending(ins, course, ref, ticket, stu);
+
+        List<Map<String, Object>> four = List.of(
+                slot(LocalDate.now().plusWeeks(3), ticket), slot(LocalDate.now().plusWeeks(4), ticket),
+                slot(LocalDate.now().plusWeeks(5), ticket), slot(LocalDate.now().plusWeeks(6), ticket));
+        propose(ins, r2.getId(), four).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("PH4 강사 제안 옵션 — remaining/full 포함 슬롯을 내려준다(내 코스 회차만, 남의 회차는 존재 숨김)")
+    void instructorProposeOptions() throws Exception {
+        Account ins = instructor("ins-ph4@pd.com", "강사PH4", 4);
+        Venue v = venue(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String ticket = v.getTickets().get(0).getRef();
+        Course course = twoRoundCourse(ins, ref, ticket);
+        openCoverage(ins, D1); openCoverage(ins, D2);
+        Account stu = account("stu-ph4@pd.com", "학생PH4", Role.STUDENT);
+        EnrollmentRound r2 = round2Pending(ins, course, ref, ticket, stu);
+
+        mockMvc.perform(get("/instructor/enrollments/{id}/propose-options", r2.getId())
+                        .header(HttpHeaders.AUTHORIZATION, token(ins)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.slots").isArray())
+                .andExpect(jsonPath("$.slots[0].capacity").value(4))
+                .andExpect(jsonPath("$.slots[0].remaining").exists());
+
+        // 남의 회차 — 다른 강사가 보면 존재 숨김(ResourceNotFound → 이 레포는 400 매핑)
+        Account ins2 = instructor("ins-ph4b@pd.com", "강사PH4B", 4);
+        mockMvc.perform(get("/instructor/enrollments/{id}/propose-options", r2.getId())
+                        .header(HttpHeaders.AUTHORIZATION, token(ins2)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("PH5 제안 만료(proposalTtl 경과) — 보장 hold 가 풀리고 제안이 사라지며 회차는 PENDING 유지, 다른 학생 신청 가능")
+    void proposalExpirySweepReleasesHold() throws Exception {
+        Account ins = instructor("ins-ph5@pd.com", "강사PH5", 1);
+        Venue v = venue(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String ticket = v.getTickets().get(0).getRef();
+        Course course = twoRoundCourse(ins, ref, ticket);
+        LocalDate d3 = LocalDate.now().plusWeeks(3);
+        openCoverage(ins, D1); openCoverage(ins, D2); openCoverage(ins, d3);
+        Account stu = account("stu-ph5@pd.com", "학생PH5", Role.STUDENT);
+        EnrollmentRound r2 = round2Pending(ins, course, ref, ticket, stu);
+
+        propose(ins, r2.getId(), List.of(slot(d3, ticket))).andExpect(status().isOk());
+        assertThat(holdRepo.findByProposalRoundId(r2.getId())).hasSize(1);
+
+        // proposalTtlHours(테스트 6h) 경과 — sweep
+        int lapsed = expiryService.sweepExpiredProposals(LocalDateTime.now().plusHours(7));
+        assertThat(lapsed).isEqualTo(1);
+        assertThat(holdRepo.findByProposalRoundId(r2.getId())).isEmpty(); // 보장 hold 해제
+        assertThat(roundRepo.findById(r2.getId()).orElseThrow().getStatus())
+                .isEqualTo(EnrollmentStatus.PENDING); // 회차는 유지(취소 아님)
+
+        // 제안만 lapse — hub 에서 RESCHEDULING 이 아니라 WAITING(제안 없는 PENDING)으로 보인다(proposedSlots 비움 확인)
+        mockMvc.perform(get("/enrollments/mine/schedule").header(HttpHeaders.AUTHORIZATION, token(stu)))
+                .andExpect(jsonPath("$.courses[0].rounds[1].status").value("WAITING"));
+
+        // hold 풀려 다른 학생이 d3 신청 가능
+        Account other = account("stu-ph5b@pd.com", "학생PH5B", Role.STUDENT);
+        applyRound1(other, course, ref, ticket, d3).andExpect(status().isCreated());
     }
 }
