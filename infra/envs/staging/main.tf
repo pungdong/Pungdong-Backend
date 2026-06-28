@@ -47,7 +47,12 @@ locals {
     SPRING_REDIS_PORT          = tostring(module.data.redis_port)
     CORS_ALLOWED_ORIGINS       = var.cors_allowed_origins
     ADMIN_EMAILS               = var.admin_emails
-    FIREBASE_ENABLED           = "false"
+    # FCM: WIF 키리스(JSON 키 없음). task role(plop-staging-ecs-task) → GCP SA 가장.
+    # GCP 신뢰 설정(pool/provider/binding)은 gcloud 로 1회 구성됨 — docs/features/push.md.
+    FIREBASE_ENABLED                   = "true"
+    FIREBASE_WIF_AUDIENCE              = "//iam.googleapis.com/projects/956872568873/locations/global/workloadIdentityPools/aws-pool/providers/aws-provider"
+    FIREBASE_WIF_SERVICE_ACCOUNT_EMAIL = "firebase-adminsdk-fbsvc@plop-5997b.iam.gserviceaccount.com"
+    AWS_REGION                         = var.aws_region
     STORAGE_S3_ENABLED         = "true"
     CLOUD_AWS_S3_BUCKET        = local.uploads_bucket
     IDENTITY_VERIFICATION_MODE = "stub"
