@@ -20,6 +20,6 @@ public class TestSiteSettingsConfig {
 
     @Bean
     public SiteSettingsProvider siteSettingsProvider() {
-        return () -> new SiteSettings(true, true, 24, 12);
+        return () -> new SiteSettings(true, true, 24, 12, 6);
     }
 }

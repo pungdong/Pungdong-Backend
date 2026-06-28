@@ -2,6 +2,8 @@ package com.diving.pungdong.enrollment;
 
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.availability.AvailabilityCoverageJpaRepo;
+import com.diving.pungdong.availability.AvailabilityHold;
+import com.diving.pungdong.availability.AvailabilityHoldJpaRepo;
 import com.diving.pungdong.availability.AvailabilitySession;
 import com.diving.pungdong.availability.AvailabilitySessionJpaRepo;
 import com.diving.pungdong.availability.CoverageMerger;
@@ -21,6 +23,7 @@ import com.diving.pungdong.enrollment.dto.InstructorScheduleHubResponse.StudentS
 import com.diving.pungdong.enrollment.dto.ProposeSlotsRequest.SlotProposal;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
+import com.diving.pungdong.global.sitesettings.SiteSettingsProvider;
 import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
 import com.diving.pungdong.venue.VenueRefResolver;
 import com.diving.pungdong.venue.dto.VenueResponse;
@@ -31,10 +34,14 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -49,6 +56,9 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class InstructorEnrollmentService {
 
+    /** 강사 일정변경 제안 슬롯 시스템 상한 — hold 를 거니 "한 회차가 잠그는 좌석 수" 상한(강사·학생 모두 3이 적정). */
+    private static final int MAX_PROPOSED_SLOTS = 3;
+
     private final EnrollmentRoundJpaRepo roundRepo;
     private final EnrollmentJpaRepo enrollmentRepo;
     private final InstructorApplicationJpaRepo applicationRepo;
@@ -57,6 +67,8 @@ public class InstructorEnrollmentService {
     private final BookableSlotDeriver slotDeriver;
     private final AvailabilityCoverageJpaRepo coverageRepo;
     private final AvailabilitySessionJpaRepo sessionRepo;
+    private final AvailabilityHoldJpaRepo holdRepo;
+    private final SiteSettingsProvider siteSettings;
 
     public List<InstructorEnrollmentResponse> list(Account instructor, EnrollmentStatus status) {
         requireInstructorTrack(instructor);
@@ -276,8 +288,11 @@ public class InstructorEnrollmentService {
     }
 
     /**
-     * 일정변경요청 — 위치 고정, 완전한 대안 슬롯(날짜+이용권+블록) 제안. 각 슬롯은 venue 운영블록 존재 + 강사
-     * coverage 에 통째로 ⊆ 여야(정원은 학생 pick 시점에 재확인). 학생이 고르면 사전 수락 → 결제 대기.
+     * 일정변경요청 — 위치 고정, 완전한 대안 슬롯(날짜+이용권+블록) 제안(최대 {@value #MAX_PROPOSED_SLOTS}개). 각
+     * 슬롯은 venue 운영블록 존재 + 강사 coverage 에 통째로 ⊆ + <b>좌석 여유</b>여야 채택된다. <b>하드캡 보장</b>:
+     * 채택된 슬롯마다 그 일정에 좌석 hold(회차 귀속, proposalTtlHours 만료)를 잡아 — 학생이 고를 때 반드시 잡히게
+     * 하고(만석으로 막히는 아이러니 제거), 그 동안 다른 학생 신청은 정상적으로 막힌다(heldCount 합산). 만석/불가
+     * 슬롯은 조용히 제외(전부 제외면 400). 학생이 고르면 사전 수락 → 결제 대기.
      */
     @Transactional
     public InstructorEnrollmentResponse proposeSlots(Account instructor, Long roundId, List<SlotProposal> slots) {
@@ -288,21 +303,44 @@ public class InstructorEnrollmentService {
         if (slots == null || slots.isEmpty()) {
             throw new BadRequestException();
         }
+        if (slots.size() > MAX_PROPOSED_SLOTS) {
+            throw new BadRequestException(); // 제안은 최대 3개(한 회차가 잠그는 좌석 상한)
+        }
         VenueResponse venue = venueRefResolver.resolveVenues(List.of(r.getVenueRefId())).get(r.getVenueRefId());
         if (venue == null) {
             throw new BadRequestException();
         }
-        List<ProposedSlot> valid = slots.stream()
-                .filter(s -> bookableSlot(instructor, venue, s))
-                .map(s -> ProposedSlot.builder().date(s.getDate()).ticketRef(s.getTicketRef())
-                        .blockStart(s.getBlockStart()).blockEnd(s.getBlockEnd()).build())
-                .collect(Collectors.toList());
+        releaseProposalHolds(r); // 재제안 — 이전 보장 hold 회수 후 다시 잡음
+
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime expiresAt = now.plusHours(siteSettings.current().proposalTtlHours());
+        List<ProposedSlot> valid = new ArrayList<>();
+        Set<Long> heldSessionIds = new HashSet<>();
+        for (SlotProposal s : slots) {
+            if (isCurrentSlot(r, s) || !bookableSlot(instructor, venue, s)) {
+                continue; // 현재 슬롯과 동일(변경 아님) 또는 기하 불가(운영블록 없음/coverage 밖) — 제외
+            }
+            AvailabilitySession session = findOrCreateSession(instructor, s.getDate(),
+                    s.getBlockStart(), s.getBlockEnd(), r.getVenueRefId(), s.getTicketRef());
+            if (heldSessionIds.contains(session.getId())) {
+                valid.add(toProposedSlot(s)); // 같은 (위치,블록) 다른 이용권 — hold 는 한 번만(좌석 하나)
+                continue;
+            }
+            if (!hasSeat(session)) {
+                sessionCleaner.deleteIfEmpty(session); // 만석 — 제외(방금 만든 빈 일정이면 정리)
+                continue;
+            }
+            session.addHold(AvailabilityHold.builder()
+                    .count(1).proposalRoundId(r.getId()).expiresAt(expiresAt).createdAt(now).build());
+            heldSessionIds.add(session.getId());
+            valid.add(toProposedSlot(s));
+        }
         if (valid.isEmpty()) {
-            throw new BadRequestException(); // 제안한 슬롯 중 가능한 게 없음
+            throw new BadRequestException(); // 제안한 슬롯 중 가능한 게 없음(전부 만석/불가)
         }
         r.getProposedSlots().clear();
         r.getProposedSlots().addAll(valid);
-        r.setRespondedAt(LocalDateTime.now());
+        r.setRespondedAt(now);
         return InstructorEnrollmentResponse.of(r, venueName(r.getVenueRefId()));
     }
 
@@ -357,6 +395,53 @@ public class InstructorEnrollmentService {
         List<Span> spans = coverageRepo.findByInstructorIdAndDate(instructor.getId(), s.getDate()).stream()
                 .map(c -> new Span(c.getStartTime(), c.getEndTime())).collect(Collectors.toList());
         return CoverageMerger.containsWhole(spans, new Span(s.getBlockStart(), s.getBlockEnd()));
+    }
+
+    /** 제안 슬롯이 회차의 현재 슬롯과 동일한가 — 위치 고정이므로 (날짜,이용권,블록)만 비교. 동일하면 변경이 아님. */
+    private static boolean isCurrentSlot(EnrollmentRound r, SlotProposal s) {
+        return Objects.equals(r.getDate(), s.getDate())
+                && Objects.equals(r.getTicketRef(), s.getTicketRef())
+                && Objects.equals(r.getBlockStart(), s.getBlockStart())
+                && Objects.equals(r.getBlockEnd(), s.getBlockEnd());
+    }
+
+    private static ProposedSlot toProposedSlot(SlotProposal s) {
+        return ProposedSlot.builder().date(s.getDate()).ticketRef(s.getTicketRef())
+                .blockStart(s.getBlockStart()).blockEnd(s.getBlockEnd()).build();
+    }
+
+    /** 만석? — 활성(대기+결제대기+확정) + 외부/제안 hold 가 유효정원 미만이면 좌석 있음(하드캡). */
+    private boolean hasSeat(AvailabilitySession session) {
+        int occupied = roundRepo.countByAvailabilitySessionIdAndStatusIn(session.getId(), EnrollmentStatus.ACTIVE);
+        return occupied + session.heldCount() < session.effectiveCapacity();
+    }
+
+    /** (위치,블록) 일정을 찾거나 없으면 생성 — 정체성은 (instructor,date,start,end,venueRef). ticketRef 는 표시 대표값. */
+    private AvailabilitySession findOrCreateSession(Account instructor, LocalDate date,
+                                                    LocalTime start, LocalTime end, String venueRef, String ticketRef) {
+        return sessionRepo.findByInstructorIdAndDateAndStartTimeAndEndTime(instructor.getId(), date, start, end)
+                .stream().filter(s -> Objects.equals(s.getVenueRefId(), venueRef)).findFirst()
+                .orElseGet(() -> sessionRepo.save(AvailabilitySession.builder()
+                        .instructor(instructor).date(date).startTime(start).endTime(end)
+                        .venueRefId(venueRef).ticketRef(ticketRef)
+                        .createdAt(LocalDateTime.now()).build()));
+    }
+
+    /** 이 회차의 강사 제안 보장 hold 를 모두 해제(세션 컬렉션에서 제거 → orphanRemoval) + 빈 일정 정리. */
+    private void releaseProposalHolds(EnrollmentRound round) {
+        List<AvailabilityHold> holds = holdRepo.findByProposalRoundId(round.getId());
+        if (holds.isEmpty()) {
+            return;
+        }
+        List<AvailabilitySession> touched = new ArrayList<>();
+        for (AvailabilityHold h : holds) {
+            AvailabilitySession s = h.getSession();
+            if (s != null) {
+                s.getHolds().remove(h);
+                touched.add(s);
+            }
+        }
+        touched.forEach(sessionCleaner::deleteIfEmpty);
     }
 
     private void requireInstructorTrack(Account instructor) {
