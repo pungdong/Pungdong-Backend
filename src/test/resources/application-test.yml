@@ -8,11 +8,15 @@ spring:
     driver-class-name: org.h2.Driver
     hikari:
       jdbc-url: jdbc:h2:mem:testdb
+  # 테스트는 Flyway(MySQL SQL) 안 씀 — H2 라 dialect 불일치. 엔티티에서 스키마 생성(create-drop)으로 격리.
+  flyway:
+    enabled: false
   jpa:
     properties:
       hibernate:
         default_batch_fetch_size: 100
         dialect: org.hibernate.dialect.H2Dialect
+        hbm2ddl.auto: create-drop   # 운영 validate 를 H2 에서 override — 매 테스트 엔티티로 스키마 새로 생성
   redis:
     host: localhost
     # docker Redis(6379)와 분리된 테스트 전용 포트 — EmbeddedRedisConfig.TEST_REDIS_PORT 와 일치.

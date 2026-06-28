@@ -10,9 +10,17 @@ spring:
         default_batch_fetch_size: 100
         dialect: org.hibernate.dialect.MySQL5InnoDBDialect
         jdbc.lob.non_contextual_creation: true
-        hbm2ddl.auto: update
+        hbm2ddl.auto: validate   # Flyway 가 스키마 소유 — Hibernate 는 검증만(엔티티와 안 맞으면 부팅 실패로 drift 즉시 노출). 옛 update 졸업(#111)
         format_sql: true
     show-sql: true
+
+  # DB 스키마 마이그레이션 (Flyway). db/migration/V1,V2… 를 순서대로 1회씩 실행 → 모든 환경 동일 스키마.
+  # baseline-on-migrate: 기존(비어있지 않은) DB 는 V1 을 "이미 적용됨"으로 표시만 하고 안 돌림(V2 부터 실행).
+  # 테스트(H2)는 application-test.yml 에서 끔(create-drop 으로 엔티티에서 스키마 생성).
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 1
 
   messages:
     basename: i18n/exception
