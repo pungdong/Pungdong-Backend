@@ -27,5 +27,12 @@ AdminMail:
   id: test@example.invalid
   password: test-only-password
 
+# 테스트는 항상 StubTossPaymentClient — 외부 PG 에 의존 금지(hermetic, e2e 아님). direnv 의 PAYMENT_MODE=toss 가
+# test JVM 으로 새어 RealTossPaymentClient 가 켜지면 RefundUseCaseTest 등이 실제 Toss API 를 때려 실패하던 걸 차단.
+# profile-specific 이라 application.yml 의 ${PAYMENT_MODE:stub} 해석값을 이긴다. 앱 런타임(dev/staging/prod)엔 무영향.
+pungdong:
+  payment:
+    mode: stub
+
 cors:
   allowed-origins: http://localhost:3000
