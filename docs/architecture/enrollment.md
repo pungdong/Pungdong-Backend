@@ -125,6 +125,9 @@ erDiagram
 | GET `/instructor/enrollments` | ✅ | 강사신청 보유 | 내 코스 신청만 |
 | POST `/instructor/enrollments/{id}/accept` | ✅ | 강사신청 | 내 코스 · PENDING · 정원 |
 | POST `/instructor/enrollments/{id}/reject` | ✅ | 강사신청 | 내 코스 · PENDING |
+| GET `/instructor/enrollments/{id}/propose-options` | ✅ | 강사신청 | 내 코스 회차만(비소유=숨김) · `remaining/full` 포함 |
+| POST `/instructor/enrollments/{id}/propose-slots` | ✅ | 강사신청 | 내 코스 · PENDING · **최대 3** · bookable+좌석여유만 채택 → 좌석 보장 hold |
+| POST `/enrollments/rounds/{id}/pick-slot` | ✅(학생) | — | 내 회차 · 제안목록 내 슬롯 · **hold 보장(만석 무관)** → PAYMENT_PENDING |
 
 ## 6. 알려진 설계 간극
 
@@ -132,6 +135,7 @@ erDiagram
 - 🟢 **venue 운영 정밀도** — `BookableSlotDeriver` 는 FIXED·OPEN(단일)·SAME, WEEKLY·MONTHLY 휴무 지원. 공휴일·OPEN 세분화는 후속.
 - 🟢 **가격 권위성** — 신청 스냅샷은 추정치. 권위(청구) 금액은 결제 시점 `POST /payments/prepare` 가 재계산(수강료 라이브 + 입장료/장비 스냅샷). 입장료/장비 live 재도출은 후속([payment.md](payment.md)).
 - 🟢 **applicants = enrollment 만** — 캘린더 슬롯 안 신청자 행은 풍덩 enrollment 만(외부 hold 는 externalCount 로만). 디자인의 external applicant 행은 후속.
+- 🟢 **강사 제안 = 좌석 보장(hold-and-guarantee)** — propose 시 슬롯마다 `AvailabilityHold`(`proposalRoundId`·`expiresAt`) 를 잡아 학생 pick 이 만석으로 막히지 않게 한다(하드캡 우회 X — 미리 잡은 자리 사용). `proposalTtlHours`(6h) 만료 시 `EnrollmentExpiryService.sweepExpiredProposals` 가 hold 해제·제안 lapse. 정책·왜는 [docs/features/reschedule.md](../features/reschedule.md).
 
 ## 7. 더 깊게: 테스트로 보기
 

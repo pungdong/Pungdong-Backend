@@ -34,9 +34,9 @@
 
 **프리다이빙/스쿠버는 수영장 정책상 강사당 최대 인원이 물리적·법적 하드캡**이다. 따라서 `requireSeat`(만석 = `활성+hold >= 유효정원`) 게이트는 **어떤 경로에서도 우회하지 않는다**. 일정변경으로 옮긴 슬롯이 만석이면 그 이동은 불가능 — "한 명 더 끼워넣기"는 정원을 명시적으로 올리지 않는 한 허용 안 함.
 
-### 강사 제안 = 좌석 보장 (hold-and-guarantee) 🔴 결정·미구현
+### 강사 제안 = 좌석 보장 (hold-and-guarantee) ✅ 구현됨
 
-> **방향 결정(C), 2026-06-28. 아직 미구현.** 메모 [[propose-slots-hold-guarantee]].
+> **방향 결정(C), 2026-06-28 · 구현 완료.** 메모 [[propose-slots-hold-guarantee]].
 
 하드캡이라 "강사가 제안한 자리는 학생이 고를 때 반드시 잡힌다"를 보장하려면 **제안 시점에 좌석을 미리 잡아두는 수밖에 없다**(`requireSeat` 우회는 하드캡 위반이라 불가). 그래서:
 
@@ -44,13 +44,13 @@
 - hold 동안 다른 학생 신청은 `requireSeat` 가 hold 를 세서 **정상적으로 막힘**(보장이 작동하는 것). 학생은 옛 좌석(1) + 제안(N) = 한시적 1+N석 점유.
 - **pick = 항상 성공**: 고른 슬롯 hold→실점유 전환, 나머지 N-1 + 옛 좌석 release(빈 session `SessionCleaner` 정리) → PAYMENT_PENDING.
 - **제안 슬롯 시스템 강제 max 3** — hold 를 거니 "한 명이 잠그는 좌석 수" 상한. 강사도 보통 3개면 충분, 학생도 3개 이내가 고르기 편함.
-- **proposalTtlHours = 6h** (신설, 결제 `paymentTtlHours`=12h 와 분리). 제안 결정 윈도우 = hold 가 다른 학생을 막는 시간이라 짧게. 만료 sweep = hold release + proposedSlots clear + 회차는 평범한 PENDING(취소 아님, 강사 재제안 가능). 값은 SiteSettings(Sanity) 런타임.
-- **캘린더에 hold 도 "제안중/예약중"으로 반영** — 올바른 잔여 인원 표시.
-- **강사 옵션 엔드포인트 신설** (학생 round options 대칭, `remaining/full` 포함) — 강사가 만석 슬롯을 애초에 안 고르게.
+- **proposalTtlHours = 6h** (신설, 결제 `paymentTtlHours`=12h 와 분리). 제안 결정 윈도우 = hold 가 다른 학생을 막는 시간이라 짧게. 만료 sweep(`EnrollmentExpiryService.sweepExpiredProposals`) = hold release + proposedSlots clear + 회차는 평범한 PENDING(취소 아님 → hub 에서 RESCHEDULING→WAITING, 강사 재제안 가능). 값은 SiteSettings(Sanity) 런타임.
+- **캘린더에 hold 도 "제안중"으로 반영** — `HoldResponse.kind='PROPOSAL'`, 잔여 인원에 자동 반영(올바른 표시).
+- **강사 옵션 엔드포인트** `GET /instructor/enrollments/{roundId}/propose-options` (학생 round options 대칭, `remaining/full` 포함) — 강사가 만석 슬롯을 애초에 안 고르게.
+
+**구현 메커니즘** (도메인 문서 [enrollment.md](../architecture/enrollment.md)·[availability.md](../architecture/availability.md)에 상세): 별도 ProposalHold 테이블이 아니라 **기존 `AvailabilityHold` 를 재사용**(`proposalRoundId`·`expiresAt` nullable 컬럼 추가, V3 마이그레이션). 이유 — `heldCount()` 가 모든 hold 를 합산하므로 제안 hold 가 만석 판정·캘린더 잔여·`requireSeat` **모든 곳에서 자동으로** 반영된다. 별도 테이블이면 점유 계산 여러 곳에 일일이 끼워야 하고 한 곳만 빠뜨려도 하드캡이 조용히 깨지는데, 재사용은 그 위험이 구조적으로 없음(`proposalRoundId` 는 raw Long — availability→enrollment 역참조 회피).
 
 **왜 C(보장) 인가**: 초기 플랫폼 신뢰 > over-reservation 비용. 폭발적 경합 시장이 아니라 선점 비용이 실제로 낮음. 불편이 관측되면 **(A) 표시-only**(좌석 hold 없이 `full` 표시 + pick 재확인, 가끔 재선택)로 완화 — A↔C 는 깨끗한 전환 경로.
-
-**현재(미구현 전) 동작**: propose 는 정원 안 봄(기하검증만), pick 의 `requireSeat` 가 하드캡 게이트(이미 안전). 그래서 하드캡은 지금도 지켜지나, 강사가 만석 슬롯 제안 시 학생이 pick 에서 400 나는 UX 구멍 존재 — 위 결정이 그걸 메움.
 
 ## 결정 히스토리
 
@@ -58,12 +58,13 @@
 |---|---|---|
 | 2026-06-28 | reschedule(학생 직접) — 취소 아닌 제자리 변경 + 슬롯 이력 | PR #108 |
 | 2026-06-28 | propose-slots(강사 제안) → pick-slot(학생 택1) → PAYMENT_PENDING | 강사 hub #109 |
-| 2026-06-28 | **정원 처리 = (C) hold-and-guarantee** (max 3 · proposalTtlHours 6h · 캘린더 hold 표시 · 강사 옵션 엔드포인트). 하드캡 우회 금지, 보장은 사전 hold 로 | 🔴 미구현 |
+| 2026-06-28 | **정원 처리 = (C) hold-and-guarantee** (max 3 · proposalTtlHours 6h · 캘린더 hold 표시 · 강사 옵션 엔드포인트). 하드캡 우회 금지, 보장은 사전 hold 로 | ✅ 구현 |
+| 2026-06-28 | 구현 = 별도 테이블 대신 `AvailabilityHold` 재사용(heldCount 자동 합산으로 하드캡 한 곳 계산). V3 마이그레이션 | ✅ |
 
 ## 미해결 / 확장
 
-- 🔴 **hold-and-guarantee 구현** — ProposalHold(새 테이블) → **flyway 마이그레이션 체계가 master 머지된 뒤** 그 위에서 작업(stacked-PR 회피). 순서: ① 강사 옵션 엔드포인트 → ② ProposalHold + propose 좌석검증/hold → ③ pick hold→실점유 전환 + 나머지 release → ④ proposalTtlHours sweep → ⑤ types.ts + 도메인 문서 + usecase 테스트.
 - 🟡 만료/제안 푸시 알림 (notification 미연동, booking 만료 알림과 묶음).
+- 🟡 **테스트 env 누출** — `PAYMENT_MODE=toss`(direnv)가 test JVM 으로 새면 RealTossPaymentClient 가 켜져 RefundUseCaseTest 가 로컬에서 400. 이 PR 범위 밖이지만 `application-test.yml` 에 `pungdong.payment.mode=stub` 핀 고려(메모 [[env-leak-into-tests]]).
 - 🟢 불편 관측 시 (A) 표시-only 로 다운그레이드 옵션.
 
 ## 관련 메모리
