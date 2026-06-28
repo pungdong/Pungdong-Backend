@@ -117,6 +117,12 @@ public class SignController {
         String userPk = jwtTokenProvider.getUserPk(request.getRefreshToken());
         Account account = accountService.findAccountById(Long.parseLong(userPk));
 
+        // 탈퇴한 계정은 refresh 로 토큰을 재발급받을 수 없다(탈퇴 직후 access token 은 블랙리스트로
+        // 막히고, 이 가드가 refresh 우회를 막는다 — 양쪽 다 닫아야 즉시 접근차단이 성립).
+        if (Boolean.TRUE.equals(account.getIsDeleted())) {
+            throw new com.diving.pungdong.global.advice.exception.ExpiredRefreshTokenException();
+        }
+
         // rotation: 옛 refresh token 을 즉시 무효화해 재사용(탈취 replay)을 차단한다.
         redisTemplate.opsForValue().set(request.getRefreshToken(), "false",
                 jwtTokenProvider.getRefreshTokenValidMs(), TimeUnit.MILLISECONDS);

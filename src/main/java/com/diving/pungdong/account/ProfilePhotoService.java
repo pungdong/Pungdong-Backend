@@ -23,7 +23,7 @@ public class ProfilePhotoService {
     @Transactional
     public ProfilePhoto saveDefaultProfilePhoto() {
         ProfilePhoto profilePhoto = ProfilePhoto.builder()
-                .imageUrl("vlvkcjswo71@gmail.com2021-06-07T18:08:34.039977.png")
+                .imageUrl(ProfilePhoto.DEFAULT_IMAGE_URL)
                 .build();
 
         return profilePhotoJpaRepo.save(profilePhoto);

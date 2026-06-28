@@ -30,6 +30,7 @@
 - **PR #17**: 가입 페이로드 슬림화 + `Account` 에 OAuth 식별 필드(`AuthProvider`) 추가.
 - **토큰 정책** (TTL/rotation/무효화): AT 1시간, RT **30일**(rotation 과 결합한 슬라이딩 윈도우 = 최대 비활성 허용 기간), refresh 시 **옛 RT 즉시 무효화**(재사용 replay 차단), 로그아웃 시 AT·RT 블랙리스트(TTL=유효기간 일치). 상세·이유 → [docs/architecture/sign-up.md](../../../../../../../docs/architecture/sign-up.md) "토큰 정책" 섹션. 값의 원천 = `JwtTokenProvider` 상수.
 - **OAuth(Kakao/Naver)**: 출시 후로 deferred. 블로커 = 사업자등록증(~2026-06-04) → 개발자 앱 등록. (memory: project_simplification_plan)
+- **회원탈퇴 = soft delete → 유예 30일 → PII 익명화** (2026-06-29, 앱스토어 계정삭제 의무). `DELETE /account`(비번확인 + 현재 access token 블랙리스트), 복구 `PATCH /account/deleted-state`(유예 내·이메일 인증), 경과 후 `AccountAnonymizationService`/`AccountDeletionScheduler`(`@Profile("!test")`)가 PII 파기. 결제기록 법정보존(전자상거래법)이라 row 는 하드삭제 못 하고 PII 만 익명화·멱등. 정책·보존표·법적근거·스토어 요건 = [docs/features/account-deletion.md](../../../../../../../docs/features/account-deletion.md). `Account.deletedAt`/`anonymizedAt` + 마이그레이션 `V4`.
 
 ## 안전망 테스트
 

@@ -2,6 +2,7 @@ package com.diving.pungdong.account;
 
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.security.CurrentUser;
+import com.diving.pungdong.global.security.JwtTokenProvider;
 import com.diving.pungdong.controller.lectureImage.LectureImageController;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.InstructorCertificate;
@@ -17,6 +18,7 @@ import com.diving.pungdong.account.InstructorCertificateService;
 import com.diving.pungdong.account.AccountService;
 import com.diving.pungdong.account.dto.read.AccountBasicInfo;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.hateoas.CollectionModel;
 import org.springframework.hateoas.EntityModel;
 import org.springframework.hateoas.Link;
@@ -24,8 +26,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
 
+import javax.servlet.http.HttpServletRequest;
 import javax.validation.Valid;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.linkTo;
 import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
@@ -36,6 +40,8 @@ import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
 public class AccountController {
     private final AccountService accountService;
     private final InstructorCertificateService instructorCertificateService;
+    private final JwtTokenProvider jwtTokenProvider;
+    private final RedisTemplate<String, String> redisTemplate;
 
     @GetMapping
     public ResponseEntity<?> readAccountInfo(@CurrentUser Account account) {
@@ -109,12 +115,21 @@ public class AccountController {
     @DeleteMapping
     public ResponseEntity<?> removeAccount(@CurrentUser Account account,
                                            @Valid @RequestBody PasswordInfo passwordInfo,
-                                           BindingResult result) {
+                                           BindingResult result,
+                                           HttpServletRequest request) {
         if (result.hasErrors()) {
             throw new BadRequestException();
         }
 
         accountService.deleteAccount(account, passwordInfo.getPassword());
+
+        // 탈퇴 즉시 현재 access token 을 블랙리스트(로그아웃과 동일 경로) — 이미 발급된 토큰이
+        // 만료 전까지 살아있는 구멍을 막는다. refresh 재발급은 SignController.refresh 의 탈퇴 가드가 차단.
+        String accessToken = jwtTokenProvider.resolveToken(request);
+        if (accessToken != null) {
+            redisTemplate.opsForValue().set(accessToken, "false",
+                    jwtTokenProvider.getAccessTokenValidMs(), TimeUnit.MILLISECONDS);
+        }
 
         return ResponseEntity.noContent().build();
     }
