@@ -35,16 +35,18 @@ public class PaymentService {
     private final PaymentOrderJpaRepo orderRepo;
     private final EnrollmentRoundJpaRepo roundRepo;
     private final TossPaymentClient tossClient;
+    private final OrderNoFormatter orderNoFormatter;
 
     /** 위젯 로드용 공개 클라이언트 키 — FE 에 그대로 내려준다(공개값). */
     private final String clientKey;
 
     public PaymentService(PaymentOrderJpaRepo orderRepo, EnrollmentRoundJpaRepo roundRepo,
-                          TossPaymentClient tossClient,
+                          TossPaymentClient tossClient, OrderNoFormatter orderNoFormatter,
                           @Value("${pungdong.payment.toss.client-key:}") String clientKey) {
         this.orderRepo = orderRepo;
         this.roundRepo = roundRepo;
         this.tossClient = tossClient;
+        this.orderNoFormatter = orderNoFormatter;
         this.clientKey = clientKey;
     }
 
@@ -71,7 +73,7 @@ public class PaymentService {
             order.setOrderName(orderName(r));
             order.setUpdatedAt(LocalDateTime.now());
         }
-        return PaymentPrepareResponse.of(order, clientKey, customerKey(student));
+        return PaymentPrepareResponse.of(order, orderNoFormatter.format(order.getId()), clientKey, customerKey(student));
     }
 
     /**
@@ -87,7 +89,7 @@ public class PaymentService {
             throw new ResourceNotFoundException(); // 없음/남의 주문 — 존재 숨김
         }
         if (order.getStatus() == PaymentStatus.DONE) {
-            return PaymentConfirmResponse.of(order); // 멱등 — 이미 승인됨
+            return PaymentConfirmResponse.of(order, orderNoFormatter.format(order.getId())); // 멱등 — 이미 승인됨
         }
         if (order.getStatus() != PaymentStatus.READY) {
             throw new BadRequestException(); // 취소/실패 주문은 승인 불가
@@ -110,7 +112,7 @@ public class PaymentService {
         order.setApprovedAt(result.approvedAt());
         order.setUpdatedAt(LocalDateTime.now());
         r.setStatus(EnrollmentStatus.CONFIRMED); // 결제 완료 = 확정 (pay-first: 강사는 이후 수영장 예약)
-        return PaymentConfirmResponse.of(order);
+        return PaymentConfirmResponse.of(order, orderNoFormatter.format(order.getId()));
     }
 
     /* ─── helpers ─── */

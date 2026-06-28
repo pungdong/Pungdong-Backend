@@ -13,16 +13,18 @@ import java.time.OffsetDateTime;
 @Builder
 public class PaymentConfirmResponse {
 
-    private String orderId;
+    private String orderId;     // 토스 멱등키(내부용). FE 표시는 orderNo 사용
+    private String orderNo;     // CS·고객용 주문번호(PD-XXXXXXXX, 난독화·가역)
     private PaymentStatus status;
     private int amount;
     private OffsetDateTime approvedAt;
     private Long enrollmentId;
     private EnrollmentStatus enrollmentStatus;
 
-    public static PaymentConfirmResponse of(PaymentOrder order) {
+    public static PaymentConfirmResponse of(PaymentOrder order, String orderNo) {
         return PaymentConfirmResponse.builder()
                 .orderId(order.getOrderId())
+                .orderNo(orderNo)
                 .status(order.getStatus())
                 .amount(order.getAmount())
                 .approvedAt(order.getApprovedAt())

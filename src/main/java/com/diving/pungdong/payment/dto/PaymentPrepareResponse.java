@@ -12,15 +12,17 @@ import lombok.Getter;
 @Builder
 public class PaymentPrepareResponse {
 
-    private String orderId;
+    private String orderId;     // 토스 멱등키 — 위젯에 그대로 넘김(내부 식별)
+    private String orderNo;     // CS·고객용 주문번호(PD-XXXXXXXX, 난독화)
     private int amount;
     private String orderName;
     private String clientKey;
     private String customerKey;
 
-    public static PaymentPrepareResponse of(PaymentOrder order, String clientKey, String customerKey) {
+    public static PaymentPrepareResponse of(PaymentOrder order, String orderNo, String clientKey, String customerKey) {
         return PaymentPrepareResponse.builder()
                 .orderId(order.getOrderId())
+                .orderNo(orderNo)
                 .amount(order.getAmount())
                 .orderName(order.getOrderName())
                 .clientKey(clientKey)
