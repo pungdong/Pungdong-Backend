@@ -93,6 +93,14 @@ JWT-based, stateless (`SessionCreationPolicy.STATELESS`). `JwtAuthenticationFilt
 
 Auth failures return **JSON `401`** directly via `CustomAuthenticationEntryPoint`; access denials return **JSON `403`** via `CustomAccessDeniedHandler` (both wired in `SecurityConfiguration.exceptionHandling`; bodies are the `CommonResult` `{success:false, code, msg}` envelope, code/msg from `MessageSource`). This replaced the old 302-redirect-to-`/exception/*` scheme (done in PR #19). `ExceptionController` now only exposes a **vestigial** `GET /exception/forbiddenToken` (throws `ForbiddenTokenException` → `ExceptionAdvice`) — it is not wired into the auth flow anymore and is a cleanup candidate.
 
+### Client-supplied identity & object-level authorization (don't trust the client)
+
+**Repo rule (set 2026-06-28):** the requester's identity always comes from the **session**, never a client param — and every client-supplied resource id is **ownership-verified** before acting. Full principle: [docs/architecture/security.md](docs/architecture/security.md).
+
+- **Identity from session, never input.** The caller's own account id is read from `@CurrentUser`/JWT — **never** accepted as `@RequestParam`/`@PathVariable`/body. So FE/proxies/sniffers can't impersonate (`GET /x?userId=123` → increment to scrape others = the exact thing to prevent; Coupang removed all such params). Anything derivable from the session stays in BE logic.
+- **Object-level authorization (anti-IDOR).** Client-supplied resource ids (round/order/enrollment/session id) are fine, but the handler must verify the current user owns/can-access that object before acting — else **404 (존재 숨김)** / 403. Pattern in repo: `requireMyRound`, `requirePayable`, `requireForInstructor`, `owner.getId().equals(me.getId())`. Missing check = IDOR (남의 결제 취소·남의 정보 조회).
+- **Claude must apply proactively:** when adding/reviewing an endpoint, derive identity from `@CurrentUser` and add the ownership check on every id it accepts. **A signature taking an account/user id as a param is a red flag** — flag it and move identity to the session. Public-facing "fetch by id" features (e.g. Instructor Profile) use a **non-sequential handle (`nickName`)**, not account id.
+
 ### PII in requests — reads use GET, but PII parameters go in a POST body
 
 **Repo rule (set 2026-06-03):** *"Reads use `GET`; but if a request parameter is PII, put it in a `POST` body."* PII in a query/path string leaks into server access logs, proxies, browser history, and `Referer` headers — HTTPS encrypts data *in transit* but not these *at-rest* logs. So a semantically-read endpoint whose input is PII becomes a `POST` to keep that PII out of URLs.
