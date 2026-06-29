@@ -36,7 +36,7 @@ public class ReviewImageService {
         List<ReviewImageInfo> reviewImageInfos = new ArrayList<>();
 
         for (MultipartFile image : images) {
-            String fileUrl = s3Uploader.upload(image, "review-image", account.getEmail());
+            String fileUrl = s3Uploader.uploadPublic(image, "review-image");
             ReviewImage reviewImage = ReviewImage.builder()
                     .url(fileUrl)
                     .review(review)

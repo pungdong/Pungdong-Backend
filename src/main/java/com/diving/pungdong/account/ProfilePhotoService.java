@@ -38,7 +38,7 @@ public class ProfilePhotoService {
     public ProfilePhotoUpdateInfo updateProfilePhoto(Account account, MultipartFile image) throws IOException {
         ProfilePhoto profilePhoto = findByProfilePhotoId(account.getProfilePhoto().getId());
 
-        String fileUri = s3Uploader.upload(image, "profile-photo", account.getEmail());
+        String fileUri = s3Uploader.uploadPublic(image, "profile-photo");
         profilePhoto.setImageUrl(fileUri);
 
         account.setProfilePhoto(profilePhoto);
