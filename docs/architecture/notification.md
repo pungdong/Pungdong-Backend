@@ -1,5 +1,7 @@
 # 알림 (notification)
 
+> **도메인 문서(구현/어떻게)** — outbox→worker→FCM 파이프라인의 *메커니즘*을 소유한다. 푸시의 **정책·계약(FE SoT)·왜·결정 히스토리는 [features/push.md](../features/push.md)** 가 소유 (여기엔 복붙하지 않음). 디바이스 토큰 엔티티(`FirebaseToken`)는 [account](../../src/main/java/com/diving/pungdong/account/CLAUDE.md) 소유.
+
 ## 한 줄 요약
 
 비즈니스 트랜잭션에서 **Spring Application Event** 를 쏘면, 같은 트랜잭션 안에서 **outbox 행** 이 PENDING 으로 기록되고, 별도 워커가 10초마다 PENDING / FAILED 를 픽업해 **FCM** 으로 발송한다. Kafka 는 Phase 2-C 에서 완전 제거됨.
