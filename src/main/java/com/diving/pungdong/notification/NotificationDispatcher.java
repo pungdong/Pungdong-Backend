@@ -22,7 +22,9 @@ public class NotificationDispatcher {
     private final NotificationOutboxJpaRepo outboxRepo;
     private final NotificationDeliveryWorker deliveryWorker;
 
-    @Scheduled(fixedDelay = 10_000)
+    // 폴링 주기 기본 5초(env 로 튜닝 가능). provisioned RDS = 인스턴스 시간당 과금이라 폴링 빈도↑ 비용 ~0,
+    // 인덱스(idx_outbox_status_next_attempt) 탄 idle 쿼리는 sub-ms. 즉시성 필요한 건 웹소켓(푸시 아님).
+    @Scheduled(fixedDelayString = "${notification.dispatcher.fixed-delay-ms:5000}")
     public void dispatch() {
         List<NotificationOutbox> due = outboxRepo
                 .findByStatusInAndNextAttemptAtBeforeOrderByCreatedAtAsc(
