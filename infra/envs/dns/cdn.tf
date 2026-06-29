@@ -106,10 +106,25 @@ resource "aws_cloudfront_distribution" "public" {
   aliases         = [each.value.domain]
   price_class     = "PriceClass_200" # 북미/유럽/아시아(한국 엣지 포함). All 보다 저렴.
 
+  # 원본 origin — S3(OAC). default behavior 가 여기로 (원본/웹/SSG/og:image).
   origin {
     domain_name              = aws_s3_bucket.public[each.key].bucket_regional_domain_name
     origin_id                = "s3-${each.value.bucket}"
     origin_access_control_id = aws_cloudfront_origin_access_control.public[each.key].id
+  }
+
+  # 변환 origin — 리전 Lambda(Function URL, OAC). /r/* behavior 만 여기로 (온디맨드 리사이즈/포맷).
+  # cdn-transform.tf 참고. 변환이 깨져도 원본(위 S3 origin)은 영향 없음(fail-safe).
+  origin {
+    domain_name              = trimsuffix(trimprefix(aws_lambda_function_url.image[each.key].function_url, "https://"), "/")
+    origin_id                = "lambda-${each.value.bucket}"
+    origin_access_control_id = aws_cloudfront_origin_access_control.image_lambda[each.key].id
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = "https-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
   }
 
   default_cache_behavior {
@@ -120,6 +135,18 @@ resource "aws_cloudfront_distribution" "public" {
     compress               = true
     # Managed-CachingOptimized (AWS 관리형 캐시 정책 — 전역 고정 ID).
     cache_policy_id = "658327ea-f89d-4fab-a63d-7e88639e58f6"
+  }
+
+  # 리사이즈/포맷 변환 — /r/{key}?w=&h=&fm=&q=&fit= → 변환 Lambda. 쿼리를 캐시키에 포함.
+  ordered_cache_behavior {
+    path_pattern           = "/r/*"
+    target_origin_id       = "lambda-${each.value.bucket}"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD"]
+    cached_methods         = ["GET", "HEAD"]
+    compress               = true
+    # 캐시키에 포함된 쿼리(w/h/fm/q/fit)는 origin(Lambda)으로 자동 포워딩. Host 는 포워딩 안 함(OAC SigV4).
+    cache_policy_id = aws_cloudfront_cache_policy.image_transform.id
   }
 
   restrictions {

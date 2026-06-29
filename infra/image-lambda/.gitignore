@@ -1,0 +1,4 @@
+# 빌드 산출물 — build.sh 가 생성. 커밋하지 않음(소스 index.mjs/package.json/build.sh 만 커밋).
+package/
+node_modules/
+dist.zip
