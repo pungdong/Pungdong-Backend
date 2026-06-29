@@ -82,6 +82,7 @@ DELETE /me/devices/{token}    Authorization: Bearer <atk>
 - **BE 가 계약을 리드하고 FE 가 맞춘다.** 어려운 절반(전송 신뢰성)을 이미 푼 쪽이 계약을 정한다. FE 핸드오프는 토큰등록·탭라우팅까지만 정확하고 **전송 신뢰성은 보이지도 않는다**(fire-and-forget 가정). API 계약 권위 = BE([root CLAUDE.md](../../CLAUDE.md) "TypeScript API contract", types.ts SoT).
 - **미전송 건을 잃지 않는다 (durability).** [outbox](../architecture/notification.md) 로 "전송 *시도*"는 at-least-once 로 보존(`GAVE_UP` 도 영구). 단 **마지막 구간 FCM→단말은 보장 불가**(권한 off·토큰 죽음·OS 드랍) → 진짜 종착지는 **인앱 알림함**(서버 권위 레코드), 푸시는 그 위 best-effort 넛지. → [#132](https://github.com/pungdong/Pungdong-Backend/issues/132).
 - **at-least-once ⇒ 중복 전송 불가피 ⇒ dedup id 를 *지금* 박는다.** 부분 성공·markSent 실패 후 재시도로 같은 푸시가 두 번 갈 수 있다. `data.notificationId` 로 앱이 dedup. **나중에 추가하면 앱 재배포까지 엮인 FE 재협상**이 생기므로 1차 스코프에 포함. 이 id 는 후속 알림함(#132) 행과도 매칭.
+  - ⚠️ **dedup 이 누르는 건 정상(버그 아님).** production 은 `NotificationOutboxWriter.enqueue` 가 **행마다 새 UUID** 를 발급하므로 서로 다른 알림이 같은 id 를 가질 일이 없다 → 정상 알림은 절대 잘못 눌리지 않는다. 같은 `notificationId` 가 두 번 와서 앱이 누르는 건 **(a) 같은 outbox 행의 재시도**(= dedup 의 목적, 정상) 또는 **(b) 수동 테스트에서 고정 id 재사용**뿐. (2026-06-30 Android e2e 검증 중 (b) 로 "재발송이 안 뜬" 사례 = dedup 정상 작동 확인, BE 수정 불필요.)
 - **신분은 세션, 벤더는 URL 밖.** 토큰 등록도 `@CurrentUser` 기준([security](../architecture/security.md)), 경로는 벤더 비종속.
 
 ## FE 핸드오프와의 차이 — 정정점
