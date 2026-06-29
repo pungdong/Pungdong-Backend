@@ -12,7 +12,9 @@ spring:
         jdbc.lob.non_contextual_creation: true
         hbm2ddl.auto: validate   # Flyway 가 스키마 소유 — Hibernate 는 검증만(엔티티와 안 맞으면 부팅 실패로 drift 즉시 노출). 옛 update 졸업(#111)
         format_sql: true
-    show-sql: true
+    # prod-safe 기본값 = off (매 쿼리/디스패처 폴링 SQL 로그 노이즈·CloudWatch 비용 회피).
+    # 로컬 디버깅 시 env SPRING_JPA_SHOW_SQL=true 로 켜기.
+    show-sql: ${SPRING_JPA_SHOW_SQL:false}
 
   # DB 스키마 마이그레이션 (Flyway). db/migration/V1,V2… 를 순서대로 1회씩 실행 → 모든 환경 동일 스키마.
   # baseline-on-migrate: 기존(비어있지 않은) DB 는 V1 을 "이미 적용됨"으로 표시만 하고 안 돌림(V2 부터 실행).
