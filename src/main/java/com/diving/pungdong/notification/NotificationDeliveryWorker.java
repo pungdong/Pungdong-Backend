@@ -47,6 +47,7 @@ public class NotificationDeliveryWorker {
         }
 
         NotificationPayload payload = deserialize(row.getPayload());
+        NotificationCategory category = row.getType().getCategory();
 
         boolean anySuccess = false;
         boolean anyTransient = false;
@@ -54,7 +55,7 @@ public class NotificationDeliveryWorker {
 
         for (FirebaseToken token : tokens) {
             SendResult result = fcmGateway.send(token.getToken(),
-                    payload.getTitle(), payload.getBody(), payload.getData());
+                    payload.getTitle(), payload.getBody(), payload.getData(), category);
             switch (result) {
                 case SUCCESS:
                     anySuccess = true;
@@ -76,9 +77,12 @@ public class NotificationDeliveryWorker {
             row.markSent();
         } else if (anyTransient) {
             int nextAttempt = row.getAttempts() + 1;
-            row.markFailedAndScheduleRetry(
-                    "transient FCM failure on all tokens",
-                    LocalDateTime.now().plus(backoff(nextAttempt)));
+            Duration delay = backoff(nextAttempt);
+            // 마케팅 재시도가 야간으로 넘어가면 다음 08:00 KST 로 클램프(야간 광고 금지 유지).
+            LocalDateTime retryAt = category.isMarketing()
+                    ? MarketingSendWindow.clamp(java.time.Instant.now().plus(delay))
+                    : LocalDateTime.now().plus(delay);
+            row.markFailedAndScheduleRetry("transient FCM failure on all tokens", retryAt);
         } else {
             row.markGaveUp("all tokens permanent failure");
             log.warn("Notification {} gave up: all {} tokens returned permanent failure",

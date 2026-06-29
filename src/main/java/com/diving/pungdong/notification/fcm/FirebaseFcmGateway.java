@@ -1,5 +1,8 @@
 package com.diving.pungdong.notification.fcm;
 
+import com.diving.pungdong.notification.NotificationCategory;
+import com.google.firebase.messaging.AndroidConfig;
+import com.google.firebase.messaging.AndroidNotification;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
@@ -26,13 +29,25 @@ public class FirebaseFcmGateway implements FcmGateway {
     private final FirebaseMessaging firebaseMessaging;
 
     @Override
-    public SendResult send(String token, String title, String body, Map<String, String> data) {
+    public SendResult send(String token, String title, String body, Map<String, String> data,
+                           NotificationCategory category) {
+        // Android: category → channelId(앱이 만든 채널로 라우팅) + priority(거래성=HIGH 절전회피·즉시,
+        // 공지/마케팅=NORMAL). 채널 importance(heads-up/소리)는 앱 소유. iOS interruptionLevel 은 iOS 활성화 때.
+        AndroidConfig androidConfig = AndroidConfig.builder()
+                .setPriority(category.isTimeSensitive()
+                        ? AndroidConfig.Priority.HIGH
+                        : AndroidConfig.Priority.NORMAL)
+                .setNotification(AndroidNotification.builder()
+                        .setChannelId(category.channelId())
+                        .build())
+                .build();
         Message.Builder builder = Message.builder()
                 .setToken(token)
                 .setNotification(Notification.builder()
                         .setTitle(title)
                         .setBody(body)
-                        .build());
+                        .build())
+                .setAndroidConfig(androidConfig);
         if (data != null && !data.isEmpty()) {
             builder.putAllData(data);
         }

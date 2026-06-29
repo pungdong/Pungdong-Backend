@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -86,13 +87,17 @@ public class NotificationOutboxWriter {
         Map<String, String> data = new LinkedHashMap<>(payload.getData() == null ? Map.of() : payload.getData());
         data.put("notificationId", UUID.randomUUID().toString());
         payload.setData(data);
+        // 광고성(마케팅)은 야간(21~08 KST)이면 다음 08:00 으로 미뤄 큐잉(정보통신망법). 거래성은 즉시.
+        LocalDateTime nextAttemptAt = type.getCategory().isMarketing()
+                ? MarketingSendWindow.clamp(Instant.now())
+                : now;
         outboxRepo.save(NotificationOutbox.builder()
                 .type(type)
                 .recipientAccountId(recipientId)
                 .payload(serialize(payload))
                 .status(NotificationStatus.PENDING)
                 .attempts(0)
-                .nextAttemptAt(now)
+                .nextAttemptAt(nextAttemptAt)
                 .createdAt(now)
                 .build());
     }
