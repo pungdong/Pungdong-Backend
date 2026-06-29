@@ -163,9 +163,9 @@ public class AccountService implements UserDetailsService {
         accountJpaRepo.save(account);
     }
 
-    public void deleteAccount(Account account, String password) {
-        checkCorrectPassword(password, account);
-
+    // 비밀번호 재확인 없이 탈퇴 — 호출자(컨트롤러)가 세션으로 본인을 이미 증명. 결정 히스토리는
+    // docs/features/account-deletion.md. checkCorrectPassword 는 updatePassword 가 계속 사용한다.
+    public void deleteAccount(Account account) {
         account.setIsDeleted(true);
         account.setDeletedAt(LocalDateTime.now());
         Account updatedAccount = accountJpaRepo.save(account);

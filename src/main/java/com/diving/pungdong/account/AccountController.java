@@ -6,7 +6,6 @@ import com.diving.pungdong.global.security.JwtTokenProvider;
 import com.diving.pungdong.controller.lectureImage.LectureImageController;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.InstructorCertificate;
-import com.diving.pungdong.account.dto.delete.PasswordInfo;
 import com.diving.pungdong.account.dto.instructor.certificate.InstructorCertificateInfo;
 import com.diving.pungdong.account.dto.restore.AccountRestoreInfo;
 import com.diving.pungdong.account.dto.update.AccountUpdateInfo;
@@ -112,16 +111,14 @@ public class AccountController {
         return ResponseEntity.ok().body(model);
     }
 
+    // 탈퇴는 로그인 세션에서만 호출되므로 세션(JWT) 자체가 본인 증명 — 비밀번호 재확인을 받지 않는다.
+    // (표준 패턴은 재인증이 아니라 FE 의 "의도 확인"; soft delete + 30일 복구가 실수/악의 삭제의 안전망이고,
+    //  "탈퇴 ≤ 가입 난이도" 원칙·소셜로그인(비번 없음) 대응. 결정 히스토리는 docs/features/account-deletion.md.)
+    // 구버전 앱이 body 에 {password} 를 동봉해도 무시 — @RequestBody 를 받지 않으므로 그대로 204.
     @DeleteMapping
     public ResponseEntity<?> removeAccount(@CurrentUser Account account,
-                                           @Valid @RequestBody PasswordInfo passwordInfo,
-                                           BindingResult result,
                                            HttpServletRequest request) {
-        if (result.hasErrors()) {
-            throw new BadRequestException();
-        }
-
-        accountService.deleteAccount(account, passwordInfo.getPassword());
+        accountService.deleteAccount(account);
 
         // 탈퇴 즉시 현재 access token 을 블랙리스트(로그아웃과 동일 경로) — 이미 발급된 토큰이
         // 만료 전까지 살아있는 구멍을 막는다. refresh 재발급은 SignController.refresh 의 탈퇴 가드가 차단.
