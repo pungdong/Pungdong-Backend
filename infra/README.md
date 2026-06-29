@@ -20,7 +20,7 @@ staging 을 안 쓸 땐 `terraform destroy` → 과금 ~$0 (최종 스냅샷만 
 - **RDS MySQL** t4g.micro single-AZ (프리티어 750h/월). **ElastiCache Redis** t3.micro 1노드 (프리티어).
 - **NAT 없음** — 태스크를 public subnet 에 두고 public IP 부여 (NAT gateway $32/월 회피).
 - **시크릿 = SSM Parameter Store**(SecureString), 런타임 주입. 이미지엔 안 굽음.
-- **공개 이미지 CDN** — 코스/프로필/리뷰 등 공개 이미지는 비공개 버킷(`plop-{env}-public`) + **CloudFront(OAC)** + 커스텀 도메인(`cdn[-staging].plop.cool`)으로 서빙(엣지 캐싱=SEO/LCP, 버킷은 비공개 유지). persistent dns 레이어(`envs/dns/cdn.tf`)가 소유 — CloudFront 가 느리고 이미지 데이터가 쌓여 env churn 과 분리. 결정: backend `docs/features/image-storage-and-serving.md`.
+- **공개 이미지 CDN** — 코스/프로필/리뷰 등 공개 이미지는 비공개 버킷(`plop-{env}-public`) + **CloudFront(OAC)** + 커스텀 도메인(`cdn[-staging].plop.cool`)으로 서빙(엣지 캐싱=SEO/LCP, 버킷은 비공개 유지). persistent dns 레이어(`envs/dns/cdn.tf`)가 소유 — CloudFront 가 느리고 이미지 데이터가 쌓여 env churn 과 분리. 온디맨드 리사이즈/포맷(모바일 앱)은 `/r/*` behavior → 리전 Lambda+sharp(`envs/dns/cdn-transform.tf` + `image-lambda/`, 배포 전 `build.sh`). 원본 `/{key}` 는 S3 origin 그대로(변환 fail-safe). 결정: backend `docs/features/image-storage-and-serving.md`.
 - 코어 외 의도적 생략(출시 후 트래픽 보고): Multi-AZ, auto-scaling, **앱 트래픽용** CloudFront/WAF. (이미지 CDN 은 위처럼 도입.)
 
 ## 구조
