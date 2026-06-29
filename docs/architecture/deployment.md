@@ -80,6 +80,15 @@ feat/xxx (로컬 개발 + 테스트)  →  PR(CI 자동 테스트)  →  master 
 - `.github/workflows/deploy.yml` — 수동 버튼(`workflow_dispatch`), action 드롭다운: `staging-up`(terraform apply) / `staging-down`(terraform destroy) / `production-deploy`(ECS 이미지 교체 + 헬스확인).
 - 인증 = OIDC (정적 키 0). bootstrap 의 provider + role `plop-github-actions`(repo 게이트, AdministratorAccess — 추후 least-privilege).
 
+### staging 새 코드 재배포 — 단골 함정 2개 (순서 중요)
+
+이미 떠 있는 staging 에 **새 master 코드**를 올릴 때(= 이미지 갱신):
+
+1. **`master-latest` 가 그 빌드인지 먼저 확인하고 배포한다.** `build.yml` 은 머지 후 **비동기(~10분)** 로 `master-latest` 를 굽는다. 빌드 끝나기 전에 배포하면 **옛 이미지를 재pull** 해서 헛돈다. → `aws ecr describe-images ... imageTag=master-latest` 의 태그에 **`master-<머지sha>`** 가 같이 붙었는지 폴링으로 확인 후 배포. (`gh run watch` 는 간헐 `401 Bad credentials` 로 빌드 완료 전에 빠져나갈 수 있어 신뢰 ✗ — **AWS creds 로 ECR 폴링이 확실**.)
+2. **`force-new-deployment` 로 굴려야 새 task 가 뜬다.** 서비스는 `lifecycle.ignore_changes=[task_definition]` 라 `terraform apply`(staging-up) 만으론 재시작 안 함 → `aws ecs update-service --cluster plop-staging-cluster --service plop-staging-svc --force-new-deployment`. (env 가 바뀐 경우엔 staging-up 으로 새 task def revision 만든 뒤 그 revision 으로 update-service.)
+
+검증: `rolloutState=COMPLETED` + CloudWatch `/ecs/plop-staging` 에 `Started PungdongApplication`. **롤링이라 새 task 가 health 못 넘기면 옛 task 가 계속 서빙 = 무중단**(새 코드만 안 뜸) — 그래서 "배포했는데 안 바뀜" 이면 새 task 크래시 로그부터 본다.
+
 ## 6. 피처 플래그 — 환경별은 env, 전역 런타임은 Sanity
 
 | 플래그 종류 | 메커니즘 | 예 |
