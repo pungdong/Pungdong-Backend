@@ -121,7 +121,7 @@ class InstructorApplicationUseCaseTest {
         return submitBody("FREEDIVING", verificationId, orgCode, orgOther, urls);
     }
 
-    /** url 마다 (orgCode, orgOther, fileURL) 자격증 1건. urls=null 이면 자격증 없음(불필요 종목용). */
+    /** url 마다 (orgCode, orgOther, fileKey) 자격증 1건. urls=null 이면 자격증 없음(불필요 종목용). */
     private String submitBody(String disciplineCode, Long verificationId, String orgCode, String orgOther, List<String> urls) {
         Map<String, Object> body = new HashMap<>();
         body.put("disciplineCode", disciplineCode);
@@ -132,7 +132,7 @@ class InstructorApplicationUseCaseTest {
                 Map<String, Object> c = new HashMap<>();
                 c.put("organizationCode", orgCode);
                 c.put("organizationOther", orgOther);
-                c.put("fileURL", url);
+                c.put("fileKey", url);
                 certs.add(c);
             }
             body.put("certificates", certs);
@@ -140,7 +140,7 @@ class InstructorApplicationUseCaseTest {
         return write(body);
     }
 
-    /** 여러 단체 자격증을 한 신청에 담는 제출 body — certs = [{org, fileURL}, ...]. */
+    /** 여러 단체 자격증을 한 신청에 담는 제출 body — certs = [{org, fileKey}, ...]. */
     private String submitBodyMultiCert(String disciplineCode, Long verificationId, List<String[]> orgUrlPairs) {
         Map<String, Object> body = new HashMap<>();
         body.put("disciplineCode", disciplineCode);
@@ -149,7 +149,7 @@ class InstructorApplicationUseCaseTest {
         for (String[] pair : orgUrlPairs) {
             Map<String, Object> c = new HashMap<>();
             c.put("organizationCode", pair[0]);
-            c.put("fileURL", pair[1]);
+            c.put("fileKey", pair[1]);
             certs.add(c);
         }
         body.put("certificates", certs);
@@ -198,7 +198,7 @@ class InstructorApplicationUseCaseTest {
         assertThat(saved.getDisciplineCode()).isEqualTo("FREEDIVING");
         // 자격증/본인확인은 LAZY 연관이라 트랜잭션 밖에서 직접 만지지 않고 별도 조회로 검증
         assertThat(certificateRepo.findAll()).hasSize(1);
-        assertThat(certificateRepo.findAll().get(0).getFileURL()).isEqualTo("https://s3/cert1.png");
+        assertThat(certificateRepo.findAll().get(0).getFileKey()).isEqualTo("https://s3/cert1.png");
         assertThat(certificateRepo.findAll().get(0).getOrganizationCode()).isEqualTo("PADI");
         assertThat(identityVerificationRepo.findAll()).hasSize(1);
     }
@@ -238,6 +238,32 @@ class InstructorApplicationUseCaseTest {
         assertThat(item.get("identityVerified").asBoolean()).isTrue();
         assertThat(item.get("certificates")).hasSize(2);
         assertThat(item.get("certificates").get(0).get("organizationCode").asText()).isEqualTo("AIDA");
+    }
+
+    @Test
+    @DisplayName("S4: 조회 시 자격증은 저장 key 를 그대로 돌려주고, 표시용 viewUrl(한시 발급)을 함께 내려준다")
+    void getMyApplications_emitsStoredKeyAndPresignedViewUrl() throws Exception {
+        Account student = createAccount("s4@test.com", "diver4", Role.STUDENT);
+        String token = tokenFor(student);
+        long verificationId = verifyIdentity(token);
+        // 저장 참조 key → 표시용 한시 URL 변환을 스텁(운영에선 presigned GET).
+        given(certificateImageStorage.viewUrl("instructorCertificate/9/cert.png"))
+                .willReturn("https://s3.example/instructorCertificate/9/cert.png?X-Amz-Signature=stub");
+        mockMvc.perform(post("/instructor-applications")
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(submitBody(verificationId, "AIDA", null, List.of("instructorCertificate/9/cert.png"))))
+                .andExpect(status().isCreated());
+
+        MvcResult res = mockMvc.perform(get("/instructor-applications/me")
+                        .header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode cert = objectMapper.readTree(res.getResponse().getContentAsString())
+                .get("_embedded").get("applications").get(0).get("certificates").get(0);
+        // 저장 key 는 라운드트립(클라가 제출에 다시 쓰는 값), viewUrl 은 표시 전용 한시 URL
+        assertThat(cert.get("fileKey").asText()).isEqualTo("instructorCertificate/9/cert.png");
+        assertThat(cert.get("viewUrl").asText()).isEqualTo("https://s3.example/instructorCertificate/9/cert.png?X-Amz-Signature=stub");
     }
 
     /* ════════════════ V — 검증 거절 ════════════════ */
@@ -463,10 +489,10 @@ class InstructorApplicationUseCaseTest {
     /* ════════════════ U — 업로드 (2-phase 1단계) ════════════════ */
 
     @Test
-    @DisplayName("U1: 자격증 이미지를 업로드하면 S3 URL 을 돌려준다 (2-phase 1단계)")
-    void uploadCertificateImage_returnsUrl() throws Exception {
+    @DisplayName("U1: 자격증 이미지를 업로드하면 저장 참조 key 를 돌려준다 (2-phase 1단계)")
+    void uploadCertificateImage_returnsKey() throws Exception {
         Account student = createAccount("u1@test.com", "diver15", Role.STUDENT);
-        given(certificateImageStorage.store(any(), any())).willReturn("https://s3.fake/instructorCertificate/x.png");
+        given(certificateImageStorage.store(any(), any())).willReturn("instructorCertificate/1/x.png");
 
         MockMultipartFile file = new MockMultipartFile(
                 "image", "cert.png", MediaType.IMAGE_PNG_VALUE, "fake-bytes".getBytes());
@@ -475,7 +501,7 @@ class InstructorApplicationUseCaseTest {
                         .file(file)
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(student)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.fileURL").value("https://s3.fake/instructorCertificate/x.png"));
+                .andExpect(jsonPath("$.fileKey").value("instructorCertificate/1/x.png"));
     }
 
     @Test
@@ -670,7 +696,7 @@ class InstructorApplicationUseCaseTest {
         Map<String, Object> addBody = new HashMap<>();
         addBody.put("disciplineCode", "FREEDIVING");
         addBody.put("organizationCode", "PADI");
-        addBody.put("fileURL", "https://s3/padi-new.png");
+        addBody.put("fileKey", "https://s3/padi-new.png");
         mockMvc.perform(post("/instructor-applications/certificates").header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(write(addBody)))

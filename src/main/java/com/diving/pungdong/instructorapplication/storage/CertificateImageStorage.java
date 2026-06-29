@@ -17,6 +17,16 @@ import java.io.IOException;
  */
 public interface CertificateImageStorage {
 
-    /** 이미지를 저장하고 접근 가능한 URL 을 반환한다. */
-    String store(MultipartFile image, String ownerEmail) throws IOException;
+    /**
+     * 이미지를 비공개로 저장하고 <b>저장 참조</b>를 반환한다.
+     * (S3 = 객체 key, 로컬 = 서빙 URL). 소유자 id 는 회원별 그룹핑/정리에 쓴다.
+     */
+    String store(MultipartFile image, Long ownerId) throws IOException;
+
+    /**
+     * 저장 참조를 한시 열람 가능한 URL 로 변환한다 — S3 는 presigned GET(짧은 TTL),
+     * 로컬은 정적 서빙 URL 을 그대로 반환. 자격증 이미지는 개인정보라 공개 URL 로 두지 않고,
+     * 어드민/본인이 조회하는 시점에만 이 URL 을 발급한다.
+     */
+    String viewUrl(String storedRef);
 }

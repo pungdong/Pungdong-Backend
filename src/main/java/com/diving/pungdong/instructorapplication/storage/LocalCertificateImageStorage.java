@@ -41,7 +41,7 @@ public class LocalCertificateImageStorage implements CertificateImageStorage {
     }
 
     @Override
-    public String store(MultipartFile image, String ownerEmail) throws IOException {
+    public String store(MultipartFile image, Long ownerId) throws IOException {
         Path targetDir = baseDir.resolve(SUB_DIR);
         Files.createDirectories(targetDir);
 
@@ -52,6 +52,12 @@ public class LocalCertificateImageStorage implements CertificateImageStorage {
         String url = baseUrl + URL_PREFIX + "/" + SUB_DIR + "/" + fileName;
         log.info("[storage-local] saved certificate image to {} → {}", target, url);
         return url;
+    }
+
+    /** 로컬은 정적 서빙 URL 을 저장 참조로 쓰므로 그대로 열람 가능 — 변환 없이 반환. */
+    @Override
+    public String viewUrl(String storedRef) {
+        return storedRef;
     }
 
     private String extension(MultipartFile image) {

@@ -25,11 +25,13 @@ class LocalCertificateImageStorageTest {
         MockMultipartFile image = new MockMultipartFile(
                 "image", "padi_owd.JPG", "image/jpeg", "fake-image-bytes".getBytes());
 
-        String url = storage.store(image, "diver@test.com");
+        String url = storage.store(image, 1L);
 
         // URL 형태: <base>/local-uploads/instructorCertificate/<uuid>.jpg (base 의 끝 슬래시는 정규화)
         assertThat(url).startsWith("http://localhost:8080/local-uploads/instructorCertificate/");
         assertThat(url).endsWith(".jpg"); // 원본 확장자 보존 (소문자)
+        // 로컬 저장 참조는 그대로 서빙 가능 — viewUrl 은 변환 없이 동일 URL 을 돌려준다.
+        assertThat(storage.viewUrl(url)).isEqualTo(url);
 
         // 실제 파일이 디스크에 존재하고 내용이 보존됐는지
         String fileName = url.substring(url.lastIndexOf('/') + 1);
@@ -47,7 +49,7 @@ class LocalCertificateImageStorageTest {
         MockMultipartFile image = new MockMultipartFile(
                 "image", "noext", "image/png", "x".getBytes());
 
-        String url = storage.store(image, "diver@test.com");
+        String url = storage.store(image, 1L);
 
         assertThat(url).endsWith(".png");
     }

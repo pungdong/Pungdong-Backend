@@ -31,7 +31,12 @@ public class ApplicationCertificate {
     /** organizationCode 가 "OTHER" 일 때 직접입력 단체명. */
     private String organizationOther;
 
-    private String fileURL;
+    /**
+     * 이미지 저장 참조 — S3 객체 key(비공개 업로드) 또는 로컬 서빙 URL. 공개 URL 이 아니므로
+     * 열람은 조회 시점에 presigned 로 변환해 노출한다. (컬럼명은 {@code file_url} 유지 — 마이그레이션 불요.)
+     */
+    @Column(name = "file_url")
+    private String fileKey;
 
     /** 업로드/표시 순서 (0-base). */
     private int sortOrder;

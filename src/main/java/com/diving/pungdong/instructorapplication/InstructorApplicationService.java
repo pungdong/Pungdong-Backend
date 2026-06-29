@@ -50,8 +50,8 @@ public class InstructorApplicationService {
             throw new BadRequestException();
         }
         try {
-            String url = certificateImageStorage.store(image, account.getEmail());
-            return CertificateImageResult.builder().fileURL(url).build();
+            String key = certificateImageStorage.store(image, account.getId());
+            return CertificateImageResult.builder().fileKey(key).build();
         } catch (IOException e) {
             throw new BadRequestException();
         }
@@ -137,7 +137,7 @@ public class InstructorApplicationService {
         if (application.getStatus() != InstructorApplicationStatus.APPROVED) {
             throw new BadRequestException(); // 승인된 강사만 추가 가능 (검수중/반려는 submit/resubmit)
         }
-        if (isBlank(request.getOrganizationCode()) || isBlank(request.getFileURL())) {
+        if (isBlank(request.getOrganizationCode()) || isBlank(request.getFileKey())) {
             throw new BadRequestException();
         }
         if (ORGANIZATION_OTHER.equalsIgnoreCase(request.getOrganizationCode()) && isBlank(request.getOrganizationOther())) {
@@ -148,7 +148,7 @@ public class InstructorApplicationService {
                 .organizationCode(request.getOrganizationCode())
                 .organizationOther(ORGANIZATION_OTHER.equalsIgnoreCase(request.getOrganizationCode())
                         ? request.getOrganizationOther() : null)
-                .fileURL(request.getFileURL())
+                .fileKey(request.getFileKey())
                 .sortOrder(application.getCertificates().size())
                 .build());
         application.setUpdatedAt(LocalDateTime.now());
@@ -262,7 +262,7 @@ public class InstructorApplicationService {
             throw new BadRequestException(); // 자격증 1건 이상 필수
         }
         for (ApplicationCertificateDto cert : certs) {
-            if (isBlank(cert.getFileURL())) {
+            if (isBlank(cert.getFileKey())) {
                 throw new BadRequestException(); // 자격증 이미지 필수
             }
             if (isBlank(cert.getOrganizationCode())) {
@@ -294,7 +294,7 @@ public class InstructorApplicationService {
                         .organizationCode(c.getOrganizationCode())
                         .organizationOther(ORGANIZATION_OTHER.equalsIgnoreCase(c.getOrganizationCode())
                                 ? c.getOrganizationOther() : null)
-                        .fileURL(c.getFileURL())
+                        .fileKey(c.getFileKey())
                         .sortOrder(i)
                         .build());
             });
@@ -305,13 +305,18 @@ public class InstructorApplicationService {
         return s == null || s.isBlank();
     }
 
+    /**
+     * 조회 응답용 자격증 DTO — 저장 key 는 그대로 echo 하고, 표시용 {@code viewUrl} 은 이 시점에
+     * presigned(짧은 TTL)로 발급한다. 목록(toSummary)엔 이미지가 안 나가므로 발급도 안 함.
+     */
     private List<ApplicationCertificateDto> certificateDtos(InstructorApplication application) {
         return application.getCertificates().stream()
                 .sorted((a, b) -> Integer.compare(a.getSortOrder(), b.getSortOrder()))
                 .map(c -> ApplicationCertificateDto.builder()
                         .organizationCode(c.getOrganizationCode())
                         .organizationOther(c.getOrganizationOther())
-                        .fileURL(c.getFileURL())
+                        .fileKey(c.getFileKey())
+                        .viewUrl(certificateImageStorage.viewUrl(c.getFileKey()))
                         .build())
                 .collect(Collectors.toList());
     }

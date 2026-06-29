@@ -14,6 +14,11 @@ public class ApplicationCertificateDto {
     private String organizationCode;
     /** organizationCode 가 "OTHER" 일 때 직접입력. */
     private String organizationOther;
-    /** 2-phase 업로드로 받은 이미지 URL. */
-    private String fileURL;
+    /** 2-phase 업로드로 받은 저장 참조 key. 제출 시 클라가 이 값을 그대로 보낸다(라운드트립). */
+    private String fileKey;
+    /**
+     * 표시용 한시 열람 URL(presigned). <b>조회 응답에만</b> 채워진다 — 제출 요청에선 무시.
+     * 자격증은 개인정보라 짧은 TTL 이고, 어드민/본인 조회 시점에 발급된다.
+     */
+    private String viewUrl;
 }
