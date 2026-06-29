@@ -318,7 +318,10 @@ export interface MyConsentResponse {
  * 요청은 multipart/form-data, 파트 이름 `image` (단일 파일). 여러 장이면 반복 호출.
  */
 export interface CertificateImageResponse extends HalLinks {
-  fileURL: string;
+  // 저장 참조 key (공개 URL 아님 — 자격증은 개인정보라 비공개 버킷에 올라감).
+  // 제출 JSON 의 certificates[].fileKey 로 이 값을 그대로 돌려보낸다.
+  // 미리보기는 방금 고른 로컬 파일 blob 으로(이 응답은 표시용 URL 이 아님).
+  fileKey: string;
 }
 
 // ── 종목 (discipline) — docs/architecture/discipline.md ──
@@ -340,7 +343,8 @@ export interface DisciplineResponse {
 export interface ApplicationCertificate {
   organizationCode: string; // 'AIDA' | 'PADI' | 'OTHER' ... (Sanity 카탈로그, 종목별)
   organizationOther?: string; // 'OTHER' 일 때
-  fileURL: string; // 2-phase 업로드로 받은 URL
+  fileKey: string; // 저장 참조 key. 업로드 응답의 fileKey 를 제출 시 그대로 보냄(라운드트립).
+  viewUrl?: string; // 조회 응답에만 — 표시용 한시 presigned URL(짧은 TTL). 제출 시 미포함.
 }
 
 /** POST /instructor-applications (제출) · PUT /instructor-applications/me (재제출) 요청. */
@@ -428,7 +432,7 @@ export interface AddCertificateRequest {
   disciplineCode: string;
   organizationCode: string;
   organizationOther?: string;
-  fileURL: string;
+  fileKey: string; // 업로드 응답의 fileKey
 }
 
 /** POST /admin/instructor-applications/{id}/reject 요청. */

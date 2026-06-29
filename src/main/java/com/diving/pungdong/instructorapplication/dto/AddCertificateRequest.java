@@ -24,7 +24,7 @@ public class AddCertificateRequest {
 
     private String organizationOther;
 
-    /** 2-phase 업로드로 받은 이미지 URL. */
+    /** 2-phase 업로드로 받은 저장 참조 key. */
     @NotEmpty
-    private String fileURL;
+    private String fileKey;
 }
