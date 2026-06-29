@@ -282,6 +282,8 @@ erDiagram
 2. **service account JSON** (`firebase.credentials.path`) — 파일 키. 로컬/임시.
 3. **ADC** — 그 외.
 
+**발송 메시지 구성** (`FirebaseFcmGateway`): `notification(title,body)` + `data` 에 더해 **`AndroidConfig.priority=HIGH`** 를 실어, 절전(Doze)로 묶이지 않고 즉시 전달 + heads-up 자격. (실제 heads-up 팝업은 앱 채널 importance 도 HIGH 여야 — `channelId` 지정은 FE 협의 후속. `ApnsConfig`(iOS badge/sound)는 iOS 활성화 때.)
+
 **예외 분류** (`FirebaseFcmGateway`):
 
 - `PERMANENT_FAILURE` ← `UNREGISTERED` (앱 삭제 / 토큰 만료), `INVALID_ARGUMENT`, `SENDER_ID_MISMATCH`, `THIRD_PARTY_AUTH_ERROR` → **토큰 DB 에서 삭제**

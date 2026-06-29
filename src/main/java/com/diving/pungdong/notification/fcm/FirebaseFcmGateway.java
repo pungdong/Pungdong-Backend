@@ -1,5 +1,6 @@
 package com.diving.pungdong.notification.fcm;
 
+import com.google.firebase.messaging.AndroidConfig;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
@@ -32,6 +33,11 @@ public class FirebaseFcmGateway implements FcmGateway {
                 .setNotification(Notification.builder()
                         .setTitle(title)
                         .setBody(body)
+                        .build())
+                // 강사·수강생 모두 즉시성이 중요 → HIGH 로 절전(Doze) 묶임 회피 + heads-up 자격.
+                // (실제 heads-up 팝업은 앱 채널 importance 도 HIGH 여야 함 — channelId 는 FE 협의 후속.)
+                .setAndroidConfig(AndroidConfig.builder()
+                        .setPriority(AndroidConfig.Priority.HIGH)
                         .build());
         if (data != null && !data.isEmpty()) {
             builder.putAllData(data);
