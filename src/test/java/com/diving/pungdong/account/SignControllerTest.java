@@ -10,7 +10,6 @@ import com.diving.pungdong.account.Role;
 import com.diving.pungdong.domain.lecture.Organization;
 import com.diving.pungdong.account.dto.emailCheck.EmailInfo;
 import com.diving.pungdong.account.dto.emailCheck.EmailResult;
-import com.diving.pungdong.account.dto.FirebaseTokenDto;
 import com.diving.pungdong.account.dto.nickNameCheck.NickNameResult;
 import com.diving.pungdong.account.dto.signIn.SignInInfo;
 import com.diving.pungdong.account.dto.signUp.SignUpInfo;
@@ -357,36 +356,6 @@ class SignControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("success").value(false))
                 .andExpect(jsonPath("code").value(-1001));
-    }
-
-    @Test
-    @DisplayName("firebase token 등록")
-    public void enrollFirebaseToken() throws Exception {
-        Account account = createAccount(Role.STUDENT);
-        String accessToken = jwtTokenProvider.createAccessToken(String.valueOf(account.getId()), account.getRoles());
-
-        FirebaseTokenDto firebaseTokenDto = FirebaseTokenDto.builder()
-                .token("abcd12341234")
-                .build();
-
-        mockMvc.perform(post("/sign/firebase-token")
-                .header(HttpHeaders.AUTHORIZATION, accessToken)
-                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(firebaseTokenDto)))
-                .andDo(print())
-                .andExpect(status().isNoContent())
-                .andDo(
-                        document(
-                                "sign-enroll-firebase-token",
-                                requestHeaders(
-                                        headerWithName(HttpHeaders.CONTENT_TYPE).description("JSON 타입"),
-                                        headerWithName(HttpHeaders.AUTHORIZATION).description("access token 값")
-                                ),
-                                requestFields(
-                                        fieldWithPath("token").description("firebase token 값")
-                                )
-                        )
-                );
     }
 
 

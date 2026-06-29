@@ -205,12 +205,14 @@ export interface RestoreAccountRequest {
 // ============================================================
 
 /**
- * POST /sign/firebase-token 요청 — 디바이스 FCM 토큰을 계정에 묶는다.
- * 같은 토큰을 다른 계정으로 등록하면 upsert (account_id 갱신, 행 추가 X).
- * 응답은 204 No Content.
+ * POST /me/devices 요청 — 디바이스 FCM 토큰을 현재 로그인 계정에 묶는다 (벤더 비종속 네이밍).
+ * 같은 토큰 재등록 = upsert (account_id 갱신, 행 추가 X). 신분은 세션(Authorization), 바디 아님.
+ * platform 은 선택 (보내면 저장). 응답 200. 해제는 DELETE /me/devices/{token} → 204.
+ * 발송 시 data.notificationId 로 중복 푸시를 dedup (at-least-once). docs/features/push.md.
  */
-export interface RegisterFirebaseTokenRequest {
+export interface RegisterDeviceRequest {
   token: string;
+  platform?: DeviceType; // 'IOS' | 'ANDROID'
 }
 
 // ============================================================

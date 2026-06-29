@@ -136,7 +136,7 @@ class AccountDeletionUseCaseTest {
                 .header(HttpHeaders.AUTHORIZATION, token))
                 .andExpect(status().isNoContent());
 
-        mockMvc.perform(post("/sign/firebase-token")
+        mockMvc.perform(post("/me/devices")
                 .header(HttpHeaders.AUTHORIZATION, token)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"token\":\"x\"}"))

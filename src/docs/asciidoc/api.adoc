@@ -121,9 +121,13 @@ operation::signUp[]
 === 유저 로그인
 operation::signIn[]
 
-[[resource-sign-enroll-firebase-token]]
-=== Firebase Token 등록
-operation::sign-enroll-firebase-token[]
+[[resource-device-register]]
+=== 디바이스 토큰 등록
+operation::device-register[]
+
+[[resource-device-unregister]]
+=== 디바이스 토큰 해제
+operation::device-unregister[]
 
 [[resource-account-instructor-certificate-read-list]]
 === 강사 자격증 조회

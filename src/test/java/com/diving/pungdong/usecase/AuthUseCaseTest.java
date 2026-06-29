@@ -121,7 +121,7 @@ class AuthUseCaseTest {
         Account student = stubAccount(1L, Role.STUDENT);
         String expired = expiredToken(student);
 
-        mockMvc.perform(post("/sign/firebase-token")
+        mockMvc.perform(post("/me/devices")
                 .header(HttpHeaders.AUTHORIZATION, expired)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"token\":\"x\"}"))
@@ -136,7 +136,7 @@ class AuthUseCaseTest {
         Account student = stubAccount(1L, Role.STUDENT);
         String wrong = tokenWithWrongSignature(student);
 
-        mockMvc.perform(post("/sign/firebase-token")
+        mockMvc.perform(post("/me/devices")
                 .header(HttpHeaders.AUTHORIZATION, wrong)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"token\":\"x\"}"))
@@ -148,7 +148,7 @@ class AuthUseCaseTest {
     @Test
     @DisplayName("T3: Authorization 헤더 없이 보호된 API 호출 시 401 + JSON 응답")
     void missingAuthHeader_isRejected() throws Exception {
-        mockMvc.perform(post("/sign/firebase-token")
+        mockMvc.perform(post("/me/devices")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"token\":\"x\"}"))
                 .andExpect(status().isUnauthorized())
@@ -159,7 +159,7 @@ class AuthUseCaseTest {
     @Test
     @DisplayName("T4: 형식이 깨진 문자열을 토큰으로 보내면 401 + JSON 응답")
     void malformedToken_isRejected() throws Exception {
-        mockMvc.perform(post("/sign/firebase-token")
+        mockMvc.perform(post("/me/devices")
                 .header(HttpHeaders.AUTHORIZATION, "not.a.valid.jwt")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"token\":\"x\"}"))
@@ -328,7 +328,7 @@ class AuthUseCaseTest {
                 .andExpect(status().isOk());
 
         // 로그아웃 후 동일 access token 으로 보호된 API 호출 → 401 (블랙리스트 hit)
-        mockMvc.perform(post("/sign/firebase-token")
+        mockMvc.perform(post("/me/devices")
                 .header(HttpHeaders.AUTHORIZATION, accessToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"token\":\"x\"}"))
