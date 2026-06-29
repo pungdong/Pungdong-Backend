@@ -8,6 +8,9 @@ locals {
   ssm_prefix     = "/plop/staging"
   account_id     = data.aws_caller_identity.current.account_id
   uploads_bucket = "${local.name_prefix}-uploads"
+  # 공개 이미지 버킷 + CDN — persistent dns 레이어(cdn.tf)가 소유. 여기선 이름/도메인만 참조.
+  public_bucket = "${local.name_prefix}-public"
+  cdn_base_url  = "https://cdn-staging.plop.cool"
 
   # 공유 ECR(bootstrap) 의 이미지 URI 조립.
   container_image = "${local.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/${var.ecr_repo_name}:${var.image_tag}"
@@ -54,10 +57,13 @@ locals {
     FIREBASE_WIF_SERVICE_ACCOUNT_EMAIL = "firebase-adminsdk-fbsvc@plop-5997b.iam.gserviceaccount.com"
     # WIF(external_account) 자격엔 project id 가 없어 Admin SDK 가 FCM 엔드포인트
     # (/v1/projects/<id>/messages:send)를 못 만든다 → project id 를 표준 env 로 명시.
-    GOOGLE_CLOUD_PROJECT               = "plop-5997b"
-    AWS_REGION                         = var.aws_region
-    STORAGE_S3_ENABLED         = "true"
-    CLOUD_AWS_S3_BUCKET        = local.uploads_bucket
+    GOOGLE_CLOUD_PROJECT = "plop-5997b"
+    AWS_REGION           = var.aws_region
+    STORAGE_S3_ENABLED   = "true"
+    CLOUD_AWS_S3_BUCKET  = local.uploads_bucket
+    # 공개 이미지(코스/프로필/리뷰) — 공개 버킷에 올리고 CDN URL 로 서빙. (자격증=비공개 uploads 버킷.)
+    CLOUD_AWS_S3_PUBLIC_BUCKET = local.public_bucket
+    STORAGE_PUBLIC_BASE_URL    = local.cdn_base_url
     IDENTITY_VERIFICATION_MODE = "stub"
     ADDRESS_GEOCODE_MODE       = "juso"
     JUSO_REFERER               = "https://staging.plop.cool"
@@ -106,6 +112,7 @@ module "app" {
   app_sg_id           = module.network.app_sg_id
   container_image     = local.container_image
   uploads_bucket_name = local.uploads_bucket
+  public_bucket_name  = local.public_bucket
   environment         = local.environment
   secrets             = local.secrets
   certificate_arn     = var.certificate_arn

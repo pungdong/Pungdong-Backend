@@ -25,3 +25,15 @@ provider "aws" {
     }
   }
 }
+
+# CloudFront 인증서(ACM)는 us-east-1 에서만 인식된다 — cdn.tf 의 aws_acm_certificate 전용.
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+  default_tags {
+    tags = {
+      Project = "pungdong"
+      Managed = "terraform-dns"
+    }
+  }
+}

@@ -94,11 +94,20 @@ resource "aws_iam_role_policy" "task_s3" {
   role = aws_iam_role.task.id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:ListBucket"]
-      Resource = [aws_s3_bucket.uploads.arn, "${aws_s3_bucket.uploads.arn}/*"]
-    }]
+    Statement = concat(
+      [{
+        Effect   = "Allow"
+        Action   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:ListBucket"]
+        Resource = [aws_s3_bucket.uploads.arn, "${aws_s3_bucket.uploads.arn}/*"]
+      }],
+      # 공개 이미지 버킷(persistent dns 레이어 소유, cdn.tf)에 업로드 권한. ARN 문자열 참조라
+      # 이 state 에 버킷 리소스가 없어도 됨(다른 state 가 소유). 읽기는 CloudFront 가 함.
+      var.public_bucket_name == "" ? [] : [{
+        Effect   = "Allow"
+        Action   = ["s3:PutObject"]
+        Resource = ["arn:aws:s3:::${var.public_bucket_name}/*"]
+      }]
+    )
   })
 }
 
