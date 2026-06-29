@@ -9,8 +9,9 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 
 /**
- * 운영용 — 기존 {@link S3Uploader} 에 위임해 AWS S3 에 올린다.
- * {@code pungdong.storage.s3.enabled=true} 일 때만 활성 (Phase 4 버킷 provision 후).
+ * 운영용 — {@link S3Uploader} 에 위임해 코스 이미지를 <b>공개</b>로 올린다(공개 버킷 + CloudFront OAC).
+ * 코스 이미지는 노출/SEO 가 목적이라 안정 공개 URL 을 반환한다(자격증의 비공개 presigned 와 반대).
+ * {@code pungdong.storage.s3.enabled=true} 일 때만 활성.
  */
 @Component
 @ConditionalOnProperty(name = "pungdong.storage.s3.enabled", havingValue = "true")
@@ -23,6 +24,6 @@ public class S3CourseImageStorage implements CourseImageStorage {
 
     @Override
     public String store(MultipartFile image, String ownerEmail) throws IOException {
-        return s3Uploader.upload(image, COURSE_DIR, ownerEmail);
+        return s3Uploader.uploadPublic(image, COURSE_DIR);
     }
 }

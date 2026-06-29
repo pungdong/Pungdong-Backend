@@ -45,14 +45,40 @@ public class S3Uploader {
     private String bucket;
 
     /**
-     * 공개-의도 이미지(코스/프로필/리뷰/강의 등) 업로드 — 기존 호출처 호환용. 객체를 올리고 객체
-     * URL 을 반환한다. (버킷이 비공개라 이 URL 의 직접 열람은 공개-버킷 후속 PR 전까지 동작하지
-     * 않는다 — 지금은 "업로드가 성공"하는 것까지가 목적.) {@code userEmail} 은 레거시 시그니처
-     * 호환으로 남아있을 뿐 키에 쓰지 않는다(PII 키 금지).
+     * 공개-의도 이미지 전용 공개 버킷(CloudFront OAC origin). 비면 메인(비공개) 버킷으로 폴백 —
+     * 인프라(공개 버킷)가 아직 없는 환경에서도 업로드 자체는 깨지지 않게.
+     */
+    @Value("${cloud.aws.s3.public-bucket:}")
+    private String publicBucket;
+
+    /**
+     * 공개 객체의 표시 base URL — 보통 CDN 도메인(예 {@code https://cdn.plop.cool}). 비면 객체의
+     * S3 URL 로 폴백. day-1 커스텀 도메인 고정이라 저장값을 완성된 공개 URL 로 둔다.
+     */
+    @Value("${pungdong.storage.public-base-url:}")
+    private String publicBaseUrl;
+
+    /**
+     * 공개-의도 이미지(코스/프로필/리뷰 등) 업로드 — 기존 호출처 호환용. 객체를 올리고 객체
+     * URL 을 반환한다. (버킷이 비공개라 이 URL 의 직접 열람은 공개-버킷 전환 전까지 동작하지
+     * 않는다.) {@code userEmail} 은 레거시 시그니처 호환으로 남아있을 뿐 키에 쓰지 않는다(PII 키 금지).
      */
     public String upload(MultipartFile multipartFile, String dirName, String userEmail) throws IOException {
-        String key = putObject(multipartFile, dirName + "/" + uniqueName(multipartFile));
+        String key = putObject(bucket, multipartFile, dirName + "/" + uniqueName(multipartFile));
         return amazonS3Client.getUrl(bucket, key).toString();
+    }
+
+    /**
+     * 공개 이미지(코스/프로필/리뷰) 업로드 — 공개 버킷(CloudFront OAC)에 올리고 <b>안정 공개 URL</b>
+     * ({@code {publicBaseUrl}/{key}})을 반환한다. 버킷/ base URL 이 설정 안 된 환경에선 메인 버킷 +
+     * S3 객체 URL 로 폴백(현행 동작 유지) — 공개 버킷 인프라가 붙기 전까지 안전.
+     */
+    public String uploadPublic(MultipartFile multipartFile, String dirName) throws IOException {
+        String targetBucket = StringUtils.hasText(publicBucket) ? publicBucket : bucket;
+        String key = putObject(targetBucket, multipartFile, dirName + "/" + uniqueName(multipartFile));
+        return StringUtils.hasText(publicBaseUrl)
+                ? publicBaseUrl + "/" + key
+                : amazonS3Client.getUrl(targetBucket, key).toString();
     }
 
     /**
@@ -61,7 +87,7 @@ public class S3Uploader {
      * + PII 비포함. 열람은 {@link #generatePresignedGetUrl} 로 한시 발급.
      */
     public String uploadPrivate(MultipartFile multipartFile, String dirName, Long ownerId) throws IOException {
-        return putObject(multipartFile, dirName + "/" + ownerId + "/" + uniqueName(multipartFile));
+        return putObject(bucket, multipartFile, dirName + "/" + ownerId + "/" + uniqueName(multipartFile));
     }
 
     /** 비공개 객체를 {@code ttl} 동안만 열람 가능한 presigned GET URL 로 발급(로컬 서명, 네트워크 호출 없음). */
@@ -76,14 +102,14 @@ public class S3Uploader {
      * {@link MultipartFile} 을 임시 파일 없이 스트림으로 직접 PutObject. contentLength 를 명시해
      * SDK 가 전체 버퍼링하지 않게 한다. public ACL 미부여(버킷 BPA 와 호환). 반환 = 객체 key.
      */
-    private String putObject(MultipartFile file, String key) throws IOException {
+    private String putObject(String targetBucket, MultipartFile file, String key) throws IOException {
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(file.getSize());
         if (StringUtils.hasText(file.getContentType())) {
             metadata.setContentType(file.getContentType());
         }
         try (InputStream in = file.getInputStream()) {
-            amazonS3Client.putObject(new PutObjectRequest(bucket, key, in, metadata));
+            amazonS3Client.putObject(new PutObjectRequest(targetBucket, key, in, metadata));
         }
         return key;
     }
