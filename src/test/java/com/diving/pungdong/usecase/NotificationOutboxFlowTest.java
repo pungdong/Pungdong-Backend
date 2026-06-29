@@ -52,7 +52,7 @@ class NotificationOutboxFlowTest {
 
     @BeforeEach
     void defaultGatewaySuccess() {
-        given(fcmGateway.send(any(), any(), any(), any())).willReturn(SendResult.SUCCESS);
+        given(fcmGateway.send(any(), any(), any(), any(), any())).willReturn(SendResult.SUCCESS);
     }
 
     @AfterEach
@@ -144,7 +144,7 @@ class NotificationOutboxFlowTest {
         publishReservationCreated(instructor, student);
         Long outboxId = outboxRepo.findAll().get(0).getId();
 
-        given(fcmGateway.send(eq("dead-token"), any(), any(), any()))
+        given(fcmGateway.send(eq("dead-token"), any(), any(), any(), any()))
                 .willReturn(SendResult.PERMANENT_FAILURE);
 
         deliveryWorker.deliver(outboxId);
@@ -164,7 +164,7 @@ class NotificationOutboxFlowTest {
         Long outboxId = outboxRepo.findAll().get(0).getId();
         LocalDateTime before = LocalDateTime.now();
 
-        given(fcmGateway.send(eq("flaky-token"), any(), any(), any()))
+        given(fcmGateway.send(eq("flaky-token"), any(), any(), any(), any()))
                 .willReturn(SendResult.TRANSIENT_FAILURE);
 
         deliveryWorker.deliver(outboxId);

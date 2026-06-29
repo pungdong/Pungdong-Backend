@@ -1,5 +1,6 @@
 package com.diving.pungdong.notification.fcm;
 
+import com.diving.pungdong.notification.NotificationCategory;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -21,8 +22,10 @@ import java.util.Map;
 public class LoggingFcmGateway implements FcmGateway {
 
     @Override
-    public SendResult send(String token, String title, String body, Map<String, String> data) {
-        log.info("[fcm-stub] token=*** title={} body={} data={}", title, body, data);
+    public SendResult send(String token, String title, String body, Map<String, String> data,
+                           NotificationCategory category) {
+        log.info("[fcm-stub] channel={} priority={} title={} body={} data={}",
+                category.channelId(), category.isTimeSensitive() ? "HIGH" : "NORMAL", title, body, data);
         return SendResult.SUCCESS;
     }
 }

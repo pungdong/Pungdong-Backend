@@ -1,5 +1,11 @@
 package com.diving.pungdong.notification.fcm;
 
+import com.diving.pungdong.notification.NotificationCategory;
+import com.google.firebase.messaging.AndroidConfig;
+import com.google.firebase.messaging.AndroidNotification;
+import com.google.firebase.messaging.ApnsConfig;
+import com.google.firebase.messaging.Aps;
+import com.google.firebase.messaging.ApsAlert;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
@@ -26,13 +32,35 @@ public class FirebaseFcmGateway implements FcmGateway {
     private final FirebaseMessaging firebaseMessaging;
 
     @Override
-    public SendResult send(String token, String title, String body, Map<String, String> data) {
+    public SendResult send(String token, String title, String body, Map<String, String> data,
+                           NotificationCategory category) {
+        // Android: category → channelId(앱이 만든 채널로 라우팅) + priority(거래성=HIGH 절전회피·즉시,
+        // 공지/마케팅=NORMAL). 채널 importance(heads-up/소리)는 앱 소유. iOS interruptionLevel 은 iOS 활성화 때.
+        AndroidConfig androidConfig = AndroidConfig.builder()
+                .setPriority(category.isTimeSensitive()
+                        ? AndroidConfig.Priority.HIGH
+                        : AndroidConfig.Priority.NORMAL)
+                .setNotification(AndroidNotification.builder()
+                        .setChannelId(category.channelId())
+                        .build())
+                .build();
+        // iOS: interruption-level(마케팅=passive/거래=time-sensitive/공지=active)을 aps 에 실음.
+        // aps 만 따로 두면 alert 가 누락될 수 있어 title/body 를 aps.alert 로 함께 넣어 self-contained.
+        // iOS 비활성 동안엔 휴면(APNs 미발송). time-sensitive 의 실제 효과는 네이티브 엔타이틀먼트 필요.
+        ApnsConfig apnsConfig = ApnsConfig.builder()
+                .setAps(Aps.builder()
+                        .setAlert(ApsAlert.builder().setTitle(title).setBody(body).build())
+                        .putCustomData("interruption-level", category.apnsInterruptionLevel())
+                        .build())
+                .build();
         Message.Builder builder = Message.builder()
                 .setToken(token)
                 .setNotification(Notification.builder()
                         .setTitle(title)
                         .setBody(body)
-                        .build());
+                        .build())
+                .setAndroidConfig(androidConfig)
+                .setApnsConfig(apnsConfig);
         if (data != null && !data.isEmpty()) {
             builder.putAllData(data);
         }

@@ -282,6 +282,10 @@ erDiagram
 2. **service account JSON** (`firebase.credentials.path`) — 파일 키. 로컬/임시.
 3. **ADC** — 그 외.
 
+**발송 메시지 구성 (카테고리 → 채널/priority/interruption-level)**: 알림은 `NotificationType.getCategory()`(`NotificationCategory`)를 가지며, 워커가 그 카테고리를 게이트웨이에 넘긴다. `FirebaseFcmGateway` 가 실음 — **Android** `AndroidConfig`: `channelId`(앱이 만든 채널로 라우팅) + `priority`(거래성=HIGH 절전회피·즉시, 공지/마케팅=NORMAL). 채널 importance/소리/유저토글은 앱 소유. **iOS** `ApnsConfig.aps`: `interruption-level`(마케팅=passive/거래=time-sensitive/공지=active) + alert(title/body 동봉, self-contained). `time-sensitive` 실효는 네이티브 Time-Sensitive 엔타이틀먼트 필요(없으면 active 강등); iOS 비활성 동안 휴면. 채널표·정책은 [features/push.md §채널/카테고리](../features/push.md).
+
+**마케팅 야간제한**: `MARKETING` 카테고리는 enqueue 시(및 재시도 스케줄 시) `MarketingSendWindow.clamp` 로 `nextAttemptAt` 을 **08~21 KST** 안으로 맞춤(야간이면 다음 08:00). 디스패처가 `nextAttemptAt<=now` 만 픽업하므로 별도 배치 없이 "시간 되면 순차 발송"이 됨. 근거=정보통신망법 §50, 정책은 features/push.md.
+
 **예외 분류** (`FirebaseFcmGateway`):
 
 - `PERMANENT_FAILURE` ← `UNREGISTERED` (앱 삭제 / 토큰 만료), `INVALID_ARGUMENT`, `SENDER_ID_MISMATCH`, `THIRD_PARTY_AUTH_ERROR` → **토큰 DB 에서 삭제**
