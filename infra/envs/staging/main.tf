@@ -52,6 +52,9 @@ locals {
     FIREBASE_ENABLED                   = "true"
     FIREBASE_WIF_AUDIENCE              = "//iam.googleapis.com/projects/956872568873/locations/global/workloadIdentityPools/aws-pool/providers/aws-provider"
     FIREBASE_WIF_SERVICE_ACCOUNT_EMAIL = "firebase-adminsdk-fbsvc@plop-5997b.iam.gserviceaccount.com"
+    # WIF(external_account) 자격엔 project id 가 없어 Admin SDK 가 FCM 엔드포인트
+    # (/v1/projects/<id>/messages:send)를 못 만든다 → project id 를 표준 env 로 명시.
+    GOOGLE_CLOUD_PROJECT               = "plop-5997b"
     AWS_REGION                         = var.aws_region
     STORAGE_S3_ENABLED         = "true"
     CLOUD_AWS_S3_BUCKET        = local.uploads_bucket
