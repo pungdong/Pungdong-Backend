@@ -23,6 +23,10 @@ public class MyInstructorApplicationResponse {
 
     /** 자격증 목록 (단체+이미지). 자격증 불필요 종목은 빈 목록. */
     private List<ApplicationCertificateDto> certificates;
+    /** (선택) 다이빙보험 저장 참조 key — 재제출 시 그대로 보냄(라운드트립). 없으면 null. */
+    private String insuranceFileKey;
+    /** (선택) 보험 이미지 표시용 한시 presigned URL — 조회 시점 발급. insuranceFileKey 없으면 null. */
+    private String insuranceViewUrl;
     private boolean identityVerified;
     private String rejectionReason;
     private LocalDateTime submittedAt;

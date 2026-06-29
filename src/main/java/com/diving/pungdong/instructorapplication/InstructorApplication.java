@@ -50,6 +50,13 @@ public class InstructorApplication {
     @Builder.Default
     private List<ApplicationCertificate> certificates = new ArrayList<>();
 
+    /**
+     * (선택) 다이빙보험 증빙 이미지의 <b>비공개 저장 참조 key</b> — 자격증과 동일한 비공개 패턴
+     * (presigned 로 열람). 보험은 활동 특화라 <b>종목 신청별</b>로 둔다(계정 공유 아님). null 허용.
+     */
+    @Column(name = "insurance_file_key")
+    private String insuranceFileKey;
+
     /** 반려 사유 (status = REJECTED 일 때). */
     @Lob
     private String rejectionReason;

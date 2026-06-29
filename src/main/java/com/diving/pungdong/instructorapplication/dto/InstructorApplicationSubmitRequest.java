@@ -27,4 +27,10 @@ public class InstructorApplicationSubmitRequest {
 
     /** 자격증 목록 (단체+이미지). 자격증 필요 종목에선 1건 이상, 불필요 종목에선 생략 가능. */
     private List<ApplicationCertificateDto> certificates;
+
+    /**
+     * (선택) 다이빙보험 증빙 이미지의 저장 참조 key — 업로드 응답(POST /certificate-images)의 {@code fileKey}.
+     * 옵셔널이라 검증 안 함. 자격증과 동일한 비공개 이미지(presigned 열람).
+     */
+    private String insuranceFileKey;
 }

@@ -284,6 +284,8 @@ public class InstructorApplicationService {
         application.setReviewedAt(null);
         application.setReviewer(null);
         application.setRejectionReason(null);
+        // 보험(선택) — 제출/재제출은 전체 스냅샷이라, 안 보내면 해제됨(자격증과 동일). FE 가 유지 시 prefill 로 재전송.
+        application.setInsuranceFileKey(request.getInsuranceFileKey());
 
         application.clearCertificates();
         List<ApplicationCertificateDto> certs = request.getCertificates();
@@ -303,6 +305,11 @@ public class InstructorApplicationService {
 
     private boolean isBlank(String s) {
         return s == null || s.isBlank();
+    }
+
+    /** 보험 이미지(선택) 표시용 한시 URL — key 없으면 null(presign 호출 안 함). */
+    private String insuranceViewUrl(String insuranceFileKey) {
+        return isBlank(insuranceFileKey) ? null : certificateImageStorage.viewUrl(insuranceFileKey);
     }
 
     /**
@@ -326,6 +333,8 @@ public class InstructorApplicationService {
                 .disciplineCode(application.getDisciplineCode())
                 .status(application.getStatus().name())
                 .certificates(certificateDtos(application))
+                .insuranceFileKey(application.getInsuranceFileKey())
+                .insuranceViewUrl(insuranceViewUrl(application.getInsuranceFileKey()))
                 .identityVerified(application.getIdentityVerification() != null)
                 .rejectionReason(application.getRejectionReason())
                 .submittedAt(application.getSubmittedAt())
@@ -363,6 +372,8 @@ public class InstructorApplicationService {
                 .status(application.getStatus())
                 .disciplineCode(application.getDisciplineCode())
                 .certificates(certificateDtos(application))
+                .insuranceFileKey(application.getInsuranceFileKey())
+                .insuranceViewUrl(insuranceViewUrl(application.getInsuranceFileKey()))
                 .realName(verification != null ? verification.getRealName() : null)
                 .birth(verification != null ? verification.getBirth() : null)
                 .phoneNumber(verification != null ? verification.getPhoneNumber() : null)

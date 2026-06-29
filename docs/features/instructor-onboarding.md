@@ -46,6 +46,7 @@
 ### 자격증 (certificate)
 - **단체 단위** — 한 종목에 여러 단체(AIDA + PADI + Molchanovs). 단체는 신청이 아니라 자격증에 붙는다.
 - **이미지는 비공개(개인정보)** — 자격증/보험 이미지는 어드민·본인만 봐야 한다. 비공개 S3 버킷(public ACL 없음)에 올리고, 저장값은 공개 URL 이 아니라 **객체 key**(`instructorCertificate/{accountId}/{uuid}` — 회원별 그룹핑으로 탈퇴 시 prefix 정리). 표시용 URL 은 어드민/본인 조회 때만 **presigned(TTL 3분)** 으로 발급. (왜 presigned: 비공개 버킷이라 추측 불가 + SigV4 서명 필요, 유출돼도 짧은 TTL 안에서만 유효 — 저빈도 PII 열람에 표준. 더 강한 통제가 필요하면 `viewUrl` 구현을 인증 프록시로 교체 가능, 계약 무변경.) 공개-의도 이미지(코스/커뮤니티)는 성격이 정반대(SEO·SSG 영구 공개 URL) → **별도 public 버킷** 후속.
+- **(선택) 다이빙보험** — 종목 신청별 **옵셔널** 이미지 첨부(`InstructorApplication.insuranceFileKey`, 자격증과 동일 비공개+presigned·같은 업로드 엔드포인트). **왜 계정 공유가 아니라 종목별인가**: 보험은 활동 특화(다이빙보험이 향후 서핑/카약을 커버 안 함) → 계정 단위 "보험 하나"는 종목 확장 시 의미상 오류. 다종목 신청자의 재첨부 편의는 **FE prefill**("이전 신청의 보험 사용")로 풀고 **데이터는 신청별 진실**로 둠. 보수적·되돌리기 쉬움(필요 시 계정 공유로 승격). (사용자 결정 2026-06-30.)
 - **자격증 관리 탭**: 승인된 강사가 자격증 추가(`POST /instructor-applications/certificates`). **MVP = 검수 없이 append**.
 - **확장 로드맵**: 추가 시 "인증 요청하기" → 검수 → 자격 승격/레벨. 자격증에 `ratingCode`(예 "AIDA L2") + 강의 생성 시 **레벨 게이트**(level2 강사가 level3 등록 불가). 지금 구조(문자열 code + 자격증 N건)가 additive 수용.
 
@@ -64,7 +65,8 @@
 | 2026-06-08 | 어드민 검수 보강(counts · 전체목록 · 처리이력) + **env allowlist 부트스트랩** | #37 |
 | 2026-06-09 | 본인확인을 **계정 공유 도메인으로 승격** + `GET /me`(skip) | #38 |
 | 2026-06-10 | **종목(discipline) 도입** + 강사신청 종목별 + **단체=자격증 단위(다중)** + 자격증 관리 탭 | #39 |
-| 2026-06-29 | **자격증 이미지 비공개화** — staging/prod 업로드 실패 수정(public-read ACL ↔ Block Public Access + 컨테이너 작업디렉터리 temp 파일 쓰기). 비공개 업로드(객체 key) + 조회 시 presigned(TTL 3분) 서빙. 공개-의도(코스) 서빙은 별도 public 버킷 후속 | (이 PR) |
+| 2026-06-29 | **자격증 이미지 비공개화** — staging/prod 업로드 실패 수정(public-read ACL ↔ Block Public Access + 컨테이너 작업디렉터리 temp 파일 쓰기). 비공개 업로드(객체 key) + 조회 시 presigned(TTL 3분) 서빙. 공개-의도(코스) 서빙은 별도 public 버킷 후속 | #138 |
+| 2026-06-30 | **(선택) 다이빙보험 첨부** — 종목 신청별 nullable `insuranceFileKey`(자격증과 동일 비공개 패턴). 계정 공유 아님(보험=활동 특화, 종목 확장 대비) — 편의는 FE prefill. V6 마이그레이션 | (이 PR) |
 
 (각 결정의 "왜"는 해당 도메인 `CLAUDE.md` 의 결정 히스토리 섹션에도 터스하게 기록됨.)
 

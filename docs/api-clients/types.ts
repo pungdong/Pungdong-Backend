@@ -314,8 +314,9 @@ export interface MyConsentResponse {
 // ============================================================
 
 /**
- * POST /instructor-applications/certificate-images 응답 (2-phase 1단계).
+ * POST /instructor-applications/certificate-images 응답 (2-phase 1단계). 비공개 강사신청 이미지 업로드.
  * 요청은 multipart/form-data, 파트 이름 `image` (단일 파일). 여러 장이면 반복 호출.
+ * 자격증뿐 아니라 (선택) **보험 이미지**도 이 엔드포인트로 올려 fileKey 를 받아 submit 의 insuranceFileKey 에 넣는다.
  */
 export interface CertificateImageResponse extends HalLinks {
   // 저장 참조 key (공개 URL 아님 — 자격증은 개인정보라 비공개 버킷에 올라감).
@@ -355,6 +356,8 @@ export interface InstructorApplicationSubmitRequest {
   verificationId: number;
   /** 자격증 목록(단체+이미지). 자격증 필요 종목은 1건 이상, 불필요 종목은 생략. */
   certificates?: ApplicationCertificate[];
+  /** (선택) 다이빙보험 이미지 — 업로드(POST /certificate-images) 응답의 fileKey. 옵셔널. 종목 신청별. */
+  insuranceFileKey?: string;
 }
 
 /** 신청 제출/재제출 결과. POST 는 201, PUT 은 200. */
@@ -371,6 +374,10 @@ export interface MyInstructorApplicationResponse {
   disciplineCode: string;
   status: InstructorApplicationStatus;
   certificates: ApplicationCertificate[];
+  /** (선택) 보험 저장 참조 key — 재제출 시 그대로 전송(라운드트립). 없으면 미포함. */
+  insuranceFileKey?: string;
+  /** (선택) 보험 이미지 표시용 한시 presigned URL(조회 시점 발급). 없으면 미포함. */
+  insuranceViewUrl?: string;
   identityVerified: boolean;
   /** REJECTED 일 때 반려 사유. */
   rejectionReason?: string;
@@ -412,6 +419,10 @@ export interface InstructorApplicationDetailResponse extends HalLinks {
   status: InstructorApplicationStatus;
   disciplineCode: string;
   certificates: ApplicationCertificate[];
+  /** (선택) 보험 저장 참조 key. 없으면 미포함. */
+  insuranceFileKey?: string;
+  /** (선택) 보험 이미지 표시용 한시 presigned URL(조회 시점 발급). 없으면 미포함. */
+  insuranceViewUrl?: string;
   realName: string;
   birth: string;
   phoneNumber: string;
