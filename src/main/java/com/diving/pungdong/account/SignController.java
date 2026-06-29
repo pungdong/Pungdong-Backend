@@ -7,7 +7,6 @@ import com.diving.pungdong.global.security.JwtTokenProvider;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.dto.emailCheck.EmailInfo;
 import com.diving.pungdong.account.dto.emailCheck.EmailResult;
-import com.diving.pungdong.account.dto.FirebaseTokenDto;
 import com.diving.pungdong.account.dto.nickNameCheck.NickNameResult;
 import com.diving.pungdong.account.dto.signIn.SignInInfo;
 import com.diving.pungdong.account.dto.signUp.SignUpInfo;
@@ -16,7 +15,6 @@ import com.diving.pungdong.account.dto.auth.AuthToken;
 import com.diving.pungdong.account.dto.auth.RefreshRequest;
 import com.diving.pungdong.global.model.SuccessResult;
 import com.diving.pungdong.account.AccountService;
-import com.diving.pungdong.account.FirebaseTokenService;
 import com.diving.pungdong.account.InstructorCertificateService;
 import lombok.*;
 import org.springframework.data.domain.Page;
@@ -51,7 +49,6 @@ public class SignController {
     private final AccountService accountService;
     private final JwtTokenProvider jwtTokenProvider;
     private final RedisTemplate<String, String> redisTemplate;
-    private final FirebaseTokenService firebaseTokenService;
 
     @PostMapping("/check/email")
     public ResponseEntity<?> checkEmailExistence(@RequestBody EmailInfo emailInfo) {
@@ -146,19 +143,6 @@ public class SignController {
         model.add(Link.of("/docs/api.html#resource-account-refresh").withRel("profile"));
 
         return ResponseEntity.ok().body(model);
-    }
-
-    @PostMapping("/firebase-token")
-    public ResponseEntity<?> enrollFirebaseToken(@CurrentUser Account account,
-                                                 @Valid @RequestBody FirebaseTokenDto firebaseTokenDto,
-                                                 BindingResult result) {
-        if (result.hasErrors()) {
-            throw new BadRequestException();
-        }
-
-        firebaseTokenService.register(account, firebaseTokenDto.getToken(), null);
-
-        return ResponseEntity.noContent().build();
     }
 
     @PostMapping(value = "/sign-up")

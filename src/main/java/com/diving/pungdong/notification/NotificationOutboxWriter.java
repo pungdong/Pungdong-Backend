@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
@@ -79,6 +80,12 @@ public class NotificationOutboxWriter {
 
     private void enqueue(NotificationType type, Long recipientId, NotificationPayload payload) {
         LocalDateTime now = LocalDateTime.now();
+        // at-least-once 전송이라 같은 알림이 중복 도달할 수 있다 → 앱 dedup 용 안정적 id 를 data 에 심는다.
+        // outbox 행 1개 = notificationId 1개(재시도는 같은 payload 재전송이라 id 유지). 공유 data 맵을
+        // 변형하지 않도록 복사본에 넣는다. 정책 = docs/features/push.md.
+        Map<String, String> data = new LinkedHashMap<>(payload.getData() == null ? Map.of() : payload.getData());
+        data.put("notificationId", UUID.randomUUID().toString());
+        payload.setData(data);
         outboxRepo.save(NotificationOutbox.builder()
                 .type(type)
                 .recipientAccountId(recipientId)
