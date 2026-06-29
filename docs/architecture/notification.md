@@ -4,7 +4,7 @@
 
 ## 한 줄 요약
 
-비즈니스 트랜잭션에서 **Spring Application Event** 를 쏘면, 같은 트랜잭션 안에서 **outbox 행** 이 PENDING 으로 기록되고, 별도 워커가 **기본 5초마다**(`notification.dispatcher.fixed-delay-ms`, env 튜닝) PENDING / FAILED 를 픽업해 **FCM** 으로 발송한다. Kafka 는 Phase 2-C 에서 완전 제거됨.
+비즈니스 트랜잭션에서 **Spring Application Event** 를 쏘면, 같은 트랜잭션 안에서 **outbox 행** 이 PENDING 으로 기록되고, 별도 워커가 **기본 3초마다**(`notification.dispatcher.fixed-delay-ms`, env 튜닝) PENDING / FAILED 를 픽업해 **FCM** 으로 발송한다. Kafka 는 Phase 2-C 에서 완전 제거됨.
 
 이벤트 발행과 발송이 트랜잭션 분리되어 있어서, 비즈니스 롤백 시 알림이 함께 롤백된다 (= "유령 알림" 방지). 발송 자체는 실패해도 재시도 가능.
 
@@ -26,7 +26,7 @@ flowchart TB
     end
 
     subgraph Worker["notification 도메인 — 발송 측 (별도 트랜잭션)"]
-        Dispatcher["NotificationDispatcher<br/>@Scheduled(fixedDelay≈5s)<br/>@Profile('!test')"]
+        Dispatcher["NotificationDispatcher<br/>@Scheduled(fixedDelay≈3s)<br/>@Profile('!test')"]
         DeliveryWorker["NotificationDeliveryWorker<br/>@Transactional(REQUIRES_NEW)"]
         Retention["NotificationOutboxRetention<br/>@Scheduled(cron='0 0 4 * * *')"]
     end
@@ -107,7 +107,7 @@ sequenceDiagram
 
 ---
 
-## 흐름 2: 워커 발송 (기본 5초마다, 별도 트랜잭션)
+## 흐름 2: 워커 발송 (기본 3초마다, 별도 트랜잭션)
 
 ```mermaid
 sequenceDiagram
@@ -119,7 +119,7 @@ sequenceDiagram
     participant Gw as FcmGateway
     participant FCM as Firebase
 
-    Note over Dis: @Scheduled(fixedDelay≈5s)<br/>@Profile('!test')
+    Note over Dis: @Scheduled(fixedDelay≈3s)<br/>@Profile('!test')
     Dis->>OutRepo: SELECT WHERE status IN (PENDING, FAILED)<br/>AND nextAttemptAt <= now()<br/>ORDER BY createdAt LIMIT 50
 
     loop 각 outbox 행
