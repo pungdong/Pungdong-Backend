@@ -30,7 +30,8 @@ flowchart LR
 
     subgraph External["외부 서비스"]
         FCM["Firebase<br/>Cloud Messaging"]
-        S3["AWS S3<br/>이미지 저장"]
+        S3["AWS S3<br/>비공개 uploads(자격증) +<br/>공개 버킷(코스/프로필/리뷰)"]
+        CDN["CloudFront (OAC)<br/>cdn.plop.cool<br/>공개 이미지 서빙"]
         SMTP["Gmail SMTP<br/>이메일 발송"]
         Sanity["Sanity CMS<br/>약관·자격증·공식 위치<br/>(GROQ 읽기)"]
         Toss["토스페이먼츠<br/>결제위젯 v2<br/>(승인 API)"]
@@ -39,7 +40,9 @@ flowchart LR
     App -- "HTTPS REST<br/>+ JWT (자체 발급)" --> Controller
     Service --> MySQL
     Service --> Redis
-    Service --> S3
+    Service -- "업로드(비공개=presigned/<br/>공개=공개버킷)" --> S3
+    S3 -- "공개 버킷 (OAC)" --> CDN
+    CDN -. "공개 이미지 GET" .-> App
     Service --> SMTP
     Service -- "GROQ 서버사이드 읽기<br/>+ _rev reconcile" --> Sanity
     Service -- "결제 승인<br/>(시크릿 키, BE 전용)" --> Toss

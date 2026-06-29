@@ -29,7 +29,9 @@
 |---|---|---|
 | RDS(데이터) | `plop-staging-mysql` | `plop-prod-mysql` |
 | Redis | `plop-staging-redis` | `plop-prod-redis` |
-| S3 업로드 | `plop-staging-uploads` | `plop-prod-uploads` |
+| S3 업로드(비공개·자격증 등) | `plop-staging-uploads` | `plop-prod-uploads` |
+| S3 공개 이미지(코스/프로필/리뷰) | `plop-staging-public` | `plop-prod-public` |
+| 이미지 CDN(CloudFront+커스텀도메인) | `cdn-staging.plop.cool` | `cdn.plop.cool` |
 | ECS/네트워크/ALB | `plop-staging-*` | `plop-prod-*` |
 | 시크릿(SSM) | `/plop/staging/*` | `/plop/production/*` |
 | 로그(CloudWatch) | `/ecs/plop-staging` | `/ecs/plop-prod` |
