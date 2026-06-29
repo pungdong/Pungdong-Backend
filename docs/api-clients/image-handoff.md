@@ -22,7 +22,7 @@
 
 ---
 
-## 2. 코스·프로필·리뷰 이미지 (공개) — 필드 변경 없음 ✅  (BE 진행 중 + 인프라)
+## 2. 코스·프로필·리뷰 이미지 (공개) — 필드 변경 없음 ✅  (staging 배포·검증됨)
 
 노출/SEO 가 목적이라 **안정 공개 CDN URL** 로 서빙한다.
 
@@ -30,14 +30,38 @@
 - 코스: `POST /course-images` → `fileURL`, 생성 `media[].url`, 조회 `url` — 모두 그대로.
 - 프로필 사진 / 리뷰 이미지: 응답 URL 필드 그대로.
 
-**웹 (Next.js/Vercel)**
-- `next.config` `images.remotePatterns` 에 **`cdn.plop.cool`(prod) + `cdn-staging.plop.cool`(staging)** 추가 → `next/image` 가 리사이즈/WebP/AVIF 자동.
+### 변환(리사이즈/포맷) 엔드포인트 — `/r/`
+원본은 `https://cdn.plop.cool/course/<uuid>.jpg`. 리사이즈/포맷은 **호스트 뒤에 `/r/` 삽입 + 쿼리**:
+```
+https://cdn.plop.cool/r/course/<uuid>.jpg?w=400&fm=webp&q=80&fit=inside
+```
+| 쿼리 | 의미 | 기본 |
+|---|---|---|
+| `w`/`h` | 목표 px(1..4000), 하나만 줘도 비율 유지 | — |
+| `fm` | `webp`\|`avif`\|`jpeg`\|`png` | 원본 |
+| `q` | 1..100 | 80 |
+| `fit` | `cover`\|`contain`\|`inside`\|`outside`\|`fill` | `inside` |
+결과는 CloudFront 엣지 캐시(영구·불변키). 원본(`/course/..`)은 그대로 — 변환이 문제여도 원본/웹 안전(fail-safe).
+**핵심 원칙: width 는 연속이 아니라 "사다리"(고정 후보 몇 개)로** — 후보마다 캐시 엔트리가 생기므로 무한 width 는 캐시 파편화. 웹은 next/image 가, 앱은 아래 사다리로 처리.
 
-**모바일 앱**
-- CDN URL 직접 사용. 현재는 원본 제공 — **리사이즈/포맷 최적화는 엣지 변환 후속**(같은 도메인에 `?w=400&fm=webp` 식 쿼리 추가, **계약 변경 없음**). 그때 앱은 원하는 사이즈 쿼리만 붙이면 됨.
+### ✅ 웹 (Next.js/Vercel) 체크리스트
+반응형은 `next/image` 가 자동(`srcset`/`sizes` 로 뷰포트+DPR 맞춰 후보 선택, 창 키우면 업그레이드/줄이면 유지 — 픽셀마다 재요청 아님). 할 일:
+1. **`next.config` `images.remotePatterns`** 에 `cdn.plop.cool` + `cdn-staging.plop.cool` 추가 (없으면 next/image 거부).
+2. **`<Image src>` = 원본 URL**(`/course/{key}`). `/r/` 직접 X — width 선택은 next/image 가.
+3. **`sizes` 지정**(레이아웃별, 예 `sizes="(max-width:768px) 100vw, 50vw"`) — 브라우저 후보 선택 근거.
+4. **결정 1개 — next/image 로더 전략**:
+   - (a) Vercel 기본 옵티마이저 — CDN URL 을 소스로 Vercel 이 리사이즈/WebP/AVIF. 단순. (우리 `/r/` 미사용, 비용=Vercel 최적화 사용량)
+   - (b) 커스텀 로더 → 우리 `/r/?w=&fm=webp` — 최적화를 우리 CloudFront/Lambda 로 오프로드(Vercel 비용↓). 트래픽 보고 FE 가 택.
+5. **og:image / sitemap / 구조화데이터**: 크롤러는 next/image 안 거침 → **고정 사이즈 하나** 박기(예 `/r/{key}?w=1200&fm=jpeg`).
 
-**주의 (타이밍)**
-- 공개 CDN 서빙은 **인프라(공개 버킷 + CloudFront + cdn 도메인) 배포 + Squarespace NS 위임**이 끝나야 실제로 열린다. 그 전까지 업로드는 성공하되 URL 이 공개 열람되지 않을 수 있음(BE 가 graceful 폴백). 인프라 적용 완료 시 별도 공지.
+### ✅ 앱 (네이티브) 체크리스트
+슬롯이 고정이라 단순하지만 3가지:
+1. **URL 조립**: API 의 원본 URL → 호스트 뒤 `/r/` 삽입 + `?w=&fm=webp`.
+2. **width = 슬롯 pt × 기기 DPR, 사다리로 스냅**. "고정 슬롯"이라도 (1) 2x/3x 기기마다 px 다름, (2) 썸네일/상세/풀 슬롯 다름. 원본 그대로 받으면 변환 무의미, DPR 무시하면 레티나 흐림. **권장 사다리: 200·400·800·1200·1600** (올림). → 캐시 공유·유한.
+3. **포맷 `fm=webp`** (iOS14+/안드 지원). 자신 있으면 `avif`.
+
+### 상태
+공개 CDN(원본 + `/r/` 변환) **staging 배포·검증 완료**(`cdn-staging.plop.cool`). prod(`cdn.plop.cool`)는 BE 가 동일 적용. (인증=OAC, 직접 호출 차단·CloudFront 만.)
 
 ---
 
@@ -46,4 +70,4 @@
 | 이미지 | 등급 | FE 필드 변경 | 표시 | 추가 작업 |
 |---|---|---|---|---|
 | 자격증·보험 | 비공개 | `fileURL`→`fileKey` + `viewUrl` 신규 | `viewUrl`(3분 presigned) | 미리보기=로컬blob, 재제출=fileKey |
-| 코스·프로필·리뷰 | 공개 | 없음 | CDN URL(영구) | 웹: next.config remotePatterns / 앱: 후속 쿼리 최적화 |
+| 코스·프로필·리뷰 | 공개 | 없음 | CDN URL(영구) | 웹: remotePatterns+sizes+로더결정+og:image / 앱: `/r/{key}?w=&fm=webp` (w=슬롯pt×DPR, 사다리 200/400/800/1200/1600) |

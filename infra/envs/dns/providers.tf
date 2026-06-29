@@ -2,7 +2,9 @@ terraform {
   required_version = ">= 1.6"
 
   required_providers {
-    aws = { source = "hashicorp/aws", version = "~> 5.0" }
+    aws     = { source = "hashicorp/aws", version = "~> 5.0" }
+    archive = { source = "hashicorp/archive", version = "~> 2.4" }
+    random  = { source = "hashicorp/random", version = "~> 3.6" } # origin_secret destroy 후 미사용이나 유지(state 정리용)
   }
 
   # persistent DNS 레이어 — staging/prod 와 별도 state. (존은 staging churn 과 무관하게 살아있어야
