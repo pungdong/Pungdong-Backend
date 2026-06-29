@@ -4,6 +4,7 @@ terraform {
   required_providers {
     aws     = { source = "hashicorp/aws", version = "~> 5.0" }
     archive = { source = "hashicorp/archive", version = "~> 2.4" }
+    random  = { source = "hashicorp/random", version = "~> 3.6" }
   }
 
   # persistent DNS 레이어 — staging/prod 와 별도 state. (존은 staging churn 과 무관하게 살아있어야

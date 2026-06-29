@@ -40,6 +40,15 @@ function resp(statusCode, headers, body, isBase64Encoded = false) {
 }
 
 export const handler = async (event) => {
+  // CloudFront 만 호출하도록: origin custom header 의 시크릿 검증(Function URL=NONE 이라 코드가 게이트).
+  // CloudFront 가 주입하는 값만 통과 — 헤더 없거나 불일치면 403(공개 도달은 되지만 사실상 차단).
+  // (장기적으로 Lambda@Edge 로 가면 이 게이트 자체가 불필요 — docs/features/image-storage-and-serving.md §4.)
+  const headers = event.headers || {};
+  const secret = process.env.ORIGIN_SECRET;
+  if (secret && headers['x-origin-secret'] !== secret) {
+    return resp(403, { 'content-type': 'text/plain' }, 'forbidden');
+  }
+
   // Lambda Function URL payload v2.0
   const rawPath = event.rawPath || '/';
   const q = event.queryStringParameters || {};

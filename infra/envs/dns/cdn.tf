@@ -113,17 +113,21 @@ resource "aws_cloudfront_distribution" "public" {
     origin_access_control_id = aws_cloudfront_origin_access_control.public[each.key].id
   }
 
-  # 변환 origin — 리전 Lambda(Function URL, OAC). /r/* behavior 만 여기로 (온디맨드 리사이즈/포맷).
-  # cdn-transform.tf 참고. 변환이 깨져도 원본(위 S3 origin)은 영향 없음(fail-safe).
+  # 변환 origin — 리전 Lambda(Function URL). /r/* behavior 만 여기로 (온디맨드 리사이즈/포맷).
+  # 인증=시크릿 헤더(B): x-origin-secret 을 origin 에 주입, Lambda 가 검증(cdn-transform.tf 참고).
+  # 변환이 깨져도 원본(위 S3 origin)은 영향 없음(fail-safe). 장기적으로 Lambda@Edge(C)로 대체 예정.
   origin {
-    domain_name              = trimsuffix(trimprefix(aws_lambda_function_url.image[each.key].function_url, "https://"), "/")
-    origin_id                = "lambda-${each.value.bucket}"
-    origin_access_control_id = aws_cloudfront_origin_access_control.image_lambda[each.key].id
+    domain_name = trimsuffix(trimprefix(aws_lambda_function_url.image[each.key].function_url, "https://"), "/")
+    origin_id   = "lambda-${each.value.bucket}"
     custom_origin_config {
       http_port              = 80
       https_port             = 443
       origin_protocol_policy = "https-only"
       origin_ssl_protocols   = ["TLSv1.2"]
+    }
+    custom_header {
+      name  = "x-origin-secret"
+      value = random_password.origin_secret[each.key].result
     }
   }
 

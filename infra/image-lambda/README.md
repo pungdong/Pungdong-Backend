@@ -39,8 +39,21 @@ cd infra/image-lambda && ./build.sh
    원본도 여전히 OK: `curl -I "https://cdn-staging.plop.cool/course/<키>"`.
 4. 앱: 썸네일은 `/r/{key}?w=&fm=webp`, 상세는 더 큰 `w`. 웹(next/image)은 원본 URL 그대로 사용.
 
+## 인증 (B 시크릿 헤더, interim)
+
+Function URL = `AuthType=NONE` 이지만, CloudFront 가 origin custom header `x-origin-secret` 에 비밀값을
+주입하고 Lambda 가 검증(없으면 403). 즉 **사실상 CloudFront 만** 호출. 비밀값은 Terraform `random_password`
+(Lambda env `ORIGIN_SECRET` = CloudFront origin header), 클라에 노출 안 됨.
+
+- **왜 OAC(AWS_IAM) 가 아닌가**: 처음엔 OAC 403 으로 보류했으나, 근본원인은 `lambda:InvokeFunction`
+  권한 누락(InvokeFunctionUrl + InvokeFunction 둘 다 필요)이었음 — 그래서 NONE 도 같은 이유로 막혔던 것.
+- **장기 정석 = OAC 복귀**: 원인이 권한이라 OAC 도 CloudFront 주체에 InvokeFunction 추가하면 viable →
+  공개 엔드포인트 없는 정석에 Lambda@Edge 큰 rework 없이 도달. 여유 시 하드닝. (Lambda@Edge 는 폴백.)
+- 전체 결정·근거: [`docs/features/image-storage-and-serving.md`](../../docs/features/image-storage-and-serving.md) §4.
+
 ## 운영 메모
 
-- Lambda: nodejs20.x, **arm64**(Graviton, 저렴), memory 1536MB(=CPU 충분→변환 빠름), timeout 30s.
+- Lambda: nodejs20.x, **arm64**(Graviton, 저렴), memory 1536MB(=CPU 충분→변환 빠름), timeout 30s,
+  **reserved concurrency 5**(비용/DoS 캡 — 변환은 캐시 미스에만이라 충분).
 - 콜드스타트는 "캐시 미스 + 콜드"인 드문 경우만. 결과 캐시되니 1회성.
 - 새 포맷/사이즈 추가 = 코드 수정 없이 쿼리만. sharp 업데이트는 `build.sh` 재실행 후 apply.

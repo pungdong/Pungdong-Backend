@@ -78,6 +78,20 @@ presigned는 **만료 + 쿼리 서명**이라 크롤러·SSG가 인덱싱/하드
 
 **왜 변환 결과가 빨라도 되나(레이턴시)**: 사용자 체감은 *캐시 히트*(엣지, a/b 동일)가 지배한다. Lambda 실행은 미스에만 발생하고 그 결과는 즉시 캐시 → 1회성. 변환 응답에 긴 `Cache-Control` 을 박아 미스 빈도를 더 낮춘다.
 
+### CloudFront → 변환 Lambda 인증 — 시크릿 헤더(B) 현행 / 장기 OAC 정석화
+
+CloudFront 가 변환 Lambda(Function URL)를 호출할 때의 인증 방식. **현재 = (B) 시크릿 헤더(동작 검증됨), 장기 정석 = OAC(AWS_IAM) 복귀.**
+
+**근본 원인 (디버깅으로 규명):** Function URL 호출이 처음에 OAC(AWS_IAM)·NONE **둘 다 403**으로 실패했다. 알고 보니 원인은 인증 방식이 아니라 **`lambda:InvokeFunction` 권한 누락**이었다 — NONE Function URL(혹은 OAC 호출)이 실제로 동작하려면 호출 주체에 **`InvokeFunctionUrl`(URL 도달) + `InvokeFunction`(함수 실행) 두 권한이 모두** 필요한데, 콘솔로 만들면 AWS 가 자동 추가하지만 **Terraform/CLI 는 둘 다 명시해야** 한다(콘솔 경고 배너가 명시). `InvokeFunctionUrl` 만 줘서 계속 403 났던 것. (`InvokeFunction` 은 `FunctionUrlAuthType` 조건을 못 받아 조건 없이 `*` 부여.)
+
+**현행 (B) 시크릿 헤더 — 동작 검증됨:** Function URL `AuthType=NONE` + CloudFront 가 origin custom header 에 **비밀값** 주입 + Lambda 가 그 헤더 없으면 403. staging 에서 end-to-end 확인(`/r/{key}?w=&fm=webp` → 200 webp, 엣지 캐시 Miss→Hit, 원본 무영향).
+- **왜 이걸로 시작**: OAC 가 막힌 줄 알고(원인 미규명 상태) 채택. (1) 변환은 **공개 이미지 전용** — 비공개/PII(자격증)는 presigned 라 CloudFront 를 아예 안 탐(별개). (2) 최악(시크릿 유출)에도 노출은 **이미 공개된 이미지** + 호출 비용뿐(IAM 롤=공개 버킷 GetObject 만). (3) 스타트업 단계 리스크 낮음 → over-engineering 회피. (사용자 결정 2026-06-30.)
+- **B 의 약점**: Function URL 이 형식상 public 도달 가능(시크릿=앱강제). 스캐너에 "미인증 엔드포인트"로 잡힘. AWS-강제가 아니라 *앱-강제* 라 정석 대비 열위. + `InvokeFunction` 을 `*` 에 (조건 없이) 부여 — 단, Invoke API 직접 호출도 헤더 없어 403.
+
+**장기 정석 — OAC(AWS_IAM) 복귀 (Lambda@Edge 보다 우선):** 근본 원인이 권한 누락이었으므로, **OAC 도 CloudFront 주체에 `InvokeFunction` 권한만 추가하면 동작할 가능성이 높다.** OAC 면 Function URL=AWS_IAM 으로 **공개 도달 자체가 없어짐**(B 의 public+앱강제 약점 제거) — *Lambda@Edge 의 큰 rework(us-east-1·env 불가·sharp 크기) 없이* 정석에 도달. → **장기 목표를 Lambda@Edge 가 아니라 OAC 복귀로 수정.** (Lambda@Edge 는 OAC 도 끝내 안 될 때의 폴백.)
+- **전환 시 계약 불변**: `/r/{key}?w=&fm=` URL 그대로 — origin 인증만 교체. 앱/FE 변경 없음.
+- **왜 지금 안 하나**: B 가 이미 동작하고, OAC 전환엔 또 한 번의 CloudFront 재배포(~15분)·재검증이 필요. 공개 이미지라 B 의 잔여 리스크가 낮아 급하지 않음 — 여유 있을 때 OAC 로 하드닝.
+
 ---
 
 ## 5. 결정 히스토리
@@ -87,12 +101,14 @@ presigned는 **만료 + 쿼리 서명**이라 크롤러·SSG가 인덱싱/하드
 | 2026-06-29 | **비공개 이미지 = 비공개 버킷 + presigned(TTL 3분)** | 자격증=PII, 공개 불가; 짧은 TTL로 유출창 차단; 프록시로 하드닝 여지 | #138 |
 | 2026-06-29 | **공개 이미지 = 별도 public 버킷, CloudFront(OAC) + 커스텀 도메인(prod·staging 둘 다)** | SEO=LCP/속도 + 브랜드 안정 URL; OAC로 버킷은 비공개 유지(보안); day-1 도메인 고정 → FE 계약 무변경 | (이 PR) |
 | 2026-06-29 | **이미지 변환 = 리전 Lambda(ap-northeast-2) + sharp, CloudFront 뒤** (Lambda@Edge·관리형·업로드시파생 기각) | 결과를 엣지 캐시 → Lambda 는 미스에만; 한국 중심이라 엣지=리전 권역 일치로 Lambda@Edge 이득 미미 + 리전 람다가 운영/디버그 쉬움(솔로 dev); 계약 무변경(쿼리만) | (이 PR) |
+| 2026-06-30 | **변환 Lambda 인증 = (B) 시크릿 헤더 (동작 검증)**, 근본원인=`InvokeFunction` 권한 누락, **장기 정석=OAC 복귀**(Lambda@Edge 아님) | OAC·NONE 둘 다 403 → 원인은 인증모드 아닌 **`lambda:InvokeFunction` 누락**(Terraform 은 InvokeFunctionUrl+InvokeFunction 둘 다 명시 필요, 콘솔은 자동); B 로 staging end-to-end 동작 확인; 원인이 권한이라 **OAC 도 그 권한 추가하면 viable → 공개 URL 없는 정석에 Lambda@Edge rework 없이 도달 가능**, 장기목표를 OAC 복귀로 수정(B 의 public+앱강제 약점 제거) | (이 PR) |
 
 ---
 
 ## 6. 미해결 / 로드맵
 
-- 🟢 **이미지 변환**(모바일 앱 최적화) — CloudFront + 리전 Lambda + sharp, 온디맨드 리사이즈/WebP. 위 §4. (구현 — sharp 네이티브 빌드/배포는 hands-on iterate.)
+- 🟢 **이미지 변환**(모바일 앱 최적화) — CloudFront + 리전 Lambda + sharp, 온디맨드 리사이즈/WebP. 위 §4.
+- 🟡 **변환 인증 B→OAC 하드닝** — 현재 (B) 시크릿 헤더(공개 도달+앱강제, 동작 검증됨). 근본원인이 `InvokeFunction` 권한 누락이었으므로 **OAC(AWS_IAM)로 복귀**(CloudFront 주체에 InvokeFunction 추가)하면 공개 엔드포인트 없는 정석에 도달 — Lambda@Edge 큰 rework 불필요. CloudFront 재배포·재검증(~15분)만. URL/계약 불변. 여유 시 진행. (Lambda@Edge 는 OAC 도 안 될 때 폴백.) (§4)
 - 🟡 **레거시 `/lecture`·`/lectureImage` 이미지** — Course가 대체 중. 공개 버킷 전환 대상에서 제외(레거시), Course로 수렴 시 정리.
 - 🟡 **커뮤니티/SNS 이미지** — 기능 도입 시 공개 버킷에 같은 패턴 적용.
 - 🟡 **기존 비공개 버킷의 공개-의도 잔존물** — #138 이후 코스/프로필/리뷰가 잠시 비공개 버킷에 업로드되던 구간(서빙 불가). 이 PR로 공개 버킷 전환. (강사 부재로 staging 실데이터 영향 없었음.)
