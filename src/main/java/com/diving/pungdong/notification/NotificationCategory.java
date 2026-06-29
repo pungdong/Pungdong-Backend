@@ -40,4 +40,19 @@ public enum NotificationCategory {
     public boolean isTimeSensitive() {
         return timeSensitive;
     }
+
+    /**
+     * iOS APNs {@code interruption-level}. 마케팅=passive(소리 없이 목록만), 거래성=time-sensitive
+     * (Focus 뚫음 — 단 iOS Time Sensitive 엔타이틀먼트 필요, 없으면 active 로 graceful 강등), 공지=active.
+     * BE 는 payload 에 넣기만 하면 됨(엔타이틀먼트는 네이티브 iOS 빌드). iOS 활성화 전엔 휴면.
+     */
+    public String apnsInterruptionLevel() {
+        if (marketing) {
+            return "passive";
+        }
+        if (timeSensitive) {
+            return "time-sensitive";
+        }
+        return "active";
+    }
 }
