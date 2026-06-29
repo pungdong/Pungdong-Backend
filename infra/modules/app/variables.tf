@@ -89,6 +89,12 @@ variable "uploads_bucket_name" {
   default     = null
 }
 
+variable "public_bucket_name" {
+  description = "공개 이미지 버킷 이름 (persistent dns 레이어가 생성, cdn.tf). 주면 task role 에 PutObject 권한 추가. 비우면 생략."
+  type        = string
+  default     = ""
+}
+
 variable "tags" {
   description = "공통 태그"
   type        = map(string)
