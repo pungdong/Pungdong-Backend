@@ -22,6 +22,10 @@ public class InstructorApplicationDetail {
     private String disciplineCode;
     /** 자격증 목록 (단체+이미지). 여러 단체 가능. */
     private List<ApplicationCertificateDto> certificates;
+    /** (선택) 다이빙보험 저장 참조 key. 없으면 null. */
+    private String insuranceFileKey;
+    /** (선택) 보험 이미지 표시용 한시 presigned URL (조회 시점 발급). 없으면 null. */
+    private String insuranceViewUrl;
 
     // 본인확인 결과 (PII)
     private String realName;

@@ -66,7 +66,7 @@ flowchart TB
 
 `CertificateImageStorage` 는 `store(image, ownerId) → 저장참조` + `viewUrl(참조) → 한시 열람 URL` 두 메서드를 가진다.
 
-**자격증 이미지는 비공개(개인정보).** 자격증/보험 이미지는 어드민·본인만 봐야 한다 → 업로드 버킷은 Block Public Access 가 켜진 **비공개** 버킷이고, public ACL 을 붙이지 않는다(붙이면 PutObject 가 거부됨). 저장값은 **공개 URL 이 아니라 객체 key** (`instructorCertificate/{accountId}/{uuid}.{ext}` — 회원별 그룹핑으로 탈퇴 시 prefix 일괄 삭제 + 키에 PII 없음). 표시용 URL 은 **어드민/본인 조회 시점에만** `viewUrl` 로 **presigned GET(TTL 3분)** 발급(`S3CertificateImageStorage.viewUrl`) — 로컬은 정적 서빙 URL 을 그대로 반환. 키는 SigV4 서명 없이 직접 접근 불가(비공개 버킷)라 추측·열람되지 않고, 유출돼도 짧은 TTL 안에서만 유효. (공개-의도 이미지(코스/커뮤니티)는 성격이 정반대 — SEO·SSG 영구 공개 URL 필요 → 별도 public 버킷, 후속 PR. `S3Uploader.upload` 는 그 호환을 위해 URL 반환을 유지.)
+**자격증 이미지는 비공개(개인정보).** 자격증/보험 이미지는 어드민·본인만 봐야 한다 → 업로드 버킷은 Block Public Access 가 켜진 **비공개** 버킷이고, public ACL 을 붙이지 않는다(붙이면 PutObject 가 거부됨). 저장값은 **공개 URL 이 아니라 객체 key** (`instructorCertificate/{accountId}/{uuid}.{ext}` — 회원별 그룹핑으로 탈퇴 시 prefix 일괄 삭제 + 키에 PII 없음). 표시용 URL 은 **어드민/본인 조회 시점에만** `viewUrl` 로 **presigned GET(TTL 3분)** 발급(`S3CertificateImageStorage.viewUrl`) — 로컬은 정적 서빙 URL 을 그대로 반환. (**보험 이미지**(선택)도 같은 비공개 패턴·같은 업로드 엔드포인트 재사용 — `InstructorApplication.insuranceFileKey` nullable 단일 필드, 조회 시 `insuranceViewUrl`.) 키는 SigV4 서명 없이 직접 접근 불가(비공개 버킷)라 추측·열람되지 않고, 유출돼도 짧은 TTL 안에서만 유효. (공개-의도 이미지(코스/커뮤니티)는 성격이 정반대 — SEO·SSG 영구 공개 URL 필요 → 별도 public 버킷, 후속 PR. `S3Uploader.upload` 는 그 호환을 위해 URL 반환을 유지.)
 
 (본인확인 stub/disabled 경계는 identity-verification 도메인으로 이동.) → FE 는 AWS·본인확인기관 없이도 dev 에서 전체 흐름 검증 가능.
 
@@ -97,7 +97,7 @@ sequenceDiagram
         SVC-->>FE: {fileKey}
     end
 
-    FE->>UC: POST /instructor-applications {verificationId, certificates:[{organizationCode, fileKey}]}
+    FE->>UC: POST /instructor-applications {verificationId, certificates:[{organizationCode, fileKey}], insuranceFileKey?}
     UC->>SVC: submit
     SVC->>SVC: 검증(소유 verification · 기타 단체 직접입력 · 중복 신청)
     SVC->>DB: insert instructor_application(SUBMITTED) + application_certificate[]
@@ -151,6 +151,7 @@ erDiagram
         String status "SUBMITTED|APPROVED|REJECTED"
         Long identity_verification_id FK
         Long reviewer_id FK "nullable"
+        String insurance_file_key "(선택) 다이빙보험 이미지 비공개 key. 종목 신청별·nullable"
         String rejectionReason
         LocalDateTime submittedAt
         LocalDateTime reviewedAt
@@ -189,8 +190,8 @@ erDiagram
 | 엔드포인트 | 메서드 | 권한 | 비고 |
 |---|---|---|---|
 | `/instructor-applications/me` | GET | 인증 | 내 신청 **목록**(종목별). 미신청 종목은 항목 없음 |
-| `/instructor-applications/certificate-images` | POST | 인증 | multipart (`image`) → `{fileKey}` 저장참조 (2-phase 1단계, 비공개 업로드) |
-| `/instructor-applications` | POST | 인증 | 제출. body 에 `disciplineCode`+자격증 목록. 종목별 중복/이미강사 → 400 |
+| `/instructor-applications/certificate-images` | POST | 인증 | multipart (`image`) → `{fileKey}` 저장참조 (2-phase 1단계, 비공개 업로드). 자격증·**보험** 공용 |
+| `/instructor-applications` | POST | 인증 | 제출. body 에 `disciplineCode`+자격증 목록 + (선택)`insuranceFileKey`. 종목별 중복/이미강사 → 400 |
 | `/instructor-applications/me` | PUT | 인증 | 수정·재제출 (해당 종목, APPROVED 는 거부) |
 | `/instructor-applications/certificates` | POST | 인증 | **자격증 관리** — 승인된 강사가 자격증 추가 (검수 없이) |
 | `/admin/instructor-applications` | GET | **ADMIN** | `?status=` 생략 시 전체, 지정 시 탭별. 기본 정렬 submittedAt desc |

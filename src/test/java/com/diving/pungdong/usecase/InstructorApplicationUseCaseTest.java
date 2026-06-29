@@ -266,6 +266,66 @@ class InstructorApplicationUseCaseTest {
         assertThat(cert.get("viewUrl").asText()).isEqualTo("https://s3.example/instructorCertificate/9/cert.png?X-Amz-Signature=stub");
     }
 
+    @Test
+    @DisplayName("S5: 보험(선택)을 첨부해 제출하면 저장되고, 조회에 insuranceFileKey + 표시용 viewUrl(한시) 을 내려준다")
+    void submitWithInsurance_storedAndPresigned() throws Exception {
+        Account student = createAccount("s5@test.com", "diver5", Role.STUDENT);
+        String token = tokenFor(student);
+        long verificationId = verifyIdentity(token);
+        given(certificateImageStorage.viewUrl("instructorCertificate/9/insurance.png"))
+                .willReturn("https://s3.example/insurance?X-Amz-Signature=stub");
+
+        Map<String, Object> cert = new HashMap<>();
+        cert.put("organizationCode", "AIDA");
+        cert.put("fileKey", "instructorCertificate/9/cert.png");
+        Map<String, Object> body = new HashMap<>();
+        body.put("disciplineCode", "FREEDIVING");
+        body.put("verificationId", verificationId);
+        body.put("certificates", List.of(cert));
+        body.put("insuranceFileKey", "instructorCertificate/9/insurance.png");
+
+        mockMvc.perform(post("/instructor-applications")
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(write(body)))
+                .andExpect(status().isCreated());
+
+        InstructorApplication saved = applicationRepo.findByAccountIdAndDisciplineCode(student.getId(), "FREEDIVING").orElseThrow();
+        assertThat(saved.getInsuranceFileKey()).isEqualTo("instructorCertificate/9/insurance.png");
+
+        MvcResult res = mockMvc.perform(get("/instructor-applications/me")
+                        .header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isOk()).andReturn();
+        JsonNode item = objectMapper.readTree(res.getResponse().getContentAsString())
+                .get("_embedded").get("applications").get(0);
+        assertThat(item.get("insuranceFileKey").asText()).isEqualTo("instructorCertificate/9/insurance.png");
+        assertThat(item.get("insuranceViewUrl").asText()).isEqualTo("https://s3.example/insurance?X-Amz-Signature=stub");
+    }
+
+    @Test
+    @DisplayName("S6: 보험은 선택이라 미첨부로 제출해도 201 이고, 조회에 insuranceFileKey/viewUrl 이 없다")
+    void submitWithoutInsurance_ok() throws Exception {
+        Account student = createAccount("s6@test.com", "diver6", Role.STUDENT);
+        String token = tokenFor(student);
+        long verificationId = verifyIdentity(token);
+        mockMvc.perform(post("/instructor-applications")
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(submitBody(verificationId, "AIDA", null, List.of("instructorCertificate/9/cert.png"))))
+                .andExpect(status().isCreated());
+
+        InstructorApplication saved = applicationRepo.findByAccountIdAndDisciplineCode(student.getId(), "FREEDIVING").orElseThrow();
+        assertThat(saved.getInsuranceFileKey()).isNull();
+
+        MvcResult res = mockMvc.perform(get("/instructor-applications/me")
+                        .header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isOk()).andReturn();
+        JsonNode item = objectMapper.readTree(res.getResponse().getContentAsString())
+                .get("_embedded").get("applications").get(0);
+        assertThat(item.hasNonNull("insuranceFileKey")).isFalse();
+        assertThat(item.hasNonNull("insuranceViewUrl")).isFalse();
+    }
+
     /* ════════════════ V — 검증 거절 ════════════════ */
 
     @Test

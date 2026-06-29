@@ -20,6 +20,12 @@
 3. 표시는 조회 응답의 **`viewUrl`**(presigned). **3분 만료** — 화면 열 때 받은 걸 바로 렌더, 장기 캐시 금지. 만료 후 다시 보려면 재조회.
 4. **재제출/수정 시 `fileKey` 를 보낼 것** — 조회로 받은 `viewUrl`(만료 URL)을 되돌려보내면 저장이 깨짐. (둘을 분리한 이유.)
 
+**(선택) 다이빙보험 첨부** — 자격증과 **완전히 같은 패턴**, 단 **옵셔널**(필수 아님). 종목 신청별.
+- 업로드: **같은 엔드포인트** `POST /instructor-applications/certificate-images` 로 보험 이미지 올려 `fileKey` 받음.
+- 제출/재제출 `POST·PUT /instructor-applications` 바디에 **`insuranceFileKey`**(top-level, 옵셔널) 로 그 key 전송. 안 보내면 보험 없음(재제출 시 안 보내면 해제됨 — 유지하려면 prefill 로 재전송).
+- 조회(`/me`·어드민 상세): **`insuranceFileKey`**(라운드트립) + **`insuranceViewUrl`**(presigned 3분, 표시용) 내려옴. 없으면 두 필드 미포함.
+- 미리보기·만료·재제출 규칙은 위 1~4 와 동일.
+
 ---
 
 ## 2. 코스·프로필·리뷰 이미지 (공개) — 필드 변경 없음 ✅  (staging 배포·검증됨)
