@@ -42,6 +42,10 @@ import java.util.stream.Collectors;
  *
  * <p>슬롯 정원: 그 (위치,블록)에 일정(session)이 있으면 session.effectiveCapacity()·점유, 없으면 계정 기본값·0점유.
  * remaining = 정원 − 확정 − 외부 hold.
+ *
+ * <p>날짜 window: <b>오늘부터 {@code LOOKAHEAD_WEEKS}주(8주)</b> 안에서 강사 coverage 가 있는 날만 슬롯이 난다
+ * (coverage 끝이 더 가까우면 거기서 끝). 일정수정·강사제안은 추가로 회차가 잡은 venue 1개로 좁힌다(위치 고정).
+ * 같은 (날짜,위치,이용권,블록) 슬롯은 한 번만 — 중복 없음.
  */
 @Service
 @RequiredArgsConstructor
@@ -65,7 +69,7 @@ public class EnrollmentOptionsService {
         Course course = courseRepo.findById(courseId)
                 .filter(c -> c.getStatus() == CourseStatus.OPEN)
                 .orElseThrow(ResourceNotFoundException::new);
-        return buildOptions(course.getInstructor(), course, firstMeetingRound(course), today);
+        return buildOptions(course.getInstructor(), course, firstMeetingRound(course), today, null);
     }
 
     /** 다음 회차 옵션 — 이 수강의 다음 schedulable 회차(게이트)의 교집합. 잡을 회차 없으면 슬롯 빈 응답. */
@@ -86,7 +90,7 @@ public class EnrollmentOptionsService {
                     .equipmentByVenue(Map.of())
                     .build();
         }
-        return buildOptions(course.getInstructor(), course, next, today);
+        return buildOptions(course.getInstructor(), course, next, today, null);
     }
 
     /** 회차 직접 일정수정용 옵션 — 그 회차의 CourseRound 교집합 슬롯(1회차 옵션과 동일 shape). */
@@ -100,7 +104,8 @@ public class EnrollmentOptionsService {
         if (course == null) {
             throw new ResourceNotFoundException();
         }
-        return buildOptions(course.getInstructor(), course, round.getCourseRound(), today);
+        // 일정수정은 위치 고정 — 그 회차가 잡은 venue 로만 좁힌다(다른 후보 위치 슬롯 섞임 방지).
+        return buildOptions(course.getInstructor(), course, round.getCourseRound(), today, round.getVenueRefId());
     }
 
     /**
@@ -115,15 +120,24 @@ public class EnrollmentOptionsService {
         if (owner == null || !owner.getId().equals(instructor.getId())) {
             throw new ResourceNotFoundException(); // 없음/내 코스 회차 아님 — 존재 숨김
         }
-        return buildOptions(owner, course, round.getCourseRound(), today);
+        // 일정변경 제안은 위치 고정(회차가 잡은 venue) — 그 venue 슬롯만 후보로 좁힌다.
+        return buildOptions(owner, course, round.getCourseRound(), today, round.getVenueRefId());
     }
 
-    private EnrollmentOptionsResponse buildOptions(Account instructor, Course course, CourseRound round, LocalDate today) {
-        // 회차 후보 (venueRef, ticketRef) 쌍
+    /**
+     * @param venueScope 위치 고정 스코프 — 일정수정·강사제안은 회차가 잡은 venueRefId 1개로 좁힌다(다른 후보
+     *                   위치 슬롯이 섞이지 않게). 신규 신청(1회차·다음회차)은 {@code null}(회차의 모든 후보 위치).
+     */
+    private EnrollmentOptionsResponse buildOptions(Account instructor, Course course, CourseRound round,
+                                                   LocalDate today, String venueScope) {
+        // 회차 후보 (venueRef, ticketRef) 쌍 — venueScope 가 주어지면 그 venue 후보만.
         List<String[]> candidates = new ArrayList<>();
         Set<String> venueRefs = new LinkedHashSet<>();
         if (round != null) {
             for (RoundVenue rv : round.getVenues()) {
+                if (venueScope != null && !venueScope.equals(rv.getVenueRefId())) {
+                    continue; // 회차 고정 위치 밖 — 제외
+                }
                 venueRefs.add(rv.getVenueRefId());
                 rv.getTickets().forEach(t -> candidates.add(new String[]{rv.getVenueRefId(), t.getTicketRef()}));
             }
@@ -157,6 +171,7 @@ public class EnrollmentOptionsService {
                         Collectors.summingInt(r -> 1)));
 
         List<EnrollmentOptionsResponse.Slot> slots = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>(); // (날짜,위치,이용권,블록) — 후보 중복으로 같은 슬롯이 두 번 나오지 않게
         for (Map.Entry<LocalDate, List<Span>> day : coverageByDate.entrySet()) {
             LocalDate date = day.getKey();
             List<Span> spans = day.getValue();
@@ -175,6 +190,9 @@ public class EnrollmentOptionsService {
                             venueRef, b.getStart(), b.getEnd())) {
                         continue; // 강사 기존 일정과 시간 겹침 — 이중부킹 불가(같은 위치·블록 join 은 제외)
                     }
+                    if (!seen.add(slotKey(date, venueRef, ticketRef, b.getStart(), b.getEnd()))) {
+                        continue; // 같은 (날짜,위치,이용권,블록) 슬롯 중복 — 한 번만 내려준다
+                    }
                     // 정원은 물리 슬롯(위치,시간) 공유 — 같은 시간 다른 이용권도 같은 session 점유를 본다.
                     AvailabilitySession s = sessionByKey.get(sessionKey(date, venueRef, b.getStart(), b.getEnd()));
                     int capacity = s == null ? defaultCapacity : s.effectiveCapacity();
@@ -191,6 +209,7 @@ public class EnrollmentOptionsService {
                             .blockEnd(b.getEnd())
                             .sessionLabel(label(b.getStart(), b.getEnd()))
                             .ticketRef(ticketRef)
+                            .ticketName(ticketName(vr, ticketRef))
                             .entryFee(b.getFee())
                             .capacity(capacity)
                             .remaining(remaining)
@@ -220,6 +239,22 @@ public class EnrollmentOptionsService {
 
     private static String sessionKey(LocalDate date, String venueRef, LocalTime start, LocalTime end) {
         return date + "|" + venueRef + "|" + start + "|" + end;
+    }
+
+    /** 슬롯 동일성 키 — (날짜,위치,이용권,블록). 같은 이용권은 같은 슬롯(중복 제거 기준). */
+    private static String slotKey(LocalDate date, String venueRef, String ticketRef, LocalTime start, LocalTime end) {
+        return date + "|" + venueRef + "|" + ticketRef + "|" + start + "|" + end;
+    }
+
+    /** 그 위치의 이용권 표시명(ticketRef 매칭) — CourseDetail 합성과 같은 출처({@code VenueResponse.Ticket.name}). */
+    private static String ticketName(VenueResponse vr, String ticketRef) {
+        if (vr.getTickets() == null) {
+            return null;
+        }
+        return vr.getTickets().stream()
+                .filter(t -> ticketRef.equals(t.getTicketRef()))
+                .map(VenueResponse.Ticket::getName)
+                .findFirst().orElse(null);
     }
 
     private CourseRound firstMeetingRound(Course course) {

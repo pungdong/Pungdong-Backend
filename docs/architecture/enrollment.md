@@ -125,7 +125,7 @@ erDiagram
 | GET `/instructor/enrollments` | ✅ | 강사신청 보유 | 내 코스 신청만 |
 | POST `/instructor/enrollments/{id}/accept` | ✅ | 강사신청 | 내 코스 · PENDING · 정원 |
 | POST `/instructor/enrollments/{id}/reject` | ✅ | 강사신청 | 내 코스 · PENDING |
-| GET `/instructor/enrollments/{id}/propose-options` | ✅ | 강사신청 | 내 코스 회차만(비소유=숨김) · `remaining/full` 포함 |
+| GET `/instructor/enrollments/{id}/propose-options` | ✅ | 강사신청 | 내 코스 회차만(비소유=숨김) · `remaining/full`·`ticketName` 포함 · **위치 고정**(회차 venue 1개로 스코프) · 중복 제거 · 오늘+8주 ∩ coverage window |
 | POST `/instructor/enrollments/{id}/propose-slots` | ✅ | 강사신청 | 내 코스 · PENDING · **최대 3** · bookable+좌석여유만 채택 → 좌석 보장 hold |
 | POST `/enrollments/rounds/{id}/pick-slot` | ✅(학생) | — | 내 회차 · 제안목록 내 슬롯 · **hold 보장(만석 무관)** → PAYMENT_PENDING |
 

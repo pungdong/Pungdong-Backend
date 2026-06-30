@@ -56,6 +56,8 @@ public class EnrollmentOptionsResponse {
         /** 표시 라벨 — "14:00–17:00". */
         private String sessionLabel;
         private String ticketRef;
+        /** 이용권 표시명 — "일반권"·"하프권" 등(OFFICIAL Sanity / CUSTOM BE 합성, {@code ticketRef} 와 짝). */
+        private String ticketName;
         /** 입장료(이용권 × 그 날짜 평일/주말 daypart fee, 원). */
         private int entryFee;
         private int capacity;
