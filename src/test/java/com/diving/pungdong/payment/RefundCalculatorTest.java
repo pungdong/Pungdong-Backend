@@ -34,6 +34,12 @@ class RefundCalculatorTest {
         return c;
     }
 
+    private Course course1Regular() {
+        Course c = Course.builder().title("1회차 과정").price(150000).build();
+        c.addRound(CourseRound.builder().roundKind(RoundKind.REGULAR).roundIndex(1).build());
+        return c;
+    }
+
     private EnrollmentRound round(int idx, EnrollmentStatus status, LocalDate date,
                                   LocalDateTime respondedAt, boolean done, int entry, int equip) {
         return EnrollmentRound.builder()
@@ -104,5 +110,34 @@ class RefundCalculatorTest {
         Enrollment e = enrollment(course3Regular(), 300000,
                 round(1, EnrollmentStatus.PAYMENT_PENDING, TODAY.plusDays(5), NOW.minusDays(2), false, 15000, 5000));
         assertThat(calc.quote(e, TODAY, NOW).getLines().get(0).getAmount()).isEqualTo(100000);
+    }
+
+    @Test
+    @DisplayName("F5 약관 예시1 — 3회차(강의료30만·입장료1만/회차): 1회차 수강+2일전 취소 = 177,000원")
+    void policyExample1() {
+        // 1회차 수강 완료(0) / 2회차 일정 예약·입장료 1만 결제·2일전 70% → (100000+10000)*70%=77000 / 3회차 미예약 → 100000
+        EnrollmentRound done1 = round(1, EnrollmentStatus.CONFIRMED, TODAY.minusDays(1), NOW.minusDays(5), true, 10000, 0);
+        EnrollmentRound booked2 = round(2, EnrollmentStatus.CONFIRMED, TODAY.plusDays(2), NOW.minusDays(2), false, 10000, 0);
+        Enrollment e = enrollment(course3Regular(), 300000, done1, booked2); // 3회차는 미예약
+
+        RefundQuote q = calc.quote(e, TODAY, NOW);
+
+        assertThat(q.getLines().get(0).getAmount()).isZero();             // 1회차 완료
+        assertThat(q.getLines().get(1).getAmount()).isEqualTo(77000);    // 2회차 (100000+10000)×70%
+        assertThat(q.getLines().get(2).getAmount()).isEqualTo(100000);   // 3회차 미예약 강의료 몫 100%
+        assertThat(q.getTotal()).isEqualTo(177000);
+    }
+
+    @Test
+    @DisplayName("F6 약관 예시2 — 1회차(강의료15만·입장료2만): 전날 취소 = 85,000원")
+    void policyExample2() {
+        // 전날(D+1) 50%, 입장료 2만 결제 → (150000+20000)*50% = 85000
+        EnrollmentRound r1 = round(1, EnrollmentStatus.CONFIRMED, TODAY.plusDays(1), NOW.minusDays(2), false, 20000, 0);
+        Enrollment e = enrollment(course1Regular(), 150000, r1);
+
+        RefundQuote q = calc.quote(e, TODAY, NOW);
+
+        assertThat(q.getLines().get(0).getAmount()).isEqualTo(85000);    // (150000+20000)×50%
+        assertThat(q.getTotal()).isEqualTo(85000);
     }
 }
