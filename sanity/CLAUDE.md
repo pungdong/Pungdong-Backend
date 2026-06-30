@@ -8,6 +8,10 @@
 
 `sanity deploy`/`dataset import`/`manifest extract` 는 **반드시 Node 22+ 에서** 실행(`.nvmrc`=22, `package.json engines.node>=22` 로 핀했지만 셸 버전이 우선이니 직접 확인). Node 20.15 등 구버전은 매니페스트 추출이 `ERR_REQUIRE_ESM`(html-encoding-sniffer→@exodus/bytes) 로 실패하는데, **`Failed to extract manifest` 는 비치명적 경고라 배포가 "Success" 로 보인다** — 그러면 **스키마 매니페스트가 안 올라가고, 새 문서 타입이 익명/CDN(FE·앱) 읽기에서 `reason:permission` 으로 안 보인다**(인증·Studio 로는 보여서 진단이 한참 걸림 — FE 가 "다른 프로젝트"로 오진했던 사고). 배포 출력에서 **`✓ Extracted manifest` + `Deployed N/N schemas`** 를 반드시 확인. "Sanity 문서가 인증으론 보이는데 익명만 안 보임" → doc 엔드포인트 `reason` 으로 `permission` 확인 → 매니페스트 배포부터 의심. (2026-06-26 legalDocument 사고, 메모리 `feedback_sanity_node22_manifest`.)
 
+## 데이터(콘텐츠) 읽기 / 쓰기 요청
+
+콘텐츠 본문(약관/처리방침/`term`·`legalDocument`·`siteSettings` 문서값)은 **git 이 아니라 호스티드 데이터셋**(grep 안 됨)에 있다. 조회·수정 방법(read-only `SANITY_TOKEN` vs 쓰기용 Editor 토큰, `sanity exec --with-user-token`, Portable Text `_key` 패치, version-bump 규칙)은 **[data-access.md](data-access.md)** 에 박제 — "Sanity 데이터 좀 봐줘/고쳐줘" 요청은 거기부터.
+
 ## 무엇이 들어있나
 
 - `schemas/certOrganization.ts` — 자격증 발급 단체(종목별). `code` = BE 전송값(soft ref), `name`(굵은 표시명) + `fullName`(부제 정식명칭). **`certifications[]`** = 그 단체가 발급하는 등급 카탈로그(object `certification`: `disciplineCode` + 평탄화 `level`(LEVEL_1~4/INSTRUCTOR) + `displayName`(단체 명칭)). 코스 작성 "단체→레벨" 과 강사 신청 본인 레벨이 같은 카탈로그를 GROQ(`certificationsByOrgAndDiscipline`)로 직접 읽음. BE 는 `level` 만 enum 으로 저장.
