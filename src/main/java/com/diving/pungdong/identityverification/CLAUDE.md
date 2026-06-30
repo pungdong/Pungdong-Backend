@@ -9,7 +9,7 @@
 - **컨트롤러**: `IdentityVerificationController` — `POST /identity-verifications`(생성), `GET /identity-verifications/me`(내 최신 상태)
 - **서비스**: `IdentityVerificationService` — verify(경계 위임) + getMyVerification(최신 1건)
 - **본인확인 경계**: `IdentityVerifier`(interface) + `StubIdentityVerifier`(dev, 즉시 VERIFIED) / `DisabledIdentityVerifier`(prod fail-closed). `pungdong.identity-verification.mode` = `stub`(기본) / `disabled`
-- **엔티티/enum**: `IdentityVerification`(account_id FK, CI/DI/provider/verifiedAt), `IdentityProvider`(KAKAO/NAVER/TOSS/PASS/KB/PAYCO)
+- **엔티티/enum**: `IdentityVerification`(account_id FK, CI/DI/carrier/foreignerType/provider/verifiedAt), `IdentityProvider`(KAKAO/NAVER/TOSS/PASS/KB/PAYCO), `ForeignerType`(DOMESTIC/FOREIGN). `carrier`(통신사)·`foreignerType`(내외국인)은 요청 입력이 아니라 본인확인기관 반환 속성(CI/DI 와 동일) — verifier 가 채움. 처리방침 수집 항목과 1:1.
 - **레포**: `IdentityVerificationJpaRepo`(`findTopByAccountIdOrderByIdDesc` = 최신 1건)
 - **dto/**: `IdentityVerificationRequest`, `IdentityVerificationResult`, `MyIdentityVerificationResponse`
 

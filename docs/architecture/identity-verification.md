@@ -82,6 +82,8 @@ erDiagram
         String birth
         Gender gender
         String phoneNumber "PII"
+        String carrier "통신사 (기관 반환, stub=mock)"
+        ForeignerType foreignerType "내·외국인 (DOMESTIC|FOREIGN, 기관 반환)"
         String ci "고유식별정보 (stub=mock, 실연동 시 암호화)"
         String di
         IdentityProvider provider "KAKAO|NAVER|TOSS|PASS|KB|PAYCO"
@@ -91,6 +93,7 @@ erDiagram
 
 - 계정당 **여러 레코드 허용**(이력/감사). `GET /me` 는 최신 1건(`findTopByAccountIdOrderByIdDesc`).
 - `verifiedAt` 노출하되 **만료 판단 안 함(무만료)** — 법적 재인증 주기 정해지면 TTL 을 얹는다.
+- `carrier`/`foreignerType` 는 **요청 입력이 아니라 본인확인기관 반환 속성**(CI/DI 와 동일 성격) — 요청 DTO/응답 DTO 에는 없고, verifier 가 채운다. 처리방침(Sanity `legalDocument` slug=`privacy`) 의 본인인증 수집 항목("휴대전화번호, 통신사, 내·외국인 구분")이 실제 저장 컬럼과 1:1 대응하도록 추가(2026-06-30). stub 은 결정적 mock 으로 채움.
 
 ---
 

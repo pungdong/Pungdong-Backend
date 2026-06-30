@@ -27,12 +27,19 @@ public class StubIdentityVerifier implements IdentityVerifier {
         String seed = request.getRealName() + "|" + request.getPhoneNumber() + "|" + request.getBirth();
         String fingerprint = Integer.toHexString(seed.hashCode());
 
+        // 통신사·내외국인은 실 연동 시 본인확인기관이 결과로 돌려주는 속성(요청 입력 아님 — CI/DI 와 동일).
+        // stub 은 결정적 mock 으로 채워, 처리방침 수집 항목이 실제 저장 컬럼과 1:1 대응함을 보장한다.
+        String[] carriers = {"SKT", "KT", "LGU+"};
+        String carrier = carriers[Math.floorMod(seed.hashCode(), carriers.length)];
+
         IdentityVerification verification = IdentityVerification.builder()
                 .account(account)
                 .realName(request.getRealName())
                 .birth(request.getBirth())
                 .gender(request.getGender())
                 .phoneNumber(request.getPhoneNumber())
+                .carrier(carrier)
+                .foreignerType(ForeignerType.DOMESTIC)
                 .provider(request.getProvider())
                 .ci("CI-STUB-" + fingerprint)
                 .di("DI-STUB-" + fingerprint)
