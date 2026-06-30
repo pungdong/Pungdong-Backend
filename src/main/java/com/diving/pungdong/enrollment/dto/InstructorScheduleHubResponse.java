@@ -81,9 +81,20 @@ public class InstructorScheduleHubResponse {
         private final String venueRefId;
         private final String venueName;
         private final int amount;                  // 회차 추정 청구액 스냅샷
-        private final int gearCount;               // 대여 장비 수
+        private final int gearCount;               // 대여 장비 수(= gearItems.size, 하위호환 유지)
+        /** 학생이 그 회차에 신청한 대여 장비 내역(신청 시점 스냅샷). 없으면 빈 배열. 강사가 뭘 준비할지 파악용. */
+        private final List<GearItem> gearItems;
         /** 직전 슬롯(CHANGING 일 때 — 학생이 바꾸기 전 일정). 변경 검토 diff 용. 없으면 null. */
         private final SlotRef previousSlot;
+    }
+
+    /** 대여 장비 1줄 — 이름 + 선택 사이즈 라벨. EnrollmentRoundEquipment 스냅샷. */
+    @Getter
+    @Builder
+    public static class GearItem {
+        private final String name;
+        /** 선택 사이즈 라벨("270"·"L" 등 저장값 그대로). 사이즈 없는 품목이면 null. (단위 "mm" 등은 미저장 — FE 표기.) */
+        private final String sizeLabel;
     }
 
     @Getter
