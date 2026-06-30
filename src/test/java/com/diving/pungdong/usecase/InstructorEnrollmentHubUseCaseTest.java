@@ -9,6 +9,7 @@ import com.diving.pungdong.availability.AvailabilitySessionJpaRepo;
 import com.diving.pungdong.course.*;
 import com.diving.pungdong.enrollment.EnrollmentJpaRepo;
 import com.diving.pungdong.enrollment.EnrollmentRound;
+import com.diving.pungdong.enrollment.EnrollmentRoundEquipment;
 import com.diving.pungdong.enrollment.EnrollmentRoundJpaRepo;
 import com.diving.pungdong.global.security.JwtTokenProvider;
 import com.diving.pungdong.instructorapplication.InstructorApplication;
@@ -34,6 +35,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -64,6 +66,7 @@ class InstructorEnrollmentHubUseCaseTest {
     @Autowired AvailabilitySessionJpaRepo sessionRepo;
     @Autowired EnrollmentJpaRepo enrollmentRepo;
     @Autowired EnrollmentRoundJpaRepo roundRepo;
+    @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
 
     @AfterEach
     void clean() {
@@ -198,5 +201,35 @@ class InstructorEnrollmentHubUseCaseTest {
                 .andExpect(jsonPath("$.enrollments[0].rounds[0].status").value("CHANGING"))
                 .andExpect(jsonPath("$.enrollments[0].rounds[0].date").value(D2.toString()))
                 .andExpect(jsonPath("$.enrollments[0].rounds[0].previousSlot.date").value(D1.toString()));
+    }
+
+    @Test
+    @DisplayName("I3 회차 카드에 학생이 신청한 대여 장비 내역(gearItems: name·sizeLabel)이 그대로 echo 된다")
+    void roundCardEchoesGearItems() throws Exception {
+        Account ins = instructor("ins-i3@pd.com", "강사I3");
+        Venue v = venue(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String ticket = v.getTickets().get(0).getRef();
+        Course course = course(ins, ref, ticket);
+        openCoverage(ins, D1);
+        Account stu = account("stu-i3@pd.com", "장비러", Role.STUDENT);
+        applyRound1(stu, course, ref, ticket, D1);
+
+        // 신청된 회차에 대여 장비 2건 박제(핀 270, 슈트 L) — 신청 시점 스냅샷을 모사. LAZY 컬렉션 변경이라 트랜잭션 안에서.
+        new org.springframework.transaction.support.TransactionTemplate(txManager).executeWithoutResult(s -> {
+            EnrollmentRound r = roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).get(0);
+            r.addEquipment(EnrollmentRoundEquipment.builder().itemRef("1").name("핀").priceSnapshot(5000).size("270").build());
+            r.addEquipment(EnrollmentRoundEquipment.builder().itemRef("2").name("슈트").priceSnapshot(8000).size("L").build());
+            roundRepo.save(r);
+        });
+
+        mockMvc.perform(get("/instructor/enrollments/hub").header(HttpHeaders.AUTHORIZATION, token(ins)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enrollments[0].rounds[0].gearCount").value(2))
+                .andExpect(jsonPath("$.enrollments[0].rounds[0].gearItems", hasSize(2)))
+                .andExpect(jsonPath("$.enrollments[0].rounds[0].gearItems[0].name").value("핀"))
+                .andExpect(jsonPath("$.enrollments[0].rounds[0].gearItems[0].sizeLabel").value("270"))
+                .andExpect(jsonPath("$.enrollments[0].rounds[0].gearItems[1].name").value("슈트"))
+                .andExpect(jsonPath("$.enrollments[0].rounds[0].gearItems[1].sizeLabel").value("L"));
     }
 }

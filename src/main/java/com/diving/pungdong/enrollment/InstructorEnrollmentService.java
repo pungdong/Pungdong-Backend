@@ -195,6 +195,12 @@ public class InstructorEnrollmentService {
                 .venueName(venueNames.get(r.getVenueRefId()))
                 .amount(r.chargeTotal())
                 .gearCount(r.getEquipment().size())
+                .gearItems(r.getEquipment().stream()
+                        .map(e -> InstructorScheduleHubResponse.GearItem.builder()
+                                .name(e.getName())
+                                .sizeLabel(e.getSize())
+                                .build())
+                        .collect(Collectors.toList()))
                 .previousSlot(prev)
                 .build();
     }

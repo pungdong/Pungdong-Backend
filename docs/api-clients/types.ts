@@ -1457,7 +1457,9 @@ export interface InstructorRoundCard {
   venueRefId: string | null;
   venueName: string | null;
   amount: number;
-  gearCount: number;
+  gearCount: number;             // = gearItems.length (하위호환)
+  /** 학생이 그 회차에 신청한 대여 장비 내역(신청 시점 스냅샷). 없으면 []. sizeLabel 은 "270"·"L" 등 저장값(단위 mm 등은 FE 표기). */
+  gearItems: { name: string; sizeLabel: string | null }[];
   /** CHANGING 일 때 학생이 바꾸기 전 슬롯(변경 검토 diff). 없으면 null. */
   previousSlot: { date: string | null; venueRefId: string | null; ticketRef: string | null;
                   blockStart: string | null; blockEnd: string | null } | null;
