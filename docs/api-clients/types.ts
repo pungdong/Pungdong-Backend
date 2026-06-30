@@ -181,6 +181,26 @@ export interface AccountBasicInfo extends HalLinks {
   roles: Role[];
 }
 
+/**
+ * GET /account/profile (인증·본인) — 마이페이지 프로필 카드. AccountBasicInfo + 프로필 사진 + 자격 뱃지(승인된 강사 신청의 자격증).
+ * 비강사는 certs=[]. ⚠️ career(경력)·rating(평점)·자격 level 은 데이터 모델 부재로 미포함 — rating 은 V2 Course 리뷰 평균으로 신설 예정.
+ */
+export interface AccountProfileResponse extends HalLinks {
+  id: number;
+  email: string;
+  nickName: string;
+  /** 프로필 사진 URL(미설정이면 없음/null). */
+  profilePhotoUrl?: string | null;
+  roles: Role[];
+  certs: CertBadge[];
+}
+
+export interface CertBadge {
+  disciplineCode: string;        // 종목 코드, 예 'FREEDIVING'
+  organizationCode: string;      // 발급 단체 코드(Sanity 카탈로그), 예 'AIDA'·'PADI'·'OTHER'
+  organizationOther?: string | null; // organizationCode==='OTHER' 일 때 직접입력 단체명
+}
+
 // ── 회원탈퇴 / 복구 (account) — docs/features/account-deletion.md ──
 // DELETE /account (인증) — soft delete: isDeleted=true + 현재 access token 즉시 블랙리스트.
 //   유예기간(기본 30일) 동안은 PII 보유·복구 가능, 경과 후 서버가 PII 익명화(복구 불가).
@@ -449,6 +469,18 @@ export interface AddCertificateRequest {
 /** POST /admin/instructor-applications/{id}/reject 요청. */
 export interface RejectInstructorApplicationRequest {
   reason: string;
+}
+
+/**
+ * GET /instructors/public (비로그인) — 수강생 둘러보기 홈 "풍덩 공식 강사" 카드. 승인(APPROVED) 신청을 가진 실가입 강사만.
+ * PagedModel — 배열은 `_embedded.instructors`, 페이지 메타는 `page`. `page.totalElements` → "N명" + 아바타 일부 + "+N" 파생.
+ * 공개 필드만(PII 없음 — 이름/이메일/연락처 미포함). Pageable 쿼리(`?page=&size=`) 지원, 기본 정렬은 최근 가입(id desc).
+ */
+export interface PublicInstructorResponse {
+  id: number;
+  nickName: string;
+  avatarUrl?: string | null;   // 프로필 사진(미설정이면 없음/null → FE 기본 아바타)
+  disciplineCodes: string[];   // 승인 종목들, 예 ['FREEDIVING','SCUBA']
 }
 
 // ── 위치 (venue) — docs/features/venue.md ──
