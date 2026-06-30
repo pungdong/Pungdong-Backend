@@ -1,7 +1,9 @@
 # staging 값. 시크릿은 여기 두지 않는다(SSM). DB 비번은 Terraform 이 생성.
 
-# 이미지 태그 — 빌드한 이미지를 ECR(plop)에 이 태그로 push 후 apply. CI(⑤)가 자동 갱신할 자리.
-image_tag            = "staging-latest"
+# 이미지 태그 — staging 은 최신 master 추종. build.yml 이 master 머지마다 master-latest 를 ECR 에 push.
+# (옛 기본값 "staging-latest" 는 ECR 에 존재하지 않는 promote 라벨이라 직접 apply 시 CannotPull 함정이었음 — master-latest 로 교정.)
+# 워크플로 staging-up 도 -var="image_tag=master-latest" 로 동일하게 띄움.
+image_tag            = "master-latest"
 cors_allowed_origins = "https://staging.plop.cool,https://admin-staging.plop.cool"
 
 # HTTPS — ACM 인증서(api-staging.plop.cool, DNS 검증 완료 2026-06-24).
