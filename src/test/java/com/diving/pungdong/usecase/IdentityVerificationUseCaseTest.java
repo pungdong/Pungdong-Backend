@@ -5,6 +5,8 @@ import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.account.ProfilePhotoJpaRepo;
 import com.diving.pungdong.account.Role;
 import com.diving.pungdong.global.security.JwtTokenProvider;
+import com.diving.pungdong.identityverification.ForeignerType;
+import com.diving.pungdong.identityverification.IdentityVerification;
 import com.diving.pungdong.identityverification.IdentityVerificationJpaRepo;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -140,5 +142,17 @@ class IdentityVerificationUseCaseTest {
                 .andExpect(jsonPath("$.realName").value("최신이름"));
 
         assertThat(identityVerificationRepo.findAll()).hasSize(2); // 이력은 보존
+    }
+
+    @Test
+    @DisplayName("I4: 본인확인 시 통신사·내외국인 구분이 저장된다 (처리방침 수집 항목 ↔ 저장 컬럼 1:1)")
+    void verifyPersistsCarrierAndForeignerType() throws Exception {
+        Account student = createStudent("i4@test.com", "diverI4");
+        long id = verify(tokenFor(student), "한어진");
+
+        IdentityVerification saved = identityVerificationRepo.findById(id).orElseThrow();
+        assertThat(saved.getCarrier()).isNotBlank();                 // 기관 반환 속성(stub mock)
+        assertThat(saved.getForeignerType()).isEqualTo(ForeignerType.DOMESTIC);
+        assertThat(saved.getPhoneNumber()).isEqualTo("010-1234-5678");
     }
 }

@@ -41,6 +41,16 @@ public class IdentityVerification {
     /** 본인 명의 휴대폰 번호 (PII). */
     private String phoneNumber;
 
+    /**
+     * 통신사 (SKT/KT/LGU+ 등). 통신사 본인확인기관이 결과로 반환하는 속성.
+     * 처리방침 본인인증 수집 항목과 일치. stub 단계 = mock.
+     */
+    private String carrier;
+
+    /** 내·외국인 구분. 본인확인기관 반환 속성. stub 단계 = mock(DOMESTIC). */
+    @Enumerated(EnumType.STRING)
+    private ForeignerType foreignerType;
+
     /** 연계정보 (CI). 본인확인기관 발급. stub 단계 = mock. */
     private String ci;
 
