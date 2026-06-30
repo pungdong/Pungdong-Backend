@@ -1140,6 +1140,11 @@ export interface EnrollmentSlot {
   capacity: number;
   remaining: number;        // capacity − 확정 − 외부 hold
   full: boolean;
+  /**
+   * 선택 불가 사유 — null 이면 선택 가능. 강사가 내놓은 시간(coverage∩운영)이지만 지금 막힌 슬롯만 표기(coverage 밖·휴무는 슬롯 자체가 없음).
+   * non-null 이면 FE 가 비활성 처리. 'FULL'=만석(full===true 와 동치), 'TIME_CONFLICT'=강사가 같은 시간 다른 위치/블록에 일정(카피 예: "다른 일정이 있어요").
+   */
+  unavailableReason: 'FULL' | 'TIME_CONFLICT' | null;
 }
 
 export interface EnrollmentEquipmentOption {
@@ -1190,13 +1195,14 @@ export interface SlotProposal {
 /**
  * 강사 일정변경 제안 옵션 — GET /instructor/enrollments/{roundId}/propose-options (강사, 내 코스 회차만).
  * 강사가 대안 슬롯을 고를 때 보는 교집합(학생 GET /enrollments/rounds/{roundId}/options 와 동일 EnrollmentOptionsResponse —
- * 슬롯 UI 재사용). 각 슬롯의 `remaining`/`full` 로 **만석 슬롯을 비활성화**해 강사가 안 고르게 한다(제안 보장 hold 도 잔여에 반영).
+ * 슬롯 UI 재사용). 슬롯의 `unavailableReason`(FULL/TIME_CONFLICT)으로 **선택 불가 슬롯을 비활성화**해 강사가 안 고르게 한다(제안 보장 hold 도 잔여에 반영).
  *
  * 슬롯 규칙:
  *  - **위치 고정(이 강사 제안 엔드포인트 한정)**: 회차가 잡은 venueRefId 1개로만 슬롯이 온다(편의 — 학생이 고른 위치 그대로 시간만 제안).
  *    FE 가 venueRefId 로 거를 필요 없음. ⚠️ 학생 직접 일정수정(GET /enrollments/rounds/{roundId}/options)은 위치 고정 아님 — 회차의 모든 후보 위치를 자유 선택.
  *  - **날짜 window**: 오늘부터 8주 안에서 강사 coverage(예약가능시간)가 있는 날만(coverage 끝이 더 가까우면 거기까지). FE 는 응답 날짜를 그대로 노출만.
  *  - **중복 없음**: 같은 (date, venueRefId, ticketRef, blockStart, blockEnd) 슬롯은 한 번만 — FE dedupe 불필요.
+ *  - **선택 불가 표기**: 만석/시간겹침 슬롯은 필터되지 않고 `unavailableReason` 과 함께 내려온다 — FE 는 비활성 + 사유(`TIME_CONFLICT`→"다른 일정이 있어요")로 그린다. coverage 밖·휴무는 슬롯 자체가 없음.
  *  - 각 슬롯은 `ticketName`(표시명)을 담는다 — 그룹 헤더를 ticketRef 대신 ticketName 으로.
  */
 

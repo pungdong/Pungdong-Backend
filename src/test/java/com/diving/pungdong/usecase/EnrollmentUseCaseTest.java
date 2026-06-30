@@ -42,6 +42,7 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -234,8 +235,8 @@ class EnrollmentUseCaseTest {
     }
 
     @Test
-    @DisplayName("O3 강사 기존 일정과 시간이 겹치는 venue 부는 옵션에서 빠진다(이중부킹 방지)")
-    void optionsExcludeOverlappingBlock() throws Exception {
+    @DisplayName("O3 강사 기존 일정과 시간이 겹치는 venue 부는 빠지지 않고 TIME_CONFLICT 로 표기된다(이중부킹은 비활성 노출)")
+    void optionsFlagOverlappingBlock() throws Exception {
         Account ins = account("ins14@pd.com", "강사14");
         enterInstructorTrack(ins);
         Object[] s = setup(ins, 4); // coverage 09–18, venue 부 09–12·14–17
@@ -251,7 +252,13 @@ class EnrollmentUseCaseTest {
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(stu))
                 .param("courseId", String.valueOf(course.getId())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.slots.length()").value(1)); // 09–12 빠지고 14–17 만
+                .andExpect(jsonPath("$.slots.length()").value(2)) // 둘 다 옴(필터 아님)
+                // 겹치는 09–12 부는 TIME_CONFLICT 로 비활성 표기
+                .andExpect(jsonPath("$.slots[?(@.blockStart == '09:00:00')].unavailableReason")
+                        .value(hasItem("TIME_CONFLICT")))
+                // 겹치지 않는 14–17 부는 선택 가능
+                .andExpect(jsonPath("$.slots[?(@.blockStart == '14:00:00' && @.unavailableReason == 'TIME_CONFLICT')]")
+                        .isEmpty());
     }
 
     /* ─── S* 신청 ─── */

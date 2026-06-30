@@ -40,6 +40,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -657,8 +658,8 @@ class MultiRoundProgressUseCaseTest {
         String tA = a.getTickets().get(0).getRef();
         String tB = b.getTickets().get(0).getRef();
         Course course = twoVenueCourse(ins, refA, tA, refB, tB);
-        // D1=round1·D2=round2 는 강사가 A 에 이미 일정(같은 시간) → 그 날 B 는 시간겹침으로 제외.
-        // D3 는 일정 없는 날 — A·B 둘 다 후보로 보여 "위치 자유"를 입증.
+        // D1=round1·D2=round2 는 강사가 A 에 이미 같은 시간 일정 → 그 날 B 는 시간겹침(TIME_CONFLICT 표기, 필터 아님).
+        // D3 는 일정 없는 날 — B 도 선택 가능. 둘 다 보여 "위치 자유"를 입증.
         LocalDate d3 = LocalDate.now().plusWeeks(3);
         openCoverage(ins, D1); openCoverage(ins, D2); openCoverage(ins, d3);
         Account stu = account("stu-ph9@pd.com", "학생PH9", Role.STUDENT);
@@ -669,6 +670,12 @@ class MultiRoundProgressUseCaseTest {
                         .header(HttpHeaders.AUTHORIZATION, token(stu)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.slots[?(@.venueRefId == '" + refA + "')]").isNotEmpty())
-                .andExpect(jsonPath("$.slots[?(@.venueRefId == '" + refB + "')]").isNotEmpty()); // 위치 고정 아님
+                .andExpect(jsonPath("$.slots[?(@.venueRefId == '" + refB + "')]").isNotEmpty()) // 위치 고정 아님
+                // 겹치는 날(D1)의 B 슬롯은 사라지지 않고 TIME_CONFLICT 로 표기
+                .andExpect(jsonPath("$.slots[?(@.venueRefId == '" + refB + "' && @.date == '" + D1 + "')].unavailableReason")
+                        .value(hasItem("TIME_CONFLICT")))
+                // 일정 없는 날(D3)의 B 슬롯은 선택 가능(겹침 아님)
+                .andExpect(jsonPath("$.slots[?(@.venueRefId == '" + refB + "' && @.date == '" + d3
+                        + "' && @.unavailableReason == 'TIME_CONFLICT')]").isEmpty());
     }
 }
