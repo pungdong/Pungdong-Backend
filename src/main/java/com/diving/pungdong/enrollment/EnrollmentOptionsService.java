@@ -44,8 +44,9 @@ import java.util.stream.Collectors;
  * remaining = 정원 − 확정 − 외부 hold.
  *
  * <p>날짜 window: <b>오늘부터 {@code LOOKAHEAD_WEEKS}주(8주)</b> 안에서 강사 coverage 가 있는 날만 슬롯이 난다
- * (coverage 끝이 더 가까우면 거기서 끝). 일정수정·강사제안은 추가로 회차가 잡은 venue 1개로 좁힌다(위치 고정).
- * 같은 (날짜,위치,이용권,블록) 슬롯은 한 번만 — 중복 없음.
+ * (coverage 끝이 더 가까우면 거기서 끝). <b>강사 일정변경 제안만</b> 회차가 잡은 venue 1개로 좁힌다(편의 — 학생이
+ * 고른 위치 그대로 시간만 제안). 학생 직접 일정수정은 회차의 모든 후보 위치를 자유 선택(스코프 없음). 같은
+ * (날짜,위치,이용권,블록) 슬롯은 한 번만 — 중복 없음.
  */
 @Service
 @RequiredArgsConstructor
@@ -104,8 +105,9 @@ public class EnrollmentOptionsService {
         if (course == null) {
             throw new ResourceNotFoundException();
         }
-        // 일정수정은 위치 고정 — 그 회차가 잡은 venue 로만 좁힌다(다른 후보 위치 슬롯 섞임 방지).
-        return buildOptions(course.getInstructor(), course, round.getCourseRound(), today, round.getVenueRefId());
+        // 학생 직접 일정수정 — 그 회차(CourseRound)의 모든 후보 위치·시간을 자유롭게 다시 고른다(위치 고정 아님,
+        // 장비도 재선택). 강사 제안과 달리 venueScope 없음 — reschedule 쓰기 경로도 CourseRound 후보 전체를 허용.
+        return buildOptions(course.getInstructor(), course, round.getCourseRound(), today, null);
     }
 
     /**
@@ -125,8 +127,9 @@ public class EnrollmentOptionsService {
     }
 
     /**
-     * @param venueScope 위치 고정 스코프 — 일정수정·강사제안은 회차가 잡은 venueRefId 1개로 좁힌다(다른 후보
-     *                   위치 슬롯이 섞이지 않게). 신규 신청(1회차·다음회차)은 {@code null}(회차의 모든 후보 위치).
+     * @param venueScope 위치 고정 스코프 — <b>강사 일정변경 제안만</b> 회차가 잡은 venueRefId 1개로 좁힌다(편의:
+     *                   학생이 고른 위치 그대로 시간만). 신규 신청(1회차·다음회차)·학생 직접 일정수정은 {@code null}
+     *                   (회차의 모든 후보 위치 — 위치/시간/장비 자유 선택).
      */
     private EnrollmentOptionsResponse buildOptions(Account instructor, Course course, CourseRound round,
                                                    LocalDate today, String venueScope) {

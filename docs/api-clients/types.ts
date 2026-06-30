@@ -1192,8 +1192,9 @@ export interface SlotProposal {
  * 강사가 대안 슬롯을 고를 때 보는 교집합(학생 GET /enrollments/rounds/{roundId}/options 와 동일 EnrollmentOptionsResponse —
  * 슬롯 UI 재사용). 각 슬롯의 `remaining`/`full` 로 **만석 슬롯을 비활성화**해 강사가 안 고르게 한다(제안 보장 hold 도 잔여에 반영).
  *
- * 슬롯 규칙(이 두 reschedule 엔드포인트 = 위치 고정):
- *  - **위치 고정**: 회차가 잡은 venueRefId 1개로만 슬롯이 온다(다른 후보 위치 섞이지 않음 — FE 가 venueRefId 로 거를 필요 없음).
+ * 슬롯 규칙:
+ *  - **위치 고정(이 강사 제안 엔드포인트 한정)**: 회차가 잡은 venueRefId 1개로만 슬롯이 온다(편의 — 학생이 고른 위치 그대로 시간만 제안).
+ *    FE 가 venueRefId 로 거를 필요 없음. ⚠️ 학생 직접 일정수정(GET /enrollments/rounds/{roundId}/options)은 위치 고정 아님 — 회차의 모든 후보 위치를 자유 선택.
  *  - **날짜 window**: 오늘부터 8주 안에서 강사 coverage(예약가능시간)가 있는 날만(coverage 끝이 더 가까우면 거기까지). FE 는 응답 날짜를 그대로 노출만.
  *  - **중복 없음**: 같은 (date, venueRefId, ticketRef, blockStart, blockEnd) 슬롯은 한 번만 — FE dedupe 불필요.
  *  - 각 슬롯은 `ticketName`(표시명)을 담는다 — 그룹 헤더를 ticketRef 대신 ticketName 으로.

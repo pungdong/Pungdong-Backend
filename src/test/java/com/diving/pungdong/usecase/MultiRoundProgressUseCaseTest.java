@@ -645,4 +645,30 @@ class MultiRoundProgressUseCaseTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.slots.length()").value(2));
     }
+
+    @Test
+    @DisplayName("PH9 학생 직접 일정수정 옵션 — 회차의 모든 후보 위치를 보여준다(위치 고정 아님 — 강사 제안과 대비)")
+    void studentRoundOptionsOffersAllCandidateVenues() throws Exception {
+        Account ins = instructor("ins-ph9@pd.com", "강사PH9", 4);
+        Venue a = venue(ins);   // 잠실(일반권) — 예약한 위치
+        Venue b = venue2(ins);  // 딥스테이션(하프권) — 다른 후보 위치
+        String refA = VenueScope.token(VenueScope.CUSTOM, String.valueOf(a.getId()));
+        String refB = VenueScope.token(VenueScope.CUSTOM, String.valueOf(b.getId()));
+        String tA = a.getTickets().get(0).getRef();
+        String tB = b.getTickets().get(0).getRef();
+        Course course = twoVenueCourse(ins, refA, tA, refB, tB);
+        // D1=round1·D2=round2 는 강사가 A 에 이미 일정(같은 시간) → 그 날 B 는 시간겹침으로 제외.
+        // D3 는 일정 없는 날 — A·B 둘 다 후보로 보여 "위치 자유"를 입증.
+        LocalDate d3 = LocalDate.now().plusWeeks(3);
+        openCoverage(ins, D1); openCoverage(ins, D2); openCoverage(ins, d3);
+        Account stu = account("stu-ph9@pd.com", "학생PH9", Role.STUDENT);
+        EnrollmentRound r2 = round2Pending(ins, course, refA, tA, stu); // venue A 로 예약
+
+        // 학생이 직접 일정수정 시 — 예약한 A 뿐 아니라 다른 후보 위치 B 도 자유 선택지로 내려온다
+        mockMvc.perform(get("/enrollments/rounds/{roundId}/options", r2.getId())
+                        .header(HttpHeaders.AUTHORIZATION, token(stu)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.slots[?(@.venueRefId == '" + refA + "')]").isNotEmpty())
+                .andExpect(jsonPath("$.slots[?(@.venueRefId == '" + refB + "')]").isNotEmpty()); // 위치 고정 아님
+    }
 }
