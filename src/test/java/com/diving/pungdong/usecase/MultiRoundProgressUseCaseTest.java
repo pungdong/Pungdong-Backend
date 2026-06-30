@@ -40,6 +40,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -137,6 +138,61 @@ class MultiRoundProgressUseCaseTest {
         RoundVenue rv = RoundVenue.builder().venueRefId(venueRef).sortOrder(0).build();
         rv.addTicket(RoundVenueTicket.builder().ticketRef(ticketRef).daypart(DaypartKind.WEEKDAY).sortOrder(0).build());
         round.addVenue(rv);
+        return round;
+    }
+
+    /** 두 번째 venue(다른 이용권명 "하프권") — 위치 고정 스코프 검증용. */
+    private Venue venue2(Account owner) {
+        VenueDaypart weekday = VenueDaypart.builder().kind(DaypartKind.WEEKDAY).sold(true).fee(20000).timeMode(TimeMode.FIXED).build();
+        weekday.addTimeBlock(VenueTimeBlock.builder().startTime(START).endTime(END).sortOrder(0).build());
+        VenueDaypart weekend = VenueDaypart.builder().kind(DaypartKind.WEEKEND).sold(true).fee(20000).timeMode(TimeMode.FIXED).build();
+        weekend.addTimeBlock(VenueTimeBlock.builder().startTime(START).endTime(END).sortOrder(0).build());
+        VenueTicket ticket = VenueTicket.builder().name("하프권").sortOrder(0)
+                .disciplineCodes(new java.util.LinkedHashSet<>(Set.of("FREEDIVING"))).build();
+        ticket.addDaypart(weekday); ticket.addDaypart(weekend);
+        Venue venue = Venue.builder().owner(owner).name("딥스테이션").type(VenueType.DEEP_POOL)
+                .address("경기 용인").lockedDisciplineCode("FREEDIVING").createdAt(LocalDateTime.now()).build();
+        venue.addTicket(ticket);
+        return venueRepo.save(venue);
+    }
+
+    /** 2 정규회차 코스 — 각 회차가 두 venue(A·B) 후보를 모두 제공(위치 고정 스코프 검증). */
+    private Course twoVenueCourse(Account ins, String refA, String tA, String refB, String tB) {
+        Course course = Course.builder().instructor(ins).title("AIDA2 과정")
+                .kind(CourseKind.CERTIFICATION).organizationCode("AIDA").disciplineCode("FREEDIVING")
+                .totalRounds(2).price(300000).status(CourseStatus.OPEN).createdAt(LocalDateTime.now()).build();
+        course.addRound(twoVenueRound(1, refA, tA, refB, tB));
+        course.addRound(twoVenueRound(2, refA, tA, refB, tB));
+        return courseRepo.save(course);
+    }
+
+    private CourseRound twoVenueRound(int idx, String refA, String tA, String refB, String tB) {
+        CourseRound round = CourseRound.builder().roundKind(RoundKind.REGULAR).roundIndex(idx).build();
+        RoundVenue a = RoundVenue.builder().venueRefId(refA).sortOrder(0).build();
+        a.addTicket(RoundVenueTicket.builder().ticketRef(tA).daypart(DaypartKind.WEEKDAY).sortOrder(0).build());
+        RoundVenue b = RoundVenue.builder().venueRefId(refB).sortOrder(1).build();
+        b.addTicket(RoundVenueTicket.builder().ticketRef(tB).daypart(DaypartKind.WEEKDAY).sortOrder(0).build());
+        round.addVenue(a); round.addVenue(b);
+        return round;
+    }
+
+    /** 2 정규회차 코스 — 회차마다 같은 venue·ticket 후보를 2번 등록(교집합 중복 재현 → dedup 검증). */
+    private Course dupVenueCourse(Account ins, String venueRef, String ticketRef) {
+        Course course = Course.builder().instructor(ins).title("AIDA2 과정")
+                .kind(CourseKind.CERTIFICATION).organizationCode("AIDA").disciplineCode("FREEDIVING")
+                .totalRounds(2).price(300000).status(CourseStatus.OPEN).createdAt(LocalDateTime.now()).build();
+        course.addRound(dupVenueRound(1, venueRef, ticketRef));
+        course.addRound(dupVenueRound(2, venueRef, ticketRef));
+        return courseRepo.save(course);
+    }
+
+    private CourseRound dupVenueRound(int idx, String venueRef, String ticketRef) {
+        CourseRound round = CourseRound.builder().roundKind(RoundKind.REGULAR).roundIndex(idx).build();
+        for (int i = 0; i < 2; i++) { // 같은 (venue,ticket)을 두 번 — 후보 중복
+            RoundVenue rv = RoundVenue.builder().venueRefId(venueRef).sortOrder(i).build();
+            rv.addTicket(RoundVenueTicket.builder().ticketRef(ticketRef).daypart(DaypartKind.WEEKDAY).sortOrder(0).build());
+            round.addVenue(rv);
+        }
         return round;
     }
 
@@ -528,5 +584,98 @@ class MultiRoundProgressUseCaseTest {
         // hold 풀려 다른 학생이 d3 신청 가능
         Account other = account("stu-ph5b@pd.com", "학생PH5B", Role.STUDENT);
         applyRound1(other, course, ref, ticket, d3).andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("PH6 강사 제안 옵션 — 슬롯에 이용권 표시명(ticketName)이 담긴다('일반권')")
+    void instructorProposeOptionsCarriesTicketName() throws Exception {
+        Account ins = instructor("ins-ph6@pd.com", "강사PH6", 4);
+        Venue v = venue(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String ticket = v.getTickets().get(0).getRef();
+        Course course = twoRoundCourse(ins, ref, ticket);
+        openCoverage(ins, D1); openCoverage(ins, D2);
+        Account stu = account("stu-ph6@pd.com", "학생PH6", Role.STUDENT);
+        EnrollmentRound r2 = round2Pending(ins, course, ref, ticket, stu);
+
+        mockMvc.perform(get("/instructor/enrollments/{id}/propose-options", r2.getId())
+                        .header(HttpHeaders.AUTHORIZATION, token(ins)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.slots[0].ticketRef").value(ticket))
+                .andExpect(jsonPath("$.slots[0].ticketName").value("일반권"));
+    }
+
+    @Test
+    @DisplayName("PH7 강사 제안 옵션 — 위치 고정: 회차가 잡은 venue 슬롯만 내려준다(다른 후보 위치는 제외)")
+    void instructorProposeOptionsScopedToBookedVenue() throws Exception {
+        Account ins = instructor("ins-ph7@pd.com", "강사PH7", 4);
+        Venue a = venue(ins);   // 잠실(일반권)
+        Venue b = venue2(ins);  // 딥스테이션(하프권)
+        String refA = VenueScope.token(VenueScope.CUSTOM, String.valueOf(a.getId()));
+        String refB = VenueScope.token(VenueScope.CUSTOM, String.valueOf(b.getId()));
+        String tA = a.getTickets().get(0).getRef();
+        String tB = b.getTickets().get(0).getRef();
+        Course course = twoVenueCourse(ins, refA, tA, refB, tB);
+        openCoverage(ins, D1); openCoverage(ins, D2);
+        Account stu = account("stu-ph7@pd.com", "학생PH7", Role.STUDENT);
+        EnrollmentRound r2 = round2Pending(ins, course, refA, tA, stu); // venue A 로 예약
+
+        mockMvc.perform(get("/instructor/enrollments/{id}/propose-options", r2.getId())
+                        .header(HttpHeaders.AUTHORIZATION, token(ins)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.slots").isNotEmpty())
+                .andExpect(jsonPath("$.slots[0].venueRefId").value(refA))
+                .andExpect(jsonPath("$.slots[?(@.venueRefId == '" + refB + "')]").isEmpty()); // 다른 후보 위치 제외
+    }
+
+    @Test
+    @DisplayName("PH8 강사 제안 옵션 — 같은 (날짜,위치,이용권,블록) 슬롯은 중복 없이 한 번만(후보 중복 방어)")
+    void instructorProposeOptionsDeduplicatesSlots() throws Exception {
+        Account ins = instructor("ins-ph8@pd.com", "강사PH8", 4);
+        Venue v = venue(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String ticket = v.getTickets().get(0).getRef();
+        Course course = dupVenueCourse(ins, ref, ticket); // 회차마다 같은 후보 2번
+        openCoverage(ins, D1); openCoverage(ins, D2);
+        Account stu = account("stu-ph8@pd.com", "학생PH8", Role.STUDENT);
+        EnrollmentRound r2 = round2Pending(ins, course, ref, ticket, stu);
+
+        // 후보가 2배여도 (D1,D2)×1블록×1이용권 = 2슬롯 (중복 제거)
+        mockMvc.perform(get("/instructor/enrollments/{id}/propose-options", r2.getId())
+                        .header(HttpHeaders.AUTHORIZATION, token(ins)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.slots.length()").value(2));
+    }
+
+    @Test
+    @DisplayName("PH9 학생 직접 일정수정 옵션 — 회차의 모든 후보 위치를 보여준다(위치 고정 아님 — 강사 제안과 대비)")
+    void studentRoundOptionsOffersAllCandidateVenues() throws Exception {
+        Account ins = instructor("ins-ph9@pd.com", "강사PH9", 4);
+        Venue a = venue(ins);   // 잠실(일반권) — 예약한 위치
+        Venue b = venue2(ins);  // 딥스테이션(하프권) — 다른 후보 위치
+        String refA = VenueScope.token(VenueScope.CUSTOM, String.valueOf(a.getId()));
+        String refB = VenueScope.token(VenueScope.CUSTOM, String.valueOf(b.getId()));
+        String tA = a.getTickets().get(0).getRef();
+        String tB = b.getTickets().get(0).getRef();
+        Course course = twoVenueCourse(ins, refA, tA, refB, tB);
+        // D1=round1·D2=round2 는 강사가 A 에 이미 같은 시간 일정 → 그 날 B 는 시간겹침(TIME_CONFLICT 표기, 필터 아님).
+        // D3 는 일정 없는 날 — B 도 선택 가능. 둘 다 보여 "위치 자유"를 입증.
+        LocalDate d3 = LocalDate.now().plusWeeks(3);
+        openCoverage(ins, D1); openCoverage(ins, D2); openCoverage(ins, d3);
+        Account stu = account("stu-ph9@pd.com", "학생PH9", Role.STUDENT);
+        EnrollmentRound r2 = round2Pending(ins, course, refA, tA, stu); // venue A 로 예약
+
+        // 학생이 직접 일정수정 시 — 예약한 A 뿐 아니라 다른 후보 위치 B 도 자유 선택지로 내려온다
+        mockMvc.perform(get("/enrollments/rounds/{roundId}/options", r2.getId())
+                        .header(HttpHeaders.AUTHORIZATION, token(stu)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.slots[?(@.venueRefId == '" + refA + "')]").isNotEmpty())
+                .andExpect(jsonPath("$.slots[?(@.venueRefId == '" + refB + "')]").isNotEmpty()) // 위치 고정 아님
+                // 겹치는 날(D1)의 B 슬롯은 사라지지 않고 TIME_CONFLICT 로 표기
+                .andExpect(jsonPath("$.slots[?(@.venueRefId == '" + refB + "' && @.date == '" + D1 + "')].unavailableReason")
+                        .value(hasItem("TIME_CONFLICT")))
+                // 일정 없는 날(D3)의 B 슬롯은 선택 가능(겹침 아님)
+                .andExpect(jsonPath("$.slots[?(@.venueRefId == '" + refB + "' && @.date == '" + d3
+                        + "' && @.unavailableReason == 'TIME_CONFLICT')]").isEmpty());
     }
 }

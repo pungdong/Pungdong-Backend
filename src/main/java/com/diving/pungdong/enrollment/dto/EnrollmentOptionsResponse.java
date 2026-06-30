@@ -56,12 +56,26 @@ public class EnrollmentOptionsResponse {
         /** 표시 라벨 — "14:00–17:00". */
         private String sessionLabel;
         private String ticketRef;
+        /** 이용권 표시명 — "일반권"·"하프권" 등(OFFICIAL Sanity / CUSTOM BE 합성, {@code ticketRef} 와 짝). */
+        private String ticketName;
         /** 입장료(이용권 × 그 날짜 평일/주말 daypart fee, 원). */
         private int entryFee;
         private int capacity;
         /** 남은 자리 = capacity − 확정 − 외부 hold. */
         private int remaining;
         private boolean full;
+        /**
+         * 선택 불가 사유 — null 이면 선택 가능. 강사가 내놓은 시간(coverage∩운영블록)이지만 <b>지금 막힌</b> 슬롯만
+         * 표기한다(coverage 밖·휴무는 애초에 슬롯이 안 남). FE 는 이게 non-null 이면 비활성 처리.
+         * <ul><li>{@code FULL} — 만석({@code full==true} 과 동치)</li>
+         *     <li>{@code TIME_CONFLICT} — 강사가 같은 시간 다른 위치/블록에 이미 일정(동시에 두 곳 불가). FE 카피 예: "다른 일정이 있어요"</li></ul>
+         */
+        private SlotUnavailableReason unavailableReason;
+    }
+
+    /** 슬롯이 선택 불가한 이유(선택 가능하면 null). [[enrollment-domain-concept]] */
+    public enum SlotUnavailableReason {
+        FULL, TIME_CONFLICT
     }
 
     @Getter @Setter @Builder @NoArgsConstructor @AllArgsConstructor
