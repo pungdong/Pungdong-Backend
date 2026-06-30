@@ -1,9 +1,13 @@
 package com.diving.pungdong.instructorapplication;
 
+import com.diving.pungdong.account.Account;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -26,6 +30,26 @@ public interface InstructorApplicationJpaRepo extends JpaRepository<InstructorAp
 
     /** 내 신청 목록 (종목별 여러 건) — 최신순. GET /me 의 출처. */
     List<InstructorApplication> findByAccountIdOrderByIdDesc(Long accountId);
+
+    /** 내 신청 중 특정 상태만 — 프로필 자격 뱃지(APPROVED)용. certificates 는 트랜잭션 안에서 LAZY 로드. */
+    List<InstructorApplication> findByAccountIdAndStatus(Long accountId, InstructorApplicationStatus status);
+
+    /**
+     * 공개 강사 디렉토리 — 그 상태(APPROVED)의 신청을 가진 계정(탈퇴 제외), id 내림차순. 한 계정이 종목별 여러
+     * 신청을 가져도 카드는 1장이라 <b>EXISTS 로 계정을 직접 조회</b>(DISTINCT+ORDER BY 가 eager 컬렉션과 충돌 회피).
+     * 종목 코드는 별도 조회로 합친다.
+     */
+    @Query(value = "select acc from Account acc where acc.isDeleted = false "
+            + "and exists (select 1 from InstructorApplication a where a.account = acc and a.status = :status) "
+            + "order by acc.id desc",
+            countQuery = "select count(acc) from Account acc where acc.isDeleted = false "
+                    + "and exists (select 1 from InstructorApplication a where a.account = acc and a.status = :status)")
+    Page<Account> findInstructorAccountsByStatus(@Param("status") InstructorApplicationStatus status,
+                                                 Pageable pageable);
+
+    /** 여러 계정의 특정 상태 신청 일괄 — 디렉토리 카드별 종목 코드 합치기용. */
+    List<InstructorApplication> findByAccountIdInAndStatus(Collection<Long> accountIds,
+                                                           InstructorApplicationStatus status);
 
     /** 어드민 대기 목록 — 상태별 조회. SUBMITTED 만 넘기면 승인/반려된 건은 빠진다. */
     Page<InstructorApplication> findAllByStatus(InstructorApplicationStatus status, Pageable pageable);

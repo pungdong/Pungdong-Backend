@@ -52,6 +52,7 @@ public class SecurityConfiguration {
                         .antMatchers("/lectureImage/list").permitAll()
                         .antMatchers(HttpMethod.GET, "/exception/**").permitAll()
                         .antMatchers(HttpMethod.GET, "/disciplines").permitAll()
+                        .antMatchers(HttpMethod.GET, "/instructors/public").permitAll()
                         .antMatchers(HttpMethod.GET, "/courses/browse").permitAll()
                         .antMatchers(HttpMethod.GET, "/courses/level-labels").permitAll()
                         .antMatchers(HttpMethod.GET, "/courses/*/detail").permitAll()

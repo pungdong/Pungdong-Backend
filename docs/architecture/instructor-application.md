@@ -199,6 +199,8 @@ erDiagram
 | `/admin/instructor-applications/{id}` | GET | **ADMIN** | PII 포함 상세 (+ reviewerNickName / createdAt) |
 | `/admin/instructor-applications/{id}/approve` | POST | **ADMIN** | INSTRUCTOR 부여 + isCertified |
 | `/admin/instructor-applications/{id}/reject` | POST | **ADMIN** | 사유 필수 |
+| `/instructors/public` | GET | **공개** | 공개 강사 디렉토리(PagedModel `_embedded.instructors`). 승인 신청 보유 계정만(탈퇴 제외), 공개필드(nickName·avatarUrl·disciplineCodes)만. `PublicInstructorController`+`PublicInstructorService` |
+| `/account/profile` | GET | 인증(본인) | 마이페이지 프로필 — AccountBasicInfo + profilePhotoUrl + 승인 자격 뱃지(`certs`). 합성은 `profile/ProfileService`(account⊕instructorapplication, 단방향 유지용 별도 패키지) |
 
 매처는 `SecurityConfiguration`: `/admin/instructor-applications/**` → `hasRole(ADMIN)`, `/instructor-applications/**` → `authenticated`. 승인 후 역할 변경은 매 요청 DB 재계산이라 **재로그인 불필요** (use-case `R3` 가 검증).
 
