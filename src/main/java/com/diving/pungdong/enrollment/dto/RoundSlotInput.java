@@ -3,6 +3,7 @@ package com.diving.pungdong.enrollment.dto;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 회차 슬롯 선택 입력 — 1회차 신청({@link EnrollmentCreateRequest})과 2회차+ 신청({@link RoundScheduleRequest})이
@@ -15,4 +16,7 @@ public interface RoundSlotInput {
     LocalTime getBlockStart();
     LocalTime getBlockEnd();
     List<String> getEquipmentRefs();
+
+    /** 선택 장비의 사이즈(itemRef → "270"·"L"). 사이즈 있는 품목만. 없거나 미선택이면 null 스냅샷. */
+    Map<String, String> getEquipmentSizes();
 }

@@ -1196,6 +1196,8 @@ export interface EnrollmentCreateRequest {
   blockStart: string;       // "14:00:00"
   blockEnd: string;
   equipmentRefs?: string[]; // 선택 장비 itemRef
+  /** 선택 장비 사이즈(itemRef → "270"·"L"). 사이즈 있는 품목만 넣으면 됨. 서버가 그 품목 sizeOptions 멤버십 검증(프리셋 밖=400). 회차 스냅샷에 저장돼 강사 hub gearItems.sizeLabel 로 노출. */
+  equipmentSizes?: Record<string, string>;
 }
 
 /** 강사 거절 — POST /instructor/enrollments/{roundId}/reject. 거절은 1회차(진입)만(진행 중은 일정변경요청). */
@@ -1214,6 +1216,8 @@ export interface RoundScheduleRequest {
   blockStart: string;       // "14:00:00"
   blockEnd: string;
   equipmentRefs?: string[];
+  /** 선택 장비 사이즈(itemRef → "270"·"L"). EnrollmentCreateRequest 와 동일 규칙(sizeOptions 멤버십 검증). */
+  equipmentSizes?: Record<string, string>;
 }
 
 /** 완전한 슬롯 — 날짜+이용권+블록. 위치는 회차에 고정(날짜만 바꾸면 daypart=이용권·입장료·블록이 달라지므로). */

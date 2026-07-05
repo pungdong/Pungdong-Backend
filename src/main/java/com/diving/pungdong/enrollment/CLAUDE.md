@@ -49,7 +49,8 @@
 ## 아직 안 한 것 (후속 PR)
 
 - **정산** — 수수료 분해(PG 3.4% + 플랫폼 6.6%). (결제 자체는 [payment](../payment/CLAUDE.md) 로 연동 완료 — 수락→결제대기→확정.)
-- **장비 사이즈 캡처**(핀 mm·슈트 S~XL) · 세션 단체채팅/공지 · enrollment-management 강사 검토 시트 풀 UI.
+- ~~장비 사이즈 캡처~~ **완료** — 신청 요청 `equipmentSizes`(itemRef→"270"/"L", `EnrollmentCreateRequest`·`RoundScheduleRequest`) → `addEquipment` 가 그 품목 `sizeOptions` 멤버십 검증 후 `EnrollmentRoundEquipment.size` 스냅샷 저장 → 강사 hub `gearItems.sizeLabel` 로 노출. 사이즈 없는 품목/미선택은 null. 프리셋 밖 = 400(자유입력 차단).
+- 세션 단체채팅/공지 · enrollment-management 강사 검토 시트 풀 UI.
 - **다회차 진행 중 일정 결정**(2회차+) · 환불/재일정 상태기계.
 - venue 운영 **MONTHLY 휴무·OPEN 정밀 슬롯화** 정밀도 · 공휴일.
 - REST Docs `document(...)` 컨트롤러 테스트(venue/course/availability 와 동일하게 use-case 로 대체).
