@@ -88,15 +88,6 @@ public class InstructorScheduleHubResponse {
         private final SlotRef previousSlot;
     }
 
-    /** 대여 장비 1줄 — 이름 + 선택 사이즈 라벨. EnrollmentRoundEquipment 스냅샷. */
-    @Getter
-    @Builder
-    public static class GearItem {
-        private final String name;
-        /** 선택 사이즈 라벨("270"·"L" 등 저장값 그대로). 사이즈 없는 품목이면 null. (단위 "mm" 등은 미저장 — FE 표기.) */
-        private final String sizeLabel;
-    }
-
     @Getter
     @Builder
     public static class SlotRef {

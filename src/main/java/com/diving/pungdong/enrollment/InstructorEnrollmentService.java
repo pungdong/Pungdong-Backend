@@ -196,7 +196,7 @@ public class InstructorEnrollmentService {
                 .amount(r.chargeTotal())
                 .gearCount(r.getEquipment().size())
                 .gearItems(r.getEquipment().stream()
-                        .map(e -> InstructorScheduleHubResponse.GearItem.builder()
+                        .map(e -> com.diving.pungdong.enrollment.dto.GearItem.builder()
                                 .name(e.getName())
                                 .sizeLabel(e.getSize())
                                 .build())

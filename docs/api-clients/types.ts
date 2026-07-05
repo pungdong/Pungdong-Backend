@@ -1073,13 +1073,23 @@ export interface HoldResponse {
  * levels = 신청한 **코스의 목표 레벨**(학생 본인 자격 아님). organizationCode/disciplineCode 는 코스 단체
  * 미지정(기타) 또는 코스 없는 행이면 null.
  */
+/**
+ * 대여 장비 1줄(표시용) — EnrollmentRoundEquipment 스냅샷의 단일 투영. 강사 hub · 학생 hub · 강사 캘린더 신청자 행이
+ * 모두 이 한 형태를 공유(BE 도 enrollment/dto/GearItem 하나로 통합). sizeLabel 은 저장값("270"·"L") — 단위(mm)는 FE 표기, 없으면 null.
+ */
+export interface GearItem {
+  name: string;
+  sizeLabel: string | null;
+}
+
 export interface ApplicantSummaryResponse {
   name: string;
   organizationCode: string | null;
   disciplineCode: string | null;
   /** 평탄 레벨 enum: 'LEVEL_1'|'LEVEL_2'|'LEVEL_3'|'LEVEL_4'|'INSTRUCTOR'|'INSTRUCTOR_TRAINER'. 범위 코스면 여러 개. */
   levels: CertLevel[];
-  gear: string[];
+  /** 이번 세션 대여 장비 내역. 강사/학생 hub 의 gearItems 와 동일 형태(구조화 — 옛 string[] 대체). 없으면 []. */
+  gear: GearItem[];
   kind?: 'external';
 }
 
@@ -1346,6 +1356,8 @@ export interface ScheduleRound {
   venueName: string | null;
   /** 신청 시점 추정 총액 스냅샷(원). 권위 결제금액은 POST /payments/prepare. */
   amount: number;
+  /** 내가 그 회차에 신청한 대여 장비 내역(신청 시점 스냅샷). 강사 hub gearItems 와 동일 형태. 없으면 []. */
+  gearItems: GearItem[];
   /** 강사 일정변경 제안 슬롯(RESCHEDULING). 학생이 골라 POST /enrollments/rounds/{roundId}/pick-slot. */
   proposedSlots: SlotProposal[];
   rejectionReason: string | null; // REJECTED만
@@ -1462,8 +1474,8 @@ export interface InstructorRoundCard {
   venueName: string | null;
   amount: number;
   gearCount: number;             // = gearItems.length (하위호환)
-  /** 학생이 그 회차에 신청한 대여 장비 내역(신청 시점 스냅샷). 없으면 []. sizeLabel 은 "270"·"L" 등 저장값(단위 mm 등은 FE 표기). */
-  gearItems: { name: string; sizeLabel: string | null }[];
+  /** 학생이 그 회차에 신청한 대여 장비 내역(신청 시점 스냅샷). 없으면 []. */
+  gearItems: GearItem[];
   /** CHANGING 일 때 학생이 바꾸기 전 슬롯(변경 검토 diff). 없으면 null. */
   previousSlot: { date: string | null; venueRefId: string | null; ticketRef: string | null;
                   blockStart: string | null; blockEnd: string | null } | null;

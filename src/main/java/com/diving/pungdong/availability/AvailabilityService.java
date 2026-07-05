@@ -12,7 +12,6 @@ import com.diving.pungdong.availability.dto.CoverageRequest;
 import com.diving.pungdong.availability.dto.HoldRequest;
 import com.diving.pungdong.availability.dto.SessionCreateRequest;
 import com.diving.pungdong.enrollment.EnrollmentRound;
-import com.diving.pungdong.enrollment.EnrollmentRoundEquipment;
 import com.diving.pungdong.enrollment.EnrollmentRoundJpaRepo;
 import com.diving.pungdong.enrollment.EnrollmentStatus;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
@@ -390,7 +389,10 @@ public class AvailabilityService {
                 .organizationCode(course == null ? null : course.getOrganizationCode())
                 .disciplineCode(course == null ? null : course.getDisciplineCode())
                 .levels(levels)
-                .gear(r.getEquipment().stream().map(EnrollmentRoundEquipment::getName).collect(Collectors.toList()))
+                .gear(r.getEquipment().stream()
+                        .map(eq -> com.diving.pungdong.enrollment.dto.GearItem.builder()
+                                .name(eq.getName()).sizeLabel(eq.getSize()).build())
+                        .collect(Collectors.toList()))
                 .kind(null)
                 .build();
     }

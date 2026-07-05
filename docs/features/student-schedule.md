@@ -47,6 +47,9 @@
 
 → **현재 7상태 중 5개만 파생 가능.** `finalizing`/`completed` 는 출석·완료 추적이 BE 에 생겨야 가능.
 
+### 회차 대여 장비 (2026-07-06)
+회차 카드(`ScheduleRound`)에 내가 신청한 **대여 장비 내역 `gearItems`**(`{name, sizeLabel}`, 신청 시점 스냅샷)를 echo — 학생이 자기 일정에서 뭘 빌렸는지(핀 270 · 슈트 L) 본다. 강사 hub·강사 캘린더 신청자행과 **같은 공유 `GearItem`** 형태(단위는 FE 표기). 사이즈 캡처는 신청 요청 `equipmentSizes` 로(booking 참조).
+
 ### 미구현 서브시스템 (설계가 요구, BE 없음 — 코드 grep 확인)
 - **출석/완료(done)** — enrollment 에 "수강 완료" 상태/시점 없음. CONFIRMED 가 끝. → `progress→finalizing→completed` 불가.
 - **강사 메모(회차별)** — enrollment 메모 필드 없음 (`AvailabilityHold.memo` 는 강사 외부예약 기록용, 무관).

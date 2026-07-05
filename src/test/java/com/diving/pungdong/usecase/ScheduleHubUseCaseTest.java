@@ -12,6 +12,7 @@ import com.diving.pungdong.course.RoundKind;
 import com.diving.pungdong.enrollment.Enrollment;
 import com.diving.pungdong.enrollment.EnrollmentJpaRepo;
 import com.diving.pungdong.enrollment.EnrollmentRound;
+import com.diving.pungdong.enrollment.EnrollmentRoundEquipment;
 import com.diving.pungdong.enrollment.EnrollmentStatus;
 import com.diving.pungdong.global.security.JwtTokenProvider;
 import org.junit.jupiter.api.AfterEach;
@@ -30,6 +31,7 @@ import java.time.LocalTime;
 import java.util.HashSet;
 import java.util.Set;
 
+import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -146,5 +148,25 @@ class ScheduleHubUseCaseTest {
     @DisplayName("SH2 인증 없이 호출하면 401 (matcher /enrollments/** authenticated)")
     void requiresAuth() throws Exception {
         mockMvc.perform(get("/enrollments/mine/schedule")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("SH3 회차에 내가 신청한 대여 장비 내역(gearItems: name·sizeLabel)이 echo 된다(강사 hub 와 대칭)")
+    void roundEchoesGearItems() throws Exception {
+        Account ins = account("ins-sh3@pd.com", "강사SH3");
+        Account stu = account("stu-sh3@pd.com", "학생SH3");
+        Course c = course(ins, "AIDA2 과정");
+        EnrollmentRound r = roundOf(1, EnrollmentStatus.PENDING);
+        r.addEquipment(EnrollmentRoundEquipment.builder().itemRef("1").name("핀").priceSnapshot(5000).size("270").build());
+        r.addEquipment(EnrollmentRoundEquipment.builder().itemRef("2").name("슈트").priceSnapshot(8000).size("L").build());
+        enroll(stu, c, 350000, r);
+
+        mockMvc.perform(get("/enrollments/mine/schedule").header(HttpHeaders.AUTHORIZATION, token(stu)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.courses[0].rounds[0].gearItems", hasSize(2)))
+                .andExpect(jsonPath("$.courses[0].rounds[0].gearItems[0].name").value("핀"))
+                .andExpect(jsonPath("$.courses[0].rounds[0].gearItems[0].sizeLabel").value("270"))
+                .andExpect(jsonPath("$.courses[0].rounds[0].gearItems[1].name").value("슈트"))
+                .andExpect(jsonPath("$.courses[0].rounds[0].gearItems[1].sizeLabel").value("L"));
     }
 }
