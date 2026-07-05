@@ -36,8 +36,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import com.diving.pungdong.venue.equipment.SizeFormat;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -74,6 +76,7 @@ class EnrollmentUseCaseTest {
     @Autowired VenueEquipmentExtensionJpaRepo equipmentRepo;
     @Autowired EnrollmentJpaRepo enrollmentRepo;
     @Autowired EnrollmentRoundJpaRepo roundRepo;
+    @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
 
     private static final LocalDate D1 = LocalDate.now().plusWeeks(1);
     private static final LocalTime B_START = LocalTime.of(14, 0);
@@ -139,6 +142,18 @@ class EnrollmentUseCaseTest {
 
     private VenueEquipmentItem saveEquipment(Account owner, String venueRefId) {
         VenueEquipmentItem item = VenueEquipmentItem.builder().name("롱핀").price(5000).sortOrder(0).build();
+        VenueEquipmentExtension ext = VenueEquipmentExtension.builder()
+                .owner(owner).venueRefId(venueRefId).createdAt(LocalDateTime.now()).build();
+        ext.addItem(item);
+        equipmentRepo.save(ext);
+        return item;
+    }
+
+    /** 사이즈 있는 장비(핀 = SHOE_MM, 프리셋 230~300) — 사이즈 캡처 검증용. */
+    private VenueEquipmentItem saveSizedEquipment(Account owner, String venueRefId) {
+        VenueEquipmentItem item = VenueEquipmentItem.builder().name("롱핀").price(5000).sortOrder(0)
+                .sizeFormat(SizeFormat.SHOE_MM)
+                .sizeOptions(new java.util.ArrayList<>(SizeFormat.SHOE_MM.presetOptions())).build();
         VenueEquipmentExtension ext = VenueEquipmentExtension.builder()
                 .owner(owner).venueRefId(venueRefId).createdAt(LocalDateTime.now()).build();
         ext.addItem(item);
@@ -516,5 +531,59 @@ class EnrollmentUseCaseTest {
                 .content(json(req(course.getId(), venueRef, ticketRef, B_START, B_END, List.of()))))
                 .andExpect(status().isCreated());
         return roundRepo.findByEnrollment_Student_IdOrderByIdDesc(student.getId()).get(0);
+    }
+
+    /* ─── E* 장비 사이즈 캡처 ─── */
+
+    @Test
+    @DisplayName("E1 신청 시 선택한 장비 사이즈(equipmentSizes)가 회차 스냅샷에 저장된다(핀 270)")
+    void applyCapturesEquipmentSize() throws Exception {
+        Account ins = account("ins-e1@pd.com", "강사E1");
+        enterInstructorTrack(ins);
+        Object[] s = setup(ins, 4);
+        Course course = (Course) s[0];
+        String venueRef = (String) s[2];
+        VenueEquipmentItem fin = saveSizedEquipment(ins, venueRef);
+        String fid = String.valueOf(fin.getId());
+        Account stu = account("stu-e1@pd.com", "수강생E1");
+
+        EnrollmentCreateRequest body = EnrollmentCreateRequest.builder()
+                .courseId(course.getId()).date(D1).venueRefId(venueRef).ticketRef(ticketRefOf((Venue) s[1]))
+                .blockStart(B_START).blockEnd(B_END)
+                .equipmentRefs(List.of(fid)).equipmentSizes(Map.of(fid, "270")).build();
+        mockMvc.perform(post("/enrollments").header(HttpHeaders.AUTHORIZATION, tokenFor(stu))
+                        .contentType(MediaType.APPLICATION_JSON).content(json(body)))
+                .andExpect(status().isCreated());
+
+        // 스냅샷 검증 — 장비 컬렉션은 LAZY 라 트랜잭션 안에서
+        new org.springframework.transaction.support.TransactionTemplate(txManager).executeWithoutResult(t -> {
+            EnrollmentRound r = roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).get(0);
+            assertThat(r.getEquipment()).hasSize(1);
+            assertThat(r.getEquipment().get(0).getName()).isEqualTo("롱핀");
+            assertThat(r.getEquipment().get(0).getSize()).isEqualTo("270"); // 이전엔 항상 null 이던 값
+        });
+    }
+
+    @Test
+    @DisplayName("E2 프리셋에 없는 사이즈는 거절된다(자유입력 차단 400, 신청 미생성)")
+    void invalidEquipmentSizeRejected() throws Exception {
+        Account ins = account("ins-e2@pd.com", "강사E2");
+        enterInstructorTrack(ins);
+        Object[] s = setup(ins, 4);
+        Course course = (Course) s[0];
+        String venueRef = (String) s[2];
+        VenueEquipmentItem fin = saveSizedEquipment(ins, venueRef);
+        String fid = String.valueOf(fin.getId());
+        Account stu = account("stu-e2@pd.com", "수강생E2");
+
+        EnrollmentCreateRequest body = EnrollmentCreateRequest.builder()
+                .courseId(course.getId()).date(D1).venueRefId(venueRef).ticketRef(ticketRefOf((Venue) s[1]))
+                .blockStart(B_START).blockEnd(B_END)
+                .equipmentRefs(List.of(fid)).equipmentSizes(Map.of(fid, "999")).build(); // SHOE_MM 프리셋 밖
+        mockMvc.perform(post("/enrollments").header(HttpHeaders.AUTHORIZATION, tokenFor(stu))
+                        .contentType(MediaType.APPLICATION_JSON).content(json(body)))
+                .andExpect(status().isBadRequest());
+
+        assertThat(roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId())).isEmpty(); // 신청 안 생김
     }
 }

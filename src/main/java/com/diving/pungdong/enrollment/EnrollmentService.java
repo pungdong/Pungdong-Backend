@@ -231,7 +231,7 @@ public class EnrollmentService {
         round.setTicketRef(req.getTicketRef());
         round.setEntrySnapshot(block.getFee());
         round.getEquipment().clear(); // 위치 바뀔 수 있어 장비 재선택
-        round.setEquipmentSnapshot(addEquipment(round, req.getEquipmentRefs(),
+        round.setEquipmentSnapshot(addEquipment(round, req.getEquipmentRefs(), req.getEquipmentSizes(),
                 equipmentItems(instructor, req.getVenueRefId())));
         round.getProposedSlots().clear();
         round.setStatus(EnrollmentStatus.PENDING); // 제안 외 슬롯 → 강사 재수락
@@ -396,11 +396,12 @@ public class EnrollmentService {
                 .extraSnapshot(extraSnapshot)
                 .createdAt(LocalDateTime.now())
                 .build();
-        round.setEquipmentSnapshot(addEquipment(round, slot.getEquipmentRefs(), items));
+        round.setEquipmentSnapshot(addEquipment(round, slot.getEquipmentRefs(), slot.getEquipmentSizes(), items));
         return round;
     }
 
-    private int addEquipment(EnrollmentRound round, List<String> refs, Map<String, VenueEquipmentResponse.Item> items) {
+    private int addEquipment(EnrollmentRound round, List<String> refs, Map<String, String> sizes,
+                             Map<String, VenueEquipmentResponse.Item> items) {
         int total = 0;
         if (refs != null) {
             for (String ref : refs) {
@@ -408,12 +409,31 @@ public class EnrollmentService {
                 if (item == null) {
                     throw new BadRequestException(); // 그 위치 장비가 아님
                 }
+                String size = validateSize(item, sizes == null ? null : sizes.get(ref));
                 round.addEquipment(EnrollmentRoundEquipment.builder()
-                        .itemRef(ref).name(item.getName()).priceSnapshot(item.getPrice()).build());
+                        .itemRef(ref).name(item.getName()).priceSnapshot(item.getPrice()).size(size).build());
                 total += item.getPrice();
             }
         }
         return total;
+    }
+
+    /**
+     * 선택 사이즈 검증·정규화 — 사이즈 개념 없는 품목(옵션 비어있음)이면 무시(null 스냅샷), 있으면 그 품목의
+     * {@code sizeOptions} 멤버십을 강제(프리셋 밖 = 자유입력 → 400). 미선택(null)은 허용(표시용, 필수 아님).
+     */
+    private String validateSize(VenueEquipmentResponse.Item item, String size) {
+        List<String> options = item.getSizeOptions();
+        if (options == null || options.isEmpty()) {
+            return null; // NONE 형식 — 사이즈 없음
+        }
+        if (size == null) {
+            return null; // 미선택 허용
+        }
+        if (!options.contains(size)) {
+            throw new BadRequestException(); // 프리셋에 없는 사이즈(자유입력 차단)
+        }
+        return size;
     }
 
     /** 만석 — 신청 시점 좌석 lock(선착순): 활성 + 외부 hold 가 유효정원을 채웠으면 거부. */

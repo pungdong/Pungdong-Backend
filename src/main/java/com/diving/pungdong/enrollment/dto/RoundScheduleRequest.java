@@ -6,6 +6,7 @@ import javax.validation.constraints.NotNull;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 2회차+ 일정 신청 요청 — {@code POST /enrollments/{enrollmentId}/rounds}. courseId 는 enrollment 가 결정하므로
@@ -29,4 +30,7 @@ public class RoundScheduleRequest implements RoundSlotInput {
 
     /** 선택한 대여 장비 식별자. 비면 장비 없음. */
     private List<String> equipmentRefs;
+
+    /** 선택 장비의 사이즈(itemRef → "270"·"L"). 서버가 그 품목 sizeOptions 멤버십 검증(자유입력 차단). */
+    private Map<String, String> equipmentSizes;
 }

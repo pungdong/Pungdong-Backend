@@ -6,6 +6,7 @@ import javax.validation.constraints.NotNull;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 수강신청 요청 — V2 booking ⑤ 최종확인 → 신청. student 는 컨트롤러가 현재 계정으로 주입.
@@ -38,4 +39,7 @@ public class EnrollmentCreateRequest implements RoundSlotInput {
 
     /** 선택한 대여 장비 식별자(VenueEquipmentResponse.Item.id 문자열). 비면 장비 없음. */
     private List<String> equipmentRefs;
+
+    /** 선택 장비의 사이즈(itemRef → "270"·"L"). 사이즈 있는 품목만; 서버가 그 품목 sizeOptions 멤버십 검증(자유입력 차단). */
+    private Map<String, String> equipmentSizes;
 }
