@@ -41,6 +41,7 @@
 - **교집합 = 평탄 슬롯** — UX(날짜→위치→시간)와 계산순서 분리. BE 가 `availability ∩ venue 운영블록 ∩ 코스 위치`를 평탄 `slots[]` 로 계산, FE 가 그룹핑.
 - **가격 스냅샷** — 신청 시점 추정치(tuition/entry/equipment)를 박음. 권위 금액은 강사 확정/결제 재계산(후속).
 - **게이트** — 학생 신청은 인증만(누구나 OPEN 코스 신청). 강사 측(`/instructor/enrollments`)은 강사신청 보유(venue/availability 기조). 없음/비소유 = 400(존재 숨김).
+- **대여 장비 표시 = 공유 `GearItem` 하나 (2026-07-06)** — `EnrollmentRoundEquipment`(name·size) 스냅샷을 표시용으로 투영한 `{name, sizeLabel}` 뷰. 강사 hub(`InstructorScheduleHubResponse`)·학생 hub(`ScheduleHubResponse`)·강사 캘린더 신청자행(`availability.ApplicantSummaryResponse.gear`) **셋이 같은 소스라 형태가 갈라지면 안 됨** → nested 3벌 폐기하고 **`enrollment/dto/GearItem` 하나로 통합**(스냅샷 주인=enrollment 소유, availability 는 이미 enrollment 단방향 참조라 재사용). `sizeLabel` 은 저장값 그대로, 단위는 FE. **"대여장비를 별도 도메인으로?" — 지금은 아님**(사용자 토의): 장비는 카탈로그(`venue/equipment`)+예약스냅샷(enrollment)로 이미 올바르게 나뉘고 독립 생명주기가 없음. **재고·유닛반납·대여정산** 요구가 생기면 그때 `equipment`/`rental` 도메인으로 추출(트리거 명시).
 
 ## 안전망 테스트
 

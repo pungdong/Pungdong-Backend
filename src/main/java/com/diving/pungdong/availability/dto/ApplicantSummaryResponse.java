@@ -1,5 +1,6 @@
 package com.diving.pungdong.availability.dto;
 
+import com.diving.pungdong.enrollment.dto.GearItem;
 import lombok.*;
 
 import java.util.List;
@@ -31,8 +32,8 @@ public class ApplicantSummaryResponse {
     /** 코스 목표 자격 레벨(평탄: LEVEL_1~4/INSTRUCTOR/INSTRUCTOR_TRAINER). 범위 코스면 여러 개. */
     private List<String> levels;
 
-    /** 이번 세션 대여 장비 라벨 배열. */
-    private List<String> gear;
+    /** 이번 세션 대여 장비 내역(이름 + 선택 사이즈). 강사 hub gearItems / 학생 hub gearItems 와 동일 형태. 없으면 빈 배열. */
+    private List<GearItem> gear;
 
     /** 'external' 이면 외부 플랫폼 점유 행, null 이면 풍덩 학생. */
     private String kind;

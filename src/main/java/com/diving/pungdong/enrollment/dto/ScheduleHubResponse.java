@@ -72,6 +72,8 @@ public class ScheduleHubResponse {
         private final String venueName;
         /** 신청 시점 추정 총액 스냅샷(원). 권위 결제금액은 POST /payments/prepare. */
         private final int amount;
+        /** 내가 그 회차에 신청한 대여 장비 내역(신청 시점 스냅샷). 없으면 빈 배열. 강사 hub gearItems 와 동일 형태. */
+        private final List<GearItem> gearItems;
         /** 강사 일정변경 제안 슬롯(RESCHEDULING 일 때) — 날짜+이용권+블록 완전 슬롯. 학생이 골라 pick-slot. */
         private final List<com.diving.pungdong.enrollment.ProposedSlot> proposedSlots;
         private final String rejectionReason; // REJECTED만

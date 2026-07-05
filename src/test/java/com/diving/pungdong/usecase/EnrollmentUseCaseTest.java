@@ -586,4 +586,31 @@ class EnrollmentUseCaseTest {
 
         assertThat(roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId())).isEmpty(); // 신청 안 생김
     }
+
+    @Test
+    @DisplayName("E3 강사 캘린더 신청자 행의 장비가 구조화(gear: name·sizeLabel)되어 뜬다(옛 string[] 아님)")
+    void calendarApplicantGearStructured() throws Exception {
+        Account ins = account("ins-e3@pd.com", "강사E3");
+        enterInstructorTrack(ins);
+        Object[] s = setup(ins, 4);
+        Course course = (Course) s[0];
+        String venueRef = (String) s[2];
+        VenueEquipmentItem fin = saveSizedEquipment(ins, venueRef);
+        String fid = String.valueOf(fin.getId());
+        Account stu = account("stu-e3@pd.com", "수강생E3");
+
+        EnrollmentCreateRequest body = EnrollmentCreateRequest.builder()
+                .courseId(course.getId()).date(D1).venueRefId(venueRef).ticketRef(ticketRefOf((Venue) s[1]))
+                .blockStart(B_START).blockEnd(B_END)
+                .equipmentRefs(List.of(fid)).equipmentSizes(Map.of(fid, "270")).build();
+        mockMvc.perform(post("/enrollments").header(HttpHeaders.AUTHORIZATION, tokenFor(stu))
+                        .contentType(MediaType.APPLICATION_JSON).content(json(body)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/instructor/availability").header(HttpHeaders.AUTHORIZATION, tokenFor(ins))
+                        .param("from", D1.minusDays(1).toString()).param("to", D1.plusDays(1).toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessions[0].applicants[0].gear[0].name").value("롱핀"))
+                .andExpect(jsonPath("$.sessions[0].applicants[0].gear[0].sizeLabel").value("270"));
+    }
 }
