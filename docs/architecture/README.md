@@ -24,7 +24,7 @@
 | 일정 (schedule) | [schedule.md](schedule.md) | ✅ (baseline — 동시성 / 시간 충돌 / 수정 API 부재) |
 | 예약 (reservation) | [reservation.md](reservation.md) | ✅ (baseline — 알려진 간극 다수) |
 | 후기 (review) | [review.md](review.md) | ✅ (baseline — 통계 갱신 버그) |
-| 본인확인 (identity-verification) | [identity-verification.md](identity-verification.md) | ✅ (계정 공유 자산 · stub — 실연동 deferred) |
+| 본인확인 (identity-verification) | [identity-verification.md](identity-verification.md) | ✅ (계정 공유 자산 · 휴대폰 SMS 2단계, 포트원/다날 · 실 라이브는 CPID 개통 후) |
 | 종목 (discipline) | [discipline.md](discipline.md) | ✅ (BE 테이블 · requiresCertification) |
 | 강사 신청 (instructor-application) | [instructor-application.md](instructor-application.md) | ✅ (본인확인은 identity-verification 도메인 참조) |
 | 동의 / 약관 (consent) | [consent.md](consent.md) | ✅ (Sanity authoring + BE 박제 · 동의 이력) |
