@@ -8,6 +8,7 @@ import com.diving.pungdong.account.dto.emailCheck.EmailResult;
 import com.diving.pungdong.account.InstructorCertificateService;
 import com.diving.pungdong.account.AccountService;
 import com.diving.pungdong.account.FirebaseTokenService;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;
@@ -293,19 +294,49 @@ class AuthUseCaseTest {
     }
 
     @Test
-    @DisplayName("F5: refresh 로 회전된 옛 refresh token 으로 다시 /sign/refresh → 거부 (rotation 재사용 차단)")
-    void refresh_rejectsReusedOldToken() throws Exception {
+    @DisplayName("F5: 멱등 창 안에서 같은 옛 refresh token 재제시 → 거부가 아니라 '같은 새 쌍' 반환 (동시요청 이중소비 방지)")
+    void refresh_isIdempotent_withinWindow() throws Exception {
         Account student = stubAccount(1L, Role.STUDENT);
         given(accountService.findAccountById(1L)).willReturn(student);
         String oldRefreshToken = jwtTokenProvider.createRefreshToken(String.valueOf(student.getId()));
 
-        // 1차 refresh: 성공 — 이 시점에 옛 RT 는 블랙리스트로 무효화된다
+        // 1차 refresh: 회전 승자 — 새 쌍 발급 + rotated: 캐시 저장
+        String first = mockMvc.perform(post("/sign/refresh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"" + oldRefreshToken + "\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        // 같은 옛 RT 로 창 안에서 재제시(늦게 도착한 동시 요청과 동일 상황) → 401/403 이 아니라 같은 쌍 반환
+        String second = mockMvc.perform(post("/sign/refresh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"" + oldRefreshToken + "\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode a = objectMapper.readTree(first);
+        JsonNode b = objectMapper.readTree(second);
+        assertThat(b.get("access_token").asText()).isEqualTo(a.get("access_token").asText());
+        assertThat(b.get("refresh_token").asText()).isEqualTo(a.get("refresh_token").asText());
+    }
+
+    @Test
+    @DisplayName("F6: 멱등 창 경과 후 같은 옛 refresh token 재제시 → 거부 (창 밖 replay 차단은 유지)")
+    void refresh_rejectsReusedOldToken_afterWindow() throws Exception {
+        Account student = stubAccount(1L, Role.STUDENT);
+        given(accountService.findAccountById(1L)).willReturn(student);
+        String oldRefreshToken = jwtTokenProvider.createRefreshToken(String.valueOf(student.getId()));
+
         mockMvc.perform(post("/sign/refresh")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"refreshToken\":\"" + oldRefreshToken + "\"}"))
                 .andExpect(status().isOk());
 
-        // 같은 옛 RT 로 재시도 → 거부 (탈취 replay 차단)
+        // 멱등 창 TTL 만료를 시뮬레이션 — rotated: 캐시만 제거(옛 RT 블랙리스트 "false" 는 30일 유지).
+        // 실제로도 60초 뒤 rotated: 는 TTL 로 사라지고 블랙리스트만 남는 상태와 동일.
+        redisTemplate.delete("rotated:" + oldRefreshToken);
+
+        // 창 지난 뒤 같은 옛 RT 재유입 → 블랙리스트 hit → 거부 (탈취 replay 차단)
         mockMvc.perform(post("/sign/refresh")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"refreshToken\":\"" + oldRefreshToken + "\"}"))

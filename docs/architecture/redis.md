@@ -4,13 +4,14 @@
 
 ## 1. 한 줄
 
-`RedisTemplate<String, String>` 하나(`global/config/RedisConfig`, Lettuce)로 **세 가지 휘발성 용도**를 쓴다 — 영속 데이터는 MySQL, Redis 는 TTL/캐시/블랙리스트 전용.
+`RedisTemplate<String, String>` 하나(`global/config/RedisConfig`, Lettuce)로 **여러 휘발성 용도**를 쓴다 — 영속 데이터는 MySQL, Redis 는 TTL/캐시/블랙리스트 전용.
 
 ## 2. 어디서·왜 쓰나
 
 | 용도 | 키 | 위치 | 왜 Redis |
 |---|---|---|---|
-| **JWT 블랙리스트** (로그아웃 토큰 무효화) | 토큰 jti → `"false"` | `global/security/JwtAuthenticationFilter`·`SignController`(`/sign/logout`) | 토큰 만료까지 TTL, stateless 인증의 유일한 무효화 수단 |
+| **JWT 블랙리스트** (로그아웃 / 회전된 옛 RT 무효화) | 토큰(raw JWT) → `"false"` | `global/security/JwtAuthenticationFilter`·`SignController`(`/sign/logout`·`/sign/refresh`) | 토큰 만료까지 TTL, stateless 인증의 유일한 무효화 수단 |
+| **refresh 회전 멱등 캐시** | `rotated:{옛RT}` → 새 토큰 쌍(JSON) | `SignController`(`/sign/refresh`) | 같은 옛 RT 동시/재유입에 같은 쌍을 멱등 반환(창 TTL=`pungdong.auth.refresh-idempotency-window-seconds`, 기본 60s). 동시 refresh 이중소비로 세션 사망 방지. → [sign-up.md](sign-up.md) "Rotation + 무효화" |
 | **이메일 인증 코드** (가입/복구) | email → code (TTL) | `account/EmailService` | 짧은 TTL 자동 만료 |
 | **OFFICIAL 위치 캐시** (Sanity cache-aside) | `venue:official:*` | `venue/sync/OfficialVenueCache` | Sanity 서버사이드 읽기 결과를 캐싱(`_rev` reconcile + 웹훅으로 신선도 유지). 상세 [venue.md](venue.md) §6 |
 

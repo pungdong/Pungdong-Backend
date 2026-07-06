@@ -18,10 +18,6 @@ signInInputException:
   code: "-1004"
   msg: "회원가입 입력값을 제대로 입력하지 않았습니다"
 
-expiredAccessToken:
-  code: "-1005"
-  msg: "AccessToken이 만료되었습니다"
-
 expiredRefreshToken:
   code: "-1006"
   msg: "RefreshToken이 만료되었습니다"
