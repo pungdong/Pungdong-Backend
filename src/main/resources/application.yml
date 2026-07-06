@@ -89,6 +89,11 @@ pungdong:
   # (바꾸면 기존 코드 decode 불가). 로컬/테스트는 기본값, 운영은 env 로 고정.
   hashids:
     salt: ${HASHIDS_SALT:pungdong-local-dev-salt}
+  # 토큰 회전 멱등 창(초). /sign/refresh 가 같은 옛 RT 로 오는 동시/재유입 요청에 "같은 새 쌍"을 돌려주는 시간.
+  # 웹(Next.js)처럼 여러 인스턴스/탭이 만료 access 로 동시에 refresh 를 쏠 때 이중소비로 세션이 죽는 걸 막는다.
+  # 동시 발사 스프레드(보통 sub-초~수 초)만 덮으면 되므로 짧게. 스테이징 실측 후 무재배포 튜닝용 env.
+  auth:
+    refresh-idempotency-window-seconds: ${REFRESH_IDEMPOTENCY_WINDOW_SECONDS:60}
   storage:
     s3:
       enabled: ${STORAGE_S3_ENABLED:false}
