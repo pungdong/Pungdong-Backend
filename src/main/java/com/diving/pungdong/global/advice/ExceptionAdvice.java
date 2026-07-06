@@ -28,12 +28,6 @@ public class ExceptionAdvice {
         return responseService.getFailResult(Integer.parseInt(getMessage("forbiddenToken.code")), getMessage("forbiddenToken.msg"));
     }
 
-    @ExceptionHandler(ExpiredAccessTokenException.class)
-    @ResponseStatus(HttpStatus.FORBIDDEN)
-    protected CommonResult expiredAccessToken(ExpiredAccessTokenException e) {
-        return responseService.getFailResult(Integer.parseInt(getMessage("expiredAccessToken.code")), getMessage("expiredAccessToken.msg"));
-    }
-
     @ExceptionHandler(ExpiredRefreshTokenException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     protected CommonResult expiredRefreshToken(ExpiredRefreshTokenException e) {
