@@ -2,33 +2,36 @@
 
 이 패키지를 열면 자동 로드되는 좁은 컨텍스트. 전체 컨벤션은 루트 [CLAUDE.md](../../../../../../../CLAUDE.md).
 
-> **package-by-feature** 도메인. 본인확인(간편인증)은 강사 신청 전용이 아니라 **계정 공유 자산** — 수강(강의 신청 전) / 강사(전환 시) 어느 플로우에서든 같은 레코드를 만들고 읽는다. (memory `identity-verification-model`)
+> **package-by-feature** 도메인. 본인확인은 강사 신청 전용이 아니라 **계정 공유 자산** — 수강(강의 신청 전) / 강사(전환 시) 어느 플로우에서든 같은 레코드를 만들고 읽는다. (memory `identity-verification-model`)
+> **방식 = 휴대폰 SMS(다날), 포트원 REST v2**. 간편인증(APP)은 CI 미반환 케이스가 있어 실서비스는 SMS. 간편인증 어휘(`IdentityProvider`)는 `method`(SMS|APP) 판별자로 공존(지우지 말 것).
 
 ## 무엇이 들어있나
 
-- **컨트롤러**: `IdentityVerificationController` — `POST /identity-verifications`(생성), `GET /identity-verifications/me`(내 최신 상태)
-- **서비스**: `IdentityVerificationService` — verify(경계 위임) + getMyVerification(최신 1건)
-- **본인확인 경계**: `IdentityVerifier`(interface) + `StubIdentityVerifier`(dev, 즉시 VERIFIED) / `DisabledIdentityVerifier`(prod fail-closed). `pungdong.identity-verification.mode` = `stub`(기본) / `disabled`
-- **엔티티/enum**: `IdentityVerification`(account_id FK, CI/DI/carrier/foreignerType/provider/verifiedAt), `IdentityProvider`(KAKAO/NAVER/TOSS/PASS/KB/PAYCO), `ForeignerType`(DOMESTIC/FOREIGN). `carrier`(통신사)·`foreignerType`(내외국인)은 요청 입력이 아니라 본인확인기관 반환 속성(CI/DI 와 동일) — verifier 가 채움. 처리방침 수집 항목과 1:1.
-- **레포**: `IdentityVerificationJpaRepo`(`findTopByAccountIdOrderByIdDesc` = 최신 1건)
-- **dto/**: `IdentityVerificationRequest`, `IdentityVerificationResult`, `MyIdentityVerificationResponse`
+SMS 2단계(발송 → 확인):
+- **컨트롤러**: `IdentityVerificationController` — `POST /identity-verifications`(생성+발송), `POST /{id}/confirm`(OTP), `POST /{id}/resend`(재발송), `GET /me`(내 최신 VERIFIED)
+- **서비스**: `IdentityVerificationService` — create/confirm/resend 오케스트레이션 + 영속화. **OTP 만료·시도초과(max 5) 정책을 서비스가 강제**(모든 구현 공통). confirm 소유권 가드 + 멱등(이미 VERIFIED).
+- **본인확인 경계**: `IdentityVerifier`(interface: `send`/`confirm`/`resend`) + `StubIdentityVerifier`(기본, 매직 OTP `"000000"`) / `DisabledIdentityVerifier`(fail-closed) / `RealPortOneIdentityVerifier`(포트원 REST). `pungdong.identity-verification.mode` = `stub`(기본) / `disabled` / `real`. 경계는 외부 호출만, 영속화는 서비스(payment `TossPaymentClient` 결).
+- **CI/DI 암호화**: `CryptoStringConverter`(AES-256/GCM, `IDENTITY_CRYPTO_KEY`). `ci`/`di` 에 `@Convert`. 읽는 소비자 없음(write-side 보호).
+- **엔티티/enum**: `IdentityVerification`(account_id FK, `status`/`method`/`portoneVerificationId`/`carrier`(enum)/`otpExpiresAt`/`attemptCount`/CI·DI/verifiedAt), `IdentityVerificationStatus`(READY/VERIFIED/FAILED), `IdentityVerificationMethod`(SMS/APP), `Carrier`(SKT/KT/LGU/*_MVNO), `IdentityVerificationErrorCode`, `IdentityProvider`(APP 대비), `ForeignerType`.
+- **레포**: `IdentityVerificationJpaRepo`(`findTopByAccountIdAndStatusOrderByIdDesc` = 최신 VERIFIED)
+- **dto/**: `IdentityVerificationRequest`, `IdentityVerificationResult`(create/resend), `ConfirmIdentityVerificationRequest`/`ConfirmIdentityVerificationResult`, `MyIdentityVerificationResponse`
 
-보안 매처(`/identity-verifications/**` → authenticated)는 `global/security/SecurityConfiguration`.
+보안 매처(`/identity-verifications/**` → authenticated)는 `global/security/SecurityConfiguration`. `{id}` 는 소유권 검증(`requireMine`) 후 동작.
 
 ## 작업 전 반드시 읽기
 
-- **[docs/architecture/identity-verification.md](../../../../../../../docs/architecture/identity-verification.md)**
-- **memory `identity-verification-model`** — 수강/강사 시점에 본인확인 수집, 가입엔 없음
-- 컨트롤러 시그니처/응답 바꾸면 **같은 PR 에서 [types.ts](../../../../../../../docs/api-clients/types.ts) 갱신**
+- **[docs/features/identity-verification.md](../../../../../../../docs/features/identity-verification.md)** — 정책·왜·히스토리. **여기부터.**
+- **[docs/architecture/identity-verification.md](../../../../../../../docs/architecture/identity-verification.md)** — 흐름/ER/에러코드/권한
+- **memory `identity-verification-model`** — 수강/강사 시점에 수집, 가입엔 없음 · 방식 전환
+- 컨트롤러 시그니처/응답/enum 바꾸면 **같은 PR 에서 [types.ts](../../../../../../../docs/api-clients/types.ts) 갱신**
 
 ## 결정 히스토리 (왜 이렇게 됐나)
 
-- **계정 공유 자산으로 승격** (2026-06-09) — 처음(#34)엔 `instructorapplication` 하위에 있었으나, 본인확인은 수강에서도 쓰는 계정 자산이라 별도 도메인으로 분리. 강사 신청은 `verificationId` 로 **참조만**. FE 가 `GET /me` 로 skip(재인증 생략) 구현.
-- **verificationId 도메인 간 재사용** — 강사 신청 제출은 "그 verification 이 이 계정 소유 + verified" 만 검증(목적 무관). 수강 때 받은 id 를 그대로 제출에 넣어도 통과.
-- **GET /me = 최신 1건** — 계정당 여러 본인확인 레코드 허용(이력/감사), 조회는 최신(id desc). 미인증도 200 `{verified:false}`(404 아님).
-- **무만료 (v1)** — `verified` = 레코드 존재. `verifiedAt` 은 노출만, 만료 판단 안 함. 법적 재인증 주기 정해지면 그 위에 TTL. stub 단계라 TTL 무의미.
-- **stub 경계** — `ci/di` 는 mock 평문. 실 본인확인기관 연동 시 (a) `IdentityVerifier` 실 구현 + `mode=real`, (b) CI/DI 암호화, (c) 비동기 푸시 흐름.
+- **계정 공유 자산으로 승격** (2026-06-09) — 처음(#34)엔 `instructorapplication` 하위. 본인확인은 수강에서도 쓰는 계정 자산이라 별도 도메인. 강사 신청은 `verificationId` 로 **참조만**(제출 시 `status==VERIFIED` 검증).
+- **SMS 2단계로 승격** (2026-07-07, 이 PR) — SMS OTP 는 본질적으로 발송→확인 2단계라 경계를 넓히고 레코드를 **생성 시점(READY)에 영속화**. 이로써 "레코드 존재=verified" 불변식이 깨져 소비자에 `status==VERIFIED` 가드 추가.
+- **무만료 유지** — `verified` = 최신 **VERIFIED** 존재. `verifiedAt` 노출만. `GET /me` 가 단일 진실원. 법적 주기 정해지면 TTL.
+- **모드 게이트** — `real` 은 다날 CPID 개통 후. 그 전 로컬/테스트 `stub`, prod `disabled`.
 
 ## 안전망 테스트
 
-`src/test/.../usecase/IdentityVerificationUseCaseTest`(I1 조회 / I2 미인증 / I3 최신). skip(재사용)은 `InstructorApplicationUseCaseTest` 가 verify→submit 으로 검증.
+`src/test/.../usecase/IdentityVerificationUseCaseTest`(S1 create·S2 confirm·S3 재사용·V1 오답·D1 resend·T1/T2 미인증·R1 비소유). skip + status 게이트는 `InstructorApplicationUseCaseTest` 가 create→confirm→submit 으로 검증. 실 PortOne 클라이언트는 라이브 미검증(CPID 개통 후 수동).

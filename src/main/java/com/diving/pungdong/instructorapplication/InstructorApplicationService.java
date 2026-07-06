@@ -9,6 +9,7 @@ import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.identityverification.IdentityVerification;
 import com.diving.pungdong.identityverification.IdentityVerificationJpaRepo;
+import com.diving.pungdong.identityverification.IdentityVerificationStatus;
 import com.diving.pungdong.instructorapplication.dto.*;
 import com.diving.pungdong.instructorapplication.storage.CertificateImageStorage;
 import lombok.RequiredArgsConstructor;
@@ -245,6 +246,10 @@ public class InstructorApplicationService {
                 .orElseThrow(BadRequestException::new);
         if (verification.getAccount() == null || !verification.getAccount().getId().equals(account.getId())) {
             throw new BadRequestException(); // 남의 본인확인을 참조할 수 없음
+        }
+        // SMS 2단계 도입으로 READY/FAILED 레코드도 소유로 존재한다 — VERIFIED 만 신청의 전제로 인정.
+        if (verification.getStatus() != IdentityVerificationStatus.VERIFIED) {
+            throw new BadRequestException(); // 본인확인 미완료(READY/FAILED)는 참조 불가
         }
         return verification;
     }

@@ -60,8 +60,24 @@ export type DeviceType = 'ANDROID' | 'IOS' | 'WEB';
 /** 강사 신청 상태. 내 신청 조회는 미신청 시 'NONE' 도 반환. */
 export type InstructorApplicationStatus = 'SUBMITTED' | 'APPROVED' | 'REJECTED';
 
-/** 간편인증 공급자 (본인확인). 실제 본인확인기관 연동은 deferred — 현재 stub. */
+/** 간편인증(APP) 공급자 — 향후 APP 방식용. SMS 실서비스에선 미사용(무시). */
 export type IdentityProvider = 'KAKAO' | 'NAVER' | 'TOSS' | 'PASS' | 'KB' | 'PAYCO';
+
+/** 본인확인 방식 — SMS(휴대폰 문자, 실서비스) / APP(간편인증, 향후). */
+export type IdentityVerificationMethod = 'SMS' | 'APP';
+
+/** 통신사 — SMS 발송 대상(요청 입력). 포트원 operator 와 동일 표기. */
+export type Carrier = 'SKT' | 'KT' | 'LGU' | 'SKT_MVNO' | 'KT_MVNO' | 'LGU_MVNO';
+
+/** 본인확인 레코드 생명주기. create=READY → confirm 결과 VERIFIED|FAILED. */
+export type IdentityVerificationStatus = 'READY' | 'VERIFIED' | 'FAILED';
+
+/**
+ * OTP 확인 실패 사유(FE 문구 매핑). OTP_* 는 confirm 이 200 body 로 내려줌(재입력 정상 분기).
+ * SMS_SEND_FAILED 는 발송/재발송 API 의 400(CommonResult) — confirm errorCode 로는 안 옴.
+ */
+export type IdentityVerificationErrorCode =
+  | 'OTP_MISMATCH' | 'OTP_EXPIRED' | 'OTP_TOO_MANY_ATTEMPTS' | 'SMS_SEND_FAILED';
 
 /** 위치 유형 — 일반 수영장 / 잠수풀 / 딥풀 / 해양(다이빙 포인트). 정확한 깊이는 maxDepth 로 별도. */
 export type VenueType = 'SWIMMING_POOL' | 'DIVING_POOL' | 'DEEP_POOL' | 'OCEAN';
@@ -237,16 +253,21 @@ export interface RegisterDeviceRequest {
 
 // ============================================================
 // 본인확인 (identity-verification 도메인) — 계정 공유 자산
-// docs/architecture/identity-verification.md 참고
+// docs/architecture/identity-verification.md · docs/features/identity-verification.md 참고
 //
-// 수강/강사 어느 플로우에서든 같은 본인확인 레코드를 만들고(POST) 조회한다(GET /me).
-// 강사 신청 진입 시 GET /me 로 기존 인증을 확인해 재인증을 건너뛰고(skip) verificationId 재사용.
-// 현재 stub(즉시 verified) — 실 본인확인기관 연동은 deferred.
+// 휴대폰 SMS 본인인증 (포트원 REST v2 / 다날) — 서버가 REST 로 진행, FE 는 자체 UI 로
+// 전화번호+OTP 입력 화면을 만든다. SMS 2단계:
+//   1) POST /identity-verifications          생성 + 문자 발송(결합) → status:READY
+//   2) POST /identity-verifications/{id}/confirm  { otp }           → VERIFIED | FAILED
+//   재발송: POST /identity-verifications/{id}/resend
+// 수강/강사 어느 플로우든 같은 레코드를 만들고, GET /me 로 기존 VERIFIED 를 확인해 skip·재사용.
+// 로컬/테스트는 stub(문자 미발송, 매직 OTP "000000"=성공). 실 다날은 CPID 개통 후 mode=real.
 // ============================================================
 
 /**
- * POST /identity-verifications 요청 — 본인확인(간편인증 stub).
+ * POST /identity-verifications 요청 — 생성 + SMS 발송(결합).
  * PII(실명·생년월일·휴대폰)는 POST body 로만 전송 (URL/쿼리 금지).
+ * method='SMS'(기본) 면 carrier(통신사) 필수. provider 는 향후 APP 방식 전용(SMS 에선 무시).
  */
 export interface IdentityVerificationRequest {
   realName: string;
@@ -254,22 +275,51 @@ export interface IdentityVerificationRequest {
   birth: string;
   gender: Gender;
   phoneNumber: string;
-  provider: IdentityProvider;
-  /** 필수 약관 전체 동의. false 면 400. */
+  /** 통신사 — SMS 발송 대상. SMS 필수. */
+  carrier: Carrier;
+  /** 생략 시 서버가 'SMS' 로 간주. */
+  method?: IdentityVerificationMethod;
+  /** APP 방식 전용. SMS 에선 불필요. */
+  provider?: IdentityProvider;
+  /** 필수 약관 전체 동의(개인정보 수집·제3자(다날) 제공). false 면 400. */
   agreedRequiredTerms: boolean;
 }
 
-/** POST /identity-verifications 응답(201). verificationId 를 강사 신청 제출에 재사용. */
+/**
+ * POST /identity-verifications 응답(201) · POST /{id}/resend 응답(200).
+ * OTP 발송 직후라 status='READY'. otpExpiresAt 은 OTP 유효기한(재사용 만료 아님).
+ * confirm 은 이 verificationId 로 호출.
+ */
 export interface IdentityVerificationResponse extends HalLinks {
   verificationId: number;
-  verified: boolean;
-  realName: string;
+  status: IdentityVerificationStatus; // 'READY'
+  /** ISO-8601. OTP 유효기한. */
+  otpExpiresAt: string;
+}
+
+/** POST /identity-verifications/{id}/confirm 요청 — OTP 확인. */
+export interface ConfirmIdentityVerificationRequest {
+  otp: string;
 }
 
 /**
- * GET /identity-verifications/me — 내 최신 본인확인 상태 (계정 공유).
- * 미인증도 200 `{ verified: false }` (404 아님). verified 면 verificationId 를 강사 신청에 재사용.
- * verifiedAt 은 노출되지만 현재 만료 판단엔 안 씀(무만료) — 법적 재인증 주기 정해지면 TTL 추가.
+ * POST /identity-verifications/{id}/confirm 응답(200) — 성공/실패 모두 200(OTP 재입력은 정상 분기).
+ * status='VERIFIED' → realName 세팅, verificationId 를 강사 신청/결제에 재사용.
+ * status='FAILED'   → errorCode(OTP_MISMATCH|OTP_EXPIRED|OTP_TOO_MANY_ATTEMPTS)로 문구 매핑.
+ * (문자 발송 실패 SMS_SEND_FAILED 는 여기가 아니라 create/resend 의 400.)
+ */
+export interface ConfirmIdentityVerificationResponse extends HalLinks {
+  verificationId: number;
+  status: IdentityVerificationStatus; // 'VERIFIED' | 'FAILED'
+  realName?: string;
+  errorCode?: IdentityVerificationErrorCode;
+}
+
+/**
+ * GET /identity-verifications/me — 내 최신 VERIFIED 상태 (계정 공유).
+ * 미인증(또는 READY/FAILED 만 존재)도 200 `{ verified: false }` (404 아님).
+ * verified 면 verificationId 를 강사 신청/결제에 재사용. verifiedAt 은 노출만, 만료 판단 안 함(무만료).
+ * provider 는 SMS 방식이면 null.
  */
 export interface MyIdentityVerificationResponse extends HalLinks {
   verified: boolean;

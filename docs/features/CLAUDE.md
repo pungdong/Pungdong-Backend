@@ -38,6 +38,7 @@
 ## 인덱스
 
 - [강사 자격·온보딩](instructor-onboarding.md) — discipline + identity-verification + instructor-application
+- [휴대폰 본인인증(identity-verification)](identity-verification.md) — identity-verification + consent + Sanity term (다날 SMS·포트원 REST v2·CI/DI 암호화·무만료·CPID 개통 후속)
 - [동의·약관](consent-and-terms.md) — consent + Sanity term (회원가입/본인확인/강사신청/결제 공통)
 - [위치(venue)](venue.md) — venue + discipline + instructor-application (장소 종속 정보 · 정식/커스텀 · availability 교차 예정)
 - [코스 작성(course-create)](course-create.md) — course + venue + venue.equipment + discipline + Sanity 자격증 (강사 강의 개설 · 위치/장비 참조 모델)

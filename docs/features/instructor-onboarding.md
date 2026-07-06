@@ -16,7 +16,7 @@
 | 도메인 | 구현 문서 | 역할 |
 |---|---|---|
 | 종목 | [discipline.md](../architecture/discipline.md) | 종목 목록 · 자격증 필요 여부 |
-| 본인확인 | [identity-verification.md](../architecture/identity-verification.md) | 계정 공유 본인확인(간편인증) |
+| 본인확인 | [identity-verification.md](../architecture/identity-verification.md) · [features/identity-verification.md](identity-verification.md) | 계정 공유 본인확인(휴대폰 SMS, 다날/포트원) |
 | 신청·심사·자격증 | [instructor-application.md](../architecture/instructor-application.md) | 신청/검수/자격증 관리 |
 | API 계약 | [types.ts](../api-clients/types.ts) | FE 단일 출처 |
 
@@ -33,9 +33,10 @@
 - **종목 확장 (잦을 예정)**: "Sanity 에 추가" 가 아니라 **`discipline` 행 추가**다. 지금 = `DisciplineSeeder` 한 줄(코드+배포) 또는 SQL `INSERT`. 확장 빈도가 높아지면 **배포 없는 어드민 엔드포인트 `POST /admin/disciplines`** 로 (로드맵 — 미해결 섹션). 종목 아이콘/마케팅 카피 같은 순수 표현물이 필요하면 Sanity 로 `code` 키잉해 enrich 가능(코어는 BE).
 
 ### 본인확인 (identity verification)
-- **계정 공유 자산** — 수강(강의 신청 전) / 강사(전환 시) 공유. 한 번 하면 **재사용(skip)** — 강사 신청 진입 시 `GET /identity-verifications/me` 로 확인.
-- **무만료 (v1)** — verified면 계속 유효. 법적 재인증 주기 정해지면 `verifiedAt` 위에 TTL.
-- **실 본인확인기관 연동 deferred** — 현재 stub(즉시 통과). 간편인증 ②~⑤(인증서 선택·푸시 대기·**재발송**·검증 중)는 실연동 PR 때. prod 는 `mode=disabled` fail-closed.
+> 정책·방식·히스토리는 **[features/identity-verification.md](identity-verification.md)** 가 소유 — 여기선 강사 온보딩 관점만.
+- **계정 공유 자산** — 수강(강의 신청 전) / 강사(전환 시) 공유. 한 번 하면 **재사용(skip)** — 강사 신청 진입 시 `GET /identity-verifications/me` 로 확인. 제출은 `status==VERIFIED` verificationId 만 참조.
+- **방식 = 휴대폰 SMS(다날)** — 간편인증 대신 CI/DI 안정 확보용. 실연동은 포트원 REST v2(2단계: 발송→OTP 확인). 무만료 유지.
+- **실 다날 라이브는 CPID 개통(리드타임 최대 1주) 후** — 그 전 로컬/테스트는 stub(매직 OTP), prod 는 `mode=disabled` fail-closed.
 
 ### 강사 신청 (application)
 - **종목별 1회** — `(account, discipline)` 유니크. 프리다이빙 + 스쿠버 동시 가능.
