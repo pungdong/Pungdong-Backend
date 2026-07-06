@@ -1,51 +1,51 @@
 package com.diving.pungdong.identityverification;
 
-import com.diving.pungdong.account.Account;
-import com.diving.pungdong.identityverification.dto.IdentityVerificationRequest;
-import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 
 /**
- * 🔒 deferred 본인확인 stub. 어떤 입력이든 즉시 VERIFIED 처리하고, CI/DI 는 입력에서 파생한
- * 결정적 mock 값으로 채운다 (실데이터 아님 — 실제 연동 전까지 자리표시자).
+ * 🔒 deferred 본인확인 stub — 실 다날/포트원 연동 없이 2단계 흐름을 흉내낸다.
  *
- * <p>실제 본인확인기관 연동 시: 이 빈을 실 구현으로 교체하고, CI/DI 는 기관 응답값 + 암호화
- * 저장으로 전환한다. (memory: identity-verification-model)
+ * <ul>
+ *   <li>{@link #send}/{@link #resend} — 문자 발송 없이 OTP 유효기한만 돌려준다(now + 3분).</li>
+ *   <li>{@link #confirm} — <b>매직 OTP {@code "000000"}</b> 이면 VERIFIED + portoneId 파생 mock
+ *       CI/DI. 그 외는 FAILED(OTP_MISMATCH). (만료·시도초과는 서비스가 선판정하므로 여기선
+ *       불일치만 판단한다.)</li>
+ * </ul>
+ *
+ * <p>실데이터 아님 — 실 연동은 {@link RealPortOneIdentityVerifier}({@code mode=real}). 이 stub 이
+ * 테스트/로컬 기본 경로다.
  */
 @Service
 @ConditionalOnProperty(name = "pungdong.identity-verification.mode", havingValue = "stub", matchIfMissing = true)
-@RequiredArgsConstructor
 public class StubIdentityVerifier implements IdentityVerifier {
 
-    private final IdentityVerificationJpaRepo identityVerificationRepo;
+    /** 테스트/로컬에서 성공 처리되는 고정 OTP. */
+    public static final String MAGIC_OTP = "000000";
+    private static final long OTP_TTL_SECONDS = 180;
 
     @Override
-    public IdentityVerification verify(Account account, IdentityVerificationRequest request) {
-        String seed = request.getRealName() + "|" + request.getPhoneNumber() + "|" + request.getBirth();
-        String fingerprint = Integer.toHexString(seed.hashCode());
+    public SendResult send(SendCommand command) {
+        return new SendResult(LocalDateTime.now().plusSeconds(OTP_TTL_SECONDS));
+    }
 
-        // 통신사·내외국인은 실 연동 시 본인확인기관이 결과로 돌려주는 속성(요청 입력 아님 — CI/DI 와 동일).
-        // stub 은 결정적 mock 으로 채워, 처리방침 수집 항목이 실제 저장 컬럼과 1:1 대응함을 보장한다.
-        String[] carriers = {"SKT", "KT", "LGU+"};
-        String carrier = carriers[Math.floorMod(seed.hashCode(), carriers.length)];
+    @Override
+    public SendResult resend(String portoneVerificationId) {
+        return new SendResult(LocalDateTime.now().plusSeconds(OTP_TTL_SECONDS));
+    }
 
-        IdentityVerification verification = IdentityVerification.builder()
-                .account(account)
-                .realName(request.getRealName())
-                .birth(request.getBirth())
-                .gender(request.getGender())
-                .phoneNumber(request.getPhoneNumber())
-                .carrier(carrier)
-                .foreignerType(ForeignerType.DOMESTIC)
-                .provider(request.getProvider())
-                .ci("CI-STUB-" + fingerprint)
-                .di("DI-STUB-" + fingerprint)
-                .verifiedAt(LocalDateTime.now())
-                .build();
-
-        return identityVerificationRepo.save(verification);
+    @Override
+    public ConfirmResult confirm(String portoneVerificationId, String otp) {
+        if (!MAGIC_OTP.equals(otp)) {
+            return ConfirmResult.failed(IdentityVerificationErrorCode.OTP_MISMATCH);
+        }
+        // portoneId 파생 결정적 mock CI/DI (실데이터 아님). realName/phone/carrier 는 요청값 유지(null).
+        String fingerprint = Integer.toHexString(portoneVerificationId.hashCode());
+        return ConfirmResult.verified(new VerifiedCustomer(
+                "CI-STUB-" + fingerprint,
+                "DI-STUB-" + fingerprint,
+                null, null, null));
     }
 }

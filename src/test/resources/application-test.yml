@@ -33,6 +33,10 @@ AdminMail:
 pungdong:
   payment:
     mode: stub
+  # 본인확인은 테스트 기본 stub(매직 OTP "000000"=성공). CI/DI 암호화 키는 결정적 테스트 값으로 핀
+  # (미설정이면 dev 폴백 키 + WARN — 동작엔 무해하나 노이즈 제거용).
+  identity-verification:
+    crypto-key: test-only-identity-crypto-key-not-for-production
 
 cors:
   allowed-origins: http://localhost:3000

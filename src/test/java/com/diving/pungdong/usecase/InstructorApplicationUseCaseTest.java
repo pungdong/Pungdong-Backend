@@ -9,6 +9,7 @@ import com.diving.pungdong.global.security.JwtTokenProvider;
 import com.diving.pungdong.discipline.Discipline;
 import com.diving.pungdong.discipline.DisciplineJpaRepo;
 import com.diving.pungdong.identityverification.IdentityVerificationJpaRepo;
+import com.diving.pungdong.identityverification.StubIdentityVerifier;
 import com.diving.pungdong.instructorapplication.ApplicationCertificateJpaRepo;
 import com.diving.pungdong.instructorapplication.InstructorApplication;
 import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
@@ -111,7 +112,8 @@ class InstructorApplicationUseCaseTest {
         body.put("birth", "19980914");
         body.put("gender", "MALE");
         body.put("phoneNumber", "010-1234-5678");
-        body.put("provider", "KAKAO");
+        body.put("carrier", "SKT");
+        body.put("method", "SMS");
         body.put("agreedRequiredTerms", true);
         return write(body);
     }
@@ -164,17 +166,24 @@ class InstructorApplicationUseCaseTest {
         }
     }
 
-    /** 본인확인 stub 을 거쳐 verificationId 를 받아온다. */
+    /** 본인확인 stub 2단계(생성=발송 → 매직 OTP 확인)를 거쳐 VERIFIED verificationId 를 받아온다. */
     private long verifyIdentity(String token) throws Exception {
         MvcResult result = mockMvc.perform(post("/identity-verifications")
                         .header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(identityBody()))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.verified").value(true))
+                .andExpect(jsonPath("$.status").value("READY"))
                 .andReturn();
-        JsonNode node = objectMapper.readTree(result.getResponse().getContentAsString());
-        return node.get("verificationId").asLong();
+        long id = objectMapper.readTree(result.getResponse().getContentAsString()).get("verificationId").asLong();
+
+        mockMvc.perform(post("/identity-verifications/" + id + "/confirm")
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(write(Map.of("otp", StubIdentityVerifier.MAGIC_OTP))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("VERIFIED"));
+        return id;
     }
 
     /* ════════════════ S — 성공 ════════════════ */

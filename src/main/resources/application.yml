@@ -98,8 +98,17 @@ pungdong:
     # 공개 이미지 표시 base URL — 보통 CDN 도메인(예 https://cdn.plop.cool). 비면 S3 객체 URL 폴백.
     # 커스텀 도메인을 day-1 고정하므로 저장값을 완성된 공개 URL 로 둔다(코스/프로필/리뷰 FE 계약 무변경).
     public-base-url: ${STORAGE_PUBLIC_BASE_URL:}
+  # 본인확인(휴대폰 SMS, 포트원 REST v2 / 다날). 로컬은 stub 기본(문자 미발송, 매직 OTP "000000"=성공).
+  # staging/prod 실연동: IDENTITY_VERIFICATION_MODE=real + 아래 portone.* 시크릿 (다날 CPID 개통 후).
   identity-verification:
-    mode: ${IDENTITY_VERIFICATION_MODE:stub}   # stub | disabled (| real — 미구현)
+    mode: ${IDENTITY_VERIFICATION_MODE:stub}   # stub | disabled | real
+    # CI/DI(고유식별정보) 암호화 키 (AES-256, 어떤 문자열이든 SHA-256 유도). prod 필수 — 미설정 시 dev 폴백.
+    crypto-key: ${IDENTITY_CRYPTO_KEY:}
+  # 포트원 본인확인 채널 (다날 CPID 가 채널키에 매핑). 전부 BE 전용 시크릿 — 밖으로 안 나간다.
+  portone:
+    api-secret: ${PORTONE_API_SECRET:}    # 포트원 V2 REST 시크릿 (Authorization: PortOne {secret})
+    store-id: ${PORTONE_STORE_ID:}        # 상점 ID
+    channel-key: ${PORTONE_CHANNEL_KEY:}  # 본인확인 채널키 (다날 CPID 매핑)
   # 어드민 지정 allowlist (콤마구분). 부팅 시 해당 이메일 계정에 ROLE_ADMIN 부여(idempotent).
   # 권한은 DB role 이 출처 — 이 목록은 "누구를 admin 으로"만 정함. 가입 후 재기동 시 반영.
   admin:
