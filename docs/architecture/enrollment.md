@@ -119,7 +119,7 @@ erDiagram
 | 엔드포인트 | 인증 | 게이트 | 소유/검증 |
 |---|---|---|---|
 | GET `/enrollments/options` | ✅ | — | 코스 OPEN |
-| POST `/enrollments` | ✅(학생) | — | 코스 OPEN·1회차 위치/이용권 · 블록이 venue 운영블록 · 블록⊆coverage · exact-match · 만석 · 장비소속 |
+| POST `/enrollments` | ✅(학생) | **본인인증(최신 VERIFIED)** — 없으면 403 -1017([identity-verification.md](identity-verification.md)) | 코스 OPEN·1회차 위치/이용권 · 블록이 venue 운영블록 · 블록⊆coverage · exact-match · 만석 · 장비소속 |
 | GET `/enrollments/mine` | ✅ | — | 내 것만 |
 | POST `/enrollments/{id}/cancel` | ✅ | — | 내 PENDING 만, 비소유=400 |
 | GET `/instructor/enrollments` | ✅ | 강사신청 보유 | 내 코스 신청만 |
@@ -147,4 +147,5 @@ erDiagram
   - A1/A2: 수락→PAYMENT_PENDING+캘린더(점유), 거절→REJECTED(session 잔존, 점유 0=AVAILABLE). 결제는 `PaymentUseCaseTest`
   - C1: 취소→CANCELLED
   - G0/R1/R2/R3: 인증·게이트·격리
+  - G1/G2: 본인인증 게이트 — 미인증 신청 403(-1017)·아무 것도 안 생김 / 인증 후 정상 통과
 - REST Docs `document(...)` 컨트롤러 테스트는 venue/course/availability 와 동일하게 미작성(후속).

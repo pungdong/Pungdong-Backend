@@ -186,6 +186,18 @@ class InstructorApplicationUseCaseTest {
         return id;
     }
 
+    /** OTP 확인을 거치지 않은 <b>READY</b> 본인확인을 생성해 그 id 만 반환 — 미완료 verificationId 게이트 검증용. */
+    private long createUnconfirmedIdentity(String token) throws Exception {
+        MvcResult result = mockMvc.perform(post("/identity-verifications")
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(identityBody()))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("READY"))
+                .andReturn();
+        return objectMapper.readTree(result.getResponse().getContentAsString()).get("verificationId").asLong();
+    }
+
     /* ════════════════ S — 성공 ════════════════ */
 
     @Test
@@ -348,6 +360,23 @@ class InstructorApplicationUseCaseTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(submitBody(null, "PADI", null, List.of("https://s3/cert1.png"))))
                 .andExpect(status().is4xxClientError());
+
+        assertThat(applicationRepo.findByAccountIdOrderByIdDesc(student.getId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("V1b: 미완료(READY) 본인확인 id 로 제출하면 403(-1017, 본인인증 선행) + DB 에 신청 안 생김")
+    void submit_rejectedWithUnverifiedVerification() throws Exception {
+        Account student = createAccount("v1b@test.com", "diver4b", Role.STUDENT);
+        String token = tokenFor(student);
+        long unverifiedId = createUnconfirmedIdentity(token); // 발송만 하고 OTP 확인 안 함 → READY
+
+        mockMvc.perform(post("/instructor-applications")
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(submitBody(unverifiedId, "PADI", null, List.of("https://s3/cert1.png"))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(-1017));
 
         assertThat(applicationRepo.findByAccountIdOrderByIdDesc(student.getId())).isEmpty();
     }

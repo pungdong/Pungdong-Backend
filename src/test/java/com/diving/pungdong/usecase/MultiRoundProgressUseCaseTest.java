@@ -66,6 +66,7 @@ class MultiRoundProgressUseCaseTest {
     @Autowired ObjectMapper objectMapper;
     @Autowired JwtTokenProvider jwt;
     @Autowired AccountJpaRepo accountRepo;
+    @Autowired com.diving.pungdong.identityverification.IdentityVerificationJpaRepo identityVerificationRepo;
     @Autowired InstructorApplicationJpaRepo applicationRepo;
     @Autowired VenueJpaRepo venueRepo;
     @Autowired CourseJpaRepo courseRepo;
@@ -85,14 +86,19 @@ class MultiRoundProgressUseCaseTest {
         courseRepo.deleteAll();
         venueRepo.deleteAll();
         applicationRepo.deleteAll();
+        identityVerificationRepo.deleteAll(); // account FK — 계정 삭제 전
         accountRepo.deleteAll();
     }
 
     /* ─── fixtures ─── */
 
     private Account account(String email, String nick, Role role) {
-        return accountRepo.save(Account.builder().email(email).password("x").nickName(nick)
+        Account a = accountRepo.save(Account.builder().email(email).password("x").nickName(nick)
                 .roles(new HashSet<>(Set.of(role))).build());
+        identityVerificationRepo.save(com.diving.pungdong.identityverification.IdentityVerification.builder()
+                .account(a).status(com.diving.pungdong.identityverification.IdentityVerificationStatus.VERIFIED)
+                .verifiedAt(LocalDateTime.now()).build()); // 수강신청 게이트 통과용 본인인증
+        return a;
     }
 
     private String token(Account a) {

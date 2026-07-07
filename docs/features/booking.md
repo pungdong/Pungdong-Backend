@@ -68,7 +68,7 @@
 
 - 회차 상태(`EnrollmentStatus`, 5값): `PENDING`(답변 대기) → `PAYMENT_PENDING`(강사 수락·결제 대기) → `CONFIRMED`(결제·확정) / `REJECTED`(1회차 거절·복구 가능) / `CANCELLED`(결제 전 취소). **done = `CONFIRMED && doneAt!=null`**(별도 enum 없음 — 완료 시점 타임스탬프). 강의(수강) 상태는 회차들에서 파생.
 - **취소 무료 = 결제 전**(PENDING·PAYMENT_PENDING). 거절/취소로 session 활성 신청이 0 이 되면 session 은 잔존(bind/unbind 없음), 이력 스냅샷은 보존.
-- 학생 신청은 인증만(누구나 OPEN 코스). 강사 측은 강사신청 보유 게이트. 없음/비소유 = 400(존재 숨김).
+- 학생 신청은 **로그인 + 본인인증(휴대폰 SMS) 선행**(2026-07-08) — 정책상 수강생은 수강신청 전 본인인증. 미인증이면 403 -1017(FE → 본인인증 화면), 2회차+ 는 전이적 통과(무만료). 강사 측은 강사신청 보유 게이트. 없음/비소유 = 400(존재 숨김). 게이트 상세는 [identity-verification 피처](identity-verification.md).
 
 ### 슬롯 신청자 행의 단체·레벨 = 평탄 3종 + FE 가 Sanity 로 표시명 해석 (2026-06-17)
 

@@ -40,7 +40,7 @@
 - **session-bound 모델 (2026-06-18 분리 반영)** — exact-match join 을 구조적으로 떨어뜨림(사용자 결정: "같은 venue·정확히 같은 시간대만 합류, 부분겹침 불가"). enrollment 는 `AvailabilitySession`(위치·블록·정원 단위)에 붙고, 슬롯 식별자는 `(date, venueRefId, blockStart, blockEnd)`. 첫 신청이 session 을 생성, 같은 (위치,블록)이면 join. 자격은 그 블록이 강사 coverage 에 통째로 ⊆ 일 때만. (옛 `availabilityWindowId` → `date` + 위치 + 블록으로 바뀜; `WindowBinder` 제거.)
 - **교집합 = 평탄 슬롯** — UX(날짜→위치→시간)와 계산순서 분리. BE 가 `availability ∩ venue 운영블록 ∩ 코스 위치`를 평탄 `slots[]` 로 계산, FE 가 그룹핑.
 - **가격 스냅샷** — 신청 시점 추정치(tuition/entry/equipment)를 박음. 권위 금액은 강사 확정/결제 재계산(후속).
-- **게이트** — 학생 신청은 인증만(누구나 OPEN 코스 신청). 강사 측(`/instructor/enrollments`)은 강사신청 보유(venue/availability 기조). 없음/비소유 = 400(존재 숨김).
+- **게이트** — 학생 신청은 **로그인 + 본인인증(휴대폰 SMS) 선행**(2026-07-08). 정책: 수강생은 수강신청 전, 강사는 강사 전환 전에 본인인증. `submit()` 이 세션 계정의 최신 VERIFIED 를 조회(강사 신청과 동일 진실원 = `GET /identity-verifications/me` 쿼리)해 없으면 **403 `IdentityVerificationRequiredException`(-1017)** → FE 가 본인인증 화면으로 분기(만석·잘못된 입력 400 과 구분). 2회차+ 는 그 수강을 전제로 하니 전이적 커버(무만료). 강사 측(`/instructor/enrollments`)은 강사신청 보유(venue/availability 기조). 없음/비소유 = 400(존재 숨김).
 - **대여 장비 표시 = 공유 `GearItem` 하나 (2026-07-06)** — `EnrollmentRoundEquipment`(name·size) 스냅샷을 표시용으로 투영한 `{name, sizeLabel}` 뷰. 강사 hub(`InstructorScheduleHubResponse`)·학생 hub(`ScheduleHubResponse`)·강사 캘린더 신청자행(`availability.ApplicantSummaryResponse.gear`) **셋이 같은 소스라 형태가 갈라지면 안 됨** → nested 3벌 폐기하고 **`enrollment/dto/GearItem` 하나로 통합**(스냅샷 주인=enrollment 소유, availability 는 이미 enrollment 단방향 참조라 재사용). `sizeLabel` 은 저장값 그대로, 단위는 FE. **"대여장비를 별도 도메인으로?" — 지금은 아님**(사용자 토의): 장비는 카탈로그(`venue/equipment`)+예약스냅샷(enrollment)로 이미 올바르게 나뉘고 독립 생명주기가 없음. **재고·유닛반납·대여정산** 요구가 생기면 그때 `equipment`/`rental` 도메인으로 추출(트리거 명시).
 
 ## 안전망 테스트

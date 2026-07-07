@@ -1247,7 +1247,11 @@ export interface EnrollmentEquipmentOption {
   sizeOptions?: string[];
 }
 
-/** 신청 — POST /enrollments → 201 PENDING. 옵션이 준 슬롯 식별자(date,위치,블록) echo. 서버가 모두 재검증. */
+/**
+ * 신청 — POST /enrollments → 201 PENDING. 옵션이 준 슬롯 식별자(date,위치,블록) echo. 서버가 모두 재검증.
+ * ⚠️ 선행: 본인인증 미완료면 403 IDENTITY_VERIFICATION_REQUIRED(-1017) — 신청 화면 진입 전 GET /identity-verifications/me
+ * 로 확인하고, 없으면 본인인증부터. (2회차+ POST /{id}/rounds 는 1회차에서 이미 통과했으므로 별도 게이트 없음.)
+ */
 export interface EnrollmentCreateRequest {
   courseId: number;
   date: string;             // "YYYY-MM-DD" — 슬롯의 date (예전 availabilityWindowId 대체)
@@ -1617,6 +1621,11 @@ export const ErrorCode = {
   EXPIRED_REFRESH_TOKEN: -1006,
   FORBIDDEN_TOKEN: -1007,
   PRE_LAUNCH: -1016, // 정식 런칭 전 수강신청 시도(POST /enrollments, 403). FE 는 "런칭 대기" 안내로 분기
+  // 본인인증 미완료 상태로 선행-조건 동작 시도(403). FE 는 본인인증(POST /identity-verifications) 화면으로 분기.
+  //   · POST /enrollments (수강신청 전 선행) — 세션 계정으로 조회, 최신 VERIFIED 없으면.
+  //   · POST /instructor-applications (강사 전환 전 선행) — verificationId 가 가리키는 레코드가 VERIFIED 아님.
+  //     (없는/남의 verificationId 는 이 코드가 아니라 -1011(BAD_REQUEST, 400) 유지 — "본인인증하러 가라"가 아님.)
+  IDENTITY_VERIFICATION_REQUIRED: -1017,
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];

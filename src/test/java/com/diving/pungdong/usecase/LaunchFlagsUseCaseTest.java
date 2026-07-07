@@ -52,6 +52,7 @@ class LaunchFlagsUseCaseTest {
     @Autowired ObjectMapper objectMapper;
     @Autowired JwtTokenProvider jwtTokenProvider;
     @Autowired AccountJpaRepo accountRepo;
+    @Autowired com.diving.pungdong.identityverification.IdentityVerificationJpaRepo identityVerificationRepo;
     @Autowired CourseJpaRepo courseRepo;
 
     @MockBean SiteSettingsProvider siteSettings;
@@ -59,13 +60,19 @@ class LaunchFlagsUseCaseTest {
     @AfterEach
     void cleanUp() {
         courseRepo.deleteAll();
+        identityVerificationRepo.deleteAll(); // account FK — 계정 삭제 전
         accountRepo.deleteAll();
     }
 
+    /** 본인인증 완료(VERIFIED) 학생 — P2 처럼 런칭 게이트 통과 후 다음 검증까지 도달하려면 본인인증 게이트도 통과해야 한다. */
     private Account account(String email, String nick) {
-        return accountRepo.save(Account.builder()
+        Account a = accountRepo.save(Account.builder()
                 .email(email).password("encoded").nickName(nick)
                 .roles(new HashSet<>(Set.of(Role.STUDENT))).build());
+        identityVerificationRepo.save(com.diving.pungdong.identityverification.IdentityVerification.builder()
+                .account(a).status(com.diving.pungdong.identityverification.IdentityVerificationStatus.VERIFIED)
+                .verifiedAt(LocalDateTime.now()).build());
+        return a;
     }
 
     private Course openCourse(Account instructor, String title, boolean seeded) {

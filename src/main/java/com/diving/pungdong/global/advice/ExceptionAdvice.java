@@ -103,6 +103,12 @@ public class ExceptionAdvice {
         return responseService.getFailResult(Integer.parseInt(getMessage("preLaunch.code")), getMessage("preLaunch.msg"));
     }
 
+    @ExceptionHandler(IdentityVerificationRequiredException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public CommonResult identityVerificationRequired(IdentityVerificationRequiredException e) {
+        return responseService.getFailResult(Integer.parseInt(getMessage("identityVerificationRequired.code")), getMessage("identityVerificationRequired.msg"));
+    }
+
     @ExceptionHandler(BadRequestException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public CommonResult badRequest(BadRequestException e) {
