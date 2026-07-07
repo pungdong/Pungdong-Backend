@@ -22,8 +22,11 @@ import com.diving.pungdong.enrollment.dto.RoundScheduleRequest;
 import com.diving.pungdong.enrollment.dto.RoundSlotInput;
 import com.diving.pungdong.enrollment.dto.ScheduleHubResponse;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
+import com.diving.pungdong.global.advice.exception.IdentityVerificationRequiredException;
 import com.diving.pungdong.global.advice.exception.PreLaunchException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
+import com.diving.pungdong.identityverification.IdentityVerificationJpaRepo;
+import com.diving.pungdong.identityverification.IdentityVerificationStatus;
 import com.diving.pungdong.venue.VenueRefResolver;
 import com.diving.pungdong.venue.dto.VenueResponse;
 import com.diving.pungdong.venue.equipment.VenueEquipmentService;
@@ -68,11 +71,13 @@ public class EnrollmentService {
     private final SessionCleaner sessionCleaner;
     private final SessionOverlapGuard overlapGuard;
     private final com.diving.pungdong.global.sitesettings.SiteSettingsProvider siteSettings;
+    private final IdentityVerificationJpaRepo identityVerificationRepo;
 
     /** 1회차 신청 — 수강 컨테이너 + 첫 만남 회차 생성. */
     @Transactional
     public EnrollmentResponse submit(Account student, EnrollmentCreateRequest req) {
         requireLaunched();
+        requireVerified(student); // 정책: 수강신청 전 본인인증 선행(2회차+ 는 이 수강을 전제로 하니 전이적 커버)
         Course course = openCourse(req.getCourseId());
         Account instructor = requireInstructor(course);
         CourseRound round1 = firstMeetingRound(course);
@@ -519,6 +524,17 @@ public class EnrollmentService {
         if (!siteSettings.current().launched()) {
             throw new PreLaunchException(); // 런칭 전 전역 신청 차단
         }
+    }
+
+    /**
+     * 본인인증 선행 게이트 — 최신 VERIFIED 레코드가 없으면 403(-1017). 강사 신청과 같은 진실원
+     * ({@code GET /identity-verifications/me} 의 쿼리)을 쓴다. 강사 신청은 verificationId 참조 방식이지만,
+     * 수강신청은 요청에 verificationId 를 싣지 않으므로 세션 계정으로 직접 조회한다.
+     */
+    private void requireVerified(Account student) {
+        identityVerificationRepo
+                .findTopByAccountIdAndStatusOrderByIdDesc(student.getId(), IdentityVerificationStatus.VERIFIED)
+                .orElseThrow(IdentityVerificationRequiredException::new);
     }
 
     private Course openCourse(Long courseId) {

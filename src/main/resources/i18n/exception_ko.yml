@@ -61,3 +61,7 @@ sessionTimeOverlap:
 preLaunch:
   code: "-1016"
   msg: "정식 런칭 전이라 아직 신청할 수 없습니다. 7월 정식 런칭을 기다려주세요."
+
+identityVerificationRequired:
+  code: "-1017"
+  msg: "본인인증을 먼저 완료해주세요."

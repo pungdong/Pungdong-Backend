@@ -49,12 +49,13 @@
 | 2026-06-03 | 가입엔 본인확인 없음, 수강/강사 시점에 수집 | memory `identity-verification-model` |
 | 2026-06-09 | 본인확인을 **계정 공유 도메인으로 승격** + `GET /me`(skip) | #38 |
 | 2026-06-12 | 간편인증→휴대폰 전환 가능성 예고(CI 안정 확보) | memory |
-| 2026-07-07 | **휴대폰 SMS(다날) + 포트원 REST v2 실연동**. status 다단계·carrier 입력·method 판별자·CI/DI 암호화. 무만료 유지·동의 둘 다 확정 | 이 PR |
+| 2026-07-07 | **휴대폰 SMS(다날) + 포트원 REST v2 실연동**. status 다단계·carrier 입력·method 판별자·CI/DI 암호화. 무만료 유지·동의 둘 다 확정 | #163 |
+| 2026-07-08 | **수강신청 선행 게이트 연동** — `EnrollmentService.submit` 이 세션 계정 최신 VERIFIED 조회. 강사·수강 공유 403 신호 `IdentityVerificationRequiredException`(-1017), 강사의 없는/남의 id 는 400 유지 | 이 PR |
 
 ## 미해결 / 확장
 
 - 🔴 **실 다날 라이브 검증** — **CPID 개통(통신사 심사, 리드타임 최대 1주) 후**에만 실호출 검증 가능. 개통 전까지 `RealPortOneIdentityVerifier` 는 REST 명세 기반(미검증). 개통 후 OTP 에러코드·응답 필드 경로 보정 + 내외국인 판별.
-- 🟡 **수강 플로우 미구현** — 강의 신청 전 본인확인 소비자는 아직 없음(도메인은 공유 자산으로 준비됨).
+- 🟢 **수강 플로우 연동 완료 (2026-07-08)** — 강의 신청(`POST /enrollments`) 전 본인인증 선행 게이트. 세션 계정 최신 VERIFIED 없으면 403 -1017 → FE 본인인증 화면. 구현·에러표는 [architecture/identity-verification.md](../architecture/identity-verification.md)·[architecture/enrollment.md](../architecture/enrollment.md).
 - 🟢 **DI 중복가입 확인** — DI 저장하되 차단 로직 없음.
 
 ### 코드 밖 / 운영 (담당·일정 공유)

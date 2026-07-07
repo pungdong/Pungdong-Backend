@@ -27,9 +27,9 @@ flowchart TB
     Account["account.Account / AccountJpaRepo"]
     PortOne["포트원 REST v2<br/>api.portone.io (다날 CPID)"]
 
-    subgraph Consumers["소비자 (verificationId 참조)"]
-        Instructor["instructor-application<br/>(제출 시 status==VERIFIED 검증)"]
-        Lecture["수강 신청 (미구현)"]
+    subgraph Consumers["소비자 (선행 게이트)"]
+        Instructor["instructor-application<br/>(제출 시 verificationId → status==VERIFIED)"]
+        Lecture["수강 신청 (submit)<br/>(세션 계정 최신 VERIFIED 조회)"]
     end
 
     Ctl --> Svc
@@ -153,6 +153,18 @@ erDiagram
 | 비소유/없는 id | 400 | CommonResult | 존재 숨김(payment/instructor 와 동일) |
 
 repo 규약(정상 UI 상태는 200+결과 필드)에 따라 **OTP 재입력 가능한 실패는 200 body 의 errorCode**, 인프라 장애만 non-2xx.
+
+### 선행 게이트 실패 (소비자 측, 2026-07-08)
+
+본인인증이 **선행 조건**인 동작을 미인증으로 시도하면 소비자(수강신청·강사신청)가 **공유 예외** `IdentityVerificationRequiredException` 을 던진다:
+
+| 상황 | HTTP | code | 비고 |
+|---|---|---|---|
+| 수강신청(POST /enrollments) 시 세션 계정에 최신 VERIFIED 없음 | 403 | **-1017** | FE → 본인인증 화면 |
+| 강사신청(POST /instructor-applications) 의 verificationId 가 `status != VERIFIED` | 403 | **-1017** | FE → 본인인증 화면 |
+| 강사신청의 verificationId 가 없는/남의 것 | 400 | -1011 | IDOR·잘못된 입력이지 "본인인증하러 가라" 아님 (게이트와 구분) |
+
+`PreLaunchException`(-1016, 런칭 게이트)과 같은 "신청 게이트" 성격 — 식별 코드로 FE 가 다른 400 과 구분해 분기. 무만료라 한 번 VERIFIED 면 이후 신청은 전이적 통과.
 
 ---
 

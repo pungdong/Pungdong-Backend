@@ -14,6 +14,9 @@ import com.diving.pungdong.enrollment.EnrollmentRoundJpaRepo;
 import com.diving.pungdong.enrollment.EnrollmentStatus;
 import com.diving.pungdong.enrollment.dto.EnrollmentCreateRequest;
 import com.diving.pungdong.global.security.JwtTokenProvider;
+import com.diving.pungdong.identityverification.IdentityVerification;
+import com.diving.pungdong.identityverification.IdentityVerificationJpaRepo;
+import com.diving.pungdong.identityverification.IdentityVerificationStatus;
 import com.diving.pungdong.instructorapplication.InstructorApplication;
 import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
 import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
@@ -76,6 +79,7 @@ class EnrollmentUseCaseTest {
     @Autowired VenueEquipmentExtensionJpaRepo equipmentRepo;
     @Autowired EnrollmentJpaRepo enrollmentRepo;
     @Autowired EnrollmentRoundJpaRepo roundRepo;
+    @Autowired IdentityVerificationJpaRepo identityVerificationRepo;
     @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
 
     private static final LocalDate D1 = LocalDate.now().plusWeeks(1);
@@ -91,15 +95,31 @@ class EnrollmentUseCaseTest {
         equipmentRepo.deleteAll();
         venueRepo.deleteAll();
         applicationRepo.deleteAll();
+        identityVerificationRepo.deleteAll(); // account FK — 계정 삭제 전
         accountRepo.deleteAll();
     }
 
     /* ─── fixtures ─── */
 
+    /** 기본 계정 = <b>본인인증 완료(VERIFIED)</b> — 수강신청 게이트를 통과하는 정상 학생. 미인증 시나리오는 {@link #unverifiedAccount}. */
     private Account account(String email, String nick) {
+        Account a = unverifiedAccount(email, nick);
+        verify(a);
+        return a;
+    }
+
+    /** 본인인증을 만들지 않은 계정 — 수강신청 게이트(403) 검증용. */
+    private Account unverifiedAccount(String email, String nick) {
         return accountRepo.save(Account.builder()
                 .email(email).password("encoded").nickName(nick)
                 .roles(new HashSet<>(Set.of(Role.STUDENT))).build());
+    }
+
+    /** 최신 VERIFIED 본인인증 레코드 1건 적재 — 게이트 쿼리는 account + status 만 본다. */
+    private void verify(Account a) {
+        identityVerificationRepo.save(IdentityVerification.builder()
+                .account(a).status(IdentityVerificationStatus.VERIFIED)
+                .verifiedAt(LocalDateTime.now()).build());
     }
 
     private String tokenFor(Account a) {
@@ -330,6 +350,47 @@ class EnrollmentUseCaseTest {
                 .andExpect(jsonPath("$.equipmentTotal").value(5000))
                 .andExpect(jsonPath("$.total").value(370000))
                 .andExpect(jsonPath("$.equipment[0].name").value("롱핀"));
+    }
+
+    @Test
+    @DisplayName("G1 본인인증이 없는 학생이 신청하면 403(-1017) 으로 막히고 아무 신청도 생기지 않는다")
+    void submitBlockedWithoutIdentityVerification() throws Exception {
+        Account ins = account("ins-g1@pd.com", "강사G1");
+        enterInstructorTrack(ins);
+        Object[] s = setup(ins, 4);
+        Course course = (Course) s[0];
+        String venueRef = (String) s[2];
+        Account stu = unverifiedAccount("stu-g1@pd.com", "미인증학생"); // 본인인증 레코드 없음
+
+        mockMvc.perform(post("/enrollments")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(stu))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json(req(course.getId(), venueRef, ticketRefOf((Venue) s[1]), B_START, B_END, List.of()))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(-1017));
+
+        assertThat(enrollmentRepo.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("G2 본인인증을 마친 학생은 같은 신청이 정상 통과한다(게이트가 인증만 막는다)")
+    void submitPassesAfterIdentityVerification() throws Exception {
+        Account ins = account("ins-g2@pd.com", "강사G2");
+        enterInstructorTrack(ins);
+        Object[] s = setup(ins, 4);
+        Course course = (Course) s[0];
+        String venueRef = (String) s[2];
+        Account stu = unverifiedAccount("stu-g2@pd.com", "인증예정학생");
+        verify(stu); // 본인인증 완료
+
+        mockMvc.perform(post("/enrollments")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(stu))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json(req(course.getId(), venueRef, ticketRefOf((Venue) s[1]), B_START, B_END, List.of()))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("PENDING"));
+
+        assertThat(enrollmentRepo.findAll()).hasSize(1);
     }
 
     /* ─── J* 합류·자격 ─── */

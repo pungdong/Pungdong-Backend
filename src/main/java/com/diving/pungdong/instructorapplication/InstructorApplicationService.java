@@ -6,6 +6,7 @@ import com.diving.pungdong.account.Role;
 import com.diving.pungdong.discipline.Discipline;
 import com.diving.pungdong.discipline.DisciplineService;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
+import com.diving.pungdong.global.advice.exception.IdentityVerificationRequiredException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.identityverification.IdentityVerification;
 import com.diving.pungdong.identityverification.IdentityVerificationJpaRepo;
@@ -248,8 +249,9 @@ public class InstructorApplicationService {
             throw new BadRequestException(); // 남의 본인확인을 참조할 수 없음
         }
         // SMS 2단계 도입으로 READY/FAILED 레코드도 소유로 존재한다 — VERIFIED 만 신청의 전제로 인정.
+        // 미완료는 "본인인증 선행 필요" 분기라 403(-1017) — 수강신청 게이트와 동일 신호(위 없는/남의 id 는 400 유지).
         if (verification.getStatus() != IdentityVerificationStatus.VERIFIED) {
-            throw new BadRequestException(); // 본인확인 미완료(READY/FAILED)는 참조 불가
+            throw new IdentityVerificationRequiredException();
         }
         return verification;
     }
