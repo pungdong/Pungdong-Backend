@@ -32,6 +32,7 @@ SMS 2단계(발송 → 확인):
 - **SMS 2단계로 승격** (2026-07-07, 이 PR) — SMS OTP 는 본질적으로 발송→확인 2단계라 경계를 넓히고 레코드를 **생성 시점(READY)에 영속화**. 이로써 "레코드 존재=verified" 불변식이 깨져 소비자에 `status==VERIFIED` 가드 추가.
 - **무만료 유지** — `verified` = 최신 **VERIFIED** 존재. `verifiedAt` 노출만. `GET /me` 가 단일 진실원. 법적 주기 정해지면 TTL.
 - **모드 게이트** — `real` 은 다날 CPID 개통 후. 그 전 로컬/테스트 `stub`, prod `disabled`.
+- **OTP 만료 = 상대초로 내림 (2026-07-10)** — 발송/재발송 응답의 `otpExpiresInSeconds`(서버 계산 잔여 초)가 FE 카운트다운의 **단일 출처**. `otpExpiresAt`(LocalDateTime, 오프셋 없음)은 표시/디버그용. **왜**: 컨테이너 JVM=UTC 라 offset 없는 `otpExpiresAt` 을 FE(KST)가 9h 과거로 읽어 즉시 만료로 표시되던 prod 버그 → 근본봉합으로 `PungdongApplication.main` 에서 전역 `TimeZone.setDefault(Asia/Seoul)` 고정(모든 LocalDateTime 필드 정합) + 카운트다운은 시계/TZ 무관한 상대초로. TTL 은 stub 180s/real 300s(하드코딩 금지). 교훈 = memory `feedback_container_tz_localdatetime`.
 
 ## 안전망 테스트
 

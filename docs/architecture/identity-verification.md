@@ -64,7 +64,7 @@ sequenceDiagram
     V->>PO: POST /identity-verifications/{portoneId}/send
     PO-->>V: 2xx (문자 발송)
     Note over Svc,DB: 발송 실패면 트랜잭션 롤백 (고아 READY 없음)
-    Svc-->>FE: 201 {verificationId, status:READY, otpExpiresAt}
+    Svc-->>FE: 201 {verificationId, status:READY, otpExpiresInSeconds, otpExpiresAt}
 
     FE->>Ctl: POST /{id}/confirm {otp}
     Ctl->>Svc: confirm (소유권 검증 → 만료/시도 선판정)
@@ -128,7 +128,7 @@ erDiagram
         String ci "고유식별정보 (AES-GCM 암호화)"
         String di "고유식별정보 (AES-GCM 암호화)"
         IdentityProvider provider "APP 방식 전용, SMS=null"
-        LocalDateTime otpExpiresAt "OTP 유효기한"
+        LocalDateTime otpExpiresAt "OTP 유효기한(KST wall-clock, 표시용; 카운트다운은 응답 otpExpiresInSeconds 상대초)"
         int attemptCount "OTP 시도수 (max 5)"
         LocalDateTime verifiedAt "VERIFIED 시점"
     }

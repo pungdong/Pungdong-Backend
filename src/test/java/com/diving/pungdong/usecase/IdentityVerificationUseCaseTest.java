@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.greaterThan;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -107,6 +108,8 @@ class IdentityVerificationUseCaseTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("READY"))
                 .andExpect(jsonPath("$.otpExpiresAt").exists())
+                // 카운트다운 단일 출처 — 서버 계산 잔여 초(양수). 시계/TZ 무관. (stub TTL 180s)
+                .andExpect(jsonPath("$.otpExpiresInSeconds").value(greaterThan(0)))
                 .andReturn();
         return objectMapper.readTree(result.getResponse().getContentAsString()).get("verificationId").asLong();
     }
@@ -190,7 +193,7 @@ class IdentityVerificationUseCaseTest {
     }
 
     @Test
-    @DisplayName("D1: resend 하면 200 READY + 새 otpExpiresAt, 시도 카운트 초기화")
+    @DisplayName("D1: resend 하면 200 READY + 새 otpExpiresAt·otpExpiresInSeconds, 시도 카운트 초기화")
     void resend() throws Exception {
         Account student = createStudent("d1@test.com", "diverD1");
         String token = tokenFor(student);
@@ -204,7 +207,8 @@ class IdentityVerificationUseCaseTest {
                         .header(HttpHeaders.AUTHORIZATION, token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("READY"))
-                .andExpect(jsonPath("$.otpExpiresAt").exists());
+                .andExpect(jsonPath("$.otpExpiresAt").exists())
+                .andExpect(jsonPath("$.otpExpiresInSeconds").value(greaterThan(0)));
 
         assertThat(identityVerificationRepo.findById(id).orElseThrow().getAttemptCount()).isZero();
     }
