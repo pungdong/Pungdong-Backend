@@ -287,13 +287,18 @@ export interface IdentityVerificationRequest {
 
 /**
  * POST /identity-verifications 응답(201) · POST /{id}/resend 응답(200).
- * OTP 발송 직후라 status='READY'. otpExpiresAt 은 OTP 유효기한(재사용 만료 아님).
- * confirm 은 이 verificationId 로 호출.
+ * OTP 발송 직후라 status='READY'. confirm 은 이 verificationId 로 호출.
+ *
+ * ⚠️ 카운트다운은 반드시 **otpExpiresInSeconds** 로. 서버가 발송 시점에 계산한 잔여 초라
+ * 클라이언트 TZ·기기 시계 오차와 무관하다. otpExpiresAt 은 표시/디버그용 절대시각일 뿐.
+ * (TTL 은 서버 정책 — stub 180s / real 300s, 변동 가능하니 하드코딩 금지.)
  */
 export interface IdentityVerificationResponse extends HalLinks {
   verificationId: number;
   status: IdentityVerificationStatus; // 'READY'
-  /** ISO-8601. OTP 유효기한. */
+  /** OTP 잔여 초(발송 시점). 카운트다운의 단일 출처 — 이것만 쓰면 시계/TZ 버그 원천 차단. */
+  otpExpiresInSeconds: number;
+  /** OTP 유효기한 절대시각(서버 KST wall-clock). 표시/디버그용 — 카운트다운엔 쓰지 말 것(오프셋 없음). */
   otpExpiresAt: string;
 }
 

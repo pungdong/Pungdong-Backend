@@ -16,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -67,11 +68,7 @@ public class IdentityVerificationService {
                 request.getPhoneNumber(), request.getCarrier(), method));
         v.setOtpExpiresAt(sent.otpExpiresAt());
 
-        return IdentityVerificationResult.builder()
-                .verificationId(v.getId())
-                .status(v.getStatus())
-                .otpExpiresAt(v.getOtpExpiresAt())
-                .build();
+        return sendResult(v);
     }
 
     /** OTP 확인. 소유권 검증 → 멱등(이미 VERIFIED) → 만료/시도 선판정 → 경계 확인. */
@@ -119,10 +116,21 @@ public class IdentityVerificationService {
         v.setStatus(IdentityVerificationStatus.READY);
         v.setAttemptCount(0);
         v.setOtpExpiresAt(sent.otpExpiresAt());
+        return sendResult(v);
+    }
+
+    /**
+     * 발송/재발송 응답 빌더 — {@code otpExpiresInSeconds}(잔여 초)를 서버에서 계산해 함께 내린다.
+     * FE 카운트다운의 단일 출처(클라이언트 시계/TZ 무관). 절대시각 {@code otpExpiresAt}(표시/디버그용)도 유지.
+     */
+    private IdentityVerificationResult sendResult(IdentityVerification v) {
+        Long seconds = v.getOtpExpiresAt() == null ? null
+                : Math.max(0, Duration.between(LocalDateTime.now(), v.getOtpExpiresAt()).getSeconds());
         return IdentityVerificationResult.builder()
                 .verificationId(v.getId())
                 .status(v.getStatus())
                 .otpExpiresAt(v.getOtpExpiresAt())
+                .otpExpiresInSeconds(seconds)
                 .build();
     }
 
