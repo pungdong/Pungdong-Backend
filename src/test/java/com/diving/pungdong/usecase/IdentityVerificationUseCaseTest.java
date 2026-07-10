@@ -92,13 +92,17 @@ class IdentityVerificationUseCaseTest {
         return write(body);
     }
 
-    /** 형식이 깨진 요청 — 400 이고, 레코드가 안 생겼다는 건 서비스/외부 기관까지 못 갔다는 뜻. */
-    private void expectRejectedBeforeSending(String token, String body) throws Exception {
+    /**
+     * 형식이 깨진 요청 — 400 이고, 레코드가 안 생겼다는 건 서비스/외부 기관까지 못 갔다는 뜻.
+     * 응답 msg 는 <b>어느 필드가 왜 틀렸는지</b>(DTO 검증 메시지) 그대로 — 형식 규칙은 공개 계약이라 노출 OK.
+     */
+    private void expectRejectedBeforeSending(String token, String body, String expectedMsg) throws Exception {
         mockMvc.perform(post("/identity-verifications")
                         .header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value(expectedMsg));
 
         assertThat(identityVerificationRepo.findAll()).isEmpty();
     }
@@ -228,29 +232,32 @@ class IdentityVerificationUseCaseTest {
     }
 
     @Test
-    @DisplayName("V2: 휴대폰 접두사가 01 로 시작하지 않으면 400 — 레코드 미생성(다날 미호출)")
+    @DisplayName("V2: 휴대폰 접두사가 01 로 시작하지 않으면 400 + 필드 메시지 — 레코드 미생성(다날 미호출)")
     void create_invalidPhonePrefix() throws Exception {
         Account student = createStudent("v2@test.com", "diverV2");
-        // 제보된 케이스 — FE 검증을 우회해 콘솔/직접 호출로 들어오는 번호.
-        expectRejectedBeforeSending(tokenFor(student), createBody("한어진", "9191234567", "19980914"));
+        // 제보된 케이스 — FE 검증을 우회해 콘솔/직접 호출로 들어오는 번호. msg 로 어느 필드인지 알려준다.
+        expectRejectedBeforeSending(tokenFor(student),
+                createBody("한어진", "9191234567", "19980914"), "휴대폰 번호 형식이 올바르지 않습니다.");
     }
 
     @Test
     @DisplayName("V3: 013/014/015 번호대(IoT·부가서비스)는 SMS 수신이 불가하므로 400 — 레코드 미생성")
     void create_nonSmsCapableNumberBand() throws Exception {
         Account student = createStudent("v3@test.com", "diverV3");
-        expectRejectedBeforeSending(tokenFor(student), createBody("한어진", "01312345678", "19980914"));
+        expectRejectedBeforeSending(tokenFor(student),
+                createBody("한어진", "01312345678", "19980914"), "휴대폰 번호 형식이 올바르지 않습니다.");
     }
 
     @Test
-    @DisplayName("V4: 생년월일이 yyyyMMdd 가 아니면(13월) 400 — 레코드 미생성")
+    @DisplayName("V4: 생년월일이 yyyyMMdd 가 아니면(13월) 400 + 필드 메시지 — 레코드 미생성")
     void create_invalidBirth() throws Exception {
         Account student = createStudent("v4@test.com", "diverV4");
-        expectRejectedBeforeSending(tokenFor(student), createBody("한어진", "01012345678", "19981345"));
+        expectRejectedBeforeSending(tokenFor(student),
+                createBody("한어진", "01012345678", "19981345"), "생년월일 형식이 올바르지 않습니다. (yyyyMMdd)");
     }
 
     @Test
-    @DisplayName("V5: OTP 가 6자리 숫자가 아니면 400 — 시도 횟수(attemptCount)를 소모하지 않는다")
+    @DisplayName("V5: OTP 가 6자리 숫자가 아니면 400 + 필드 메시지 — 시도 횟수(attemptCount)를 소모하지 않는다")
     void confirm_malformedOtpDoesNotBurnAttempt() throws Exception {
         Account student = createStudent("v5@test.com", "diverV5");
         String token = tokenFor(student);
@@ -260,7 +267,8 @@ class IdentityVerificationUseCaseTest {
                         .header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(otpBody("12345"))) // 5자리 — 구조적으로 정답일 수 없음
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("인증번호는 6자리 숫자입니다."));
 
         IdentityVerification saved = identityVerificationRepo.findById(id).orElseThrow();
         assertThat(saved.getStatus()).isEqualTo(IdentityVerificationStatus.READY);

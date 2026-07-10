@@ -151,7 +151,7 @@ erDiagram
 | 시도 초과(>5) | 200 | `{status:FAILED, errorCode:OTP_TOO_MANY_ATTEMPTS}` | 레코드 FAILED, resend/재시작 |
 | 문자 발송 실패 | 400 | CommonResult `{success:false, code, msg}` | create/resend 의 PG 장애. `SMS_SEND_FAILED` 개념(토스 실패와 동일 결). ⚠️ 지금은 **실존하지 않는/해지된 번호도 여기로 뭉쳐 옴** — CPID 개통 후 세분화 |
 | 비소유/없는 id | 400 | CommonResult | 존재 숨김(payment/instructor 와 동일) |
-| **요청 형식 오류** | **400** | CommonResult | 휴대폰·생년월일·OTP 형식(아래) — 다날 미호출·레코드 미생성·쿨다운 미소모 |
+| **요청 형식 오류** | **400** | CommonResult `{success:false, code, msg}` — **msg = 필드 검증 메시지**(어느 필드가 왜) | 휴대폰·생년월일·OTP 형식(아래) — 다날 미호출·레코드 미생성·쿨다운 미소모. FE 는 msg 그대로 표시 |
 
 repo 규약(정상 UI 상태는 200+결과 필드)에 따라 **OTP 재입력 가능한 실패는 200 body 의 errorCode**, 인프라 장애·malformed input 만 non-2xx.
 
@@ -167,6 +167,8 @@ repo 규약(정상 UI 상태는 200+결과 필드)에 따라 **OTP 재입력 가
 | `otp` | `^\d{6}$` — 위반 시 400 이고 **`attemptCount`(5회 한도) 미소모** | — |
 
 정규화 전에는 하이픈째로 다날에 나갈 수 있었다(`mode=real` 미검증이라 잠복). 저장·전송 모두 canonical(숫자만) 형태.
+
+**어느 필드가 왜 틀렸는지 응답에 싣는다** — 컨트롤러가 첫 필드 검증 메시지를 `BadRequestException` 으로 넘겨(`firstFieldMessage`), `ExceptionAdvice.badRequest` 가 `msg` 로 그대로 내보낸다(`{success:false, code, msg:"휴대폰 번호 형식이 올바르지 않습니다."}`). FE 는 이 msg 를 **그대로 표시**한다(형식 검증 메시지는 사용자용 한국어). 숨기지 않는 이유: 형식 규칙은 이미 공개된 계약(types.ts·FE)이라 **oracle 이 아니다** — 로그인의 "계정/비번 중 뭐가 틀렸는지" 숨김은 서버 비밀(계정 존재·비번 일치)을 누설하는 oracle 을 막으려는 것이고, 형식 검증엔 숨겨 지킬 secret 이 없다(같은 입력 → 서버 상태 무관하게 같은 답). 상세 원칙은 루트 CLAUDE.md "Validate input shape".
 
 **형식 통과 ≠ 발송 성공** — 실존·해지·명의 일치 판정은 다날 몫. `phoneNumber` 규칙은 **KR 전용**이며, 이 도메인의 한국 종속 전체 목록은 [features/identity-verification.md](../features/identity-verification.md) 의 "한국 종속 인벤토리"(왜 국가 추상화를 지금 안 짓는지 포함).
 
