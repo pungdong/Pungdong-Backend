@@ -127,9 +127,9 @@ public class IdentityVerificationService {
         }
         Long retryAfter = acquireSendSlot(account.getId());
         if (retryAfter != null) {
-            // 쿨다운 — 미발송. 레코드는 그대로라 verificationId 유지(FE 컨텍스트 보존).
-            return IdentityVerificationResult.builder()
-                    .verificationId(v.getId()).retryAfterSeconds(retryAfter).build();
+            // 쿨다운 — 미발송. create 쿨다운과 동일 shape({retryAfterSeconds} 만) — union 판별 위해 통일.
+            // (verificationId 는 FE 가 이미 path 로 알고 있어 echo 불필요.)
+            return IdentityVerificationResult.builder().retryAfterSeconds(retryAfter).build();
         }
         SendResult sent = identityVerifier.resend(v.getPortoneVerificationId());
         v.setStatus(IdentityVerificationStatus.READY);

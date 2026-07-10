@@ -79,6 +79,9 @@ public class IdentityVerificationController {
     public ResponseEntity<?> resend(@CurrentUser Account account, @PathVariable Long id) {
         IdentityVerificationResult resent = identityVerificationService.resend(account, id);
 
+        if (resent.getRetryAfterSeconds() != null) {
+            return ResponseEntity.ok(EntityModel.of(resent)); // 쿨다운 — confirm 링크 없이 {retryAfterSeconds}
+        }
         EntityModel<IdentityVerificationResult> model = EntityModel.of(resent);
         model.add(confirmLink(account, id));
         model.add(Link.of("/docs/api.html#resource-identity-verification-resend").withRel("profile"));
