@@ -22,4 +22,9 @@ public class IdentityVerificationResult {
     private LocalDateTime otpExpiresAt;
     /** OTP 잔여 초(발송 시점 기준). 카운트다운의 단일 출처 — 시계/TZ 무관. */
     private Long otpExpiresInSeconds;
+    /**
+     * 발송 쿨다운에 걸린 경우에만 non-null — 이 초만큼 뒤 재시도 가능(SMS 미발송, 나머지 필드 null).
+     * 정상 발송이면 null. FE 는 {@code retryAfterSeconds != null} 이면 "N초 후 재시도" UI 로 분기.
+     */
+    private Long retryAfterSeconds;
 }
