@@ -7,7 +7,7 @@ import lombok.*;
 import org.springframework.hateoas.server.core.Relation;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -44,8 +44,8 @@ public class EnrollmentResponse {
     private int total;
     private List<EquipmentLine> equipment;
 
-    private LocalDateTime createdAt;
-    private LocalDateTime respondedAt;
+    private OffsetDateTime createdAt;
+    private OffsetDateTime respondedAt;
 
     /** 슬롯 변경 이력(일정 수정/제안 선택으로 슬롯이 바뀐 기록 — CS 추적). 변경 없으면 빈 배열. */
     private List<SlotHistoryLine> slotHistory;
@@ -83,7 +83,7 @@ public class EnrollmentResponse {
         private String ticketRef;
         private LocalTime blockStart;
         private LocalTime blockEnd;
-        private LocalDateTime changedAt;
+        private OffsetDateTime changedAt;
 
         static SlotHistoryLine from(com.diving.pungdong.enrollment.PastSlot p) {
             return SlotHistoryLine.builder()

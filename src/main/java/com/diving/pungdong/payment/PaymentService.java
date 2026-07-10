@@ -12,7 +12,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.UUID;
 
 /**
@@ -66,12 +67,12 @@ public class PaymentService {
                         .amount(amount)
                         .orderName(orderName(r))
                         .status(PaymentStatus.READY)
-                        .createdAt(LocalDateTime.now())
+                        .createdAt(OffsetDateTime.now(ZoneOffset.UTC))
                         .build()));
         if (order.getAmount() != amount) { // 스냅샷이 그새 갱신됐으면 권위 금액 갱신
             order.setAmount(amount);
             order.setOrderName(orderName(r));
-            order.setUpdatedAt(LocalDateTime.now());
+            order.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         }
         return PaymentPrepareResponse.of(order, orderNoFormatter.format(order.getId(), order.getCreatedAt()), clientKey, customerKey(student));
     }
@@ -110,7 +111,7 @@ public class PaymentService {
         order.setPaymentKey(paymentKey);
         order.setMethod(result.method());
         order.setApprovedAt(result.approvedAt());
-        order.setUpdatedAt(LocalDateTime.now());
+        order.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         r.setStatus(EnrollmentStatus.CONFIRMED); // 결제 완료 = 확정 (pay-first: 강사는 이후 수영장 예약)
         return PaymentConfirmResponse.of(order, orderNoFormatter.format(order.getId(), order.getCreatedAt()));
     }

@@ -26,6 +26,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -84,7 +86,7 @@ class CourseDetailUseCaseTest {
         Venue v = Venue.builder()
                 .owner(owner).name("잠실 잠수풀").type(VenueType.SWIMMING_POOL)
                 .address("서울특별시 송파구 올림픽로 25").lockedDisciplineCode("FREEDIVING")
-                .createdAt(LocalDateTime.now()).build();
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
         v.addTicket(t);
         venueRepo.save(v);
         return new String[]{"CUSTOM:" + v.getId(), t.getRef()};

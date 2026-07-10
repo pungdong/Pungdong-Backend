@@ -4,7 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 
@@ -24,10 +24,10 @@ class MarketingSendWindowTest {
         return ZonedDateTime.of(y, mo, d, h, mi, 0, 0, KST).toInstant();
     }
 
-    /** clamp 결과(시스템 존 LocalDateTime)를 다시 instant 로 환산. */
+    /** clamp 결과(절대 시각 OffsetDateTime)를 다시 instant 로 환산. */
     private static Instant clampedInstant(Instant input) {
-        LocalDateTime out = MarketingSendWindow.clamp(input);
-        return out.atZone(ZoneId.systemDefault()).toInstant();
+        OffsetDateTime out = MarketingSendWindow.clamp(input);
+        return out.toInstant();
     }
 
     @Test

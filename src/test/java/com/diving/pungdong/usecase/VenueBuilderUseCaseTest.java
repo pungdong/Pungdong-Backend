@@ -20,6 +20,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -76,7 +78,7 @@ class VenueBuilderUseCaseTest {
     private Venue seedCustom(Account owner, String name, VenueType type, String disciplineCode) {
         return venueRepo.save(Venue.builder()
                 .owner(owner).name(name).type(type).lockedDisciplineCode(disciplineCode)
-                .createdAt(LocalDateTime.now()).build());
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
     }
 
     /* ════════════════ B — 빌더 머지/매핑/필터 ════════════════ */

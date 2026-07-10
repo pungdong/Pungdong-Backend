@@ -4,7 +4,7 @@ import com.diving.pungdong.account.Account;
 import lombok.*;
 
 import javax.persistence.*;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 /**
  * 한 사용자의 <b>동의 이력 1건</b> — "이 계정이, 이 약관 버전에, 언제, 어느 화면에서 동의했다".
@@ -37,5 +37,5 @@ public class Consent {
     @Column(nullable = false)
     private ConsentContext context;
 
-    private LocalDateTime agreedAt;
+    private OffsetDateTime agreedAt;
 }

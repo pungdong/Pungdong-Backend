@@ -15,7 +15,8 @@ import javax.persistence.Id;
 import javax.persistence.Index;
 import javax.persistence.Lob;
 import javax.persistence.Table;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 
 @Entity
 @Table(name = "notification_outbox", indexes = {
@@ -52,23 +53,23 @@ public class NotificationOutbox {
     private int attempts;
 
     @Column(nullable = false)
-    private LocalDateTime nextAttemptAt;
+    private OffsetDateTime nextAttemptAt;
 
     @Column(updatable = false, nullable = false)
-    private LocalDateTime createdAt;
+    private OffsetDateTime createdAt;
 
-    private LocalDateTime sentAt;
+    private OffsetDateTime sentAt;
 
     @Column(length = 1024)
     private String lastError;
 
     public void markSent() {
         this.status = NotificationStatus.SENT;
-        this.sentAt = LocalDateTime.now();
+        this.sentAt = OffsetDateTime.now(ZoneOffset.UTC);
         this.lastError = null;
     }
 
-    public void markFailedAndScheduleRetry(String error, LocalDateTime nextAttempt) {
+    public void markFailedAndScheduleRetry(String error, OffsetDateTime nextAttempt) {
         this.attempts += 1;
         this.lastError = truncate(error);
         if (this.attempts >= MAX_ATTEMPTS) {

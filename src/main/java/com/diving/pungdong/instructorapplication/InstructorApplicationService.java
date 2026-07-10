@@ -21,7 +21,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -76,7 +77,7 @@ public class InstructorApplicationService {
             application = InstructorApplication.builder()
                     .account(managed)
                     .disciplineCode(discipline.getCode())
-                    .createdAt(LocalDateTime.now())
+                    .createdAt(OffsetDateTime.now(ZoneOffset.UTC))
                     .build();
         } else {
             switch (application.getStatus()) {
@@ -153,7 +154,7 @@ public class InstructorApplicationService {
                 .fileKey(request.getFileKey())
                 .sortOrder(application.getCertificates().size())
                 .build());
-        application.setUpdatedAt(LocalDateTime.now());
+        application.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         InstructorApplication saved = applicationRepo.save(application);
         return InstructorApplicationResult.builder()
                 .applicationId(saved.getId())
@@ -208,7 +209,7 @@ public class InstructorApplicationService {
 
         application.setStatus(InstructorApplicationStatus.APPROVED);
         application.setReviewer(reviewer);
-        application.setReviewedAt(LocalDateTime.now());
+        application.setReviewedAt(OffsetDateTime.now(ZoneOffset.UTC));
         application.setRejectionReason(null);
         applicationRepo.save(application);
 
@@ -230,7 +231,7 @@ public class InstructorApplicationService {
 
         application.setStatus(InstructorApplicationStatus.REJECTED);
         application.setReviewer(reviewer);
-        application.setReviewedAt(LocalDateTime.now());
+        application.setReviewedAt(OffsetDateTime.now(ZoneOffset.UTC));
         application.setRejectionReason(reason);
         applicationRepo.save(application);
     }
@@ -286,8 +287,8 @@ public class InstructorApplicationService {
         application.setDisciplineCode(request.getDisciplineCode());
         application.setIdentityVerification(verification);
         application.setStatus(InstructorApplicationStatus.SUBMITTED);
-        application.setSubmittedAt(LocalDateTime.now());
-        application.setUpdatedAt(LocalDateTime.now());
+        application.setSubmittedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        application.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         application.setReviewedAt(null);
         application.setReviewer(null);
         application.setRejectionReason(null);

@@ -3,7 +3,7 @@ package com.diving.pungdong.payment;
 import lombok.*;
 
 import javax.persistence.*;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 /**
  * 환불 1건 — 한 {@link PaymentOrder}(결제 주문)에 대한 (부분) 취소 기록. 수강 종료(남은 회차 환불) 시 주문별로
@@ -32,5 +32,5 @@ public class RefundOrder {
     @Enumerated(EnumType.STRING)
     private RefundStatus status;
 
-    private LocalDateTime createdAt;
+    private OffsetDateTime createdAt;
 }

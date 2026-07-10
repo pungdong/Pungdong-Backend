@@ -5,7 +5,7 @@ import com.diving.pungdong.course.Course;
 import lombok.*;
 
 import javax.persistence.*;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -39,7 +39,7 @@ public class Enrollment {
     /** 수강료 스냅샷(신청 시점 {@code Course.price} 박제·고정). 1회차 결제에 전액, 환불은 ÷정규회차수. */
     private int tuitionSnapshot;
 
-    private LocalDateTime createdAt;
+    private OffsetDateTime createdAt;
 
     @OneToMany(mappedBy = "enrollment", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @OrderBy("id asc")

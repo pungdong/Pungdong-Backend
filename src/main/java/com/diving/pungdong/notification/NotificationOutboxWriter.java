@@ -16,7 +16,8 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -80,7 +81,7 @@ public class NotificationOutboxWriter {
     }
 
     private void enqueue(NotificationType type, Long recipientId, NotificationPayload payload) {
-        LocalDateTime now = LocalDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         // at-least-once 전송이라 같은 알림이 중복 도달할 수 있다 → 앱 dedup 용 안정적 id 를 data 에 심는다.
         // outbox 행 1개 = notificationId 1개(재시도는 같은 payload 재전송이라 id 유지). 공유 data 맵을
         // 변형하지 않도록 복사본에 넣는다. 정책 = docs/features/push.md.
@@ -88,7 +89,7 @@ public class NotificationOutboxWriter {
         data.put("notificationId", UUID.randomUUID().toString());
         payload.setData(data);
         // 광고성(마케팅)은 야간(21~08 KST)이면 다음 08:00 으로 미뤄 큐잉(정보통신망법). 거래성은 즉시.
-        LocalDateTime nextAttemptAt = type.getCategory().isMarketing()
+        OffsetDateTime nextAttemptAt = type.getCategory().isMarketing()
                 ? MarketingSendWindow.clamp(Instant.now())
                 : now;
         outboxRepo.save(NotificationOutbox.builder()

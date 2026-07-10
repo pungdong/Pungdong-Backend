@@ -4,7 +4,7 @@ import com.diving.pungdong.account.Account;
 import lombok.*;
 
 import javax.persistence.*;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -62,8 +62,8 @@ public class Venue {
     @Builder.Default
     private List<VenueClosure> closures = new ArrayList<>();
 
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
+    private OffsetDateTime createdAt;
+    private OffsetDateTime updatedAt;
 
     public void addTicket(VenueTicket ticket) {
         ticket.setVenue(this);

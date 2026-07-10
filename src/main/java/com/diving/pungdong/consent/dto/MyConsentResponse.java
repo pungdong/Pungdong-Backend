@@ -4,7 +4,7 @@ import com.diving.pungdong.consent.ConsentContext;
 import lombok.*;
 import org.springframework.hateoas.server.core.Relation;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 /**
  * GET /consents/me 항목 — 내 동의 이력 1건. 배열은 {@code _embedded.consents} 로 묶인다
@@ -19,5 +19,5 @@ public class MyConsentResponse {
     private String version;
     private String title;
     private ConsentContext context;
-    private LocalDateTime agreedAt;
+    private OffsetDateTime agreedAt;
 }

@@ -9,7 +9,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 
 @Component
@@ -30,7 +31,7 @@ public class NotificationDispatcher {
         List<NotificationOutbox> due = outboxRepo
                 .findByStatusInAndNextAttemptAtBeforeOrderByCreatedAtAsc(
                         List.of(NotificationStatus.PENDING, NotificationStatus.FAILED),
-                        LocalDateTime.now(),
+                        OffsetDateTime.now(ZoneOffset.UTC),
                         PageRequest.of(0, BATCH_SIZE));
 
         for (NotificationOutbox row : due) {

@@ -8,7 +8,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 
 @Service
 @RequiredArgsConstructor
@@ -24,8 +25,8 @@ public class FirebaseTokenService {
                         .token(token)
                         .account(account)
                         .deviceType(deviceType)
-                        .lastSeenAt(LocalDateTime.now())
-                        .createdAt(LocalDateTime.now())
+                        .lastSeenAt(OffsetDateTime.now(ZoneOffset.UTC))
+                        .createdAt(OffsetDateTime.now(ZoneOffset.UTC))
                         .build()));
     }
 

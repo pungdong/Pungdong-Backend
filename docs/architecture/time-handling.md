@@ -17,11 +17,14 @@
 
 ## 2. 저장/직렬화 결정 (BE)
 
-- **타입: `OffsetDateTime`, UTC로 통일.** (`Instant`도 등가지만, 코드베이스에 이미 `payment.approvedAt`가 `OffsetDateTime`(토스 반환)이라 통일 + 명시적 offset이 self-documenting.) 저장/연산은 항상 UTC offset(`+00:00`), 표시 offset 변환은 FE.
-- **DB 컬럼**: `LocalDateTime→DATETIME`(naive) 에서 **`TIMESTAMP`**(MySQL이 UTC로 정규화) 로. **커넥션 TZ를 UTC**로 맞춰야 함 — 현재 datasource URL `serverTimezone=Asia/Seoul` → `connectionTimeZone=UTC`(또는 동등) 로 손봐야 조용한 9h 밀림을 막는다.
-- **부수 효과(좋음)**: instant가 offset-aware가 되면 `LocalDateTime.now()` 의존이 사라져 [#166의 전역 `TimeZone.setDefault(Asia/Seoul)` 밴드에이드](../../src/main/java/com/diving/pungdong/PungdongApplication.java)를 instant 한정 걷어낼 수 있다. local(`LocalDate`/`LocalTime`)은 애초에 TZ 무관.
-- **직렬화**: `OffsetDateTime` → Jackson 기본 ISO-8601 + offset → FE `new Date()` 자동.
-- **기존 데이터 주의**: #166 배포 전 컨테이너는 UTC라 옛 row의 DATETIME은 UTC-wall, #166 후 새 row는 KST-wall — 같은 컬럼에 9h 다른 의미가 섞여 있다. UTC 이관 시 옛 값 해석이 애매 → **pre-launch + 대부분 데모라 수용(또는 데모 reseed)**, 정밀 마이그레이션은 과함.
+- **타입: `OffsetDateTime`, UTC로 통일.** (`Instant`도 등가지만 `payment.approvedAt`가 이미 `OffsetDateTime`(토스 반환)이라 통일 + 명시적 offset이 self-documenting.) `LocalDateTime.now()`→`OffsetDateTime.now(ZoneOffset.UTC)`.
+- **DB 컬럼 = 마이그레이션 불필요** (실 MySQL 검증). Hibernate(MySQL5InnoDBDialect)가 `OffsetDateTime`도 `datetime`으로 매핑 → **컬럼 타입 그대로**, `hbm2ddl=validate` 통과. 대신 **config로 UTC 저장**을 강제:
+  - `application.yml`: `spring.jpa.properties.hibernate.jdbc.time_zone: UTC`
+  - datasource URL: `serverTimezone=Asia/Seoul` → **`connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true`**
+  - ★검증(빈 docker MySQL): `otpExpiresAt` API=`...Z`, raw DB=**UTC-wall**(KST 아님). 이 config 쌍이 조용한 9h 밀림을 막는 핵심.
+- **`setDefault(KST)`는 유지** — account/notification/availability 등 변환 대상 + **레거시(`domain/`,`repo/` lecture·reservation)의 잔여 `LocalDateTime.now()`** 보호. instant는 이제 `OffsetDateTime.now(UTC)`라 setDefault 무관하지만, 잔여 LocalDateTime이 남아 있어 제거는 별도 정리(후속).
+- **직렬화**: `OffsetDateTime` → Jackson ISO-8601+offset(`...Z`) → FE `new Date()` 자동. (설정 무변경 — 기본값.)
+- **기존 데이터 주의**: 옛 config(serverTimezone=Asia/Seoul)로 쓰인 prod/dev 데이터는 KST-wall인데 새 config는 UTC로 읽음 → **배포 후 옛 row는 9h 밀려 보임.** pre-launch + 데모라 수용(또는 reseed). 정밀 마이그레이션은 과함.
 
 ## 3. 표시(display) 전략 — TZ는 FE가, 그런데 어느 TZ로?
 
@@ -79,9 +82,9 @@ BE는 instant를 UTC로만 준다. **"어느 TZ로 보여줄까"는 FE 결정이
 - **`MarketingSendWindow` 하드코딩 `Asia/Seoul`** → 수신자(유저) TZ. 조용시간은 수신자 현지 기준.
 - **`Review.writeDate`(legacy)** — instant 승격 or local 표시.
 
-## 5b. 지금 하는 것 (이 작업의 유일한 "now")
+## 5b. 지금 한 것 (instant → UTC)
 
-**instant 22필드 `LocalDateTime → OffsetDateTime`/UTC** — 이것만. naive `LocalDateTime`은 정보가 **되돌릴 수 없이 손실**(UTC-wall vs KST-wall)이라 지금 이관이 급하다(§6 기준). 나머지(venue TZ·나라선택·표시)는 전부 복구 가능 → 일본 때.
+**instant `LocalDateTime → OffsetDateTime`/UTC.** naive `LocalDateTime`은 정보가 **되돌릴 수 없이 손실**(UTC-wall vs KST-wall)이라 지금 이관(§6 기준). **범위 = 응답 22필드가 아니라 "instant를 주고받는 도메인 전부"** — 처음 6개(course/consent/identityverification/instructorapplication/enrollment/venue)만 바꾸면 payment(환불 유예 계산)·availability(hold 만료)와의 **seam에서 9h 버그**가 생겨(변환 UTC ↔ 미변환 KST가 비교), payment·availability·account·notification까지 확장해 seam을 없앴다. `LocalDate`/`LocalTime`(슬롯/venue)은 불변. venue TZ·나라선택·표시는 복구 가능 → 일본 때(#173).
 
 ## 6. 결정 로그
 

@@ -8,7 +8,7 @@ import com.diving.pungdong.payment.dto.RefundQuote;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
@@ -37,7 +37,7 @@ public class RefundCalculator {
     private static final int TWO_DAY_PCT = 70;
     private static final int THREE_DAY_PLUS_PCT = 100;
 
-    public RefundQuote quote(Enrollment enrollment, LocalDate today, LocalDateTime now) {
+    public RefundQuote quote(Enrollment enrollment, LocalDate today, OffsetDateTime now) {
         int totalRegular = enrollment.getCourse() == null ? 0 : (int) enrollment.getCourse().getRounds().stream()
                 .filter(cr -> cr.getRoundKind() == RoundKind.REGULAR).count();
         int tuition = enrollment.getTuitionSnapshot();
@@ -94,8 +94,8 @@ public class RefundCalculator {
     }
 
     /** 환불율(%) — 신청 1h 내 100, 아니면 세션일까지 남은 일수로(당일0/전날50/2일전70/3일전+100). */
-    private int ratePct(EnrollmentRound r, LocalDate today, LocalDateTime now) {
-        LocalDateTime committedAt = r.getRespondedAt() != null ? r.getRespondedAt() : r.getCreatedAt();
+    private int ratePct(EnrollmentRound r, LocalDate today, OffsetDateTime now) {
+        OffsetDateTime committedAt = r.getRespondedAt() != null ? r.getRespondedAt() : r.getCreatedAt();
         if (committedAt != null && committedAt.isAfter(now.minusHours(GRACE_HOURS))) {
             return 100; // 신청 1시간 내 무조건 100
         }

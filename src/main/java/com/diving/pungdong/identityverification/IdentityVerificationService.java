@@ -19,7 +19,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -96,7 +97,7 @@ public class IdentityVerificationService {
             return result(v, IdentityVerificationErrorCode.OTP_TOO_MANY_ATTEMPTS); // 종료된 세션
         }
         // READY
-        if (v.getOtpExpiresAt() != null && v.getOtpExpiresAt().isBefore(LocalDateTime.now())) {
+        if (v.getOtpExpiresAt() != null && v.getOtpExpiresAt().isBefore(OffsetDateTime.now(ZoneOffset.UTC))) {
             return result(v, IdentityVerificationErrorCode.OTP_EXPIRED); // 재발송 필요 (레코드는 READY 유지)
         }
         if (v.getAttemptCount() >= MAX_ATTEMPTS) {
@@ -164,7 +165,7 @@ public class IdentityVerificationService {
 
     private IdentityVerificationResult sendResult(IdentityVerification v) {
         Long seconds = v.getOtpExpiresAt() == null ? null
-                : Math.max(0, Duration.between(LocalDateTime.now(), v.getOtpExpiresAt()).getSeconds());
+                : Math.max(0, Duration.between(OffsetDateTime.now(ZoneOffset.UTC), v.getOtpExpiresAt()).getSeconds());
         return IdentityVerificationResult.builder()
                 .verificationId(v.getId())
                 .status(v.getStatus())
@@ -204,7 +205,7 @@ public class IdentityVerificationService {
     /** VERIFIED 전이 — 기관 반환값을 요청 입력 위에 덮어써 권위값으로, CI/DI 적재. */
     private void applyVerified(IdentityVerification v, VerifiedCustomer customer) {
         v.setStatus(IdentityVerificationStatus.VERIFIED);
-        v.setVerifiedAt(LocalDateTime.now());
+        v.setVerifiedAt(OffsetDateTime.now(ZoneOffset.UTC));
         v.setForeignerType(ForeignerType.DOMESTIC); // 실 내외국인 판별은 개통 후 보정
         if (customer != null) {
             v.setCi(customer.ci());

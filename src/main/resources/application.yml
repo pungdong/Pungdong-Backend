@@ -12,6 +12,9 @@ spring:
         jdbc.lob.non_contextual_creation: true
         hbm2ddl.auto: validate   # Flyway 가 스키마 소유 — Hibernate 는 검증만(엔티티와 안 맞으면 부팅 실패로 drift 즉시 노출). 옛 update 졸업(#111)
         format_sql: true
+        # instant(OffsetDateTime) 를 UTC 로 저장/조회. datasource URL 의 connectionTimeZone=UTC 와 한 쌍.
+        # 절대시각은 UTC 통일(글로벌화) — 실 MySQL 검증: OffsetDateTime→datetime 컬럼에 UTC-wall 저장, API 는 ...Z. docs/architecture/time-handling.md.
+        jdbc.time_zone: UTC
     # prod-safe 기본값 = off (매 쿼리/디스패처 폴링 SQL 로그 노이즈·CloudWatch 비용 회피).
     # 로컬 디버깅 시 env SPRING_JPA_SHOW_SQL=true 로 켜기.
     show-sql: ${SPRING_JPA_SHOW_SQL:false}

@@ -18,7 +18,8 @@ import javax.persistence.JoinColumn;
 import javax.persistence.ManyToOne;
 import javax.persistence.Table;
 import javax.persistence.UniqueConstraint;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 
 @Entity
 @Table(name = "firebase_token", uniqueConstraints = {
@@ -46,13 +47,13 @@ public class FirebaseToken {
     @Column(length = 16)
     private DeviceType deviceType;
 
-    private LocalDateTime lastSeenAt;
+    private OffsetDateTime lastSeenAt;
 
     @Column(updatable = false)
-    private LocalDateTime createdAt;
+    private OffsetDateTime createdAt;
 
     public void markSeenBy(Account account) {
         this.account = account;
-        this.lastSeenAt = LocalDateTime.now();
+        this.lastSeenAt = OffsetDateTime.now(ZoneOffset.UTC);
     }
 }

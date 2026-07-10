@@ -27,7 +27,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -209,11 +210,11 @@ class AccountDeletionUseCaseTest {
     void anonymize_afterGrace_scrubsPii() {
         Account student = createStudent("a1@test.com", "a1user");
         student.setIsDeleted(true);
-        student.setDeletedAt(LocalDateTime.now());
+        student.setDeletedAt(OffsetDateTime.now(ZoneOffset.UTC));
         accountJpaRepo.save(student);
 
         // now 를 유예기간 너머로 밀어 대상에 포함시킨다(스케줄러가 now 를 주입하는 것과 동형)
-        List<Long> due = anonymizationService.findDueAccountIds(LocalDateTime.now().plusDays(40));
+        List<Long> due = anonymizationService.findDueAccountIds(OffsetDateTime.now(ZoneOffset.UTC).plusDays(40));
         assertThat(due).contains(student.getId());
 
         anonymizationService.anonymize(student.getId());
@@ -234,12 +235,12 @@ class AccountDeletionUseCaseTest {
     void anonymize_isIdempotent() {
         Account student = createStudent("a2@test.com", "a2user");
         student.setIsDeleted(true);
-        student.setDeletedAt(LocalDateTime.now().minusDays(40));
+        student.setDeletedAt(OffsetDateTime.now(ZoneOffset.UTC).minusDays(40));
         accountJpaRepo.save(student);
 
         anonymizationService.anonymize(student.getId());
         Account first = accountJpaRepo.findById(student.getId()).orElseThrow();
-        LocalDateTime firstAt = first.getAnonymizedAt();
+        OffsetDateTime firstAt = first.getAnonymizedAt();
         String anonEmail = first.getEmail();
 
         anonymizationService.anonymize(student.getId());
@@ -254,10 +255,10 @@ class AccountDeletionUseCaseTest {
     void anonymize_respectsGraceWindow() {
         Account student = createStudent("a3@test.com", "a3user");
         student.setIsDeleted(true);
-        student.setDeletedAt(LocalDateTime.now());
+        student.setDeletedAt(OffsetDateTime.now(ZoneOffset.UTC));
         accountJpaRepo.save(student);
 
-        List<Long> dueNow = anonymizationService.findDueAccountIds(LocalDateTime.now());
+        List<Long> dueNow = anonymizationService.findDueAccountIds(OffsetDateTime.now(ZoneOffset.UTC));
         assertThat(dueNow).doesNotContain(student.getId());
     }
 
@@ -266,7 +267,7 @@ class AccountDeletionUseCaseTest {
     void restore_afterAnonymization_fails() throws Exception {
         Account student = createStudent("r2@test.com", "r2user");
         student.setIsDeleted(true);
-        student.setDeletedAt(LocalDateTime.now().minusDays(40));
+        student.setDeletedAt(OffsetDateTime.now(ZoneOffset.UTC).minusDays(40));
         accountJpaRepo.save(student);
 
         anonymizationService.anonymize(student.getId());

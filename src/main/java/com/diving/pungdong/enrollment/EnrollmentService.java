@@ -37,7 +37,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -87,7 +88,7 @@ public class EnrollmentService {
         Enrollment enrollment = Enrollment.builder()
                 .student(student).course(course)
                 .tuitionSnapshot(course.getPrice())
-                .createdAt(LocalDateTime.now())
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC))
                 .build();
         EnrollmentRound round = buildRound(instructor, round1, req, 0);
         enrollment.addRound(round);
@@ -157,7 +158,7 @@ public class EnrollmentService {
         // 제안 보장 hold 회수(고른 슬롯 것 포함) — 고른 자리는 곧 실점유로 전환되니 hold 를 풀어 이중계산 방지.
         List<AvailabilitySession> heldSessions = releaseProposalHolds(round);
 
-        round.archiveCurrentSlot(LocalDateTime.now()); // 옛 슬롯 이력 (취소 아님)
+        round.archiveCurrentSlot(OffsetDateTime.now(ZoneOffset.UTC)); // 옛 슬롯 이력 (취소 아님)
         round.setAvailabilitySession(newSession);
         round.setDate(date);
         round.setTicketRef(ticketRef);
@@ -166,7 +167,7 @@ public class EnrollmentService {
         round.setEntrySnapshot(block.getFee()); // 그 슬롯 daypart 입장료
         round.getProposedSlots().clear();
         round.setStatus(EnrollmentStatus.PAYMENT_PENDING); // 강사 사전 수락 → 결제 대기
-        round.setRespondedAt(LocalDateTime.now());
+        round.setRespondedAt(OffsetDateTime.now(ZoneOffset.UTC));
         // 옛 슬롯 + 안 고른 제안 슬롯 일정 정리(점유 0이면 삭제). 고른 newSession 은 실점유라 보존.
         if (oldSession != null && !oldSession.getId().equals(newSession.getId())) {
             sessionCleaner.deleteIfEmpty(oldSession);
@@ -226,7 +227,7 @@ public class EnrollmentService {
                 req.getBlockStart(), req.getBlockEnd(), req.getVenueRefId(), req.getTicketRef());
         requireSeat(newSession);
 
-        LocalDateTime now = LocalDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         round.archiveCurrentSlot(now); // 옛 슬롯 이력 (취소 아님)
         round.setAvailabilitySession(newSession);
         round.setVenueRefId(req.getVenueRefId());
@@ -260,7 +261,7 @@ public class EnrollmentService {
         }
         AvailabilitySession session = round.getAvailabilitySession();
         round.setStatus(EnrollmentStatus.CANCELLED);
-        round.setRespondedAt(LocalDateTime.now());
+        round.setRespondedAt(OffsetDateTime.now(ZoneOffset.UTC));
         EnrollmentResponse resp = EnrollmentResponse.of(round, venueName(round.getVenueRefId()), instructorName(round));
         sessionCleaner.deleteIfEmpty(session);
         return resp;
@@ -403,7 +404,7 @@ public class EnrollmentService {
                 .status(EnrollmentStatus.PENDING)
                 .entrySnapshot(block.getFee())
                 .extraSnapshot(extraSnapshot)
-                .createdAt(LocalDateTime.now())
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC))
                 .build();
         round.setEquipmentSnapshot(addEquipment(round, slot.getEquipmentRefs(), slot.getEquipmentSizes(), items));
         return round;
@@ -492,7 +493,7 @@ public class EnrollmentService {
                 .orElseGet(() -> sessionRepo.save(AvailabilitySession.builder()
                         .instructor(instructor).date(date).startTime(start).endTime(end)
                         .venueRefId(venueRef).ticketRef(ticketRef)
-                        .createdAt(LocalDateTime.now()).build()));
+                        .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build()));
     }
 
     private CourseRound firstMeetingRound(Course course) {

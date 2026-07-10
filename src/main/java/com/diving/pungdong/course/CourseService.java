@@ -26,7 +26,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -54,7 +55,7 @@ public class CourseService {
     @Transactional
     public CourseResponse create(Account me, CourseCreateRequest req) {
         Course course = Course.builder().instructor(me).status(CourseStatus.DRAFT)
-                .createdAt(LocalDateTime.now()).build();
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
         apply(me, course, req);
         Course saved = courseRepo.save(course);
         return CourseResponse.from(saved, equipmentMap(me, saved));
@@ -65,7 +66,7 @@ public class CourseService {
         Course course = requireOwned(me, id);
         course.clearChildren();
         apply(me, course, req);
-        course.setUpdatedAt(LocalDateTime.now());
+        course.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         return CourseResponse.from(course, equipmentMap(me, course));
     }
 
@@ -133,7 +134,7 @@ public class CourseService {
     public CourseResponse updateStatus(Account me, Long id, CourseStatus status) {
         Course course = requireOwned(me, id);
         course.setStatus(status);
-        course.setUpdatedAt(LocalDateTime.now());
+        course.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         return CourseResponse.from(course, equipmentMap(me, course));
     }
 

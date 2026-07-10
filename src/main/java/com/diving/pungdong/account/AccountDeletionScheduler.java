@@ -6,7 +6,8 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 
 /**
@@ -24,7 +25,7 @@ public class AccountDeletionScheduler {
 
     @Scheduled(cron = "${pungdong.account.deletion.sweep-cron:0 30 4 * * *}")
     public void sweep() {
-        List<Long> dueIds = anonymizationService.findDueAccountIds(LocalDateTime.now());
+        List<Long> dueIds = anonymizationService.findDueAccountIds(OffsetDateTime.now(ZoneOffset.UTC));
         if (dueIds.isEmpty()) {
             return;
         }

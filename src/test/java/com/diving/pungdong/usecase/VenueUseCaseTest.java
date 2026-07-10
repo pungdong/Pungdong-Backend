@@ -28,6 +28,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.DayOfWeek;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -84,7 +86,7 @@ class VenueUseCaseTest {
         applicationRepo.save(InstructorApplication.builder()
                 .account(account).disciplineCode(disciplineCode)
                 .status(InstructorApplicationStatus.SUBMITTED)
-                .submittedAt(LocalDateTime.now()).createdAt(LocalDateTime.now()).build());
+                .submittedAt(OffsetDateTime.now(ZoneOffset.UTC)).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
     }
 
     private String json(Object o) {

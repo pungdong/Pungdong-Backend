@@ -6,6 +6,12 @@
  *
  * 디렉토리 구성은 docs/api-clients/README.md 참고.
  * 도메인 별 의미 / 흐름은 docs/architecture/<domain>.md 참고.
+ *
+ * ⏰ 시간 값 = 두 종류 (docs/architecture/time-handling.md):
+ *   • instant (절대시각 — *At/createdAt/verifiedAt/approvedAt/otpExpiresAt 등): ISO-8601 **offset 포함**(`2026-07-10T19:58:12Z`).
+ *     `new Date(...)` 로 파싱해 **뷰어 로케일로 표시**(거래성 시각은 venue/마켓 TZ+라벨 — 후속 #173).
+ *   • civil/local (슬롯·venue 운영시간 — date/startTime/endTime/blockStart/blockEnd/lectureTime): **offset 없음**(`2026-07-10`,`14:00:00`).
+ *     그 장소의 벽시계라 **뷰어 TZ로 변환 금지**(그대로 표시). new Date() 절대시각 취급 금지.
  */
 
 // ============================================================

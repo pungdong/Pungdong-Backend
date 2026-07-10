@@ -18,6 +18,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -67,7 +69,7 @@ class PublicInstructorUseCaseTest {
     private void application(Account account, String disciplineCode, InstructorApplicationStatus status) {
         applicationRepo.save(InstructorApplication.builder()
                 .account(account).disciplineCode(disciplineCode).status(status)
-                .submittedAt(LocalDateTime.now()).createdAt(LocalDateTime.now()).build());
+                .submittedAt(OffsetDateTime.now(ZoneOffset.UTC)).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
     }
 
     /* ─── P* 공개 디렉토리 ─── */

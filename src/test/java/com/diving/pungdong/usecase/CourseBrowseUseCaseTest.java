@@ -25,6 +25,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -89,7 +91,7 @@ class CourseBrowseUseCaseTest {
         Venue v = venueRepo.save(Venue.builder()
                 .owner(owner).name(name).type(VenueType.SWIMMING_POOL)
                 .address(address).lockedDisciplineCode("FREEDIVING")
-                .createdAt(LocalDateTime.now()).build());
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
         return "CUSTOM:" + v.getId();
     }
 

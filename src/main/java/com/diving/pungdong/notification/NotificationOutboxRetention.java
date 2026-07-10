@@ -10,7 +10,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 
 @Slf4j
 @Component
@@ -26,7 +27,7 @@ public class NotificationOutboxRetention {
     @Scheduled(cron = "0 0 4 * * *")
     @Transactional
     public void purgeOldSentRows() {
-        LocalDateTime threshold = LocalDateTime.now().minusDays(sentRetentionDays);
+        OffsetDateTime threshold = OffsetDateTime.now(ZoneOffset.UTC).minusDays(sentRetentionDays);
         int deleted = outboxRepo.deleteByStatusAndCreatedAtBefore(NotificationStatus.SENT, threshold);
         log.info("Purged {} SENT notifications older than {} ({}d retention). FAILED/GAVE_UP rows preserved.",
                 deleted, threshold, sentRetentionDays);

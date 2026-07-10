@@ -5,7 +5,9 @@
 
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3306/pungdong?characterEncoding=UTF-8&serverTimezone=Asia/Seoul&useSSL=false&allowPublicKeyRetrieval=true
+    # connectionTimeZone=UTC (+forceConnectionTimeZoneToSession) — instant(OffsetDateTime) 을 UTC 로 저장/조회.
+    # application.yml 의 hibernate.jdbc.time_zone=UTC 와 한 쌍. (옛 serverTimezone=Asia/Seoul 에서 전환 — 글로벌화 UTC 통일, time-handling.md.)
+    url: jdbc:mysql://localhost:3306/pungdong?characterEncoding=UTF-8&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&useSSL=false&allowPublicKeyRetrieval=true
     username: pungdong
     password: pungdongpw
     driver-class-name: com.mysql.cj.jdbc.Driver

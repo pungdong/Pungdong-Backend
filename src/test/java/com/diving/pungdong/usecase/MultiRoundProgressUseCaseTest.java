@@ -34,6 +34,8 @@ import org.springframework.test.web.servlet.ResultActions;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -97,7 +99,7 @@ class MultiRoundProgressUseCaseTest {
                 .roles(new HashSet<>(Set.of(role))).build());
         identityVerificationRepo.save(com.diving.pungdong.identityverification.IdentityVerification.builder()
                 .account(a).status(com.diving.pungdong.identityverification.IdentityVerificationStatus.VERIFIED)
-                .verifiedAt(LocalDateTime.now()).build()); // 수강신청 게이트 통과용 본인인증
+                .verifiedAt(OffsetDateTime.now(ZoneOffset.UTC)).build()); // 수강신청 게이트 통과용 본인인증
         return a;
     }
 
@@ -111,7 +113,7 @@ class MultiRoundProgressUseCaseTest {
         accountRepo.save(ins);
         applicationRepo.save(InstructorApplication.builder().account(ins).disciplineCode("FREEDIVING")
                 .status(InstructorApplicationStatus.SUBMITTED)
-                .submittedAt(LocalDateTime.now()).createdAt(LocalDateTime.now()).build());
+                .submittedAt(OffsetDateTime.now(ZoneOffset.UTC)).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
         return ins;
     }
 
@@ -124,7 +126,7 @@ class MultiRoundProgressUseCaseTest {
                 .disciplineCodes(new java.util.LinkedHashSet<>(Set.of("FREEDIVING"))).build();
         ticket.addDaypart(weekday); ticket.addDaypart(weekend);
         Venue venue = Venue.builder().owner(owner).name("잠실 잠수풀장").type(VenueType.SWIMMING_POOL)
-                .address("서울 송파구").lockedDisciplineCode("FREEDIVING").createdAt(LocalDateTime.now()).build();
+                .address("서울 송파구").lockedDisciplineCode("FREEDIVING").createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
         venue.addTicket(ticket);
         return venueRepo.save(venue);
     }
@@ -133,7 +135,7 @@ class MultiRoundProgressUseCaseTest {
     private Course twoRoundCourse(Account ins, String venueRef, String ticketRef) {
         Course course = Course.builder().instructor(ins).title("AIDA2 과정")
                 .kind(CourseKind.CERTIFICATION).organizationCode("AIDA").disciplineCode("FREEDIVING")
-                .totalRounds(2).price(300000).status(CourseStatus.OPEN).createdAt(LocalDateTime.now()).build();
+                .totalRounds(2).price(300000).status(CourseStatus.OPEN).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
         course.addRound(courseRound(1, venueRef, ticketRef));
         course.addRound(courseRound(2, venueRef, ticketRef));
         return courseRepo.save(course);
@@ -157,7 +159,7 @@ class MultiRoundProgressUseCaseTest {
                 .disciplineCodes(new java.util.LinkedHashSet<>(Set.of("FREEDIVING"))).build();
         ticket.addDaypart(weekday); ticket.addDaypart(weekend);
         Venue venue = Venue.builder().owner(owner).name("딥스테이션").type(VenueType.DEEP_POOL)
-                .address("경기 용인").lockedDisciplineCode("FREEDIVING").createdAt(LocalDateTime.now()).build();
+                .address("경기 용인").lockedDisciplineCode("FREEDIVING").createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
         venue.addTicket(ticket);
         return venueRepo.save(venue);
     }
@@ -166,7 +168,7 @@ class MultiRoundProgressUseCaseTest {
     private Course twoVenueCourse(Account ins, String refA, String tA, String refB, String tB) {
         Course course = Course.builder().instructor(ins).title("AIDA2 과정")
                 .kind(CourseKind.CERTIFICATION).organizationCode("AIDA").disciplineCode("FREEDIVING")
-                .totalRounds(2).price(300000).status(CourseStatus.OPEN).createdAt(LocalDateTime.now()).build();
+                .totalRounds(2).price(300000).status(CourseStatus.OPEN).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
         course.addRound(twoVenueRound(1, refA, tA, refB, tB));
         course.addRound(twoVenueRound(2, refA, tA, refB, tB));
         return courseRepo.save(course);
@@ -186,7 +188,7 @@ class MultiRoundProgressUseCaseTest {
     private Course dupVenueCourse(Account ins, String venueRef, String ticketRef) {
         Course course = Course.builder().instructor(ins).title("AIDA2 과정")
                 .kind(CourseKind.CERTIFICATION).organizationCode("AIDA").disciplineCode("FREEDIVING")
-                .totalRounds(2).price(300000).status(CourseStatus.OPEN).createdAt(LocalDateTime.now()).build();
+                .totalRounds(2).price(300000).status(CourseStatus.OPEN).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
         course.addRound(dupVenueRound(1, venueRef, ticketRef));
         course.addRound(dupVenueRound(2, venueRef, ticketRef));
         return courseRepo.save(course);
@@ -225,7 +227,7 @@ class MultiRoundProgressUseCaseTest {
                 .andExpect(status().isCreated());
         EnrollmentRound r1 = roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).get(0);
         r1.setStatus(EnrollmentStatus.CONFIRMED);
-        r1.setDoneAt(LocalDateTime.now());
+        r1.setDoneAt(OffsetDateTime.now(ZoneOffset.UTC));
         roundRepo.save(r1);
         return enrollmentRepo.findByStudentIdOrderByIdDesc(stu.getId()).get(0).getId();
     }
@@ -577,7 +579,7 @@ class MultiRoundProgressUseCaseTest {
         assertThat(holdRepo.findByProposalRoundId(r2.getId())).hasSize(1);
 
         // proposalTtlHours(테스트 6h) 경과 — sweep
-        int lapsed = expiryService.sweepExpiredProposals(LocalDateTime.now().plusHours(7));
+        int lapsed = expiryService.sweepExpiredProposals(OffsetDateTime.now(ZoneOffset.UTC).plusHours(7));
         assertThat(lapsed).isEqualTo(1);
         assertThat(holdRepo.findByProposalRoundId(r2.getId())).isEmpty(); // 보장 hold 해제
         assertThat(roundRepo.findById(r2.getId()).orElseThrow().getStatus())

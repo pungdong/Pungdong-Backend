@@ -14,7 +14,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -53,7 +54,7 @@ public class DemoAutoAcceptScheduler {
     @Scheduled(fixedDelay = 2000)
     public void autoAccept() {
         List<Object[]> due = tx.execute(s -> {
-            LocalDateTime cutoff = LocalDateTime.now().minusSeconds(DELAY_SECONDS);
+            OffsetDateTime cutoff = OffsetDateTime.now(ZoneOffset.UTC).minusSeconds(DELAY_SECONDS);
             List<Object[]> list = new ArrayList<>();
             for (Account ins : SeededCourseAvailabilitySeeder.seededCourseInstructors(courseRepo)) {
                 for (EnrollmentRound r : roundRepo.findByEnrollment_Course_Instructor_IdAndStatusOrderByIdDesc(

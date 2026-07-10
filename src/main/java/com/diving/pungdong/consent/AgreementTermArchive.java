@@ -3,7 +3,7 @@ package com.diving.pungdong.consent;
 import lombok.*;
 
 import javax.persistence.*;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 /**
  * 약관 버전 1건의 <b>불변 박제(snapshot)</b>. 어떤 사용자가 {@code (termKey, version)} 에
@@ -48,5 +48,5 @@ public class AgreementTermArchive {
     private boolean required;
 
     /** 박제(freeze)된 시각. */
-    private LocalDateTime archivedAt;
+    private OffsetDateTime archivedAt;
 }

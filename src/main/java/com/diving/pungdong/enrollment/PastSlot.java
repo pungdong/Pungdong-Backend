@@ -5,7 +5,7 @@ import lombok.*;
 import javax.persistence.Column;
 import javax.persistence.Embeddable;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.LocalTime;
 
 /**
@@ -29,5 +29,5 @@ public class PastSlot {
     @Column(name = "past_block_end")
     private LocalTime blockEnd;
     @Column(name = "changed_at")
-    private LocalDateTime changedAt;
+    private OffsetDateTime changedAt;
 }

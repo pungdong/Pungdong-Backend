@@ -14,6 +14,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.ZoneOffset;
 
 /**
  * 실 구현 — 포트원 REST v2 로 다날 휴대폰 본인인증(SMS) 호출. SDK 인증창 없이 서버가 REST 만으로
@@ -77,13 +78,13 @@ public class RealPortOneIdentityVerifier implements IdentityVerifier {
                 + "\"operator\":\"" + esc(c.carrier().name()) + "\"}";
         postExpectOk(String.format(SEND_URL, c.portoneVerificationId()), body, "send");
         // 다날 SMS OTP 유효시간(관행상 3~5분). 실제 만료는 포트원/다날이 confirm 시 강제 — 여기선 표시값.
-        return new SendResult(java.time.LocalDateTime.now().plusMinutes(5));
+        return new SendResult(java.time.OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(5));
     }
 
     @Override
     public SendResult resend(String portoneVerificationId) {
         postExpectOk(String.format(RESEND_URL, portoneVerificationId), "{" + trimTrailingComma(storeIdField()) + "}", "resend");
-        return new SendResult(java.time.LocalDateTime.now().plusMinutes(5));
+        return new SendResult(java.time.OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(5));
     }
 
     @Override

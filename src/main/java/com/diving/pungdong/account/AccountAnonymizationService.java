@@ -8,7 +8,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 
@@ -41,7 +42,7 @@ public class AccountAnonymizationService {
 
     /** 익명화 대상 id(탈퇴 + 유예 경과 + 미익명화). 읽기 전용. */
     @Transactional(readOnly = true)
-    public List<Long> findDueAccountIds(LocalDateTime now) {
+    public List<Long> findDueAccountIds(OffsetDateTime now) {
         return accountJpaRepo.findIdsToAnonymize(now.minusDays(graceDays));
     }
 
@@ -82,7 +83,7 @@ public class AccountAnonymizationService {
         account.setGender(null);
         account.setSelfIntroduction(null);
         account.setSocialId(null);
-        account.setAnonymizedAt(LocalDateTime.now());
+        account.setAnonymizedAt(OffsetDateTime.now(ZoneOffset.UTC));
 
         accountJpaRepo.save(account);
         log.info("[anonymize] account {} PII 파기 완료", accountId);

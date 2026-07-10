@@ -6,7 +6,7 @@ import lombok.*;
 import org.springframework.hateoas.server.core.Relation;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -38,7 +38,7 @@ public class InstructorEnrollmentResponse {
     private int total;
     private List<EnrollmentResponse.EquipmentLine> equipment;
 
-    private LocalDateTime createdAt;
+    private OffsetDateTime createdAt;
 
     public static InstructorEnrollmentResponse of(EnrollmentRound r, String venueName) {
         var enrollment = r.getEnrollment();

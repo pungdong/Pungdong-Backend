@@ -2,7 +2,7 @@ package com.diving.pungdong.identityverification;
 
 import com.diving.pungdong.account.Gender;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 /**
  * 본인확인 외부 경계 — 구현 스왑({@code pungdong.identity-verification.mode})만으로
@@ -43,7 +43,7 @@ public interface IdentityVerifier {
             IdentityVerificationMethod method) {}
 
     /** 발송 결과 — OTP 유효기한. */
-    record SendResult(LocalDateTime otpExpiresAt) {}
+    record SendResult(OffsetDateTime otpExpiresAt) {}
 
     /**
      * 확인 결과. VERIFIED 면 {@code customer} 세팅·{@code errorCode} null,

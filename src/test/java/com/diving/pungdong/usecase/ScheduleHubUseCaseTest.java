@@ -28,6 +28,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -72,7 +74,7 @@ class ScheduleHubUseCaseTest {
                 .kind(CourseKind.CERTIFICATION).organizationCode("AIDA").disciplineCode("FREEDIVING")
                 .levels(new HashSet<>(Set.of(CertLevel.LEVEL_2)))
                 .totalRounds(1).price(350000).status(CourseStatus.OPEN)
-                .createdAt(LocalDateTime.now()).build());
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
     }
 
     private EnrollmentRound roundOf(int idx, EnrollmentStatus status) {
@@ -81,12 +83,12 @@ class ScheduleHubUseCaseTest {
                 .date(LocalDate.now().plusWeeks(1)).blockStart(LocalTime.of(14, 0)).blockEnd(LocalTime.of(17, 0))
                 .venueRefId("CUSTOM:1").status(status).entrySnapshot(0).equipmentSnapshot(0)
                 .rejectionReason(status == EnrollmentStatus.REJECTED ? "그날은 일정이 있어요. 12/5 어떠세요?" : null)
-                .createdAt(LocalDateTime.now()).build();
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
     }
 
     private void enroll(Account student, Course course, int tuition, EnrollmentRound... rounds) {
         Enrollment e = Enrollment.builder()
-                .student(student).course(course).tuitionSnapshot(tuition).createdAt(LocalDateTime.now()).build();
+                .student(student).course(course).tuitionSnapshot(tuition).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
         for (EnrollmentRound r : rounds) {
             e.addRound(r);
         }
