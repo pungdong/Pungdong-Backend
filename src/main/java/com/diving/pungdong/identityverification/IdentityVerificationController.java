@@ -46,6 +46,10 @@ public class IdentityVerificationController {
         }
         IdentityVerificationResult created = identityVerificationService.create(account, request);
 
+        if (created.getRetryAfterSeconds() != null) {
+            // 발송 쿨다운 — SMS 미발송·레코드 미생성. 201/confirm 링크 아님(정상 분기 200 + retryAfterSeconds).
+            return ResponseEntity.ok(EntityModel.of(created));
+        }
         EntityModel<IdentityVerificationResult> model = EntityModel.of(created);
         model.add(confirmLink(account, created.getVerificationId()));
         model.add(Link.of("/docs/api.html#resource-identity-verification-create").withRel("profile"));

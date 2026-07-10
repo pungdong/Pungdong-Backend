@@ -154,6 +154,10 @@ erDiagram
 
 repo 규약(정상 UI 상태는 200+결과 필드)에 따라 **OTP 재입력 가능한 실패는 200 body 의 errorCode**, 인프라 장애만 non-2xx.
 
+### 발송 쿨다운 (2026-07-10)
+
+`POST /identity-verifications`(create) · `POST /{id}/resend` 은 **계정당 발송 간 최소 간격**(`send-cooldown-seconds`, 기본 30s)을 Redis(`SET NX EX`, 키 `identity:otp:cooldown:<accountId>`)로 강제한다 — 다날 실 SMS 비용·남용(toll-fraud) 방어. 창이 열려 있으면 **SMS 미발송 + `200 {retryAfterSeconds}`**(예외 아님 — repo 규약대로 정상 분기, FE 는 "N초 후 재시도"). create 는 이때 201 아닌 200·레코드 미생성, resend 는 상태 불변. `send-cooldown-seconds=0` 이면 비활성(테스트). **시간당 상한(cap)은 real 모드 전 후속**(현재 prod=stub, 실 SMS 미발송).
+
 ### 선행 게이트 실패 (소비자 측, 2026-07-08)
 
 본인인증이 **선행 조건**인 동작을 미인증으로 시도하면 소비자(수강신청·강사신청)가 **공유 예외** `IdentityVerificationRequiredException` 을 던진다:

@@ -13,12 +13,15 @@ import com.diving.pungdong.identityverification.dto.IdentityVerificationRequest;
 import com.diving.pungdong.identityverification.dto.IdentityVerificationResult;
 import com.diving.pungdong.identityverification.dto.MyIdentityVerificationResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 본인확인 도메인 서비스 — SMS 2단계(발송/확인) 오케스트레이션 + 영속화. 외부 호출은
@@ -38,12 +41,22 @@ public class IdentityVerificationService {
     private final IdentityVerifier identityVerifier;
     private final IdentityVerificationJpaRepo identityVerificationRepo;
     private final AccountJpaRepo accountRepo;
+    private final RedisTemplate<String, String> redisTemplate;
+
+    /** SMS 발송 간 최소 간격(초) — 실 SMS(다날) 비용·남용 방어. 0 이면 비활성(테스트). */
+    @Value("${pungdong.identity-verification.send-cooldown-seconds:30}")
+    private int sendCooldownSeconds;
 
     /** 생성 + OTP 발송(결합). 발송 실패 시 트랜잭션 롤백 — 고아 READY 레코드를 남기지 않는다. */
     @Transactional
     public IdentityVerificationResult create(Account account, IdentityVerificationRequest request) {
         Account managed = accountRepo.findById(account.getId())
                 .orElseThrow(ResourceNotFoundException::new);
+
+        Long retryAfter = acquireSendSlot(managed.getId());
+        if (retryAfter != null) {
+            return IdentityVerificationResult.builder().retryAfterSeconds(retryAfter).build(); // 쿨다운 — 미발송
+        }
 
         IdentityVerificationMethod method =
                 request.getMethod() != null ? request.getMethod() : IdentityVerificationMethod.SMS;
@@ -112,6 +125,12 @@ public class IdentityVerificationService {
         if (v.getStatus() == IdentityVerificationStatus.VERIFIED) {
             throw new BadRequestException("이미 본인확인이 완료된 요청입니다.");
         }
+        Long retryAfter = acquireSendSlot(account.getId());
+        if (retryAfter != null) {
+            // 쿨다운 — 미발송. 레코드는 그대로라 verificationId 유지(FE 컨텍스트 보존).
+            return IdentityVerificationResult.builder()
+                    .verificationId(v.getId()).retryAfterSeconds(retryAfter).build();
+        }
         SendResult sent = identityVerifier.resend(v.getPortoneVerificationId());
         v.setStatus(IdentityVerificationStatus.READY);
         v.setAttemptCount(0);
@@ -123,6 +142,26 @@ public class IdentityVerificationService {
      * 발송/재발송 응답 빌더 — {@code otpExpiresInSeconds}(잔여 초)를 서버에서 계산해 함께 내린다.
      * FE 카운트다운의 단일 출처(클라이언트 시계/TZ 무관). 절대시각 {@code otpExpiresAt}(표시/디버그용)도 유지.
      */
+    /**
+     * 발송 쿨다운 슬롯 획득 — 계정당 {@code sendCooldownSeconds} 초에 1회만 SMS 발송 허용(다날 실 SMS 비용·남용
+     * 방어). Redis {@code SET NX EX}(원자적)로 창을 잡는다. **획득 성공 → null(발송 진행)**, 이미 창이 열려
+     * 있으면 **남은 초 반환(발송 차단)**. 세션 계정 id 로 키잉 — 클라이언트 입력 아님. 0 이면 비활성(테스트).
+     * (시간당 상한(cap)은 real 모드 전환 전 후속 — 지금은 mode=stub 이라 실 SMS 미발송.)
+     */
+    private Long acquireSendSlot(Long accountId) {
+        if (sendCooldownSeconds <= 0) {
+            return null; // 비활성
+        }
+        String key = "identity:otp:cooldown:" + accountId;
+        Boolean acquired = redisTemplate.opsForValue()
+                .setIfAbsent(key, "1", sendCooldownSeconds, TimeUnit.SECONDS);
+        if (Boolean.TRUE.equals(acquired)) {
+            return null; // 창 획득 — 발송 진행
+        }
+        Long ttl = redisTemplate.getExpire(key, TimeUnit.SECONDS);
+        return ttl != null && ttl > 0 ? ttl : (long) sendCooldownSeconds; // 남은 초(경계 방어)
+    }
+
     private IdentityVerificationResult sendResult(IdentityVerification v) {
         Long seconds = v.getOtpExpiresAt() == null ? null
                 : Math.max(0, Duration.between(LocalDateTime.now(), v.getOtpExpiresAt()).getSeconds());

@@ -37,6 +37,7 @@ pungdong:
   # (미설정이면 dev 폴백 키 + WARN — 동작엔 무해하나 노이즈 제거용).
   identity-verification:
     crypto-key: test-only-identity-crypto-key-not-for-production
+    send-cooldown-seconds: 0   # 기본 비활성 — 기존 테스트가 create→resend 를 즉시 호출. 쿨다운은 전용 테스트에서 켠다.
 
 cors:
   allowed-origins: http://localhost:3000

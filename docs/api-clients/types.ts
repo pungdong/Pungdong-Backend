@@ -300,6 +300,12 @@ export interface IdentityVerificationResponse extends HalLinks {
   otpExpiresInSeconds: number;
   /** OTP 유효기한 절대시각(서버 KST wall-clock). 표시/디버그용 — 카운트다운엔 쓰지 말 것(오프셋 없음). */
   otpExpiresAt: string;
+  /**
+   * 발송 쿨다운에 걸렸을 때만 존재(그 외 undefined). SMS 미발송 — 이 초만큼 뒤 재시도 가능.
+   * FE: `retryAfterSeconds != null` 이면 "N초 후 재시도" UI 로 분기(이때 otpExpiresInSeconds·otpExpiresAt 없음).
+   * 계정당 발송 간 최소 간격(서버 정책, 기본 30s). status='READY' 성공 응답엔 이 필드 없음.
+   */
+  retryAfterSeconds?: number;
 }
 
 /** POST /identity-verifications/{id}/confirm 요청 — OTP 확인. */

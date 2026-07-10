@@ -109,6 +109,8 @@ pungdong:
     mode: ${IDENTITY_VERIFICATION_MODE:stub}   # stub | disabled | real
     # CI/DI(고유식별정보) 암호화 키 (AES-256, 어떤 문자열이든 SHA-256 유도). prod 필수 — 미설정 시 dev 폴백.
     crypto-key: ${IDENTITY_CRYPTO_KEY:}
+    # SMS 발송 간 최소 간격(초, 계정당). 다날 실 SMS 비용·남용 방어. 0=비활성. 초과 시 200 + retryAfterSeconds.
+    send-cooldown-seconds: ${IDENTITY_SEND_COOLDOWN_SECONDS:30}
   # 포트원 본인확인 채널 (다날 CPID 가 채널키에 매핑). 전부 BE 전용 시크릿 — 밖으로 안 나간다.
   portone:
     api-secret: ${PORTONE_API_SECRET:}    # 포트원 V2 REST 시크릿 (Authorization: PortOne {secret})
