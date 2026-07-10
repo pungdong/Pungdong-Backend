@@ -14,7 +14,9 @@ locals {
 
   container_image = "${local.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/${var.ecr_repo_name}:${var.image_tag}"
 
-  db_url = "jdbc:mysql://${module.data.db_endpoint}:${module.data.db_port}/${module.data.db_name}?characterEncoding=UTF-8&serverTimezone=Asia/Seoul&useSSL=false&allowPublicKeyRetrieval=true"
+  # connectionTimeZone=UTC (+forceConnectionTimeZoneToSession): instant(OffsetDateTime) 을 UTC 로 저장/조회.
+  # app application.yml 의 hibernate.jdbc.time_zone=UTC 와 한 쌍 (글로벌화 UTC 통일, docs/architecture/time-handling.md).
+  db_url = "jdbc:mysql://${module.data.db_endpoint}:${module.data.db_port}/${module.data.db_name}?characterEncoding=UTF-8&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&useSSL=false&allowPublicKeyRetrieval=true"
 
   # 운영 시크릿은 /plop/production/<NAME> (staging 과 분리). 사용자가 SSM 에 미리 생성.
   # TOSS_*: 토스페이먼츠 결제위젯 키. 현재 테스트 키(test_*) — PG 심사/실결제 시 운영키로 교체.
