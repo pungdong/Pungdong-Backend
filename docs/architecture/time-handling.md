@@ -33,12 +33,13 @@ BE는 instant를 UTC로만 준다. **"어느 TZ로 보여줄까"는 FE 결정이
 | **B. 유저 설정 TZ** | 유저가 지역 고정(예 Asia/Seoul), 기기 무관 렌더 | 지역-앵커 커머스(쿠팡 = 쇼핑 지역 기준). 추가 상태·설정 필요 |
 | **C. 콘텐츠-앵커(venue-local)** | 변환 안 함, 그 장소 현지 시각 그대로 | **우리 슬롯/venue 시간** — 물리적으로 그 장소에 감 |
 
-**우리 스탠스 (2026-07-10, 권장):**
-- **instant(createdAt·paidAt·respondedAt 등) → 전략 A(기기 TZ).** 가장 덜 놀랍고 추가 상태 0. `Intl.DateTimeFormat`/`toLocaleString`이 브라우저·RN 양쪽에서 기기 TZ로 자동 처리 → FE 무추가.
-- **슬롯/venue 시간 → 전략 C(venue-local).** 이미 §1의 local. 물리적으로 그 venue에 가는 시간이라 뷰어 TZ로 바꾸면 안 됨.
-- **전략 B(유저별 TZ 설정)는 지금 안 만든다(YAGNI).** 쿠팡의 유저별 지역 처리는 *지역-앵커 커머스*에 맞는 BP지 보편은 아님. 우리는 유저가 대개 자기 다이빙 지역 안에서 활동 → 기기 TZ로 충분. KR/JP **market/region 개념**이 생기면(보는 venue·통화·언어) 그때 일부 표시를 market TZ에 앵커할지 재검토 — 단 슬롯은 그때도 venue-local.
+**우리 스탠스 (2026-07-10 확정):** 우리는 **예약 중계 앱**이라 시각이 **영수증 성격**이 강하다 — 기록은 안 흔들려야 한다. 그래서 성격별로:
+- **거래성/기록 시각(신청·결제·취소 등) → venue(예약 대상) TZ + 라벨** (전략 C 앵커). 유저는 자기 마켓 venue만 예약하므로 venue TZ ≈ 유저 마켓 TZ이고, **유저가 미국으로 여행 가도 그 예약 기록 시각은 안 흔들린다**(KST 고정 + "KST" 라벨). 오늘은 전 venue 한국이라 device TZ와 화면 차이 0 → **비용 없이 미래만 대비**.
+- **슬롯/venue 운영시간 → venue-local(전략 C).** 이미 §1의 local. 물리적으로 그 venue에 가는 시간이라 뷰어 TZ로 바꾸면 안 됨.
+- **저관심/대화성 시각(정렬·"3분 전") → 기기 TZ(전략 A)** 로 충분. 라벨까지 안 붙임.
+- **전략 B(유저별 TZ 설정)는 안 만든다(YAGNI).** 쿠팡의 유저별 지역 처리는 *지역-앵커 커머스* BP지 보편 아님. 우리 중요 시간은 전부 venue-앵커라 유저 TZ 논쟁에서 자유롭다.
 
-> 정리: **"나라 옮기면 그 위치 기준으로"가 instant의 기본(전략 A)**, 슬롯은 위치와 무관하게 **venue 현지 고정(전략 C)**. "한국 설정이면 KST 고정"(전략 B)은 지역-앵커가 강한 제품에서만 값어치가 있고, 지금 우리에겐 과함.
+> 정리: **거래성 시각 = venue TZ 고정+라벨(영수증 안정), 슬롯 = venue-local, 저관심 = 기기 TZ.** 셋 다 **BE는 instant를 UTC OffsetDateTime 하나로 주면 끝** — 표시 TZ는 FE가 venue TZ(§5의 `venue.timeZone`)로 렌더. "한국서 본 신청시각이 미국서 달라 보이나?" → **우리 앱에선 안 바뀌는 게 맞다**(거래 기록이니 venue TZ 고정).
 
 ## 4. 필드 인벤토리 (source of truth)
 
@@ -63,18 +64,33 @@ BE는 instant를 UTC로만 준다. **"어느 TZ로 보여줄까"는 FE 결정이
 - **venue 운영시간**: `VenueResponse`→Daypart `.{openStart,openEnd}`, →TimeBlock `.{startTime,endTime}`
 - **legacy**(lecture/reservation/schedule, types.ts 미포함): 모든 `lectureTime`, `Reservation*.{date,time/reservationDate}`, `ScheduleDetail`/`ScheduleDateTimeInfo.{date,startTime,endTime}`
 
-## 5. 미룬 것 (후속)
+## 5. venue TZ 관리 — 나라/도시 선택 (일본 확장 시, ~12월)
 
-- **venue-TZ 앵커** — local 시간의 "어느 zone의 14:00" 명시. 지금 전부 암묵 KST이고 **JST=KST=+9**라 일본까진 안 터짐. +9 밖(미국·유럽) 확장 시 venue에 TZ 필드 추가.
-- **유저별 TZ 설정(전략 B)** — market/region 개념 생기고 필요 증거 있을 때.
-- **`Review.writeDate` 처리** — legacy review 손댈 때.
+거래성 시각(§3)·정책 계산(환불 마감)의 앵커 = **`venue.timeZone`**(IANA zone id 문자열, 예 `"Asia/Seoul"`). **어떻게 정하나 = venue 생성 시 나라/도시 선택** (lat/lng 유도 아님):
+
+- **나라/도시 선택 = 이중 목적** — (1) **TZ 확정**(그 자체로, geocoding 무관), (2) **나라별 주소검색 API 라우터**(한국 juso / 일본 provider / 미국 Google 등). lat/lng은 **지도 핀 용**으로 그 provider가 반환. 역할 분리: 나라선택→TZ+provider, lat/lng→지도.
+- **DST는 IANA zone 이름이 처리** — `"America/New_York"` 저장하면 java.time이 날짜별 EDT/EST 자동. **offset(`-05:00`) 저장 금지**(여름에 틀림). 세분화 규칙 = "하나의 IANA zone으로 떨어질 만큼"(단일-TZ 국가=나라만, 멀티-TZ 국가=나라+도시). → **DST를 사람이 이해할 필요 없음.**
+- **lat/lng→TZ 경계 데이터셋 lib 는 안 씀** — 나라선택이 TZ를 직접 주니 불필요. (멀티-TZ 국가에서 도시 대신 좌표로 정밀화하고 싶을 때만 후속 고려.)
+- **지금 안 만드는 이유** — 전 venue 한국(=`Asia/Seoul`)이라 정할 대상이 없고, 나라·좌표가 보존돼 **언제든 복구 가능**(§6의 "되돌릴 수 있으면 미룸" 기준). 오늘 FE는 KST 표시로 충분. **일본 venue 생성 플로우(~12월)와 한 몸**으로 서면 됨.
+
+### 그 외 미룬 것 (일본 확장 인벤토리 — GitHub 이슈로 추적)
+- **거래성 시각을 venue TZ+라벨로 표시** (FE) — §3.
+- **환불 등 시간정책 계산이 venue TZ 사용** — 수업시각(venue-local) → 절대 UTC 변환에 venue TZ 필요(유저 TZ 아님). 지금 암묵 KST.
+- **`MarketingSendWindow` 하드코딩 `Asia/Seoul`** → 수신자(유저) TZ. 조용시간은 수신자 현지 기준.
+- **`Review.writeDate`(legacy)** — instant 승격 or local 표시.
+
+## 5b. 지금 하는 것 (이 작업의 유일한 "now")
+
+**instant 22필드 `LocalDateTime → OffsetDateTime`/UTC** — 이것만. naive `LocalDateTime`은 정보가 **되돌릴 수 없이 손실**(UTC-wall vs KST-wall)이라 지금 이관이 급하다(§6 기준). 나머지(venue TZ·나라선택·표시)는 전부 복구 가능 → 일본 때.
 
 ## 6. 결정 로그
 
 | 시점 | 결정 | 왜 |
 |---|---|---|
 | 2026-07-10 | instant = `OffsetDateTime`/UTC, local = `LocalDate`/`LocalTime` 유지 | 절대시각/civil 구분이 표준. 타입으로 기계적 분류 |
-| 2026-07-10 | 표시 = instant는 기기 TZ, 슬롯은 venue-local, 유저별 TZ 설정 미도입 | 단일 BP 없음 — 우리 제품(위치-앵커)엔 기기 TZ+venue-local이 최소·충분 |
+| 2026-07-10 | 표시 = **거래성 시각은 venue TZ+라벨**, 슬롯은 venue-local, 저관심은 기기 TZ, 유저별 TZ 설정 미도입 | 예약중계=영수증 성격 → 기록은 안 흔들려야. venue TZ ≈ 마켓 TZ라 여행에도 안정 |
+| 2026-07-10 | venue TZ 결정 = **생성 시 나라/도시 선택**(lat/lng 유도 아님). DST는 IANA zone 이름이 처리 | 나라선택 = TZ + 주소검색 provider 라우터(이중목적). 일본 lat/lng 불확실 → 좌표 의존 회피. lat/lng은 지도용 |
+| 2026-07-10 | **지금은 instant→UTC만. venue TZ/나라선택/표시는 일본 확장(~12월) 인벤토리** | naive LocalDateTime만 되돌릴 수 없이 손실 → 급함. 나머진 나라·좌표 보존되어 복구 가능 |
 | 2026-07-10 | 기존 데이터 정밀 마이그레이션 안 함 | pre-launch + 데모 위주 |
 
-관련: [enrollment.md](enrollment.md)·[venue.md](../features/venue.md)(local 시간 소유), [identity-verification.md](identity-verification.md)(otpExpiresAt), memory `feedback_container_tz_localdatetime`(#166 TZ 밴드에이드).
+관련: [enrollment.md](enrollment.md)·[venue.md](../features/venue.md)(local 시간·venue.timeZone 소유 예정), [identity-verification.md](identity-verification.md)(otpExpiresAt), memory `feedback_container_tz_localdatetime`(#166 TZ 밴드에이드) · `globalization_when_to_abstract`(되돌릴 수 없으면 지금·아니면 목록화). **일본 확장 TODO = GitHub 이슈 "글로벌 확장 시 고려사항".**
