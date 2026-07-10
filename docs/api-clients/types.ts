@@ -296,7 +296,13 @@ export interface IdentityVerificationRequest {
 export interface IdentityVerificationResponse extends HalLinks {
   verificationId: number;
   status: IdentityVerificationStatus; // 'READY'
-  /** OTP 잔여 초(발송 시점). 카운트다운의 단일 출처 — 이것만 쓰면 시계/TZ 버그 원천 차단. */
+  /**
+   * OTP 잔여 초(발송 시점). 카운트다운의 단일 출처 — 이것만 쓰면 시계/TZ 버그 원천 차단.
+   * ★ **영구 필드 — UTC+오프셋 글로벌화 이후에도 유지(제거 금지).** 리팩토링 후 FE 는 절대시각
+   * (오프셋 포함 otpExpiresAt)을 primary 앵커로 승격하되, **이 값을 sanity check/fallback 으로 남긴다**:
+   * 기기 시계가 서버와 크게 어긋나면(예: 시계 빠른 기기가 아직 유효한 코드를 조기 잠금 — 서버가 구제 못 하는
+   * 실패) 잔여 초로 폴백. 그래서 절대시각으로 옮겨가도 BE 는 이 필드를 계속 내린다.
+   */
   otpExpiresInSeconds: number;
   /** OTP 유효기한 절대시각(서버 KST wall-clock). 표시/디버그용 — 카운트다운엔 쓰지 말 것(오프셋 없음). */
   otpExpiresAt: string;
