@@ -149,10 +149,26 @@ erDiagram
 | OTP 불일치 | 200 | `{status:FAILED, errorCode:OTP_MISMATCH}` | 재입력(정상 분기). 레코드 READY 유지 |
 | OTP 만료 | 200 | `{status:FAILED, errorCode:OTP_EXPIRED}` | resend 필요 |
 | 시도 초과(>5) | 200 | `{status:FAILED, errorCode:OTP_TOO_MANY_ATTEMPTS}` | 레코드 FAILED, resend/재시작 |
-| 문자 발송 실패 | 400 | CommonResult `{success:false, code, msg}` | create/resend 의 PG 장애. `SMS_SEND_FAILED` 개념(토스 실패와 동일 결) |
+| 문자 발송 실패 | 400 | CommonResult `{success:false, code, msg}` | create/resend 의 PG 장애. `SMS_SEND_FAILED` 개념(토스 실패와 동일 결). ⚠️ 지금은 **실존하지 않는/해지된 번호도 여기로 뭉쳐 옴** — CPID 개통 후 세분화 |
 | 비소유/없는 id | 400 | CommonResult | 존재 숨김(payment/instructor 와 동일) |
+| **요청 형식 오류** | **400** | CommonResult | 휴대폰·생년월일·OTP 형식(아래) — 다날 미호출·레코드 미생성·쿨다운 미소모 |
 
-repo 규약(정상 UI 상태는 200+결과 필드)에 따라 **OTP 재입력 가능한 실패는 200 body 의 errorCode**, 인프라 장애만 non-2xx.
+repo 규약(정상 UI 상태는 200+결과 필드)에 따라 **OTP 재입력 가능한 실패는 200 body 의 errorCode**, 인프라 장애·malformed input 만 non-2xx.
+
+### 요청 형식 검증 (2026-07-10)
+
+**형식조차 안 보고 유료 외부 기관(다날)을 호출하지 않는다.** 검증은 요청 DTO 의 Bean Validation(`@Valid`)에 둔다 — 컨트롤러 진입에서 돌아 서비스의 **쿨다운 획득(`acquireSendSlot`)보다 앞서므로**, 오타 한 번이 사용자의 30초 발송 쿨다운을 태우지 않는다.
+
+| 필드 | 규칙 | 정규화 |
+|---|---|---|
+| `phoneNumber` | `KoreanMobileNumber.PATTERN` = `^01[016789]\d{7,8}$` — `013/014/015`(IoT·부가서비스)는 SMS 수신 불가라 제외 | setter 에서 구분자 제거 (`010-1234-5678` → `01012345678`) |
+| `birth` | `^(19\|20)\d{2}(0[1-9]\|1[0-2])(0[1-9]\|[12]\d\|3[01])$` (yyyyMMdd). 달력 정합(2/31)은 다날에 맡김 | setter 에서 구분자 제거 (`1998-09-14` → `19980914`) |
+| `realName` | `@Size(max=50)` | — |
+| `otp` | `^\d{6}$` — 위반 시 400 이고 **`attemptCount`(5회 한도) 미소모** | — |
+
+정규화 전에는 하이픈째로 다날에 나갈 수 있었다(`mode=real` 미검증이라 잠복). 저장·전송 모두 canonical(숫자만) 형태.
+
+**형식 통과 ≠ 발송 성공** — 실존·해지·명의 일치 판정은 다날 몫. `phoneNumber` 규칙은 **KR 전용**이며, 이 도메인의 한국 종속 전체 목록은 [features/identity-verification.md](../features/identity-verification.md) 의 "한국 종속 인벤토리"(왜 국가 추상화를 지금 안 짓는지 포함).
 
 ### 발송 쿨다운 (2026-07-10)
 
@@ -196,5 +212,6 @@ repo 규약(정상 UI 상태는 200+결과 필드)에 따라 **OTP 재입력 가
 
 ## 더 깊게: use-case 테스트로 보기
 
-- **[`usecase/IdentityVerificationUseCaseTest`](../../src/test/java/com/diving/pungdong/usecase/IdentityVerificationUseCaseTest.java)** — `S1` create→READY / `S2` confirm(매직 OTP)→VERIFIED + CI/DI 적재 / `S3` GET /me 재사용 / `V1` 틀린 OTP→200 FAILED OTP_MISMATCH(READY 유지) / `D1` resend→READY·카운트 초기화 / `T1` READY 만 있으면 GET /me false / `T2` 미인증 200 false / `R1` 남의 id confirm→400
+- **[`usecase/IdentityVerificationUseCaseTest`](../../src/test/java/com/diving/pungdong/usecase/IdentityVerificationUseCaseTest.java)** — `S1` create→READY / `S2` confirm(매직 OTP)→VERIFIED + CI/DI 적재 / `S3` GET /me 재사용 / `S4` 하이픈 번호 정규화 저장 / `V1` 틀린 OTP→200 FAILED OTP_MISMATCH(READY 유지) / `V2` 잘못된 접두사→400·레코드 미생성 / `V3` `013` 번호대→400 / `V4` 13월 생일→400 / `V5` 6자리 아닌 OTP→400·attemptCount 미소모 / `D1` resend→READY·카운트 초기화 / `T1` READY 만 있으면 GET /me false / `T2` 미인증 200 false / `R1` 남의 id confirm→400
+- **[`usecase/IdentityVerificationRateLimitUseCaseTest`](../../src/test/java/com/diving/pungdong/usecase/IdentityVerificationRateLimitUseCaseTest.java)** — `RL1` resend 쿨다운 / `RL2` create 쿨다운 / `RL3` **형식 오류는 쿨다운 창을 잡지 않는다**(오타 뒤 즉시 정상 발송)
 - skip(재사용) + **status==VERIFIED 게이트**는 **[`InstructorApplicationUseCaseTest`](../../src/test/java/com/diving/pungdong/usecase/InstructorApplicationUseCaseTest.java)** 가 create→confirm→제출로 검증
