@@ -3,7 +3,8 @@ package com.diving.pungdong.identityverification;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 
 /**
  * 🔒 deferred 본인확인 stub — 실 다날/포트원 연동 없이 2단계 흐름을 흉내낸다.
@@ -28,12 +29,12 @@ public class StubIdentityVerifier implements IdentityVerifier {
 
     @Override
     public SendResult send(SendCommand command) {
-        return new SendResult(LocalDateTime.now().plusSeconds(OTP_TTL_SECONDS));
+        return new SendResult(OffsetDateTime.now(ZoneOffset.UTC).plusSeconds(OTP_TTL_SECONDS));
     }
 
     @Override
     public SendResult resend(String portoneVerificationId) {
-        return new SendResult(LocalDateTime.now().plusSeconds(OTP_TTL_SECONDS));
+        return new SendResult(OffsetDateTime.now(ZoneOffset.UTC).plusSeconds(OTP_TTL_SECONDS));
     }
 
     @Override

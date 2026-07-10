@@ -7,7 +7,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 
 /**
  * 좌석 만료 스위퍼 — {@link EnrollmentExpiryService#sweepExpired} 를 주기 호출(기본 5분). 운영 전용
@@ -24,7 +25,7 @@ public class EnrollmentExpiryScheduler {
     @Scheduled(fixedDelayString = "${pungdong.enrollment.expiry-sweep-ms:300000}")
     public void sweep() {
         try {
-            int expired = expiryService.sweepExpired(LocalDateTime.now());
+            int expired = expiryService.sweepExpired(OffsetDateTime.now(ZoneOffset.UTC));
             if (expired > 0) {
                 log.info("[expiry] {} 건 자동 만료(좌석 해제)", expired);
             }
@@ -32,7 +33,7 @@ public class EnrollmentExpiryScheduler {
             log.warn("[expiry] sweep 실패", e);
         }
         try {
-            int lapsed = expiryService.sweepExpiredProposals(LocalDateTime.now());
+            int lapsed = expiryService.sweepExpiredProposals(OffsetDateTime.now(ZoneOffset.UTC));
             if (lapsed > 0) {
                 log.info("[proposal-expiry] {} 건 제안 만료(보장 hold 해제)", lapsed);
             }

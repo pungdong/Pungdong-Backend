@@ -39,6 +39,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -290,7 +291,7 @@ class PaymentUseCaseTest {
                 .roles(new HashSet<>(Set.of(Role.STUDENT))).build());
         identityVerificationRepo.save(com.diving.pungdong.identityverification.IdentityVerification.builder()
                 .account(a).status(com.diving.pungdong.identityverification.IdentityVerificationStatus.VERIFIED)
-                .verifiedAt(LocalDateTime.now()).build()); // 수강신청 게이트 통과용 본인인증
+                .verifiedAt(OffsetDateTime.now(ZoneOffset.UTC)).build()); // 수강신청 게이트 통과용 본인인증
         return a;
     }
 
@@ -302,7 +303,7 @@ class PaymentUseCaseTest {
         applicationRepo.save(InstructorApplication.builder()
                 .account(a).disciplineCode("FREEDIVING")
                 .status(InstructorApplicationStatus.SUBMITTED)
-                .submittedAt(LocalDateTime.now()).createdAt(LocalDateTime.now()).build());
+                .submittedAt(OffsetDateTime.now(ZoneOffset.UTC)).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
     }
 
     private Venue saveVenue(Account owner) {
@@ -318,7 +319,7 @@ class PaymentUseCaseTest {
                 .disciplineCodes(new java.util.LinkedHashSet<>(Set.of("FREEDIVING"))).build();
         ticket.addDaypart(weekday); ticket.addDaypart(weekend);
         Venue venue = Venue.builder().owner(owner).name("잠실 잠수풀장").type(VenueType.SWIMMING_POOL)
-                .address("서울 송파구").lockedDisciplineCode("FREEDIVING").createdAt(LocalDateTime.now()).build();
+                .address("서울 송파구").lockedDisciplineCode("FREEDIVING").createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
         venue.addTicket(ticket);
         return venueRepo.save(venue);
     }
@@ -330,7 +331,7 @@ class PaymentUseCaseTest {
     private Course saveCourse(Account instructor, String venueRefId, String ticketRef) {
         Course course = Course.builder().instructor(instructor).title("AIDA2 프리다이빙 과정")
                 .kind(CourseKind.CERTIFICATION).organizationCode("AIDA").disciplineCode("FREEDIVING")
-                .totalRounds(1).price(350000).status(CourseStatus.OPEN).createdAt(LocalDateTime.now()).build();
+                .totalRounds(1).price(350000).status(CourseStatus.OPEN).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
         CourseRound round = CourseRound.builder().roundKind(RoundKind.REGULAR).roundIndex(1).build();
         RoundVenue rv = RoundVenue.builder().venueRefId(venueRefId).sortOrder(0).build();
         rv.addTicket(RoundVenueTicket.builder().ticketRef(ticketRef).daypart(DaypartKind.WEEKDAY).sortOrder(0).build());

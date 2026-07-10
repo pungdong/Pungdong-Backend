@@ -8,7 +8,7 @@ import lombok.Builder;
 import lombok.Getter;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.LocalTime;
 import java.util.List;
 
@@ -77,7 +77,7 @@ public class ScheduleHubResponse {
         /** 강사 일정변경 제안 슬롯(RESCHEDULING 일 때) — 날짜+이용권+블록 완전 슬롯. 학생이 골라 pick-slot. */
         private final List<com.diving.pungdong.enrollment.ProposedSlot> proposedSlots;
         private final String rejectionReason; // REJECTED만
-        private final LocalDateTime createdAt;
-        private final LocalDateTime respondedAt;
+        private final OffsetDateTime createdAt;
+        private final OffsetDateTime respondedAt;
     }
 }

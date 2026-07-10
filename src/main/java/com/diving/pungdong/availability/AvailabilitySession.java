@@ -5,8 +5,8 @@ import lombok.*;
 
 import javax.persistence.*;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -62,8 +62,8 @@ public class AvailabilitySession {
     @Builder.Default
     private List<AvailabilityHold> holds = new ArrayList<>();
 
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
+    private OffsetDateTime createdAt;
+    private OffsetDateTime updatedAt;
 
     public void addHold(AvailabilityHold h) {
         h.setSession(this);

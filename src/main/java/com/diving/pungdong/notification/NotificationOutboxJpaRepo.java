@@ -5,15 +5,15 @@ import com.diving.pungdong.notification.NotificationStatus;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 public interface NotificationOutboxJpaRepo extends JpaRepository<NotificationOutbox, Long> {
 
     List<NotificationOutbox> findByStatusInAndNextAttemptAtBeforeOrderByCreatedAtAsc(
             List<NotificationStatus> statuses,
-            LocalDateTime now,
+            OffsetDateTime now,
             Pageable pageable);
 
-    int deleteByStatusAndCreatedAtBefore(NotificationStatus status, LocalDateTime threshold);
+    int deleteByStatusAndCreatedAtBefore(NotificationStatus status, OffsetDateTime threshold);
 }

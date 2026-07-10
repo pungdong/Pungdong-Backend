@@ -27,7 +27,8 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Set;
 
@@ -162,7 +163,7 @@ class NotificationOutboxFlowTest {
         firebaseTokenService.register(instructor, "flaky-token", DeviceType.ANDROID);
         publishReservationCreated(instructor, student);
         Long outboxId = outboxRepo.findAll().get(0).getId();
-        LocalDateTime before = LocalDateTime.now();
+        OffsetDateTime before = OffsetDateTime.now(ZoneOffset.UTC);
 
         given(fcmGateway.send(eq("flaky-token"), any(), any(), any(), any()))
                 .willReturn(SendResult.TRANSIENT_FAILURE);
@@ -180,9 +181,9 @@ class NotificationOutboxFlowTest {
     @DisplayName("Retention: deleteByStatusAndCreatedAtBefore는 오래된 SENT만 지우고 FAILED/GAVE_UP 및 최근 SENT는 보존")
     void retention_deletesOnlyOldSentRows() {
         Account recipient = persistAccount("recipient@test.com");
-        LocalDateTime now = LocalDateTime.now();
-        LocalDateTime old = now.minusDays(40);
-        LocalDateTime recent = now.minusDays(5);
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        OffsetDateTime old = now.minusDays(40);
+        OffsetDateTime recent = now.minusDays(5);
 
         outboxRepo.save(buildOutbox(recipient, NotificationStatus.SENT, old, "old-sent"));
         outboxRepo.save(buildOutbox(recipient, NotificationStatus.SENT, recent, "recent-sent"));
@@ -190,7 +191,7 @@ class NotificationOutboxFlowTest {
         outboxRepo.save(buildOutbox(recipient, NotificationStatus.GAVE_UP, old, "old-gave-up"));
         assertThat(outboxRepo.findAll()).hasSize(4);
 
-        LocalDateTime threshold = now.minusDays(30);
+        OffsetDateTime threshold = now.minusDays(30);
         int deleted = transactionTemplate.execute(status ->
                 outboxRepo.deleteByStatusAndCreatedAtBefore(NotificationStatus.SENT, threshold));
 
@@ -207,11 +208,11 @@ class NotificationOutboxFlowTest {
                 .filteredOn(r -> r.getStatus() == NotificationStatus.SENT)
                 .singleElement()
                 .extracting(NotificationOutbox::getCreatedAt)
-                .matches(t -> ((LocalDateTime) t).isAfter(threshold));
+                .matches(t -> ((OffsetDateTime) t).isAfter(threshold));
     }
 
     private NotificationOutbox buildOutbox(Account recipient, NotificationStatus status,
-                                           LocalDateTime createdAt, String marker) {
+                                           OffsetDateTime createdAt, String marker) {
         return NotificationOutbox.builder()
                 .type(NotificationType.RESERVATION_CREATED)
                 .recipientAccountId(recipient.getId())

@@ -6,7 +6,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.*;
 import org.springframework.hateoas.server.core.Relation;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.Set;
 
 /**
@@ -45,7 +45,7 @@ public class CourseCardResponse {
     private String disciplineCode;
     /** 데모(샘플) 코스 — FE 가 "샘플용" 태그로 구분 노출. */
     private boolean seeded;
-    private LocalDateTime createdAt;
+    private OffsetDateTime createdAt;
 
     public static CourseCardResponse from(Course c) {
         return CourseCardResponse.builder()

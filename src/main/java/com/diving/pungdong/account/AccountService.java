@@ -33,7 +33,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -167,7 +168,7 @@ public class AccountService implements UserDetailsService {
     // docs/features/account-deletion.md. checkCorrectPassword 는 updatePassword 가 계속 사용한다.
     public void deleteAccount(Account account) {
         account.setIsDeleted(true);
-        account.setDeletedAt(LocalDateTime.now());
+        account.setDeletedAt(OffsetDateTime.now(ZoneOffset.UTC));
         Account updatedAccount = accountJpaRepo.save(account);
 
         lectureService.closeAllLecture(updatedAccount);

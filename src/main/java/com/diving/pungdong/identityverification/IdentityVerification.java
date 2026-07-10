@@ -5,7 +5,7 @@ import com.diving.pungdong.account.Gender;
 import lombok.*;
 
 import javax.persistence.*;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 /**
  * 본인확인 결과 1건. 강사 신청/결제의 전제 — 소비자는 {@code status==VERIFIED} 본인확인을 참조한다.
@@ -81,11 +81,11 @@ public class IdentityVerification {
     private IdentityProvider provider;
 
     /** OTP 유효기한 — 발송/재발송 시 갱신. 만료 후 confirm 은 OTP_EXPIRED. */
-    private LocalDateTime otpExpiresAt;
+    private OffsetDateTime otpExpiresAt;
 
     /** OTP 확인 시도 횟수 — 초과 시 OTP_TOO_MANY_ATTEMPTS. */
     private int attemptCount;
 
     /** VERIFIED 로 전이한 시점. READY/FAILED 는 null. */
-    private LocalDateTime verifiedAt;
+    private OffsetDateTime verifiedAt;
 }

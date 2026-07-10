@@ -7,7 +7,7 @@ import lombok.*;
 
 import javax.persistence.*;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -73,11 +73,11 @@ public class EnrollmentRound {
     private String rejectionReason;
 
     /** 완료 시점. done = status==CONFIRMED && doneAt!=null. */
-    private LocalDateTime doneAt;
+    private OffsetDateTime doneAt;
 
-    private LocalDateTime createdAt;
+    private OffsetDateTime createdAt;
     /** 강사 수락/거절/일정변경요청 시점. */
-    private LocalDateTime respondedAt;
+    private OffsetDateTime respondedAt;
 
     /**
      * 강사 일정변경요청 — 위치 고정, <b>완전한 대안 슬롯(날짜+이용권+블록)</b> 목록(서버 검증). 비어있지 않으면
@@ -110,7 +110,7 @@ public class EnrollmentRound {
     }
 
     /** 슬롯 바꾸기 전, 현재 슬롯을 이력에 박제(취소 아님 — 일정 수정 추적). */
-    public void archiveCurrentSlot(java.time.LocalDateTime changedAt) {
+    public void archiveCurrentSlot(java.time.OffsetDateTime changedAt) {
         slotHistory.add(PastSlot.builder()
                 .date(date).venueRefId(venueRefId).ticketRef(ticketRef)
                 .blockStart(blockStart).blockEnd(blockEnd).changedAt(changedAt).build());

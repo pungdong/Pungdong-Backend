@@ -1,8 +1,8 @@
 package com.diving.pungdong.notification;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 
@@ -26,10 +26,10 @@ public final class MarketingSendWindow {
 
     /**
      * {@code target} 시각이 허용 윈도우(08~21 KST) 밖이면 다음 08:00 KST 로 클램프해서 돌려준다.
-     * 반환은 시스템 기본 존의 {@link LocalDateTime} — 저장/디스패처 비교가 {@code LocalDateTime.now()}
-     * (시스템 존) 기준이라 같은 존으로 맞춘다(서버 존이 UTC 든 KST 든 결과 동일).
+     * 반환은 절대 시각을 담은 {@link OffsetDateTime}(KST 오프셋) — outbox {@code nextAttemptAt} 저장/디스패처
+     * 비교가 모두 UTC 기준 {@link OffsetDateTime}(instant 비교)이라 오프셋과 무관하게 같은 순간을 가리킨다.
      */
-    public static LocalDateTime clamp(Instant target) {
+    public static OffsetDateTime clamp(Instant target) {
         ZonedDateTime kst = target.atZone(KST);
         LocalTime t = kst.toLocalTime();
         ZonedDateTime allowed;
@@ -40,6 +40,6 @@ public final class MarketingSendWindow {
         } else {
             allowed = kst;                                                        // 허용 시간대 → 그대로
         }
-        return allowed.withZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
+        return allowed.toOffsetDateTime();
     }
 }

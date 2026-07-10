@@ -5,7 +5,7 @@ import com.diving.pungdong.venue.Region;
 import lombok.*;
 
 import javax.persistence.*;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -98,8 +98,8 @@ public class Course {
     @Builder.Default
     private List<CourseRound> rounds = new ArrayList<>();
 
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
+    private OffsetDateTime createdAt;
+    private OffsetDateTime updatedAt;
 
     /** 레벨 2개 이상 = 한 상품으로 묶인 패키지(별도 토글 없음, chat45). */
     public boolean isPackage() {

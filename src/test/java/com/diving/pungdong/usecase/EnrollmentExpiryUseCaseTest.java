@@ -24,8 +24,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -57,23 +58,23 @@ class EnrollmentExpiryUseCaseTest {
     }
 
     private EnrollmentRound persist(String tag, EnrollmentStatus status,
-                                    LocalDateTime createdAt, LocalDateTime respondedAt, boolean withSession) {
+                                    OffsetDateTime createdAt, OffsetDateTime respondedAt, boolean withSession) {
         return persist(tag, status, createdAt, respondedAt, withSession, LocalDate.now().plusWeeks(1));
     }
 
-    private EnrollmentRound persist(String tag, EnrollmentStatus status, LocalDateTime createdAt,
-                                    LocalDateTime respondedAt, boolean withSession, LocalDate roundDate) {
+    private EnrollmentRound persist(String tag, EnrollmentStatus status, OffsetDateTime createdAt,
+                                    OffsetDateTime respondedAt, boolean withSession, LocalDate roundDate) {
         Account ins = accountRepo.save(Account.builder().email("ins-" + tag + "@pd.com").password("x")
                 .nickName("강사" + tag).roles(new HashSet<>(Set.of(Role.INSTRUCTOR))).build());
         Account stu = accountRepo.save(Account.builder().email("stu-" + tag + "@pd.com").password("x")
                 .nickName("학생" + tag).roles(new HashSet<>(Set.of(Role.STUDENT))).build());
         Course c = courseRepo.save(Course.builder().instructor(ins).title("과정" + tag)
                 .kind(CourseKind.CERTIFICATION).organizationCode("AIDA").disciplineCode("FREEDIVING")
-                .totalRounds(1).price(100000).status(CourseStatus.OPEN).createdAt(LocalDateTime.now()).build());
+                .totalRounds(1).price(100000).status(CourseStatus.OPEN).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
         AvailabilitySession sess = withSession ? sessionRepo.save(AvailabilitySession.builder()
                 .instructor(ins).date(roundDate)
                 .startTime(LocalTime.of(14, 0)).endTime(LocalTime.of(17, 0))
-                .venueRefId("CUSTOM:1").createdAt(LocalDateTime.now()).build()) : null;
+                .venueRefId("CUSTOM:1").createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build()) : null;
         Enrollment e = Enrollment.builder().student(stu).course(c).tuitionSnapshot(100000).createdAt(createdAt).build();
         EnrollmentRound r = EnrollmentRound.builder()
                 .roundIndex(1).roundKind(RoundKind.REGULAR).availabilitySession(sess)
@@ -89,9 +90,9 @@ class EnrollmentExpiryUseCaseTest {
     @DisplayName("T1 신청(PENDING) 24h 무응답이면 자동 만료(CANCELLED) + 빈 일정 삭제로 좌석 해제")
     void pendingExpiresAndFreesSlot() {
         EnrollmentRound r = persist("t1", EnrollmentStatus.PENDING,
-                LocalDateTime.now().minusHours(25), null, true);
+                OffsetDateTime.now(ZoneOffset.UTC).minusHours(25), null, true);
 
-        int n = expiryService.sweepExpired(LocalDateTime.now());
+        int n = expiryService.sweepExpired(OffsetDateTime.now(ZoneOffset.UTC));
 
         assertThat(n).isEqualTo(1);
         assertThat(roundRepo.findById(r.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.CANCELLED);
@@ -102,9 +103,9 @@ class EnrollmentExpiryUseCaseTest {
     @DisplayName("T2 결제 대기(PAYMENT_PENDING) 12h 미결제면 자동 만료(CANCELLED)")
     void paymentPendingExpires() {
         EnrollmentRound r = persist("t2", EnrollmentStatus.PAYMENT_PENDING,
-                LocalDateTime.now().minusDays(2), LocalDateTime.now().minusHours(13), false);
+                OffsetDateTime.now(ZoneOffset.UTC).minusDays(2), OffsetDateTime.now(ZoneOffset.UTC).minusHours(13), false);
 
-        int n = expiryService.sweepExpired(LocalDateTime.now());
+        int n = expiryService.sweepExpired(OffsetDateTime.now(ZoneOffset.UTC));
 
         assertThat(n).isEqualTo(1);
         assertThat(roundRepo.findById(r.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.CANCELLED);
@@ -114,9 +115,9 @@ class EnrollmentExpiryUseCaseTest {
     @DisplayName("T3 아직 TTL 안 지난 신청은 만료되지 않는다(PENDING 유지)")
     void freshPendingSurvives() {
         EnrollmentRound r = persist("t3", EnrollmentStatus.PENDING,
-                LocalDateTime.now().minusHours(1), null, false);
+                OffsetDateTime.now(ZoneOffset.UTC).minusHours(1), null, false);
 
-        int n = expiryService.sweepExpired(LocalDateTime.now());
+        int n = expiryService.sweepExpired(OffsetDateTime.now(ZoneOffset.UTC));
 
         assertThat(n).isZero();
         assertThat(roundRepo.findById(r.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.PENDING);
@@ -126,10 +127,10 @@ class EnrollmentExpiryUseCaseTest {
     @DisplayName("T4 세션일이 지난 확정(CONFIRMED) 회차는 자동 완료(done)되고, 미래 회차는 안 된다")
     void autoDoneAfterSessionDate() {
         EnrollmentRound past = persist("t4a", EnrollmentStatus.CONFIRMED,
-                LocalDateTime.now().minusWeeks(1), LocalDateTime.now().minusWeeks(1), false,
+                OffsetDateTime.now(ZoneOffset.UTC).minusWeeks(1), OffsetDateTime.now(ZoneOffset.UTC).minusWeeks(1), false,
                 LocalDate.now().minusDays(2)); // 세션 지남
         EnrollmentRound future = persist("t4b", EnrollmentStatus.CONFIRMED,
-                LocalDateTime.now(), LocalDateTime.now(), false, LocalDate.now().plusWeeks(1)); // 아직 안 지남
+                OffsetDateTime.now(ZoneOffset.UTC), OffsetDateTime.now(ZoneOffset.UTC), false, LocalDate.now().plusWeeks(1)); // 아직 안 지남
 
         int n = expiryService.sweepAutoDone(LocalDate.now());
 

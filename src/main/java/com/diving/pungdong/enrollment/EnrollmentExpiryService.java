@@ -12,7 +12,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -50,7 +51,7 @@ public class EnrollmentExpiryService {
     }
 
     /** 만료 대상을 찾아 각자 트랜잭션으로 해제. 만료 건수 반환. {@code now} 주입(테스트 가능). */
-    public int sweepExpired(LocalDateTime now) {
+    public int sweepExpired(OffsetDateTime now) {
         List<Long> ids = tx.execute(st -> {
             SiteSettings s = siteSettings.current();
             List<Long> out = new ArrayList<>();
@@ -83,7 +84,7 @@ public class EnrollmentExpiryService {
      * hold 를 풀어(다른 학생을 막던 좌석 반납) 빈 일정 정리 + {@code proposedSlots} 비움. <b>회차는 PENDING 유지</b>
      * (취소 아님 — 제안만 lapse, 강사 재제안 가능). 회차 자체의 PENDING TTL 은 별개(sweepExpired). 각 건 자기 트랜잭션.
      */
-    public int sweepExpiredProposals(LocalDateTime now) {
+    public int sweepExpiredProposals(OffsetDateTime now) {
         List<Long> roundIds = tx.execute(st ->
                 holdRepo.findByProposalRoundIdIsNotNullAndExpiresAtBefore(now).stream()
                         .map(AvailabilityHold::getProposalRoundId).distinct().collect(Collectors.toList()));
@@ -158,12 +159,12 @@ public class EnrollmentExpiryService {
         if (r == null || r.getStatus() != EnrollmentStatus.CONFIRMED || r.getDoneAt() != null) {
             return false; // 그새 변경됨 — 멱등
         }
-        r.setDoneAt(LocalDateTime.now());
+        r.setDoneAt(OffsetDateTime.now(ZoneOffset.UTC));
         roundRepo.save(r);
         return true;
     }
 
-    private boolean expireOne(Long id, LocalDateTime now) {
+    private boolean expireOne(Long id, OffsetDateTime now) {
         EnrollmentRound r = roundRepo.findById(id).orElse(null);
         if (r == null
                 || (r.getStatus() != EnrollmentStatus.PENDING && r.getStatus() != EnrollmentStatus.PAYMENT_PENDING)) {

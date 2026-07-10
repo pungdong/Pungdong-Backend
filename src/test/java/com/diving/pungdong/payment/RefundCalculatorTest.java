@@ -11,8 +11,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -23,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class RefundCalculatorTest {
 
     private static final LocalDate TODAY = LocalDate.of(2026, 7, 1);
-    private static final LocalDateTime NOW = TODAY.atTime(LocalTime.NOON);
+    private static final OffsetDateTime NOW = TODAY.atTime(LocalTime.NOON).atOffset(ZoneOffset.UTC);
     private final RefundCalculator calc = new RefundCalculator();
 
     private Course course3Regular() {
@@ -41,7 +42,7 @@ class RefundCalculatorTest {
     }
 
     private EnrollmentRound round(int idx, EnrollmentStatus status, LocalDate date,
-                                  LocalDateTime respondedAt, boolean done, int entry, int equip) {
+                                  OffsetDateTime respondedAt, boolean done, int entry, int equip) {
         return EnrollmentRound.builder()
                 .roundIndex(idx).roundKind(RoundKind.REGULAR).status(status).date(date)
                 .respondedAt(respondedAt).createdAt(respondedAt)

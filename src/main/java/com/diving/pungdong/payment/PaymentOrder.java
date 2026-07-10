@@ -4,7 +4,6 @@ import com.diving.pungdong.enrollment.EnrollmentRound;
 import lombok.*;
 
 import javax.persistence.*;
-import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 
 /**
@@ -57,6 +56,6 @@ public class PaymentOrder {
     /** 토스 승인 시각(승인 전 null). */
     private OffsetDateTime approvedAt;
 
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
+    private OffsetDateTime createdAt;
+    private OffsetDateTime updatedAt;
 }

@@ -3,7 +3,7 @@ package com.diving.pungdong.availability;
 import lombok.*;
 
 import javax.persistence.*;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 /**
  * 수동/외부 점유 1건 — "두 가지 점유 조정 방식"을 <b>단일 테이블</b>로 흡수(브리프). 일정({@link
@@ -45,9 +45,9 @@ public class AvailabilityHold {
     private Long proposalRoundId;
 
     /** 제안 hold 자동 만료 시각(proposalTtlHours). proposal hold 일 때만 의미. */
-    private LocalDateTime expiresAt;
+    private OffsetDateTime expiresAt;
 
-    private LocalDateTime createdAt;
+    private OffsetDateTime createdAt;
 
     /** 강사 일정변경 제안 보장 hold 인가 — 회차 귀속(외부/±와 구분). 표시("제안중")·만료 sweep·해제용. */
     public boolean isProposal() {

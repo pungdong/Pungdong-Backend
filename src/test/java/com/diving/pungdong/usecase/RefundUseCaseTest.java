@@ -30,8 +30,9 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -75,15 +76,15 @@ class RefundUseCaseTest {
         return EnrollmentRound.builder()
                 .roundIndex(idx).roundKind(RoundKind.REGULAR).status(status).date(date)
                 .blockStart(LocalTime.of(14, 0)).blockEnd(LocalTime.of(17, 0)).venueRefId("CUSTOM:1")
-                .respondedAt(LocalDateTime.now().minusDays(2)).createdAt(LocalDateTime.now().minusDays(2))
-                .doneAt(done ? LocalDateTime.now().minusDays(1) : null)
+                .respondedAt(OffsetDateTime.now(ZoneOffset.UTC).minusDays(2)).createdAt(OffsetDateTime.now(ZoneOffset.UTC).minusDays(2))
+                .doneAt(done ? OffsetDateTime.now(ZoneOffset.UTC).minusDays(1) : null)
                 .entrySnapshot(extras).equipmentSnapshot(0).extraSnapshot(0).build();
     }
 
     private void order(EnrollmentRound r, int amount, String key) {
         orderRepo.save(PaymentOrder.builder()
                 .orderId("ord-" + key).enrollmentRound(r).amount(amount).orderName("결제")
-                .status(PaymentStatus.DONE).paymentKey(key).createdAt(LocalDateTime.now()).build());
+                .status(PaymentStatus.DONE).paymentKey(key).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
     }
 
     @Test
@@ -95,7 +96,7 @@ class RefundUseCaseTest {
                 .roles(new HashSet<>(Set.of(Role.INSTRUCTOR))).build());
         Course course = Course.builder().instructor(ins).title("2회차 과정")
                 .kind(CourseKind.CERTIFICATION).organizationCode("AIDA").disciplineCode("FREEDIVING")
-                .totalRounds(2).price(200000).status(CourseStatus.OPEN).createdAt(LocalDateTime.now()).build();
+                .totalRounds(2).price(200000).status(CourseStatus.OPEN).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
         course.addRound(CourseRound.builder().roundKind(RoundKind.REGULAR).roundIndex(1).build());
         course.addRound(CourseRound.builder().roundKind(RoundKind.REGULAR).roundIndex(2).build());
         courseRepo.save(course);
@@ -104,7 +105,7 @@ class RefundUseCaseTest {
         EnrollmentRound r1 = round(1, EnrollmentStatus.CONFIRMED, LocalDate.now().minusDays(3), true, 20000);   // done
         EnrollmentRound r2 = round(2, EnrollmentStatus.CONFIRMED, LocalDate.now().plusDays(5), false, 20000);   // 3일전+
         Enrollment e = Enrollment.builder().student(stu).course(course).tuitionSnapshot(200000)
-                .createdAt(LocalDateTime.now()).build();
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
         e.addRound(r1);
         e.addRound(r2);
         enrollmentRepo.save(e);

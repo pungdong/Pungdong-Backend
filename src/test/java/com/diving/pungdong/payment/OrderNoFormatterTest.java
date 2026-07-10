@@ -3,7 +3,8 @@ package com.diving.pungdong.payment;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -11,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class OrderNoFormatterTest {
 
     private final OrderNoFormatter f = new OrderNoFormatter("test-salt-fixed");
-    private final LocalDateTime t = LocalDateTime.of(2026, 6, 28, 14, 0);
+    private final OffsetDateTime t = OffsetDateTime.of(2026, 6, 28, 14, 0, 0, 0, ZoneOffset.UTC);
 
     @Test
     @DisplayName("N1 PD-YYMMDD-코드 + 가역(코드→id) + 연속 id 가 안 이어 보임 + 혼동문자(0O1IL) 없음")

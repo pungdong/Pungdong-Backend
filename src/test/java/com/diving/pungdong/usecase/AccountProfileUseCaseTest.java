@@ -21,6 +21,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -74,7 +76,7 @@ class AccountProfileUseCaseTest {
                                      InstructorApplicationStatus status) {
         InstructorApplication app = InstructorApplication.builder()
                 .account(account).disciplineCode(disciplineCode).status(status)
-                .submittedAt(LocalDateTime.now()).createdAt(LocalDateTime.now()).build();
+                .submittedAt(OffsetDateTime.now(ZoneOffset.UTC)).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
         app.addCertificate(ApplicationCertificate.builder()
                 .organizationCode(orgCode).fileKey("key").sortOrder(0).build());
         applicationRepo.save(app);

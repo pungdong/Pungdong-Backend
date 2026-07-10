@@ -7,7 +7,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.*;
 import org.springframework.hateoas.server.core.Relation;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -38,8 +38,8 @@ public class CourseResponse {
     private CourseStatus status;
     private List<Media> media;
     private List<Round> rounds;
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
+    private OffsetDateTime createdAt;
+    private OffsetDateTime updatedAt;
 
     public static CourseResponse from(Course c, Map<String, VenueEquipmentResponse> equipmentByRef) {
         return CourseResponse.builder()

@@ -11,7 +11,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -58,7 +59,7 @@ public class ConsentService {
                     .account(managed)
                     .agreementTerm(archive)
                     .context(request.getContext())
-                    .agreedAt(LocalDateTime.now())
+                    .agreedAt(OffsetDateTime.now(ZoneOffset.UTC))
                     .build());
 
             recorded.add(AgreementRef.builder()
@@ -82,7 +83,7 @@ public class ConsentService {
                 .title(term.title())
                 .body(term.body())
                 .required(term.required())
-                .archivedAt(LocalDateTime.now())
+                .archivedAt(OffsetDateTime.now(ZoneOffset.UTC))
                 .build());
     }
 

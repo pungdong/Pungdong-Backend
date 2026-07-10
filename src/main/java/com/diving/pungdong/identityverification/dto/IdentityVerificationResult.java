@@ -4,7 +4,7 @@ import com.diving.pungdong.identityverification.IdentityVerificationStatus;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.*;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 /**
  * 본인확인 생성(=SMS 발송) 결과 (201). OTP 발송 직후라 {@code status=READY} — FE 는 이
@@ -31,7 +31,7 @@ import java.time.LocalDateTime;
 public class IdentityVerificationResult {
     private Long verificationId;
     private IdentityVerificationStatus status;
-    private LocalDateTime otpExpiresAt;
+    private OffsetDateTime otpExpiresAt;
     /** OTP 잔여 초(발송 시점 기준). 카운트다운의 단일 출처 — 시계/TZ 무관. (영구 필드 — 글로벌화 후에도 유지) */
     private Long otpExpiresInSeconds;
     /**

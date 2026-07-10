@@ -4,7 +4,7 @@ import com.diving.pungdong.account.Account;
 import lombok.*;
 
 import javax.persistence.*;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -47,8 +47,8 @@ public class VenueEquipmentExtension {
     @Builder.Default
     private List<VenueEquipmentItem> items = new ArrayList<>();
 
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
+    private OffsetDateTime createdAt;
+    private OffsetDateTime updatedAt;
 
     public void addItem(VenueEquipmentItem item) {
         item.setExtension(this);

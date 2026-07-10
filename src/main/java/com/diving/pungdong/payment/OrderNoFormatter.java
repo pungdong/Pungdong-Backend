@@ -4,7 +4,7 @@ import org.hashids.Hashids;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 
 /**
@@ -30,7 +30,7 @@ public class OrderNoFormatter {
     }
 
     /** id + 주문일 → {@code PD-YYMMDD-코드}. id 가 null(저장 전)이면 null. 날짜 없으면 날짜 생략. */
-    public String format(Long id, LocalDateTime createdAt) {
+    public String format(Long id, OffsetDateTime createdAt) {
         if (id == null) {
             return null;
         }

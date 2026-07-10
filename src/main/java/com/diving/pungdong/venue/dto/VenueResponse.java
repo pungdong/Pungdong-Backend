@@ -6,7 +6,7 @@ import org.springframework.hateoas.server.core.Relation;
 
 import java.time.DayOfWeek;
 import java.time.Duration;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Set;
@@ -45,8 +45,8 @@ public class VenueResponse {
     private String lockedDisciplineCode;
     private List<Closure> closures;
     private List<Ticket> tickets;
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
+    private OffsetDateTime createdAt;
+    private OffsetDateTime updatedAt;
 
     public static VenueResponse from(Venue v) {
         return VenueResponse.builder()

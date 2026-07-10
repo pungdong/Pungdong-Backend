@@ -10,7 +10,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -55,14 +56,14 @@ public class VenueEquipmentService {
                 .findByOwnerIdAndVenueRefId(me.getId(), req.getVenueRefId())
                 .orElseGet(() -> VenueEquipmentExtension.builder()
                         .owner(me).venueRefId(req.getVenueRefId())
-                        .createdAt(LocalDateTime.now()).build());
+                        .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
 
         extension.clearItems();
         List<VenueEquipmentRequest.Item> items = req.getItems() == null ? List.of() : req.getItems();
         for (int i = 0; i < items.size(); i++) {
             extension.addItem(buildItem(items.get(i), i));
         }
-        extension.setUpdatedAt(LocalDateTime.now());
+        extension.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         return VenueEquipmentResponse.from(extensionRepo.save(extension));
     }
 

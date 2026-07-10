@@ -2,7 +2,7 @@ package com.diving.pungdong.availability;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 public interface AvailabilityHoldJpaRepo extends JpaRepository<AvailabilityHold, Long> {
@@ -14,5 +14,5 @@ public interface AvailabilityHoldJpaRepo extends JpaRepository<AvailabilityHold,
     List<AvailabilityHold> findByProposalRoundId(Long proposalRoundId);
 
     /** 만료된 제안 hold 들 — TTL sweep(학생 미선택). 회차 귀속이고 expiresAt 이 cutoff 이전인 것. */
-    List<AvailabilityHold> findByProposalRoundIdIsNotNullAndExpiresAtBefore(LocalDateTime cutoff);
+    List<AvailabilityHold> findByProposalRoundIdIsNotNullAndExpiresAtBefore(OffsetDateTime cutoff);
 }

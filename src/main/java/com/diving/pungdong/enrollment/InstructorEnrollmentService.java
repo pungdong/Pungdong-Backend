@@ -33,7 +33,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -270,7 +271,7 @@ public class InstructorEnrollmentService {
         // 좌석은 신청(PENDING) 시점에 이미 lock(선착순) — 수락은 그 슬롯을 결제 대기로 전환만(정원 재검증 불필요).
         r.setStatus(EnrollmentStatus.PAYMENT_PENDING);
         r.getProposedSlots().clear(); // 혹시 남은 제안 정리
-        r.setRespondedAt(LocalDateTime.now());
+        r.setRespondedAt(OffsetDateTime.now(ZoneOffset.UTC));
         return InstructorEnrollmentResponse.of(r, venueName(r.getVenueRefId()));
     }
 
@@ -287,7 +288,7 @@ public class InstructorEnrollmentService {
         AvailabilitySession session = r.getAvailabilitySession();
         r.setStatus(EnrollmentStatus.REJECTED);
         r.setRejectionReason(StringUtils.hasText(reason) ? reason.trim() : null);
-        r.setRespondedAt(LocalDateTime.now());
+        r.setRespondedAt(OffsetDateTime.now(ZoneOffset.UTC));
         InstructorEnrollmentResponse resp = InstructorEnrollmentResponse.of(r, venueName(r.getVenueRefId()));
         sessionCleaner.deleteIfEmpty(session);
         return resp;
@@ -318,8 +319,8 @@ public class InstructorEnrollmentService {
         }
         releaseProposalHolds(r); // 재제안 — 이전 보장 hold 회수 후 다시 잡음
 
-        LocalDateTime now = LocalDateTime.now();
-        LocalDateTime expiresAt = now.plusHours(siteSettings.current().proposalTtlHours());
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        OffsetDateTime expiresAt = now.plusHours(siteSettings.current().proposalTtlHours());
         List<ProposedSlot> valid = new ArrayList<>();
         Set<Long> heldSessionIds = new HashSet<>();
         for (SlotProposal s : slots) {
@@ -337,7 +338,8 @@ public class InstructorEnrollmentService {
                 continue;
             }
             session.addHold(AvailabilityHold.builder()
-                    .count(1).proposalRoundId(r.getId()).expiresAt(expiresAt).createdAt(now).build());
+                    .count(1).proposalRoundId(r.getId())
+                    .expiresAt(expiresAt).createdAt(now).build());
             heldSessionIds.add(session.getId());
             valid.add(toProposedSlot(s));
         }
@@ -361,7 +363,7 @@ public class InstructorEnrollmentService {
             throw new BadRequestException(); // 확정(결제 완료)된 회차만 완료 처리
         }
         if (r.getDoneAt() == null) {
-            r.setDoneAt(LocalDateTime.now());
+            r.setDoneAt(OffsetDateTime.now(ZoneOffset.UTC));
         }
         return InstructorEnrollmentResponse.of(r, venueName(r.getVenueRefId()));
     }
@@ -379,7 +381,7 @@ public class InstructorEnrollmentService {
         for (EnrollmentRound r : roundRepo.findByAvailabilitySessionIdAndStatusIn(
                 sessionId, List.of(EnrollmentStatus.CONFIRMED))) {
             if (r.getDoneAt() == null) {
-                r.setDoneAt(LocalDateTime.now());
+                r.setDoneAt(OffsetDateTime.now(ZoneOffset.UTC));
                 done++;
             }
         }
@@ -430,7 +432,7 @@ public class InstructorEnrollmentService {
                 .orElseGet(() -> sessionRepo.save(AvailabilitySession.builder()
                         .instructor(instructor).date(date).startTime(start).endTime(end)
                         .venueRefId(venueRef).ticketRef(ticketRef)
-                        .createdAt(LocalDateTime.now()).build()));
+                        .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build()));
     }
 
     /** 이 회차의 강사 제안 보장 hold 를 모두 해제(세션 컬렉션에서 제거 → orphanRemoval) + 빈 일정 정리. */

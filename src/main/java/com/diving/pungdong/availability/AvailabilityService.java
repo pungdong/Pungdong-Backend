@@ -28,8 +28,9 @@ import org.springframework.util.StringUtils;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.temporal.TemporalAdjusters;
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -135,10 +136,10 @@ public class AvailabilityService {
         session.addHold(AvailabilityHold.builder()
                 .count(req.getCount())
                 .memo(trimToNull(req.getMemo()))
-                .createdAt(LocalDateTime.now())
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC))
                 .build());
         bumpCapacityIfExceeded(session);
-        session.setUpdatedAt(LocalDateTime.now());
+        session.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         return toResponse(session);
     }
 
@@ -160,7 +161,7 @@ public class AvailabilityService {
         AvailabilitySession s = requireOwned(instructor, id);
         requirePositive(capacity);
         s.setCapacityOverride(capacity);
-        s.setUpdatedAt(LocalDateTime.now());
+        s.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         return toResponse(s);
     }
 
@@ -169,7 +170,7 @@ public class AvailabilityService {
     public AvailabilitySessionResponse resetSessionCapacity(Account instructor, Long id) {
         AvailabilitySession s = requireOwned(instructor, id);
         s.setCapacityOverride(null);
-        s.setUpdatedAt(LocalDateTime.now());
+        s.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         return toResponse(s);
     }
 
@@ -183,10 +184,10 @@ public class AvailabilityService {
         s.addHold(AvailabilityHold.builder()
                 .count(req.getCount())
                 .memo(trimToNull(req.getMemo()))
-                .createdAt(LocalDateTime.now())
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC))
                 .build());
         bumpCapacityIfExceeded(s);
-        s.setUpdatedAt(LocalDateTime.now());
+        s.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         return toResponse(s);
     }
 
@@ -211,7 +212,7 @@ public class AvailabilityService {
         if (!removed) {
             throw new ResourceNotFoundException();
         }
-        s.setUpdatedAt(LocalDateTime.now());
+        s.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         if (sessionCleaner.deleteIfEmpty(s)) {
             return Optional.empty();
         }
@@ -304,7 +305,7 @@ public class AvailabilityService {
                         .instructor(instructor).date(date).startTime(start).endTime(end)
                         .venueRefId(venueRef).ticketRef(ticketRef)
                         .capacityOverride(capacityOverride)
-                        .createdAt(LocalDateTime.now()).build()));
+                        .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build()));
     }
 
     /** ticketRef 가 그 venue 의 이용권인지 — 아니면 400(bogus ref 저장 방지). */

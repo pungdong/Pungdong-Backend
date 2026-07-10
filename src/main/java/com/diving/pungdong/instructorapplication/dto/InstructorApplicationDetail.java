@@ -3,7 +3,7 @@ package com.diving.pungdong.instructorapplication.dto;
 import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
 import lombok.*;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
@@ -33,9 +33,9 @@ public class InstructorApplicationDetail {
     private String phoneNumber;
 
     private String rejectionReason;
-    private LocalDateTime createdAt;
-    private LocalDateTime submittedAt;
-    private LocalDateTime reviewedAt;
+    private OffsetDateTime createdAt;
+    private OffsetDateTime submittedAt;
+    private OffsetDateTime reviewedAt;
     /** 처리한 어드민 닉네임 (승인/반려 후). */
     private String reviewerNickName;
 }

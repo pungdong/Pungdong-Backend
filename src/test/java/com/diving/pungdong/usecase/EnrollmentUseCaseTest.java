@@ -37,8 +37,9 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import com.diving.pungdong.venue.equipment.SizeFormat;
 import java.util.HashSet;
 import java.util.List;
@@ -119,7 +120,7 @@ class EnrollmentUseCaseTest {
     private void verify(Account a) {
         identityVerificationRepo.save(IdentityVerification.builder()
                 .account(a).status(IdentityVerificationStatus.VERIFIED)
-                .verifiedAt(LocalDateTime.now()).build());
+                .verifiedAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
     }
 
     private String tokenFor(Account a) {
@@ -130,7 +131,7 @@ class EnrollmentUseCaseTest {
         applicationRepo.save(InstructorApplication.builder()
                 .account(a).disciplineCode("FREEDIVING")
                 .status(InstructorApplicationStatus.SUBMITTED)
-                .submittedAt(LocalDateTime.now()).createdAt(LocalDateTime.now()).build());
+                .submittedAt(OffsetDateTime.now(ZoneOffset.UTC)).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
     }
 
     /** 잠실풀 — 일반권, 평일·주말 FIXED 블록 09–12·14–17(둘 다 fee 15,000 → 날짜 무관 결정적). */
@@ -147,7 +148,7 @@ class EnrollmentUseCaseTest {
                 .disciplineCodes(new java.util.LinkedHashSet<>(Set.of("FREEDIVING"))).build();
         ticket.addDaypart(weekday); ticket.addDaypart(weekend);
         Venue venue = Venue.builder().owner(owner).name("잠실 잠수풀장").type(VenueType.SWIMMING_POOL)
-                .address("서울 송파구").lockedDisciplineCode("FREEDIVING").createdAt(LocalDateTime.now()).build();
+                .address("서울 송파구").lockedDisciplineCode("FREEDIVING").createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
         venue.addTicket(ticket);
         return venueRepo.save(venue);
     }
@@ -163,7 +164,7 @@ class EnrollmentUseCaseTest {
     private VenueEquipmentItem saveEquipment(Account owner, String venueRefId) {
         VenueEquipmentItem item = VenueEquipmentItem.builder().name("롱핀").price(5000).sortOrder(0).build();
         VenueEquipmentExtension ext = VenueEquipmentExtension.builder()
-                .owner(owner).venueRefId(venueRefId).createdAt(LocalDateTime.now()).build();
+                .owner(owner).venueRefId(venueRefId).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
         ext.addItem(item);
         equipmentRepo.save(ext);
         return item;
@@ -175,7 +176,7 @@ class EnrollmentUseCaseTest {
                 .sizeFormat(SizeFormat.SHOE_MM)
                 .sizeOptions(new java.util.ArrayList<>(SizeFormat.SHOE_MM.presetOptions())).build();
         VenueEquipmentExtension ext = VenueEquipmentExtension.builder()
-                .owner(owner).venueRefId(venueRefId).createdAt(LocalDateTime.now()).build();
+                .owner(owner).venueRefId(venueRefId).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
         ext.addItem(item);
         equipmentRepo.save(ext);
         return item;
@@ -184,7 +185,7 @@ class EnrollmentUseCaseTest {
     private Course saveCourse(Account instructor, String venueRefId, String ticketRef) {
         Course course = Course.builder().instructor(instructor).title("AIDA2 프리다이빙 과정")
                 .kind(CourseKind.CERTIFICATION).organizationCode("AIDA").disciplineCode("FREEDIVING")
-                .totalRounds(1).price(350000).status(CourseStatus.OPEN).createdAt(LocalDateTime.now()).build();
+                .totalRounds(1).price(350000).status(CourseStatus.OPEN).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
         CourseRound round = CourseRound.builder().roundKind(RoundKind.REGULAR).roundIndex(1).build();
         RoundVenue rv = RoundVenue.builder().venueRefId(venueRefId).sortOrder(0).build();
         rv.addTicket(RoundVenueTicket.builder().ticketRef(ticketRef).daypart(DaypartKind.WEEKDAY).sortOrder(0).build());
@@ -280,7 +281,7 @@ class EnrollmentUseCaseTest {
         // 09–12 부와 겹치는(정확히 같지 않은) 기존 일정 10–12 직접 생성
         sessionRepo.save(AvailabilitySession.builder().instructor(ins).date(D1)
                 .startTime(LocalTime.of(10, 0)).endTime(LocalTime.of(12, 0)).venueRefId(venueRef)
-                .createdAt(LocalDateTime.now()).build());
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
         Account stu = account("stu14@pd.com", "수강생14");
 
         mockMvc.perform(get("/enrollments/options")

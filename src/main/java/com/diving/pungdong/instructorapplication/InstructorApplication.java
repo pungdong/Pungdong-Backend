@@ -5,7 +5,7 @@ import com.diving.pungdong.identityverification.IdentityVerification;
 import lombok.*;
 
 import javax.persistence.*;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -65,10 +65,10 @@ public class InstructorApplication {
     @ManyToOne(fetch = FetchType.LAZY)
     private Account reviewer;
 
-    private LocalDateTime submittedAt;
-    private LocalDateTime reviewedAt;
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
+    private OffsetDateTime submittedAt;
+    private OffsetDateTime reviewedAt;
+    private OffsetDateTime createdAt;
+    private OffsetDateTime updatedAt;
 
     /** 자격증 이미지를 신청에 연결한다 (양방향 동기화). */
     public void addCertificate(ApplicationCertificate certificate) {

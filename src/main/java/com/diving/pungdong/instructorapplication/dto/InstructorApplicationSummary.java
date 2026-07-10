@@ -4,7 +4,7 @@ import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
 import lombok.*;
 import org.springframework.hateoas.server.core.Relation;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 /** 어드민 대기 목록의 한 행 (PII 최소화 — 상세는 detail 에서). PagedModel 키 = "applications". */
@@ -21,5 +21,5 @@ public class InstructorApplicationSummary {
     /** 첨부 자격증의 단체 코드들 (중복 제거) — 목록에서 한눈에. */
     private List<String> organizationCodes;
     private InstructorApplicationStatus status;
-    private LocalDateTime submittedAt;
+    private OffsetDateTime submittedAt;
 }

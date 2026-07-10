@@ -12,7 +12,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.LocalTime;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -43,7 +44,7 @@ public class VenueService {
     public VenueResponse create(Account owner, VenueCreateRequest req) {
         String lockedCode = requireLockedDiscipline(req);
         requireInstructorTrack(owner, lockedCode);
-        Venue venue = Venue.builder().owner(owner).createdAt(LocalDateTime.now()).build();
+        Venue venue = Venue.builder().owner(owner).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
         apply(venue, req, lockedCode);
         return VenueResponse.from(venueRepo.save(venue));
     }
@@ -110,7 +111,7 @@ public class VenueService {
         Venue venue = requireOwned(me, id);
         String lockedCode = requireLockedDiscipline(req);
         apply(venue, req, lockedCode);
-        venue.setUpdatedAt(LocalDateTime.now());
+        venue.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         return VenueResponse.from(venue);
     }
 

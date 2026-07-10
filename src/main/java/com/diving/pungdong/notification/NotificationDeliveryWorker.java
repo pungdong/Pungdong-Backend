@@ -16,7 +16,8 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -79,9 +80,9 @@ public class NotificationDeliveryWorker {
             int nextAttempt = row.getAttempts() + 1;
             Duration delay = backoff(nextAttempt);
             // 마케팅 재시도가 야간으로 넘어가면 다음 08:00 KST 로 클램프(야간 광고 금지 유지).
-            LocalDateTime retryAt = category.isMarketing()
+            OffsetDateTime retryAt = category.isMarketing()
                     ? MarketingSendWindow.clamp(java.time.Instant.now().plus(delay))
-                    : LocalDateTime.now().plus(delay);
+                    : OffsetDateTime.now(ZoneOffset.UTC).plus(delay);
             row.markFailedAndScheduleRetry("transient FCM failure on all tokens", retryAt);
         } else {
             row.markGaveUp("all tokens permanent failure");

@@ -3,7 +3,7 @@ package com.diving.pungdong.identityverification.dto;
 import com.diving.pungdong.identityverification.IdentityProvider;
 import lombok.*;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 /**
  * 내 본인확인 상태 — 계정 공유 자산. 수강/강사 등 어느 플로우에서 인증했든 같은 레코드를 가리킨다.
@@ -24,7 +24,7 @@ public class MyIdentityVerificationResponse {
     private Long verificationId;       // 미인증 시 null
     private String realName;           // 미인증 시 null
     private IdentityProvider provider; // 미인증 시 null
-    private LocalDateTime verifiedAt;  // 미인증 시 null
+    private OffsetDateTime verifiedAt;  // 미인증 시 null
 
     public static MyIdentityVerificationResponse notVerified() {
         return MyIdentityVerificationResponse.builder().verified(false).build();

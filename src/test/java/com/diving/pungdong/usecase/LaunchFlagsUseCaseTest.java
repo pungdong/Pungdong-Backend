@@ -27,6 +27,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -71,7 +73,7 @@ class LaunchFlagsUseCaseTest {
                 .roles(new HashSet<>(Set.of(Role.STUDENT))).build());
         identityVerificationRepo.save(com.diving.pungdong.identityverification.IdentityVerification.builder()
                 .account(a).status(com.diving.pungdong.identityverification.IdentityVerificationStatus.VERIFIED)
-                .verifiedAt(LocalDateTime.now()).build());
+                .verifiedAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
         return a;
     }
 
@@ -80,7 +82,7 @@ class LaunchFlagsUseCaseTest {
                 .instructor(instructor).title(title).kind(CourseKind.TRIAL)
                 .disciplineCode("FREEDIVING").status(CourseStatus.OPEN)
                 .price(10000).totalRounds(1).seeded(seeded)
-                .createdAt(LocalDateTime.now()).build());
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
     }
 
     private String enrollmentBody(long courseId) throws Exception {

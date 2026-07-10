@@ -3,7 +3,7 @@ package com.diving.pungdong.instructorapplication.dto;
 import lombok.*;
 import org.springframework.hateoas.server.core.Relation;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
@@ -29,6 +29,6 @@ public class MyInstructorApplicationResponse {
     private String insuranceViewUrl;
     private boolean identityVerified;
     private String rejectionReason;
-    private LocalDateTime submittedAt;
-    private LocalDateTime reviewedAt;
+    private OffsetDateTime submittedAt;
+    private OffsetDateTime reviewedAt;
 }
