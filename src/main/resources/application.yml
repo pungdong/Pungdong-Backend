@@ -4,6 +4,13 @@ server:
 spring:
   application:
     name: msa-legacy-service
+  # instant(OffsetDateTime) 응답을 UTC(...Z)로 정규화. DB 에서 읽은 값이 JVM 존(KST) offset(+09:00)으로
+  # 재구성되는 걸 출력 단에서 UTC 로 통일(저장은 이미 UTC — jdbc.time_zone/connectionTimeZone). instant 는 ...Z 일관.
+  # civil(LocalDate/LocalTime)은 unzoned 라 영향 없음. docs/architecture/time-handling.md.
+  jackson:
+    time-zone: UTC
+    serialization:
+      write-dates-with-context-time-zone: true
   jpa:
     properties:
       hibernate:
