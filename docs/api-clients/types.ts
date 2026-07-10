@@ -268,12 +268,22 @@ export interface RegisterDeviceRequest {
  * POST /identity-verifications 요청 — 생성 + SMS 발송(결합).
  * PII(실명·생년월일·휴대폰)는 POST body 로만 전송 (URL/쿼리 금지).
  * method='SMS'(기본) 면 carrier(통신사) 필수. provider 는 향후 APP 방식 전용(SMS 에선 무시).
+ *
+ * ⚠️ **BE 가 형식을 검증한다(400)** — FE 검증은 UX 용이지 방어선이 아니다(콘솔·직접 호출로 우회 가능).
+ * 형식이 깨진 요청은 SMS 미발송·레코드 미생성·쿨다운 미소모. 단, **실존/해지/명의 판정은 다날 몫** —
+ * 형식이 맞아도 발송이 실패할 수 있다(현재 SMS_SEND_FAILED 400 으로 뭉쳐 옴, CPID 개통 후 세분화 예정).
  */
 export interface IdentityVerificationRequest {
+  /** 최대 50자. */
   realName: string;
-  /** yyyyMMdd */
+  /** yyyyMMdd. 하이픈 표기('1998-09-14')도 서버가 정규화해 받는다. 형식 위반 → 400. */
   birth: string;
   gender: Gender;
+  /**
+   * 한국 휴대폰 번호. 하이픈 유무 무관('010-1234-5678' / '01012345678') — 서버가 숫자만 남긴다.
+   * 규칙: `010` + 구 2G `011/016/017/018/019`, 총 10~11자리. `013/014/015`(IoT·부가서비스)는 SMS
+   * 수신 불가라 거부. 위반 → 400. (**KR 전용** — 국가 확장 시 본인확인기관이 통째로 갈린다)
+   */
   phoneNumber: string;
   /** 통신사 — SMS 발송 대상. SMS 필수. */
   carrier: Carrier;
@@ -334,6 +344,10 @@ export interface IdentityVerificationCooldown {
 
 /** POST /identity-verifications/{id}/confirm 요청 — OTP 확인. */
 export interface ConfirmIdentityVerificationRequest {
+  /**
+   * 6자리 숫자. 아니면 **400**(200 FAILED 아님) — 시도 횟수(5회 한도)를 소모하지 않는다.
+   * FE 는 6자리를 채우기 전엔 제출 버튼을 막아, 사용자가 이 400 을 볼 일이 없게 할 것.
+   */
   otp: string;
 }
 

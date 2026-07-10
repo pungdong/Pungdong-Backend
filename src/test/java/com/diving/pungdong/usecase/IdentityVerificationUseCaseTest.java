@@ -75,16 +75,32 @@ class IdentityVerificationUseCaseTest {
         return jwtTokenProvider.createAccessToken(String.valueOf(a.getId()), a.getRoles());
     }
 
+    /** 하이픈 표기로 보낸다 — BE 가 정규화해 숫자만 저장/전송하는지까지 이 픽스처가 함께 검증한다(S4). */
     private String createBody(String realName) {
+        return createBody(realName, "010-1234-5678", "19980914");
+    }
+
+    private String createBody(String realName, String phoneNumber, String birth) {
         Map<String, Object> body = new HashMap<>();
         body.put("realName", realName);
-        body.put("birth", "19980914");
+        body.put("birth", birth);
         body.put("gender", "MALE");
-        body.put("phoneNumber", "010-1234-5678");
+        body.put("phoneNumber", phoneNumber);
         body.put("carrier", "SKT");
         body.put("method", "SMS");
         body.put("agreedRequiredTerms", true);
         return write(body);
+    }
+
+    /** 형식이 깨진 요청 — 400 이고, 레코드가 안 생겼다는 건 서비스/외부 기관까지 못 갔다는 뜻. */
+    private void expectRejectedBeforeSending(String token, String body) throws Exception {
+        mockMvc.perform(post("/identity-verifications")
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest());
+
+        assertThat(identityVerificationRepo.findAll()).isEmpty();
     }
 
     private String otpBody(String otp) {
@@ -169,6 +185,25 @@ class IdentityVerificationUseCaseTest {
     }
 
     @Test
+    @DisplayName("S4: 하이픈 표기 휴대폰 번호는 숫자만 남게 정규화되어 저장된다 (다날에도 canonical 형태로 나감)")
+    void create_normalizesPhoneNumber() throws Exception {
+        Account student = createStudent("s4@test.com", "diverS4");
+        String token = tokenFor(student);
+
+        MvcResult result = mockMvc.perform(post("/identity-verifications")
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createBody("한어진", "010-1234-5678", "1998-09-14")))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        long id = objectMapper.readTree(result.getResponse().getContentAsString()).get("verificationId").asLong();
+        IdentityVerification saved = identityVerificationRepo.findById(id).orElseThrow();
+        assertThat(saved.getPhoneNumber()).isEqualTo("01012345678"); // 구분자 제거
+        assertThat(saved.getBirth()).isEqualTo("19980914");
+    }
+
+    @Test
     @DisplayName("V1: 틀린 OTP 로 confirm 하면 200 FAILED + errorCode=OTP_MISMATCH, 레코드는 READY 유지(재입력 허용)")
     void confirm_wrongOtp() throws Exception {
         Account student = createStudent("v1@test.com", "diverV1");
@@ -190,6 +225,46 @@ class IdentityVerificationUseCaseTest {
         // 미인증이므로 GET /me 는 여전히 false
         mockMvc.perform(get("/identity-verifications/me").header(HttpHeaders.AUTHORIZATION, token))
                 .andExpect(jsonPath("$.verified").value(false));
+    }
+
+    @Test
+    @DisplayName("V2: 휴대폰 접두사가 01 로 시작하지 않으면 400 — 레코드 미생성(다날 미호출)")
+    void create_invalidPhonePrefix() throws Exception {
+        Account student = createStudent("v2@test.com", "diverV2");
+        // 제보된 케이스 — FE 검증을 우회해 콘솔/직접 호출로 들어오는 번호.
+        expectRejectedBeforeSending(tokenFor(student), createBody("한어진", "9191234567", "19980914"));
+    }
+
+    @Test
+    @DisplayName("V3: 013/014/015 번호대(IoT·부가서비스)는 SMS 수신이 불가하므로 400 — 레코드 미생성")
+    void create_nonSmsCapableNumberBand() throws Exception {
+        Account student = createStudent("v3@test.com", "diverV3");
+        expectRejectedBeforeSending(tokenFor(student), createBody("한어진", "01312345678", "19980914"));
+    }
+
+    @Test
+    @DisplayName("V4: 생년월일이 yyyyMMdd 가 아니면(13월) 400 — 레코드 미생성")
+    void create_invalidBirth() throws Exception {
+        Account student = createStudent("v4@test.com", "diverV4");
+        expectRejectedBeforeSending(tokenFor(student), createBody("한어진", "01012345678", "19981345"));
+    }
+
+    @Test
+    @DisplayName("V5: OTP 가 6자리 숫자가 아니면 400 — 시도 횟수(attemptCount)를 소모하지 않는다")
+    void confirm_malformedOtpDoesNotBurnAttempt() throws Exception {
+        Account student = createStudent("v5@test.com", "diverV5");
+        String token = tokenFor(student);
+        long id = create(token, "한어진");
+
+        mockMvc.perform(post("/identity-verifications/" + id + "/confirm")
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(otpBody("12345"))) // 5자리 — 구조적으로 정답일 수 없음
+                .andExpect(status().isBadRequest());
+
+        IdentityVerification saved = identityVerificationRepo.findById(id).orElseThrow();
+        assertThat(saved.getStatus()).isEqualTo(IdentityVerificationStatus.READY);
+        assertThat(saved.getAttemptCount()).isZero(); // 진짜 추측만 센다
     }
 
     @Test
