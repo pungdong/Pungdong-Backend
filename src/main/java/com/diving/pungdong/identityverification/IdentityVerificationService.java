@@ -170,6 +170,8 @@ public class IdentityVerificationService {
                 .status(v.getStatus())
                 .otpExpiresAt(v.getOtpExpiresAt())
                 .otpExpiresInSeconds(seconds)
+                // 방금 발송에 성공했으니 쿨다운 창을 새로 잡았다 → 다음 발송까지 = 전체 창(config). 0 이면 쿨다운 없음(즉시 가능).
+                .resendAvailableInSeconds((long) Math.max(0, sendCooldownSeconds))
                 .build();
     }
 

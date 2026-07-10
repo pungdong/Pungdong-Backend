@@ -74,8 +74,9 @@ class IdentityVerificationRateLimitUseCaseTest {
                         .header(HttpHeaders.AUTHORIZATION, token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.retryAfterSeconds").value(greaterThan(0)))
-                // 쿨다운 = 순수 {retryAfterSeconds} — 성공 필드(status/verificationId/타이밍) 없음(union 판별용)
+                // 쿨다운 = 순수 {retryAfterSeconds} — 성공 필드(status/verificationId/타이밍/resendAvailable) 없음(union 판별용)
                 .andExpect(jsonPath("$.otpExpiresInSeconds").doesNotExist())
+                .andExpect(jsonPath("$.resendAvailableInSeconds").doesNotExist())
                 .andExpect(jsonPath("$.status").doesNotExist())
                 .andExpect(jsonPath("$.verificationId").doesNotExist());
 
@@ -94,6 +95,7 @@ class IdentityVerificationRateLimitUseCaseTest {
                         .contentType(MediaType.APPLICATION_JSON).content(createBody("한어진")))
                 .andExpect(status().isOk()) // 성공 발송은 201, 쿨다운은 200
                 .andExpect(jsonPath("$.retryAfterSeconds").value(greaterThan(0)))
+                .andExpect(jsonPath("$.resendAvailableInSeconds").doesNotExist())
                 .andExpect(jsonPath("$.status").doesNotExist())
                 .andExpect(jsonPath("$.verificationId").doesNotExist());
 
@@ -109,6 +111,7 @@ class IdentityVerificationRateLimitUseCaseTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("READY"))
                 .andExpect(jsonPath("$.otpExpiresInSeconds").value(greaterThan(0)))
+                .andExpect(jsonPath("$.resendAvailableInSeconds").value(greaterThan(0))) // 다음 발송까지(=쿨다운 창 30)
                 .andExpect(jsonPath("$.retryAfterSeconds").doesNotExist()) // 성공엔 없음(union)
                 .andReturn();
         return objectMapper.readTree(r.getResponse().getContentAsString()).get("verificationId").asLong();
