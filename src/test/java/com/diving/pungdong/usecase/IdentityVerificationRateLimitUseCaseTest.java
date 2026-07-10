@@ -37,8 +37,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 기본 프로파일은 쿨다운 0(비활성)이라 여기서만 켠다({@code send-cooldown-seconds=30}). 쿨다운은 Redis
  * 창이라 embedded Redis 필요.
  *
- * <p><b>읽는 법</b>: RL1 재발송 차단, RL2 재-발송(create) 차단. 차단은 예외가 아니라
- * <b>200 + retryAfterSeconds</b>(정상 분기 — FE 가 "N초 후 재시도"로 렌더). SMS 미발송·상태 불변.
+ * <p><b>읽는 법</b>: RL1 재발송 차단, RL2 재-발송(create) 차단, RL3 형식 오류는 창 미획득. 차단은 예외가
+ * 아니라 <b>200 + retryAfterSeconds</b>(정상 분기 — FE 가 "N초 후 재시도"로 렌더). SMS 미발송·상태 불변.
  */
 @SpringBootTest(properties = "pungdong.identity-verification.send-cooldown-seconds=30")
 @AutoConfigureMockMvc
@@ -102,6 +102,24 @@ class IdentityVerificationRateLimitUseCaseTest {
         assertThat(identityVerificationRepo.findAll()).hasSize(1); // 두 번째는 미생성
     }
 
+    @Test
+    @DisplayName("RL3: 형식이 깨진 요청은 400 이고 쿨다운 창을 잡지 않는다 — 오타 뒤 곧바로 정상 발송 가능")
+    void malformedRequestDoesNotConsumeCooldownSlot() throws Exception {
+        Account student = createStudent("rl3@test.com", "diverRL3");
+        String token = tokenFor(student);
+
+        // @Valid 는 컨트롤러 진입에서 돌아 acquireSendSlot() 보다 앞선다 → 창 미획득.
+        mockMvc.perform(post("/identity-verifications")
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON).content(createBody("한어진", "9191234567")))
+                .andExpect(status().isBadRequest());
+
+        assertThat(redisTemplate.hasKey("identity:otp:cooldown:" + student.getId())).isFalse();
+
+        firstSend(token); // 30초 기다릴 필요 없이 바로 정상 발송 — 오타가 사용자를 잠그지 않는다
+        assertThat(identityVerificationRepo.findAll()).hasSize(1);
+    }
+
     /* ─── fixtures ─── */
 
     private long firstSend(String token) throws Exception {
@@ -128,11 +146,15 @@ class IdentityVerificationRateLimitUseCaseTest {
     }
 
     private String createBody(String realName) throws Exception {
+        return createBody(realName, "010-1234-5678");
+    }
+
+    private String createBody(String realName, String phoneNumber) throws Exception {
         Map<String, Object> body = new HashMap<>();
         body.put("realName", realName);
         body.put("birth", "19980914");
         body.put("gender", "MALE");
-        body.put("phoneNumber", "010-1234-5678");
+        body.put("phoneNumber", phoneNumber);
         body.put("carrier", "SKT");
         body.put("method", "SMS");
         body.put("agreedRequiredTerms", true);
