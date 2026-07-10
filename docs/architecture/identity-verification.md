@@ -156,7 +156,7 @@ repo 규약(정상 UI 상태는 200+결과 필드)에 따라 **OTP 재입력 가
 
 ### 발송 쿨다운 (2026-07-10)
 
-`POST /identity-verifications`(create) · `POST /{id}/resend` 은 **계정당 발송 간 최소 간격**(`send-cooldown-seconds`, 기본 30s)을 Redis(`SET NX EX`, 키 `identity:otp:cooldown:<accountId>`)로 강제한다 — 다날 실 SMS 비용·남용(toll-fraud) 방어. 창이 열려 있으면 **SMS 미발송 + `200 {retryAfterSeconds}`**(예외 아님 — repo 규약대로 정상 분기, FE 는 "N초 후 재시도"). create 는 이때 201 아닌 200·레코드 미생성, resend 는 상태 불변. `send-cooldown-seconds=0` 이면 비활성(테스트). **시간당 상한(cap)은 real 모드 전 후속**(현재 prod=stub, 실 SMS 미발송).
+`POST /identity-verifications`(create) · `POST /{id}/resend` 은 **계정당 발송 간 최소 간격**(`send-cooldown-seconds`, 기본 30s)을 Redis(`SET NX EX`, 키 `identity:otp:cooldown:<accountId>`)로 강제한다 — 다날 실 SMS 비용·남용(toll-fraud) 방어. 창이 열려 있으면 **SMS 미발송 + `200 {retryAfterSeconds}`**(예외 아님 — repo 규약대로 정상 분기, FE 는 "N초 후 재시도"). create 는 이때 201 아닌 200·레코드 미생성, resend 는 상태 불변. 응답은 **discriminated union** — 쿨다운은 순수 `{retryAfterSeconds}`(성공 필드 없음), 성공은 `{status:READY, verificationId, otpExpiresInSeconds, otpExpiresAt}`. `IdentityVerificationResult` `@JsonInclude(NON_NULL)` 로 없는 필드를 JSON 에서 빼 union 을 진실로 만든다(안 그러면 쿨다운에 성공 필드가 null 로 실려 FE 타이머가 NaN/0). types.ts 도 `IdentityVerificationSent | IdentityVerificationCooldown`. `send-cooldown-seconds=0` 이면 비활성(테스트). **시간당 상한(cap)은 real 모드 전 후속**(현재 prod=stub, 실 SMS 미발송).
 
 ### 선행 게이트 실패 (소비자 측, 2026-07-08)
 

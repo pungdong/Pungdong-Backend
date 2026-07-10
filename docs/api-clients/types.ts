@@ -287,15 +287,24 @@ export interface IdentityVerificationRequest {
 
 /**
  * POST /identity-verifications 응답(201) · POST /{id}/resend 응답(200).
- * OTP 발송 직후라 status='READY'. confirm 은 이 verificationId 로 호출.
+ * **discriminated union** — 발송 성공(`IdentityVerificationSent`) 또는 쿨다운(`IdentityVerificationCooldown`).
+ * BE 가 `@JsonInclude(NON_NULL)` 로 각 형태에 없는 필드를 **JSON 에서 아예 뺀다** → 타입도 union 이라
+ * 필드 누락이 컴파일 타임에 잡힌다(성공 타입만 믿고 쿨다운에서 otpExpiresInSeconds 접근 → 컴파일 에러).
  *
- * ⚠️ 카운트다운은 반드시 **otpExpiresInSeconds** 로. 서버가 발송 시점에 계산한 잔여 초라
- * 클라이언트 TZ·기기 시계 오차와 무관하다. otpExpiresAt 은 표시/디버그용 절대시각일 뿐.
- * (TTL 은 서버 정책 — stub 180s / real 300s, 변동 가능하니 하드코딩 금지.)
+ * 분기: `res.status === 'READY'`(쿨다운엔 status 없음) 또는 `'retryAfterSeconds' in res`.
  */
-export interface IdentityVerificationResponse extends HalLinks {
+export type IdentityVerificationResponse =
+  | IdentityVerificationSent
+  | IdentityVerificationCooldown;
+
+/**
+ * 발송 성공 — SMS 발송됨, status='READY'. confirm 은 verificationId 로 호출.
+ * ⚠️ 카운트다운은 반드시 **otpExpiresInSeconds** 로(서버 계산 잔여 초, TZ·기기 시계 무관).
+ * TTL 은 서버 정책(stub 180s / real 300s) — 하드코딩 금지.
+ */
+export interface IdentityVerificationSent extends HalLinks {
+  status: 'READY';
   verificationId: number;
-  status: IdentityVerificationStatus; // 'READY'
   /**
    * OTP 잔여 초(발송 시점). 카운트다운의 단일 출처 — 이것만 쓰면 시계/TZ 버그 원천 차단.
    * ★ **영구 필드 — UTC+오프셋 글로벌화 이후에도 유지(제거 금지).** 리팩토링 후 FE 는 절대시각
@@ -306,12 +315,15 @@ export interface IdentityVerificationResponse extends HalLinks {
   otpExpiresInSeconds: number;
   /** OTP 유효기한 절대시각(서버 KST wall-clock). 표시/디버그용 — 카운트다운엔 쓰지 말 것(오프셋 없음). */
   otpExpiresAt: string;
-  /**
-   * 발송 쿨다운에 걸렸을 때만 존재(그 외 undefined). SMS 미발송 — 이 초만큼 뒤 재시도 가능.
-   * FE: `retryAfterSeconds != null` 이면 "N초 후 재시도" UI 로 분기(이때 otpExpiresInSeconds·otpExpiresAt 없음).
-   * 계정당 발송 간 최소 간격(서버 정책, 기본 30s). status='READY' 성공 응답엔 이 필드 없음.
-   */
-  retryAfterSeconds?: number;
+}
+
+/**
+ * 발송 쿨다운 — SMS 미발송(계정당 발송 최소 간격, 기본 30s 초과). 이 초만큼 뒤 재시도.
+ * 성공 필드(status·verificationId·타이밍) 없음 — 접근하면 컴파일 에러(그게 이 union 의 목적).
+ * create 쿨다운은 verificationId 도 없어 confirm/resend 불가 → 이 형태를 만나면 "N초 후 재시도" UI 만.
+ */
+export interface IdentityVerificationCooldown {
+  retryAfterSeconds: number;
 }
 
 /** POST /identity-verifications/{id}/confirm 요청 — OTP 확인. */
