@@ -315,6 +315,12 @@ export interface IdentityVerificationSent extends HalLinks {
   otpExpiresInSeconds: number;
   /** OTP 유효기한 절대시각(서버 KST wall-clock). 표시/디버그용 — 카운트다운엔 쓰지 말 것(오프셋 없음). */
   otpExpiresAt: string;
+  /**
+   * 다음 발송/재발송까지 남은 초(방금 잡은 쿨다운 창 = 서버 정책값, 0=쿨다운 없음).
+   * FE 는 발송 직후 이걸로 재전송 버튼을 **미리 비활성 + 카운트다운**("눌러봐야 아는 버튼" 방지).
+   * 쿨다운 응답의 retryAfterSeconds 와 같은 개념(지금부터 쿨다운 잔여)을 성공 상태에서 표현 — 하드코딩 금지.
+   */
+  resendAvailableInSeconds: number;
 }
 
 /**
