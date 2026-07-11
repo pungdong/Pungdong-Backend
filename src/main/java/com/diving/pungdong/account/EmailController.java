@@ -1,5 +1,6 @@
 package com.diving.pungdong.account;
 
+import com.diving.pungdong.global.advice.ValidationErrors;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.account.dto.emailCode.EmailAuthInfo;
 import com.diving.pungdong.account.dto.emailCode.EmailSendInfo;
@@ -31,7 +32,7 @@ public class EmailController {
     public ResponseEntity<?> sendEmailCode(@Valid @RequestBody EmailSendInfo emailSendInfo,
                                            BindingResult result) throws Exception {
         if (result.hasErrors()) {
-            throw new BadRequestException();
+            throw new BadRequestException(ValidationErrors.firstMessage(result));
         }
 
         emailService.sendMessage(emailSendInfo.getEmail());
@@ -48,7 +49,7 @@ public class EmailController {
     public ResponseEntity<?> verifyEmailCode(@Valid @RequestBody EmailAuthInfo emailAuthInfo,
                                              BindingResult result) {
         if (result.hasErrors()) {
-            throw new BadRequestException();
+            throw new BadRequestException(ValidationErrors.firstMessage(result));
         }
 
         SuccessResult successResult = emailService.verifyAuthCode(emailAuthInfo.getEmail(), emailAuthInfo.getCode());

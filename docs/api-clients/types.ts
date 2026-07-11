@@ -172,9 +172,13 @@ export interface LogoutResponse extends HalLinks {
   message: string;
 }
 
-/** POST /sign/check/email 요청 — 가입 전 사전 체크. */
+/**
+ * POST /sign/check/email 요청 — 가입 전 사전 체크.
+ * ⚠️ BE 가 이메일 형식을 검증한다(`@Email`) — 형식 오류는 **400**(존재 여부는 200 {exists}).
+ * 형식 위반 400 의 `msg` 는 "이메일 형식이 올바르지 않습니다." (그대로 표시 가능).
+ */
 export interface CheckEmailRequest {
-  email: string;
+  email: string; // 유효한 이메일 형식
 }
 
 /** POST /sign/check/email 응답. */
@@ -235,10 +239,13 @@ export interface CertBadge {
 // PATCH /account/deleted-state (public) — 유예기간 내 탈퇴 계정 복구. 이메일 인증코드로 본인확인.
 //   익명화가 끝났거나 유예가 지난 계정은 복구 불가(4xx). 성공 = 204 No Content.
 
-/** PATCH /account/deleted-state 요청 본문. */
+/**
+ * PATCH /account/deleted-state 요청 본문.
+ * ⚠️ BE 형식 검증: `email` 은 유효 이메일, `emailAuthCode` 는 **6자리 숫자**(위반 시 400 + 필드 메시지).
+ */
 export interface RestoreAccountRequest {
-  email: string;
-  emailAuthCode: string;
+  email: string;         // 유효한 이메일 형식
+  emailAuthCode: string; // 6자리 숫자
 }
 
 // ============================================================

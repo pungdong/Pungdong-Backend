@@ -350,7 +350,7 @@ class AccountControllerTest {
         ForgotPasswordInfo forgotPasswordInfo = ForgotPasswordInfo.builder()
                 .email("abc1234@gmail.com")
                 .newPassword("zas1234")
-                .authCode("34212")
+                .authCode("342124")
                 .build();
 
         mockMvc.perform(put("/account/forgot-password")

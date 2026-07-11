@@ -1,5 +1,6 @@
 package com.diving.pungdong.account;
 
+import com.diving.pungdong.global.advice.ValidationErrors;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.security.CurrentUser;
 import com.diving.pungdong.global.security.JwtTokenProvider;
@@ -100,7 +101,7 @@ public class AccountController {
                                                    @Valid @RequestBody PasswordUpdateInfo passwordUpdateInfo,
                                                    BindingResult result) {
         if (result.hasErrors()) {
-            throw new BadRequestException();
+            throw new BadRequestException(ValidationErrors.firstMessage(result));
         }
 
         accountService.updatePassword(account, passwordUpdateInfo);
@@ -135,7 +136,7 @@ public class AccountController {
     public ResponseEntity<?> restoreAccount(@Valid @RequestBody AccountRestoreInfo accountRestoreInfo,
                                             BindingResult result) {
         if (result.hasErrors()) {
-            throw new BadRequestException();
+            throw new BadRequestException(ValidationErrors.firstMessage(result));
         }
 
         accountService.updateAccountDeleted(accountRestoreInfo);
@@ -147,7 +148,7 @@ public class AccountController {
     public ResponseEntity<?> updateForgotPassword(@Valid @RequestBody ForgotPasswordInfo forgotPasswordInfo,
                                                   BindingResult result) {
         if (result.hasErrors()) {
-            throw new BadRequestException();
+            throw new BadRequestException(ValidationErrors.firstMessage(result));
         }
 
         accountService.modifyForgetPassword(forgotPasswordInfo);
