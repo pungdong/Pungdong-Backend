@@ -5,8 +5,11 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import com.diving.pungdong.global.validation.PasswordPolicy;
+
 import javax.validation.constraints.Email;
 import javax.validation.constraints.NotEmpty;
+import javax.validation.constraints.Size;
 
 /**
  * 일반(이메일+비밀번호) 회원가입 요청 페이로드.
@@ -23,6 +26,7 @@ public class SignUpInfo {
     String email;
 
     @NotEmpty
+    @Size(min = PasswordPolicy.MIN_LENGTH, max = PasswordPolicy.MAX_LENGTH, message = PasswordPolicy.MESSAGE)
     String password;
 
     @NotEmpty

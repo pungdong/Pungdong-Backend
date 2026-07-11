@@ -5,9 +5,12 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import com.diving.pungdong.global.validation.PasswordPolicy;
+
 import javax.validation.constraints.Email;
 import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.Pattern;
+import javax.validation.constraints.Size;
 
 /**
  * PUT /account/forgot-password 요청 — 이메일 인증코드로 비밀번호 재설정.
@@ -23,6 +26,7 @@ public class ForgotPasswordInfo {
     private String email;
 
     @NotBlank(message = "새 비밀번호를 입력해주세요.")
+    @Size(min = PasswordPolicy.MIN_LENGTH, max = PasswordPolicy.MAX_LENGTH, message = PasswordPolicy.MESSAGE)
     private String newPassword;
 
     @NotBlank

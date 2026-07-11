@@ -5,7 +5,10 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import com.diving.pungdong.global.validation.PasswordPolicy;
+
 import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.Size;
 
 /**
  * PATCH /account/password 요청 — 로그인 상태에서 비밀번호 변경.
@@ -20,5 +23,6 @@ public class PasswordUpdateInfo {
     private String currentPassword;
 
     @NotBlank(message = "새 비밀번호를 입력해주세요.")
+    @Size(min = PasswordPolicy.MIN_LENGTH, max = PasswordPolicy.MAX_LENGTH, message = PasswordPolicy.MESSAGE)
     private String newPassword;
 }

@@ -127,10 +127,14 @@ export interface AuthToken {
 // docs/architecture/sign-up.md 참고
 // ============================================================
 
-/** POST /sign/sign-up 요청. */
+/**
+ * POST /sign/sign-up 요청.
+ * ⚠️ BE 형식 검증: `email` 유효 이메일, `password` **8자 이상 64자 이하**(위반 시 400).
+ * (FE 는 8자+영문+숫자 게이팅 — BE 는 길이 하한만이라 FE 통과값은 항상 BE 통과.)
+ */
 export interface SignUpRequest {
   email: string;
-  password: string;
+  password: string; // 8~64자
   nickName: string;
 }
 
@@ -200,9 +204,9 @@ export interface AccountBasicInfo extends HalLinks {
   id: number;
   email: string;
   nickName: string;
-  birth?: string;
+  birth?: string;       // yyyyMMdd (PUT /account 수용 형식과 동일 — GET=PUT 일치)
   gender?: Gender;
-  phoneNumber?: string;
+  phoneNumber?: string; // 숫자만 '01012345678' (PUT /account 도 하이픈 정규화 수용)
   /** 강사면 'INSTRUCTOR' 포함(STUDENT 와 함께). FE 탭 분기는 roles.includes('INSTRUCTOR'). */
   roles: Role[];
 }
