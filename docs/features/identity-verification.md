@@ -79,7 +79,7 @@
 
 ## 미해결 / 확장
 
-- 🔴 **실 다날 라이브 검증** — **CPID 개통(통신사 심사, 리드타임 최대 1주) 후**에만 실호출 검증 가능. 개통 전까지 `RealPortOneIdentityVerifier` 는 REST 명세 기반(미검증). 개통 후 OTP 에러코드·응답 필드 경로 보정 + 내외국인 판별.
+- 🔴 **실 다날 라이브 검증** — 포트원 공식상 **다날 SMS 는 실 계약 전 테스트 자체가 불가**([헬프센터](https://help.portone.io/content/cellphone-identity-verification))라 **CPID 개통(계약 ~2026-07-25 예정) 후**에만 실호출 검증 가능. 개통 전까지 `RealPortOneIdentityVerifier` 는 REST 명세·예제 기반(미검증). 개통 시 **필드 형식(phone 숫자만·birth `yyyy-MM-dd`)·응답 경로·OTP 에러코드·내외국인 판별**을 실응답으로 확정 — 권위 출처 표와 체크리스트는 [architecture/identity-verification.md](../architecture/identity-verification.md) 의 "외부 계약". `birth` 8자리 입력은 포트원 요구가 아니라 우리 편의 결정(FE 세기복원)임을 그 표가 명시.
 - 🟢 **수강 플로우 연동 완료 (2026-07-08)** — 강의 신청(`POST /enrollments`) 전 본인인증 선행 게이트. 세션 계정 최신 VERIFIED 없으면 403 -1017 → FE 본인인증 화면. 구현·에러표는 [architecture/identity-verification.md](../architecture/identity-verification.md)·[architecture/enrollment.md](../architecture/enrollment.md).
 - 🟢 **DI 중복가입 확인** — DI 저장하되 차단 로직 없음.
 - 🔴 **발송 실패 사유 세분화 (CPID 개통과 함께)** — 지금은 형식이 맞지만 **실존하지 않는/해지된/명의 불일치** 번호도, 포트원·다날 **인프라 장애**도 전부 `SMS_SEND_FAILED` 400 하나로 뭉쳐 온다(`RealPortOneIdentityVerifier.postExpectOk`). FE 는 그 메시지를 그대로 띄우므로 "장애"와 "그 번호로는 못 보냄"이 같은 화면이 된다. **실 응답 코드를 보고 문구를 갈라야 함** — 개통 후 raw 응답 로그로 보정(내외국인 판별 보정과 같은 묶음). 인프라 장애는 4xx 가 아니라 5xx 가 맞는지도 그때 함께 판단.

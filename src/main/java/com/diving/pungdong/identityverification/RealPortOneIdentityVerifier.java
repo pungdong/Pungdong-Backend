@@ -35,6 +35,11 @@ import java.time.ZoneOffset;
  * <p>⚠️ <b>라이브 미검증</b>: 다날 CPID/통신사 심사(리드타임 최대 1주) 전에는 실호출을 검증할 수
  * 없다. 아래 요청/응답 매핑은 REST 명세 기반이며, <b>OTP 에러코드·응답 필드 경로는 개통 후 실응답으로
  * 보정</b>해야 한다(로그로 raw 응답을 남긴다). {@code mode=real} + PORTONE_* env 일 때만 활성.
+ *
+ * <p>📋 <b>각 필드 형식의 권위 출처(우리 결정 vs 포트원/다날 요구)와 개통 시 확정 체크리스트</b>는
+ * {@code docs/architecture/identity-verification.md} 의 "외부 계약 — 포트원 v2 / 다날" 표.
+ * 특히 {@code birthDate}(8자리 입력은 우리 편의, 포트원 전송은 {@code yyyy-MM-dd})·{@code phoneNumber}
+ * (숫자만 = 추정) 는 개통 후 실응답으로 확정 대상.
  */
 @Slf4j
 @Component
