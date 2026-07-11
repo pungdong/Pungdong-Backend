@@ -150,17 +150,23 @@ def signup_or_login(email, nick):
 
 
 def verify_identity(token, name):
+    # 휴대폰 SMS 2단계(#163): 생성(READY) → 매직 OTP 로 confirm(VERIFIED). method=SMS 면 carrier 필수(#172).
     s, b = http("POST", "/identity-verifications", token, {
         "realName": name, "birth": "19900101", "gender": "MALE",
-        "phoneNumber": "01012345678", "provider": "KAKAO", "agreedRequiredTerms": True,
+        "phoneNumber": "01012345678", "carrier": "SKT", "method": "SMS",
+        "agreedRequiredTerms": True,
     })
     if s not in (200, 201):
-        raise RuntimeError(f"본인확인 실패: {s} {b}")
-    return b["verificationId"]
+        raise RuntimeError(f"본인확인 생성 실패: {s} {b}")
+    vid = b["verificationId"]
+    s2, b2 = http("POST", f"/identity-verifications/{vid}/confirm", token, {"otp": "000000"})  # stub 매직 OTP
+    if s2 != 200 or b2.get("status") != "VERIFIED":
+        raise RuntimeError(f"본인확인 confirm 실패: {s2} {b2}")
+    return vid
 
 
 def apply_instructor(token, discipline, verification_id, org, org_other=None):
-    cert = {"organizationCode": org, "fileURL": CERT_IMG}
+    cert = {"organizationCode": org, "fileKey": CERT_IMG}
     if org == "OTHER":
         cert["organizationOther"] = org_other or "기타 협회"
     s, b = http("POST", "/instructor-applications", token, {
