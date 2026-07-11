@@ -1,5 +1,6 @@
 package com.diving.pungdong.account;
 
+import com.diving.pungdong.global.advice.ValidationErrors;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.SignInInputException;
 import com.diving.pungdong.global.security.CurrentUser;
@@ -63,11 +64,15 @@ public class SignController {
     private static final String ROTATED_KEY_PREFIX = "rotated:";
 
     @PostMapping("/check/email")
-    public ResponseEntity<?> checkEmailExistence(@RequestBody EmailInfo emailInfo) {
+    public ResponseEntity<?> checkEmailExistence(@Valid @RequestBody EmailInfo emailInfo,
+                                                 BindingResult result) {
+        if (result.hasErrors()) {
+            throw new BadRequestException(ValidationErrors.firstMessage(result));
+        }
         EmailResult emailResult = accountService.checkEmailExistence(emailInfo.getEmail());
 
         EntityModel<EmailResult> model = EntityModel.of(emailResult);
-        model.add(linkTo(methodOn(SignController.class).checkEmailExistence(emailInfo)).withSelfRel());
+        model.add(linkTo(methodOn(SignController.class).checkEmailExistence(emailInfo, result)).withSelfRel());
         model.add(Link.of("/docs/api.html#resource-account-check-email").withRel("profile"));
 
         return ResponseEntity.ok().body(model);

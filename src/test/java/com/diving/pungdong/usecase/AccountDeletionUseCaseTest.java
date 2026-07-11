@@ -37,6 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -203,6 +204,18 @@ class AccountDeletionUseCaseTest {
         assertThat(reloaded.getIsDeleted()).isFalse();
         assertThat(reloaded.getDeletedAt()).isNull();
         assertThat(reloaded.getAnonymizedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("R3: 복구 요청의 인증코드가 6자리 숫자가 아니면 400 + 필드 메시지 (코드 대조 이전에 거부)")
+    void restore_rejectsMalformedCode() throws Exception {
+        // @Valid 가 컨트롤러 진입에서 막으므로 탈퇴 계정/코드 시드 없이도 거부된다.
+        mockMvc.perform(patch("/account/deleted-state")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(
+                        java.util.Map.of("email", "r3@test.com", "emailAuthCode", "12345")))) // 5자리
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("인증번호는 6자리 숫자입니다."));
     }
 
     @Test

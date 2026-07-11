@@ -1,6 +1,7 @@
 package com.diving.pungdong.identityverification;
 
 import com.diving.pungdong.account.Account;
+import com.diving.pungdong.global.advice.ValidationErrors;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.security.CurrentUser;
 import com.diving.pungdong.identityverification.dto.ConfirmIdentityVerificationRequest;
@@ -14,7 +15,6 @@ import org.springframework.hateoas.Link;
 import org.springframework.hateoas.MediaTypes;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindingResult;
-import org.springframework.validation.FieldError;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
@@ -43,7 +43,7 @@ public class IdentityVerificationController {
                                     @Valid @RequestBody IdentityVerificationRequest request,
                                     BindingResult result) {
         if (result.hasErrors()) {
-            throw new BadRequestException(firstFieldMessage(result));
+            throw new BadRequestException(ValidationErrors.firstMessage(result));
         }
         IdentityVerificationResult created = identityVerificationService.create(account, request);
 
@@ -64,7 +64,7 @@ public class IdentityVerificationController {
                                      @Valid @RequestBody ConfirmIdentityVerificationRequest request,
                                      BindingResult result) {
         if (result.hasErrors()) {
-            throw new BadRequestException(firstFieldMessage(result));
+            throw new BadRequestException(ValidationErrors.firstMessage(result));
         }
         ConfirmIdentityVerificationResult confirmed =
                 identityVerificationService.confirm(account, id, request.getOtp());
@@ -103,16 +103,5 @@ public class IdentityVerificationController {
     private Link confirmLink(Account account, Long id) {
         return linkTo(methodOn(IdentityVerificationController.class)
                 .confirm(account, id, null, null)).withRel("confirm");
-    }
-
-    /**
-     * 첫 번째 필드 검증 메시지 — 어느 필드가 왜 틀렸는지 응답 msg 로 그대로 내보낸다("휴대폰 번호 형식이…").
-     * 형식 규칙은 <b>이미 공개된 계약</b>(types.ts·FE)이라 노출해도 oracle 이 아니다(숨겨 지킬 secret 없음).
-     * DTO 의 {@code @Pattern}/{@code @AssertTrue} 메시지는 사용자용 한국어라 FE 가 그대로 표시 가능.
-     * field/global error 가 없으면 null → advice 가 일반 badRequest.msg 로 폴백.
-     */
-    private static String firstFieldMessage(BindingResult result) {
-        FieldError fieldError = result.getFieldError();
-        return fieldError != null ? fieldError.getDefaultMessage() : null;
     }
 }

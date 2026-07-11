@@ -177,6 +177,16 @@ class SignUpUseCaseTest {
     }
 
     @Test
+    @DisplayName("V3: check/email 에 잘못된 이메일 형식이면 400 + 필드 메시지 (존재 조회 이전에 거부)")
+    void checkEmail_rejectsInvalidFormat() throws Exception {
+        mockMvc.perform(post("/sign/check/email")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"not-an-email\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("이메일 형식이 올바르지 않습니다."));
+    }
+
+    @Test
     @DisplayName("D1: 동일 이메일로 두 번째 가입 시도 시 거부 — 첫 번째 계정만 살아남는다")
     void signUp_rejectsDuplicateEmail() throws Exception {
         SignUpInfo first = SignUpInfo.builder()
