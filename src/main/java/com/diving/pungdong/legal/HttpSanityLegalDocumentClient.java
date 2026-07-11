@@ -58,7 +58,9 @@ public class HttpSanityLegalDocumentClient implements LegalDocumentClient {
         this.projectId = projectId;
         this.dataset = dataset;
         this.apiVersion = apiVersion;
-        this.token = token;
+        // SSM SecureString 등에 붙는 trailing 개행/공백 방어 — 안 자르면 "Bearer <token>\n" 이
+        // HttpRequest.header() 에서 IllegalArgumentException(invalid header value) → 500 (staging 사고).
+        this.token = token == null ? null : token.trim();
         this.ttlMillis = ttlMillis;
         this.objectMapper = objectMapper;
         this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
