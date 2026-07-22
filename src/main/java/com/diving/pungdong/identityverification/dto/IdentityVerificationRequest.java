@@ -1,10 +1,11 @@
 package com.diving.pungdong.identityverification.dto;
 
 import com.diving.pungdong.account.Gender;
+import com.diving.pungdong.global.validation.BirthDate;
+import com.diving.pungdong.global.validation.KoreanMobileNumber;
 import com.diving.pungdong.identityverification.Carrier;
 import com.diving.pungdong.identityverification.IdentityProvider;
 import com.diving.pungdong.identityverification.IdentityVerificationMethod;
-import com.diving.pungdong.identityverification.KoreanMobileNumber;
 import lombok.*;
 
 import javax.validation.constraints.AssertTrue;
@@ -40,8 +41,7 @@ public class IdentityVerificationRequest {
 
     /** yyyyMMdd (정규화 후). 달력 정합(2월 31일 등)까지는 안 보고 다날에 맡긴다. */
     @NotBlank
-    @Pattern(regexp = "^(19|20)\\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\\d|3[01])$",
-            message = "생년월일 형식이 올바르지 않습니다. (yyyyMMdd)")
+    @Pattern(regexp = BirthDate.PATTERN, message = BirthDate.MESSAGE)
     private String birth;
 
     @NotNull

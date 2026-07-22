@@ -199,7 +199,7 @@ class SignControllerTest {
     public void signupInstructorSuccess() throws Exception {
         SignUpInfo signUpInfo = SignUpInfo.builder()
                 .email("yechan@gmail.com")
-                .password("1234")
+                .password("pw1234ab")
                 .nickName("yechan")
                 .build();
 

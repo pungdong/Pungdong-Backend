@@ -108,7 +108,7 @@ class SignUpUseCaseTest {
     void signUp_leavesPersonalFieldsNull() throws Exception {
         SignUpInfo payload = SignUpInfo.builder()
                 .email("minimal@example.com")
-                .password("pw1234")
+                .password("pw1234ab")
                 .nickName("minimal")
                 .build();
 
@@ -128,7 +128,7 @@ class SignUpUseCaseTest {
     void signUp_attachesDefaultProfilePhoto() throws Exception {
         SignUpInfo payload = SignUpInfo.builder()
                 .email("photo@example.com")
-                .password("pw1234")
+                .password("pw1234ab")
                 .nickName("photo-user")
                 .build();
 
@@ -147,7 +147,7 @@ class SignUpUseCaseTest {
     void signUp_rejectsInvalidEmail() throws Exception {
         SignUpInfo payload = SignUpInfo.builder()
                 .email("not-an-email")
-                .password("pw1234")
+                .password("pw1234ab")
                 .nickName("bademail")
                 .build();
 
@@ -187,16 +187,33 @@ class SignUpUseCaseTest {
     }
 
     @Test
+    @DisplayName("V4: 비밀번호가 8자 미만이면 가입 거부 (최소 길이 정책 — DB 에 아무 행도 안 생김)")
+    void signUp_rejectsShortPassword() throws Exception {
+        SignUpInfo shortPw = SignUpInfo.builder()
+                .email("short@example.com")
+                .password("pw12") // 4자
+                .nickName("shorty")
+                .build();
+
+        mockMvc.perform(post("/sign/sign-up")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json(shortPw)))
+                .andExpect(status().isBadRequest());
+
+        assertThat(accountRepo.findByNickName("shorty")).isEmpty();
+    }
+
+    @Test
     @DisplayName("D1: 동일 이메일로 두 번째 가입 시도 시 거부 — 첫 번째 계정만 살아남는다")
     void signUp_rejectsDuplicateEmail() throws Exception {
         SignUpInfo first = SignUpInfo.builder()
                 .email("dup@example.com")
-                .password("pw1234")
+                .password("pw1234ab")
                 .nickName("first-user")
                 .build();
         SignUpInfo second = SignUpInfo.builder()
                 .email("dup@example.com")
-                .password("pw5678")
+                .password("pw5678cd")
                 .nickName("second-user")
                 .build();
 
@@ -220,12 +237,12 @@ class SignUpUseCaseTest {
     void signUp_rejectsDuplicateNickName() throws Exception {
         SignUpInfo first = SignUpInfo.builder()
                 .email("nick1@example.com")
-                .password("pw1234")
+                .password("pw1234ab")
                 .nickName("samenick")
                 .build();
         SignUpInfo second = SignUpInfo.builder()
                 .email("nick2@example.com")
-                .password("pw5678")
+                .password("pw5678cd")
                 .nickName("samenick")
                 .build();
 
@@ -256,7 +273,7 @@ class SignUpUseCaseTest {
     void checkNickName_returnsTrue_whenTaken() throws Exception {
         SignUpInfo signUp = SignUpInfo.builder()
                 .email("taken@example.com")
-                .password("pw1234")
+                .password("pw1234ab")
                 .nickName("takennick")
                 .build();
         mockMvc.perform(post("/sign/sign-up")
@@ -274,7 +291,7 @@ class SignUpUseCaseTest {
     void signUp_returnsTokens_andCanRelogin() throws Exception {
         SignUpInfo signUp = SignUpInfo.builder()
                 .email("login@example.com")
-                .password("pw1234")
+                .password("pw1234ab")
                 .nickName("loginuser")
                 .build();
 
@@ -287,7 +304,7 @@ class SignUpUseCaseTest {
                 .andExpect(jsonPath("$.tokens.token_type").value("bearer"));
 
         // 가입 후 같은 자격으로 명시적 로그인도 정상 — 다른 디바이스/세션 진입 시나리오
-        String loginBody = "{\"email\":\"login@example.com\",\"password\":\"pw1234\"}";
+        String loginBody = "{\"email\":\"login@example.com\",\"password\":\"pw1234ab\"}";
         mockMvc.perform(post("/sign/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(loginBody))

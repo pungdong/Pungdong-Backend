@@ -349,7 +349,7 @@ class AccountControllerTest {
     public void updateForgotPassword() throws Exception {
         ForgotPasswordInfo forgotPasswordInfo = ForgotPasswordInfo.builder()
                 .email("abc1234@gmail.com")
-                .newPassword("zas1234")
+                .newPassword("zas1234a")
                 .authCode("342124")
                 .build();
 

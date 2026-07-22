@@ -13,7 +13,7 @@ SMS 2단계(발송 → 확인):
 - **본인확인 경계**: `IdentityVerifier`(interface: `send`/`confirm`/`resend`) + `StubIdentityVerifier`(기본, 매직 OTP `"000000"`) / `DisabledIdentityVerifier`(fail-closed) / `RealPortOneIdentityVerifier`(포트원 REST). `pungdong.identity-verification.mode` = `stub`(기본) / `disabled` / `real`. 경계는 외부 호출만, 영속화는 서비스(payment `TossPaymentClient` 결).
 - **CI/DI 암호화**: `CryptoStringConverter`(AES-256/GCM, `IDENTITY_CRYPTO_KEY`). `ci`/`di` 에 `@Convert`. 읽는 소비자 없음(write-side 보호).
 - **엔티티/enum**: `IdentityVerification`(account_id FK, `status`/`method`/`portoneVerificationId`/`carrier`(enum)/`otpExpiresAt`/`attemptCount`/CI·DI/verifiedAt), `IdentityVerificationStatus`(READY/VERIFIED/FAILED), `IdentityVerificationMethod`(SMS/APP), `Carrier`(SKT/KT/LGU/*_MVNO), `IdentityVerificationErrorCode`, `IdentityProvider`(APP 대비), `ForeignerType`.
-- **형식 규칙**: `KoreanMobileNumber`(PATTERN/MESSAGE) — DTO `@Pattern` 이 참조. **KR 전용 결합을 한 곳에 모은 것**이지 국가 추상화가 아니다(아래 결정 로그).
+- **형식 규칙**: 휴대폰 `KoreanMobileNumber`·생년월일 `BirthDate`(PATTERN/MESSAGE) — **`global/validation/`** 에 있다(계정 프로필도 공유하므로 도메인 패키지 아님). DTO `@Pattern` 이 참조. **KR 전용 결합을 한 곳에 모은 것**이지 국가 추상화가 아니다(아래 결정 로그).
 - **레포**: `IdentityVerificationJpaRepo`(`findTopByAccountIdAndStatusOrderByIdDesc` = 최신 VERIFIED)
 - **dto/**: `IdentityVerificationRequest`, `IdentityVerificationResult`(create/resend), `ConfirmIdentityVerificationRequest`/`ConfirmIdentityVerificationResult`, `MyIdentityVerificationResponse`
 
