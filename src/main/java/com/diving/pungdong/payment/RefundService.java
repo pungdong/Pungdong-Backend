@@ -23,8 +23,8 @@ import java.util.Objects;
 
 /**
  * 환불 — 학생 측(수강 종료 = 남은 회차 환불). {@link RefundCalculator} 로 회차별 환불액을 산정하고, 수강료 몫은
- * <b>1회차 결제주문 부분취소</b>(수강료가 거기 있음), 부대 몫은 <b>각 회차 주문 부분취소</b>로 토스에 취소 요청한다.
- * 그 후 활성·미완료 회차를 모두 CANCELLED + 좌석 해제. stub/실연동은 {@link TossPaymentClient}(결제와 동일 패턴).
+ * <b>1회차 결제주문 부분취소</b>(수강료가 거기 있음), 부대 몫은 <b>각 회차 주문 부분취소</b>로 PG 에 취소 요청한다.
+ * 그 후 활성·미완료 회차를 모두 CANCELLED + 좌석 해제. stub/실연동은 {@link PaymentGateway}(결제와 동일 패턴).
  *
  * <p>{@code enrollmentId} = 수강(컨테이너) id. 회차별 단건 환불이 아니라 <b>수강 단위 종료</b> — 액션매트릭스의
  * 진행 중 "환불신청". 환불율·정책은 {@link RefundCalculator} / docs/features/payment.md.
@@ -38,7 +38,7 @@ public class RefundService {
     private final PaymentOrderJpaRepo orderRepo;
     private final RefundOrderJpaRepo refundRepo;
     private final RefundCalculator calculator;
-    private final TossPaymentClient tossClient;
+    private final PaymentGateway gateway;
     private final SessionCleaner sessionCleaner;
 
     @Transactional
@@ -78,7 +78,7 @@ public class RefundService {
             if (amount <= 0) {
                 continue;
             }
-            tossClient.cancel(order.getPaymentKey(), amount, "수강 환불");
+            gateway.cancel(order.getPaymentKey(), amount, "수강 환불");
             refundRepo.save(RefundOrder.builder()
                     .paymentOrder(order).amount(amount).reason("수강 환불")
                     .status(RefundStatus.DONE).createdAt(now).build());

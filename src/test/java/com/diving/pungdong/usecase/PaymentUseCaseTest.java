@@ -19,7 +19,8 @@ import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
 import com.diving.pungdong.payment.PaymentOrder;
 import com.diving.pungdong.payment.PaymentOrderJpaRepo;
 import com.diving.pungdong.payment.PaymentStatus;
-import com.diving.pungdong.payment.TossPaymentClient;
+import com.diving.pungdong.payment.PaymentGateway;
+import com.diving.pungdong.payment.PaymentProvider;
 import com.diving.pungdong.venue.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -46,21 +47,22 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 결제(payment) use-case — 실 H2 + Spring Security 필터 + 실 서비스/JPA. 외부 PG(토스)만 {@link TossPaymentClient}
- * {@code @MockBean} 으로 격리(결정적). 토스 결제위젯 v2 흐름의 "수락 → 결제 → 확정".
+ * 결제(payment) use-case — 실 H2 + Spring Security 필터 + 실 서비스/JPA. 외부 PG 경계인 {@link PaymentGateway} 만
+ * {@code @MockBean} 으로 격리(결정적). <b>PG 중립</b> — 토스든 KCP든 이 사양은 같아야 한다.
  *
  * <p><b>읽는 법</b>: {@code @DisplayName} 위→아래 = 사양. P* 결제 준비·승인 / 보안·멱등.
  *
- * <p>흐름: 학생 신청(PENDING) → 강사 수락(PAYMENT_PENDING) → {@code /payments/prepare}(서버 권위 금액·주문 생성)
- * → 위젯 결제 → {@code /payments/confirm}(금액 대조 후 토스 승인 → CONFIRMED). 권위 금액 = 코스 라이브 수강료
+ * <p>흐름: 학생 신청(PENDING) → 강사 수락(PAYMENT_PENDING) → {@code /payments/prepare}(서버 권위 금액·주문 생성
+ * + provider/params 반환) → 결제창 → {@code /payments/confirm}(금액 대조 후 PG 승인 → CONFIRMED). 권위 금액 = 코스 라이브 수강료
  * + 입장료 스냅샷 + 장비 스냅샷. 여기선 350,000 + 15,000 + 0 = 365,000(결정적). ⚠️ raw JWT.
  */
 @SpringBootTest
@@ -84,18 +86,25 @@ class PaymentUseCaseTest {
     @Autowired EnrollmentRoundJpaRepo roundRepo;
     @Autowired PaymentOrderJpaRepo orderRepo;
 
-    @MockBean TossPaymentClient tossClient; // 외부 PG 경계만 mock
+    @MockBean PaymentGateway gateway; // 외부 PG 경계만 mock (토스/KCP 무관 — 포트 단위)
 
     private static final LocalDate D1 = LocalDate.now().plusWeeks(1);
     private static final LocalTime B_START = LocalTime.of(14, 0);
     private static final LocalTime B_END = LocalTime.of(17, 0);
 
     @BeforeEach
-    void stubTossDone() {
-        // 기본 — 토스 승인은 DONE(금액 무관). 호출 자체가 거절돼야 하는 시나리오는 verifyNoInteractions 로 확인.
-        given(tossClient.confirm(org.mockito.ArgumentMatchers.anyString(),
-                org.mockito.ArgumentMatchers.anyString(), anyInt()))
-                .willReturn(new TossPaymentClient.TossConfirmResult("DONE", "간편결제", OffsetDateTime.now(), null));
+    void stubGatewayApproved() {
+        // 기본 — PG 승인은 성공(금액 무관). 승인 자체가 일어나면 안 되는 시나리오는 verify(never()) 로 확인.
+        given(gateway.provider()).willReturn(PaymentProvider.STUB);
+        // initParams 는 서비스가 넘긴 InitCommand 를 되비춘다 — customerKey 가 제대로 실렸는지 P1 이 검증할 수 있게.
+        given(gateway.initParams(any())).willAnswer(inv -> {
+            PaymentGateway.InitCommand cmd = inv.getArgument(0);
+            return Map.of("customerKey", cmd.customerKey());
+        });
+        given(gateway.confirm(any()))
+                .willAnswer(inv -> new PaymentGateway.ConfirmResult(
+                        true, "DONE", "간편결제", OffsetDateTime.now(), null,
+                        "pk_test_1")); // 취소 식별자 — 주문에 저장된다
     }
 
     @AfterEach
@@ -127,7 +136,8 @@ class PaymentUseCaseTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.amount").value(EXPECTED_AMOUNT))
                 .andExpect(jsonPath("$.orderId").exists())
-                .andExpect(jsonPath("$.customerKey").value("cust-" + stu.getId()));
+                .andExpect(jsonPath("$.provider").value("STUB"))
+                .andExpect(jsonPath("$.params.customerKey").value("cust-" + stu.getId()));
 
         PaymentOrder order = orderRepo.findByEnrollmentRoundIdAndStatus(e.getId(), PaymentStatus.READY).orElseThrow();
         assertThat(order.getAmount()).isEqualTo(EXPECTED_AMOUNT);
@@ -145,7 +155,7 @@ class PaymentUseCaseTest {
         mockMvc.perform(post("/payments/confirm")
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(stu))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(json(Map.of("paymentKey", "pk_test_1", "orderId", orderId, "amount", EXPECTED_AMOUNT))))
+                .content(json(Map.of("pgPayload", Map.of("paymentKey", "pk_test_1"), "orderId", orderId, "amount", EXPECTED_AMOUNT))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("DONE"))
                 .andExpect(jsonPath("$.enrollmentStatus").value("CONFIRMED"));
@@ -165,10 +175,10 @@ class PaymentUseCaseTest {
         mockMvc.perform(post("/payments/confirm")
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(stu))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(json(Map.of("paymentKey", "pk_test_1", "orderId", orderId, "amount", 1000))))
+                .content(json(Map.of("pgPayload", Map.of("paymentKey", "pk_test_1"), "orderId", orderId, "amount", 1000))))
                 .andExpect(status().isBadRequest());
 
-        verifyNoInteractions(tossClient); // 금액 대조에서 막혀 PG 미호출
+        verify(gateway, never()).confirm(any()); // 금액 대조에서 막혀 PG 승인 미호출
         assertThat(roundRepo.findById(e.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.PAYMENT_PENDING);
         assertThat(orderRepo.findByOrderId(orderId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.READY);
     }
@@ -180,7 +190,7 @@ class PaymentUseCaseTest {
         Account stu = (Account) s[3];
         EnrollmentRound e = accepted(stu, s);
         String orderId = prepareOrderId(stu, e);
-        String body = json(Map.of("paymentKey", "pk_test_1", "orderId", orderId, "amount", EXPECTED_AMOUNT));
+        String body = json(Map.of("pgPayload", Map.of("paymentKey", "pk_test_1"), "orderId", orderId, "amount", EXPECTED_AMOUNT));
 
         mockMvc.perform(post("/payments/confirm").header(HttpHeaders.AUTHORIZATION, tokenFor(stu))
                 .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isOk());

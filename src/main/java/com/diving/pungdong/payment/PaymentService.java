@@ -8,21 +8,21 @@ import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.payment.dto.PaymentConfirmResponse;
 import com.diving.pungdong.payment.dto.PaymentPrepareResponse;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Map;
 import java.util.UUID;
 
 /**
- * 결제 — 학생 측(준비/승인). 토스 결제위젯 v2 흐름의 BE. enrollment "수락 → 결제 → 확정" 의 결제 단계.
- * 다회차: 결제 단위는 <b>회차(EnrollmentRound)</b> — API 의 {@code enrollmentId} 는 회차 id 다.
+ * 결제 — 학생 측(준비/승인). enrollment "수락 → 결제 → 확정" 의 결제 단계. 실제 PG 호출은 {@link PaymentGateway}
+ * 뒤에 있다(토스/KCP/stub 교체). 다회차: 결제 단위는 <b>회차(EnrollmentRound)</b> — API 의 {@code enrollmentId} 는 회차 id 다.
  *
  * <p><b>보안 핵심</b>: 금액은 클라이언트를 신뢰하지 않는다. {@link #prepare}가 서버에서 권위 금액을 재계산해
- * {@link PaymentOrder}에 박고, {@link #confirm}은 클라이언트가 보낸 amount 가 그 값과 같을 때만 토스 승인을
- * 호출한다(토스도 같은 금액 → 위젯 결제액과 다르면 거절). 시크릿 키는 BE 밖으로 안 나간다.
+ * {@link PaymentOrder}에 박고, {@link #confirm}은 클라이언트가 보낸 amount 가 그 값과 같을 때만 승인을
+ * 호출한다 — 그것도 <b>주문에 박힌 금액</b>으로(PG 도 같은 금액 → 결제창 결제액과 다르면 거절). 시크릿은 BE 밖으로 안 나간다.
  *
  * <p><b>권위 금액</b> = (첫 만남 회차면 수강료) + 부대비용(입장료+장비+추가세션비). 수강료는 enrollment 스냅샷
  * 고정(2026-06-28 — 환불 정산을 위해 라이브 재계산 폐기), 1회차에 전액, 2회차~ 는 부대비용만.
@@ -35,20 +35,15 @@ public class PaymentService {
 
     private final PaymentOrderJpaRepo orderRepo;
     private final EnrollmentRoundJpaRepo roundRepo;
-    private final TossPaymentClient tossClient;
+    private final PaymentGateway gateway;
     private final OrderNoFormatter orderNoFormatter;
 
-    /** 위젯 로드용 공개 클라이언트 키 — FE 에 그대로 내려준다(공개값). */
-    private final String clientKey;
-
     public PaymentService(PaymentOrderJpaRepo orderRepo, EnrollmentRoundJpaRepo roundRepo,
-                          TossPaymentClient tossClient, OrderNoFormatter orderNoFormatter,
-                          @Value("${pungdong.payment.toss.client-key:}") String clientKey) {
+                          PaymentGateway gateway, OrderNoFormatter orderNoFormatter) {
         this.orderRepo = orderRepo;
         this.roundRepo = roundRepo;
-        this.tossClient = tossClient;
+        this.gateway = gateway;
         this.orderNoFormatter = orderNoFormatter;
-        this.clientKey = clientKey;
     }
 
     /**
@@ -56,7 +51,7 @@ public class PaymentService {
      * 이미 READY 주문이 있으면 재사용, 금액 변동 시 갱신). FE 가 이 응답으로 위젯을 띄운다. {@code roundId} = 회차 id.
      */
     @Transactional
-    public PaymentPrepareResponse prepare(Account student, Long roundId) {
+    public PaymentPrepareResponse prepare(Account student, Long roundId, boolean mobile) {
         EnrollmentRound r = requirePayable(student, roundId);
         int amount = authoritativeAmount(r);
 
@@ -74,15 +69,19 @@ public class PaymentService {
             order.setOrderName(orderName(r));
             order.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         }
-        return PaymentPrepareResponse.of(order, orderNoFormatter.format(order.getId(), order.getCreatedAt()), clientKey, customerKey(student));
+        // 결제창 구동값은 PG 어댑터가 만든다 — KCP 모바일이면 여기서 거래등록(외부 호출)이 일어난다.
+        var params = gateway.initParams(new PaymentGateway.InitCommand(
+                order.getOrderId(), order.getOrderName(), order.getAmount(), customerKey(student), mobile));
+        return PaymentPrepareResponse.of(order, orderNoFormatter.format(order.getId(), order.getCreatedAt()),
+                gateway.provider(), params);
     }
 
     /**
-     * 결제 승인 — 소유·상태·금액 검증 후 토스 {@code /v1/payments/confirm} 호출. DONE 이면 주문을 DONE 으로,
+     * 결제 승인 — 소유·상태·금액 검증 후 {@link PaymentGateway#confirm} 호출. 승인되면 주문을 DONE 으로,
      * 회차를 CONFIRMED 로 확정. 멱등 — 이미 DONE 인 주문은 그대로 성공 반환(confirm 재호출/새로고침 대비).
      */
     @Transactional
-    public PaymentConfirmResponse confirm(Account student, String paymentKey, String orderId, int amount) {
+    public PaymentConfirmResponse confirm(Account student, String orderId, int amount, Map<String, String> pgPayload) {
         PaymentOrder order = orderRepo.findByOrderId(orderId).orElseThrow(ResourceNotFoundException::new);
         EnrollmentRound r = order.getEnrollmentRound();
         Account owner = r == null || r.getEnrollment() == null ? null : r.getEnrollment().getStudent();
@@ -102,13 +101,16 @@ public class PaymentService {
             throw new BadRequestException(); // 결제 대기 상태가 아님(이미 확정/취소 등)
         }
 
-        TossPaymentClient.TossConfirmResult result = tossClient.confirm(paymentKey, orderId, order.getAmount());
-        if (!"DONE".equals(result.status())) {
-            throw new BadRequestException(); // 토스 승인 미완
+        // 권위 금액은 order.getAmount() — FE 가 보낸 amount 는 위에서 대조만 하고 PG 엔 넘기지 않는다.
+        PaymentGateway.ConfirmResult result = gateway.confirm(
+                new PaymentGateway.ConfirmCommand(orderId, order.getAmount(), pgPayload));
+        if (!result.approved()) {
+            throw new BadRequestException(); // PG 승인 미완(어댑터가 PG별 성공표현을 정규화)
         }
 
         order.setStatus(PaymentStatus.DONE);
-        order.setPaymentKey(paymentKey);
+        // PG 거래 식별자 — 토스 paymentKey / KCP tno. 이후 (부분)취소에 쓴다.
+        order.setPaymentKey(result.pgTransactionId());
         order.setMethod(result.method());
         order.setApprovedAt(result.approvedAt());
         order.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
