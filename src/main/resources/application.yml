@@ -152,10 +152,17 @@ pungdong:
   # staging/prod 만 실연동: PAYMENT_MODE=toss + 시크릿/클라이언트 키. 시크릿 키는 BE 밖으로 안 나간다
   # (승인은 BE 가 /v1/payments/confirm 으로). FE 엔 client-key(공개)만 내려간다.
   payment:
-    mode: ${PAYMENT_MODE:stub}                    # stub | toss
+    mode: ${PAYMENT_MODE:stub}                    # stub | toss | kcp  (부팅 시 하나만 활성)
     toss:
       secret-key: ${TOSS_SECRET_KEY:}             # 결제 승인 Basic 인증 (BE 전용, 노출 금지)
       client-key: ${TOSS_CLIENT_KEY:}             # 위젯 클라이언트 키 (FE 노출용 공개값)
+    kcp:
+      site-cd: ${KCP_SITE_CD:}                    # 가맹점 사이트코드 (5byte, 예: T0000)
+      cert-info: ${KCP_CERT_INFO:}                # 서비스 인증서 PEM 직렬화 — 승인/취소 인증 (노출 금지)
+      private-key: ${KCP_PRIVATE_KEY:}            # 개인키 PEM — 취소 서명(SHA256withRSA)용 (노출 금지)
+      private-key-password: ${KCP_PRIVATE_KEY_PASSWORD:}  # 개인키가 암호화된 경우
+      ret-url: ${KCP_RET_URL:}                    # 결제창 인증결과 수신 URL — BE 고정(클라이언트가 못 정함)
+      live: ${KCP_LIVE:false}                     # false=테스트 엔드포인트, true=운영 (세트 단위 전환)
   # 데모/심사 토글 (둘 다 기본 false, @Profile("!test")).
   demo:
     # 유지: 시드 강의(seeded) 강사에게 가용시간 전체 개방 → 시드 강의가 신청 가능해짐. coverage 는 한 번

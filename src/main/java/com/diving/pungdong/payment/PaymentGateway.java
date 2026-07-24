@@ -47,8 +47,11 @@ public interface PaymentGateway {
     /**
      * 결제 취소(환불) — {@code cancelAmount} 로 <b>부분 취소</b>. {@code pgTransactionId} 는 승인 때 받아
      * 저장해 둔 PG 거래 식별자(토스 {@code paymentKey} / KCP {@code tno}).
+     *
+     * @param remainingAmount 이 취소 <b>직전</b>의 취소가능잔액(= 승인액 − 기취소액). KCP 부분취소가
+     *                        {@code rem_mny} 를 필수로 요구해서 포트에 있다. 토스는 무시한다.
      */
-    CancelResult cancel(String pgTransactionId, int cancelAmount, String reason);
+    CancelResult cancel(String pgTransactionId, int cancelAmount, int remainingAmount, String reason);
 
     /* ─── 명령/결과 ─── */
 

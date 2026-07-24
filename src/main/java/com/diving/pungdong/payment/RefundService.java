@@ -74,11 +74,15 @@ public class RefundService {
             if (order == null || order.getPaymentKey() == null) {
                 continue; // 안전: 주문 없거나 미승인이면 건너뜀
             }
-            int amount = Math.min(entry.getValue(), order.getAmount()); // 주문액 초과 방지
+            // 취소가능잔액 = 승인액 − 기취소액. 이미 부분환불된 주문을 다시 환불해도 초과 취소되지 않는다.
+            int alreadyRefunded = refundRepo.findByPaymentOrderIdAndStatus(order.getId(), RefundStatus.DONE)
+                    .stream().mapToInt(RefundOrder::getAmount).sum();
+            int remaining = order.getAmount() - alreadyRefunded;
+            int amount = Math.min(entry.getValue(), remaining);
             if (amount <= 0) {
                 continue;
             }
-            gateway.cancel(order.getPaymentKey(), amount, "수강 환불");
+            gateway.cancel(order.getPaymentKey(), amount, remaining, "수강 환불");
             refundRepo.save(RefundOrder.builder()
                     .paymentOrder(order).amount(amount).reason("수강 환불")
                     .status(RefundStatus.DONE).createdAt(now).build());
