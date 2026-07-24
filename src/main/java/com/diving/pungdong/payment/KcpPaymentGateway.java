@@ -119,6 +119,7 @@ public class KcpPaymentGateway implements PaymentGateway {
         params.put("siteCd", siteCd);
         params.put("payMethod", "CARD"); // 카드 결제창(간편결제 포함). FE 가 *_direct 로 단독호출 가능.
         params.put("retUrl", retUrl);    // BE 고정값 — 클라이언트가 정하지 않는다(오픈 리다이렉트 방지)
+        params.put("customerKey", command.customerKey()); // KCP 결제창의 shop_user_id (계정 식별, PII 아님)
         if (!command.mobile()) {
             return params; // PC 는 거래등록 없이 JS SDK 로 바로 결제창 호출
         }

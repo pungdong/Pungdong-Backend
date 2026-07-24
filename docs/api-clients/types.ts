@@ -1639,7 +1639,7 @@ export interface PaymentPrepareRequest {
  * 결제창 구동값. amount·orderId·orderName 은 서버 권위값 — 그대로 결제창에 넘긴다.
  * ★ params 의 키는 provider 마다 다르다 — 반드시 provider 로 분기해서 꺼낼 것:
  *   - 'TOSS' → clientKey(공개값), customerKey  … 결제위젯 v2 로 렌더
- *   - 'KCP'  → siteCd, payMethod, retUrl + (mobile 일 때만) approvalKey, payUrl, traceNo
+ *   - 'KCP'  → siteCd, payMethod, retUrl, customerKey + (mobile 일 때만) approvalKey, payUrl, traceNo
  *              · mobile: payUrl 로 form POST(전체 페이지 전환)
  *              · PC: kcp_spay_hub.js 의 KCP_Pay_Execute_Web() 로 호출(거래등록 없음)
  *   - 'STUB' → customerKey 만. 결제창 없이 바로 confirm 호출 가능(로컬 개발)
