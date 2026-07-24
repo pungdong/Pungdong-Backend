@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -31,11 +30,11 @@ import java.util.Map;
  *   <li><b>금액</b> — 토스도 {@code amount} 로 승인 → 위젯 결제 금액과 다르면 토스가 거절(서버 권위 금액 강제).</li>
  * </ul>
  *
- * <p>{@code pungdong.payment.mode=toss} 일 때만 활성. 기본은 {@link StubPaymentGateway}.
+ * <p>빈은 항상 등록되고, 실제 사용 여부는 {@link PaymentGatewayRegistry} 가 정한다 — 신규 결제는
+ * {@code pungdong.payment.mode}, 기존 주문의 환불은 <b>주문에 박제된 provider</b> 기준.
  */
 @Slf4j
 @Component
-@ConditionalOnProperty(name = "pungdong.payment.mode", havingValue = "toss")
 public class TossPaymentGateway implements PaymentGateway {
 
     private static final String CONFIRM_URL = "https://api.tosspayments.com/v1/payments/confirm";

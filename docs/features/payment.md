@@ -59,6 +59,8 @@
 | 2026-06-28 | 웹훅은 **거래량↑·가상계좌 재검토 시** 별도 포커스 PR | 비동기 결제(가상계좌 입금)·out-of-band 취소·정산 reconciliation 용. 그때 **기존 12h 결제 TTL** 을 "가상계좌도 12h 내 입금 안 하면 좌석 해제"로 재사용 → lock+입금기한+웹훅이 자연스럽게 붙음(모델은 이미 준비). |
 | 2026-06-28 | **CS·고객용 주문번호 `orderNo`(Hashids)** — 토스 `orderId`(멱등키)와 분리 | 토스 orderId(`rnd-1-uuid`)는 부르기 어렵고 순차 노출은 누적 주문 수 유추. `OrderNoFormatter` 가 auto-increment id → 가역 코드(`PD-XXXXXXXX`). auto-increment=동시성/유일성 DB 보장(유저값 불필요), Hashids=비순차 난독화. account/course 등 **다른 외부 id 난독화는 "공개 식별자 전략" 별도 안건**(enumeration 방지, 미진행). |
 | 2026-07-25 | **KCP 표준결제 병행 연동 + 결제 포트 PG 중립화** | 토스 **심사 시작까지만 3개월** 대기 통보 — 8월 런칭을 막는 블로커. 토스는 심사에 그대로 태워두고 KCP 를 병행. PG 를 **직연동**(포트원 등 아그리게이터 미채택)한 이유: 이미 `PaymentGateway` 포트가 있어 어댑터 1개면 되고, 필요한 전환이 "주문별 라우팅"이 아니라 **앱 전체 flip**(config 한 줄)이라 아그리게이터의 값이 안 붙음. 포트원은 본인확인에만 계속 사용. |
+| 2026-07-25 | **provider 를 주문에 박제 + 라우팅 이원화**(FE 리뷰) | 전역 설정은 *신규* 주문의 PG 만 정한다. 승인·환불은 주문에 저장된 `PaymentOrder.provider` 로 라우팅(`PaymentGatewayRegistry.forOrder`). 안 그러면 KCP→토스 전환 후 과거 KCP 주문 환불이 토스로 나가 **돈은 받고 환불 실패**. 어댑터는 `@ConditionalOnProperty` 를 떼고 전부 빈으로 등록(옛 PG 로도 취소 가능해야 하므로). V10 마이그레이션 + `RF4` 테스트. |
+| 2026-07-25 | prepare 요청에 **`roundId`** 추가(`enrollmentId` deprecated 병행)(FE 리뷰) | 결제 단위는 회차인데 옛 필드명 `enrollmentId` 가 회차 id 를 담아, 수강 id 를 쓰는 환불 path 와 이름이 겹쳐 위험. 둘 다 number 라 타입으로 안 잡힘. |
 | 2026-07-25 | KCP 는 **LITE PAY 아닌 표준결제** | LITE PAY 가 리다이렉트 통일·SDK 불필요로 더 단순했지만, **간편결제(카카오·네이버·토스페이 등)가 표준 결제창에만 노출**되고(공식 문서 명시) KCP 공식 MCP 문서도 표준결제 라인만 커버. 간편결제 상실 + 문서지원 상실 대비 FE 단순화 이득이 안 남음. |
 
 ### 환불 — 수강 종료(남은 회차 환불) (2026-06-28 구현)

@@ -4,8 +4,8 @@ import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.EncryptedPrivateKeyInfo;
@@ -51,11 +51,12 @@ import java.util.Map;
  *       즉 <b>개인키</b>가 필요하다. 인증서/개인키 모두 시크릿이라 env/SSM 으로만 주입한다.</li>
  * </ul>
  *
- * <p>{@code pungdong.payment.mode=kcp} 일 때만 활성. 기본은 {@link StubPaymentGateway}.
+ * <p>빈은 항상 등록되고, 실제 사용 여부는 {@link PaymentGatewayRegistry} 가 정한다 — 신규 결제는
+ * {@code pungdong.payment.mode}, 기존 주문의 환불은 <b>주문에 박제된 provider</b> 기준.
+ * (설정이 kcp 가 아니어도 빈은 뜨지만, 자격증명이 비어 있으면 실제 호출 시점에 실패한다.)
  */
 @Slf4j
 @Component
-@ConditionalOnProperty(name = "pungdong.payment.mode", havingValue = "kcp")
 public class KcpPaymentGateway implements PaymentGateway {
 
     /* 테스트/운영 엔드포인트 — live 플래그로 <b>세트 단위</b> 전환(부분 혼용 사고 방지). */
@@ -85,6 +86,8 @@ public class KcpPaymentGateway implements PaymentGateway {
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
 
+    // 생성자가 둘(운영/테스트)이라 Spring 이 쓸 것을 명시 — 없으면 no-arg 를 찾다 실패한다.
+    @Autowired
     public KcpPaymentGateway(
             @Value("${pungdong.payment.kcp.site-cd:}") String siteCd,
             @Value("${pungdong.payment.kcp.cert-info:}") String certInfo,
@@ -93,16 +96,29 @@ public class KcpPaymentGateway implements PaymentGateway {
             @Value("${pungdong.payment.kcp.ret-url:}") String retUrl,
             @Value("${pungdong.payment.kcp.live:false}") boolean live,
             ObjectMapper objectMapper) {
+        // 엔드포인트는 live 로 <b>세트 단위</b> 결정 — 운영 경로에서 개별 URL 을 주입할 방법을 두지 않는다
+        // (테스트 등록 + 운영 승인 같은 혼용 사고 방지).
+        this(siteCd, certInfo, privateKeyPem, privateKeyPassword, retUrl,
+                live ? LIVE_REGISTER : TEST_REGISTER,
+                live ? LIVE_APPROVAL : TEST_APPROVAL,
+                live ? LIVE_CANCEL : TEST_CANCEL,
+                objectMapper);
+        log.info("[payment-kcp] 초기화 siteCd={} live={} 개인키={}", siteCd, live, privateKey != null ? "설정됨" : "없음");
+    }
+
+    /** 테스트 전용 — 로컬 스텁 서버로 엔드포인트를 돌려 HTTP 왕복/전문/서명을 검증하기 위한 생성자. */
+    KcpPaymentGateway(String siteCd, String certInfo, String privateKeyPem, String privateKeyPassword,
+                      String retUrl, String registerUrl, String approvalUrl, String cancelUrl,
+                      ObjectMapper objectMapper) {
         this.siteCd = siteCd;
         this.certInfo = certInfo;
         this.retUrl = retUrl;
         this.privateKey = parsePrivateKey(privateKeyPem, privateKeyPassword);
-        this.registerUrl = live ? LIVE_REGISTER : TEST_REGISTER;
-        this.approvalUrl = live ? LIVE_APPROVAL : TEST_APPROVAL;
-        this.cancelUrl = live ? LIVE_CANCEL : TEST_CANCEL;
+        this.registerUrl = registerUrl;
+        this.approvalUrl = approvalUrl;
+        this.cancelUrl = cancelUrl;
         this.objectMapper = objectMapper;
         this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
-        log.info("[payment-kcp] 초기화 siteCd={} live={} 개인키={}", siteCd, live, privateKey != null ? "설정됨" : "없음");
     }
 
     @Override

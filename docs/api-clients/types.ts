@@ -1622,12 +1622,22 @@ export interface InstructorRoundCard {
 
 export type PaymentStatus = 'READY' | 'DONE' | 'CANCELED' | 'FAILED';
 
-/** 어떤 PG 로 결제창을 띄울지. 서버 설정으로 한 번에 하나만 활성(런타임 주문별 라우팅 없음). */
+/**
+ * 어떤 PG 로 결제하나. 신규 주문의 PG 선택은 전역 설정이 정한다(한 번에 하나).
+ * 단, 기존 주문의 승인·환불은 그 주문에 <b>박제된 provider</b> 로 라우팅된다 —
+ * PG 를 갈아탄 뒤에도 과거 KCP 주문의 환불이 KCP 로 가야 하므로(BE 가 보장, FE 는 신경 쓸 것 없음).
+ */
 export type PaymentProvider = 'STUB' | 'TOSS' | 'KCP';
 
 /** 결제 준비 — POST /payments/prepare (authenticated). 수락된(PAYMENT_PENDING) 회차에 대해 주문 생성. */
 export interface PaymentPrepareRequest {
-  enrollmentId: number; // ★ 회차 id (다회차: 결제 단위는 회차). 필드명은 호환 유지.
+  /**
+   * ★ 회차(EnrollmentRound) id. 결제 단위는 회차다.
+   * ⚠️ 이 값은 회차 id — 환불 path 의 {enrollmentId}(수강 id)와 다른 엔티티다. 둘 다 number 라 타입으로 안 잡히니 주의.
+   */
+  roundId: number;
+  /** @deprecated roundId 를 쓸 것. 회차 id 를 담던 옛 이름 — 하위호환으로 당분간만 허용. */
+  enrollmentId?: number;
   /**
    * 모바일 환경 여부(기본 false). KCP 표준결제가 모바일/PC 로 결제창 호출 방식이 갈려서 필요.
    * TOSS·STUB 는 무시. 웹은 UA/뷰포트로, 앱은 항상 true.
@@ -1675,9 +1685,19 @@ export interface PaymentConfirmResponse {
   status: PaymentStatus;          // 성공 = 'DONE'
   amount: number;
   approvedAt: string | null;      // ISO-8601 offset
-  enrollmentId: number | null;        // ★ 회차 id (다회차)
+  enrollmentId: number | null;        // ★ 회차 id (다회차) — 응답 필드명은 호환 유지
   enrollmentStatus: EnrollmentStatus; // 회차 상태 — 성공 후 'CONFIRMED'
 }
+
+// ── 결제 에러 (공통 envelope: { success:false, code:number, msg:string }) ──
+// 결제 도메인은 "없음/비소유"도 404 가 아니라 400 이다(존재 숨김, repo 컨벤션). 아래는 code/msg 예시.
+//   금액 위변조 / 남의 회차 prepare / 이미 취소·만료 주문 confirm / pgPayload 필수키 누락
+//     → 400, code -1011, msg "보내신 요청 정보가 옳지 않습니다."  (구분 불가 — 의도적. 세분 code 없음)
+//   PG 승인 거절(카드 한도·정지 등) → 400, code -1011. ⚠️ PG 원문 메시지는 msg 로 넘어오지 않는다
+//     (BE 가 로그로만 남기고 고정 msg 로 응답 — 카드사 사유는 결제창 단계에서 사용자에게 노출됨).
+//   미인증/토큰만료 → 401 (code -1002), 권한없음 → 403 (code -1003).
+
+
 
 /**
  * 수강 환불(남은 회차 환불) — POST /enrollments/{enrollmentId}/refund (authenticated). 진행 중 "환불신청".

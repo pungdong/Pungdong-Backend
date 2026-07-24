@@ -2,7 +2,7 @@
 
 ## 1. 한 줄 요약
 
-수락된 수강신청(`enrollment` = `PAYMENT_PENDING`)의 **결제**를 책임지는 도메인. **PG 중립** — FE 결제창이 결제하고 **승인은 서버가** 호출한다. 실제 PG 는 `PaymentGateway` 뒤에서 교체된다(토스페이먼츠 결제위젯 v2 / NHN KCP 표준결제 / stub, `pungdong.payment.mode` 로 **부팅 시 하나만**). 핵심 invariant 두 개: **(1) 금액은 서버 권위값** — 클라이언트가 보낸 amount 를 신뢰하지 않고 주문에 박힌 금액과 대조하며, PG 에도 **주문에 박힌 금액**을 보내 결제창 결제액과 다르면 PG 가 거절, **(2) 결제 완료 = 확정** — 승인 성공만이 enrollment 를 `CONFIRMED` 로 넘긴다. 시크릿(토스 시크릿키 / KCP 인증서·개인키)은 BE 밖으로 안 나간다(juso 승인키 기조).
+수락된 수강신청(`enrollment` = `PAYMENT_PENDING`)의 **결제**를 책임지는 도메인. **PG 중립** — FE 결제창이 결제하고 **승인은 서버가** 호출한다. 실제 PG 는 `PaymentGateway` 뒤에서 교체된다(토스/KCP/stub). **신규 주문**은 전역 설정(`pungdong.payment.mode`)이 PG 를 고르지만, 그 PG 를 **주문에 박제**(`PaymentOrder.provider`)해서 **기존 주문의 승인·환불은 결제 당시 PG 로** 간다(`PaymentGatewayRegistry`) — PG 를 갈아탄 뒤 과거 주문 환불이 엉뚱한 PG 로 나가 실패하는 것을 막는다. 핵심 invariant 두 개: **(1) 금액은 서버 권위값** — 클라이언트가 보낸 amount 를 신뢰하지 않고 주문에 박힌 금액과 대조하며, PG 에도 **주문에 박힌 금액**을 보내 결제창 결제액과 다르면 PG 가 거절, **(2) 결제 완료 = 확정** — 승인 성공만이 enrollment 를 `CONFIRMED` 로 넘긴다. 시크릿(토스 시크릿키 / KCP 인증서·개인키)은 BE 밖으로 안 나간다(juso 승인키 기조).
 
 > 레거시 `domain/payment/Payment`(옛 예약 플로우의 가격 산술 전용, PG 필드 없음)와 무관 — 새 `payment/` feature 패키지가 enrollment 옆에서 결제를 1급으로 소유.
 
@@ -14,17 +14,19 @@ flowchart TB
         Ctl["PaymentController<br/>/payments/prepare · /confirm"]
         Svc["PaymentService<br/>(@Service enrollmentPaymentService)"]
         Order["PaymentOrder (엔티티)<br/>PaymentOrderJpaRepo"]
+        Reg["PaymentGatewayRegistry<br/>active()=전역설정 · forOrder(provider)=주문박제"]
         Client["PaymentGateway (interface)<br/>provider·initParams·confirm·cancel"]
-        Toss1["TossPaymentGateway<br/>@ConditionalOnProperty toss"]
-        Kcp["KcpPaymentGateway<br/>@ConditionalOnProperty kcp"]
-        Stub["StubPaymentGateway<br/>@ConditionalOnProperty stub(기본)"]
+        Toss1["TossPaymentGateway (빈)"]
+        Kcp["KcpPaymentGateway (빈)"]
+        Stub["StubPaymentGateway (빈)"]
     end
     Ctl --> Svc
     Svc --> Order
-    Svc --> Client
-    Client -. 구현교체 .- Toss1
-    Client -. 구현교체 .- Kcp
-    Client -. 구현교체 .- Stub
+    Svc --> Reg
+    Reg --> Client
+    Client -. 구현 .- Toss1
+    Client -. 구현 .- Kcp
+    Client -. 구현 .- Stub
     Svc -- "상태 읽기/확정(CONFIRMED)" --> Enr["enrollment.Enrollment<br/>(EnrollmentJpaRepo)"]
     Svc -- "라이브 수강료" --> Course["course.Course"]
     Toss1 -- "POST /v1/payments/confirm<br/>Basic 시크릿 키" --> TossApi["토스페이먼츠 API"]

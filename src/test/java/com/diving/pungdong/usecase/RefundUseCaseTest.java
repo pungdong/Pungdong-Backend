@@ -65,8 +65,17 @@ class RefundUseCaseTest {
     @Autowired PaymentOrderJpaRepo orderRepo;
     @Autowired RefundOrderJpaRepo refundRepo;
 
-    // PG 경계만 mock — cancel 에 넘어가는 인자를 검증하기 위해(반환값은 서비스가 쓰지 않는다).
-    @MockBean com.diving.pungdong.payment.PaymentGateway gateway;
+    // 레지스트리를 mock — 어댑터 3개가 모두 빈이라 PaymentGateway 타입 mock 은 주입이 모호해진다.
+    // cancel 에 넘어가는 인자와 "어느 PG 로 갔는지"를 검증하기 위해(반환값은 서비스가 쓰지 않는다).
+    @MockBean com.diving.pungdong.payment.PaymentGatewayRegistry gateways;
+    final com.diving.pungdong.payment.PaymentGateway gateway =
+            org.mockito.Mockito.mock(com.diving.pungdong.payment.PaymentGateway.class);
+
+    @org.junit.jupiter.api.BeforeEach
+    void routeToMock() {
+        org.mockito.BDDMockito.given(gateways.active()).willReturn(gateway);
+        org.mockito.BDDMockito.given(gateways.forOrder(org.mockito.ArgumentMatchers.any())).willReturn(gateway);
+    }
 
     @AfterEach
     void clean() {
@@ -197,5 +206,30 @@ class RefundUseCaseTest {
         f.student = stu;
         f.enrollmentId = e.getId();
         return f;
+    }
+
+    @Test
+    @DisplayName("RF4 PG 를 갈아탄 뒤에도 과거 주문의 환불은 결제 당시 PG 로 나간다 — 전역 설정을 보지 않는다")
+    void refundRoutesToOrderProviderAfterSwitch() throws Exception {
+        Fixture f = fixture();
+        // 이 주문들은 KCP 로 결제된 것으로 박제한다(결제 당시 PG).
+        orderRepo.findAll().forEach(o -> {
+            o.setProvider(com.diving.pungdong.payment.PaymentProvider.KCP);
+            orderRepo.save(o);
+        });
+
+        // 그 뒤 전역 설정이 토스로 바뀐 상황 — active() 는 토스, forOrder(KCP) 는 KCP 를 준다.
+        var toss = org.mockito.Mockito.mock(com.diving.pungdong.payment.PaymentGateway.class);
+        var kcp = org.mockito.Mockito.mock(com.diving.pungdong.payment.PaymentGateway.class);
+        org.mockito.BDDMockito.given(gateways.active()).willReturn(toss);
+        org.mockito.BDDMockito.given(gateways.forOrder(com.diving.pungdong.payment.PaymentProvider.KCP)).willReturn(kcp);
+
+        mockMvc.perform(post("/enrollments/{id}/refund", f.enrollmentId).header(HttpHeaders.AUTHORIZATION, token(f.student)))
+                .andExpect(status().isOk());
+
+        // 취소는 전부 KCP 로. 토스로 한 건이라도 나가면 "존재하지 않는 거래" 취소라 돈은 받고 환불은 실패한다.
+        verify(kcp).cancel(eq("pk1"), eq(100_000), eq(220_000), anyString());
+        verify(kcp).cancel(eq("pk2"), eq(20_000), eq(20_000), anyString());
+        org.mockito.Mockito.verifyNoInteractions(toss);
     }
 }

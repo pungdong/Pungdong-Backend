@@ -14,6 +14,7 @@
   - `StubPaymentGateway`(기본값, 외부 미호출·즉시 승인) / `TossPaymentGateway`(`mode=toss`) / `KcpPaymentGateway`(`mode=kcp`).
   - **PG 어휘는 어댑터 안에 가둔다** — `ConfirmResult.approved` 가 PG별 성공표현(토스 `DONE` / KCP `res_cd=0000`)을 정규화하고, `pgTransactionId`(토스 `paymentKey` / KCP `tno`)로 취소 식별자를 통일. 서비스는 PG 를 모른다.
   - ⚠️ `PaymentOrder.paymentKey` 컬럼은 이름만 토스 유래 — 실제로는 **PG 거래 식별자**(KCP 면 `tno`)를 담는다. 컬럼 리네임은 Flyway 마이그레이션이 붙어 미뤘다.
+- **`PaymentGatewayRegistry`** — 어느 PG 로 보낼지 고른다. 어댑터는 `@ConditionalOnProperty` 없이 **전부 빈**으로 뜨고, 레지스트리가 선택: `active()`=전역 설정(신규 결제) / `forOrder(order.provider)`=주문에 박제된 PG(기존 주문 승인·환불). **왜**: PG 를 갈아탄 뒤 과거 주문 환불이 엉뚱한 PG 로 나가면 "돈은 받고 환불 실패"(FE 리뷰). `PaymentOrder.provider` 는 prepare 가 박고(V10), 승인·환불은 그 값으로 라우팅.
   - **KCP 특이점**: 모바일만 거래등록(`initParams` 안에서 외부 호출), PC 는 JS SDK. 취소엔 **RSA 서명**(개인키) 필요. `Ret_URL` 은 서버 고정(오픈 리다이렉트 방지). 응답 결제수단은 카드형/머니형/포인트형 **3갈래**라 `methodLabel()` 로 정규화하고, **금액은 응답에서 안 읽는다**(쿠폰·포인트 100% 결제 시 `card_mny=0`).
 - **엔티티**: `PaymentOrder`(orderId·**enrollmentRound**·amount(권위 금액)·status·paymentKey…) → `PaymentOrderJpaRepo`. **`RefundOrder`**(paymentOrder·amount·reason·status — 주문별 환불 감사기록) → `RefundOrderJpaRepo`. enum `PaymentStatus`(READY/DONE/CANCELED/FAILED), `RefundStatus`(REQUESTED/DONE/FAILED).
 - **dto/**: `PaymentPrepare/Confirm Request/Response`(+**`orderNo`** = CS·고객용 주문번호), **`RefundQuote`**(total + 회차별 line: tuitionPart/extraPart 분리 — 실행 매핑용).

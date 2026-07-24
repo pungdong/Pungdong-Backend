@@ -43,7 +43,11 @@ public class PaymentController {
         if (result.hasErrors()) {
             throw new BadRequestException();
         }
-        return ResponseEntity.ok(paymentService.prepare(account, request.getEnrollmentId(), request.isMobile()));
+        Long roundId = request.resolvedRoundId();
+        if (roundId == null) {
+            throw new BadRequestException(); // roundId(또는 하위호환 enrollmentId) 필수
+        }
+        return ResponseEntity.ok(paymentService.prepare(account, roundId, request.isMobile()));
     }
 
     /** 결제 승인 — 위젯 성공 리다이렉트의 (paymentKey, orderId, amount)로 토스 승인 → 신청 확정. */

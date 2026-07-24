@@ -20,6 +20,7 @@ import com.diving.pungdong.payment.PaymentOrder;
 import com.diving.pungdong.payment.PaymentOrderJpaRepo;
 import com.diving.pungdong.payment.PaymentStatus;
 import com.diving.pungdong.payment.PaymentGateway;
+import com.diving.pungdong.payment.PaymentGatewayRegistry;
 import com.diving.pungdong.payment.PaymentProvider;
 import com.diving.pungdong.venue.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -86,7 +87,9 @@ class PaymentUseCaseTest {
     @Autowired EnrollmentRoundJpaRepo roundRepo;
     @Autowired PaymentOrderJpaRepo orderRepo;
 
-    @MockBean PaymentGateway gateway; // 외부 PG 경계만 mock (토스/KCP 무관 — 포트 단위)
+    // 레지스트리를 mock — 어댑터 3개가 모두 빈이라 PaymentGateway 타입으로 mock 하면 주입이 모호해진다.
+    @MockBean PaymentGatewayRegistry gateways;
+    final PaymentGateway gateway = org.mockito.Mockito.mock(PaymentGateway.class);
 
     private static final LocalDate D1 = LocalDate.now().plusWeeks(1);
     private static final LocalTime B_START = LocalTime.of(14, 0);
@@ -95,6 +98,8 @@ class PaymentUseCaseTest {
     @BeforeEach
     void stubGatewayApproved() {
         // 기본 — PG 승인은 성공(금액 무관). 승인 자체가 일어나면 안 되는 시나리오는 verify(never()) 로 확인.
+        given(gateways.active()).willReturn(gateway);
+        given(gateways.forOrder(any())).willReturn(gateway);
         given(gateway.provider()).willReturn(PaymentProvider.STUB);
         // initParams 는 서비스가 넘긴 InitCommand 를 되비춘다 — customerKey 가 제대로 실렸는지 P1 이 검증할 수 있게.
         given(gateway.initParams(any())).willAnswer(inv -> {

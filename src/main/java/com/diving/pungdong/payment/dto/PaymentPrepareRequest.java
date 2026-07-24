@@ -4,15 +4,31 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-import javax.validation.constraints.NotNull;
-
-/** 결제 준비 요청 — 수락된(PAYMENT_PENDING) 수강신청에 대해 주문 생성. */
+/**
+ * 결제 준비 요청 — 수락된(PAYMENT_PENDING) <b>회차</b>에 대해 주문 생성.
+ *
+ * <p>⚠️ <b>식별자 이름 주의</b>: 결제 단위는 <b>회차(EnrollmentRound)</b> 다. 옛 필드명 {@code enrollmentId} 가
+ * 실제로는 회차 id 를 담고 있어, 같은 이름을 <b>수강(Enrollment) id</b> 로 쓰는 환불 경로
+ * ({@code POST /enrollments/{enrollmentId}/refund})와 헷갈린다 — 둘 다 number 라 타입으로 못 잡는다(FE 리뷰 지적).
+ * 그래서 {@link #roundId} 를 도입했고, {@code enrollmentId} 는 하위호환으로 당분간 병행 허용한다.
+ */
 @Getter @Setter
 @NoArgsConstructor
 public class PaymentPrepareRequest {
 
-    @NotNull
+    /** ★ 회차(EnrollmentRound) id — 권장 필드. */
+    private Long roundId;
+
+    /**
+     * @deprecated 회차 id 를 담는 옛 이름. {@link #roundId} 를 쓸 것. 하위호환으로만 남아 있다.
+     */
+    @Deprecated
     private Long enrollmentId;
+
+    /** 실제로 쓸 회차 id — {@code roundId} 우선, 없으면 옛 {@code enrollmentId}. 둘 다 없으면 null(컨트롤러가 400). */
+    public Long resolvedRoundId() {
+        return roundId != null ? roundId : enrollmentId;
+    }
 
     /**
      * 모바일 환경 여부 — KCP 표준결제가 <b>모바일(거래등록 후 PayUrl 이동)과 PC(JS SDK 직접 호출)</b>로 흐름이

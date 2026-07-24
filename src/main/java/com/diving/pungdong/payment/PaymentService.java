@@ -35,14 +35,14 @@ public class PaymentService {
 
     private final PaymentOrderJpaRepo orderRepo;
     private final EnrollmentRoundJpaRepo roundRepo;
-    private final PaymentGateway gateway;
+    private final PaymentGatewayRegistry gateways;
     private final OrderNoFormatter orderNoFormatter;
 
     public PaymentService(PaymentOrderJpaRepo orderRepo, EnrollmentRoundJpaRepo roundRepo,
-                          PaymentGateway gateway, OrderNoFormatter orderNoFormatter) {
+                          PaymentGatewayRegistry gateways, OrderNoFormatter orderNoFormatter) {
         this.orderRepo = orderRepo;
         this.roundRepo = roundRepo;
-        this.gateway = gateway;
+        this.gateways = gateways;
         this.orderNoFormatter = orderNoFormatter;
     }
 
@@ -69,6 +69,11 @@ public class PaymentService {
             order.setOrderName(orderName(r));
             order.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         }
+        // 신규 결제는 전역 설정이 정한 PG 로. 결제창을 띄우는 이 시점의 PG 를 주문에 박제한다 —
+        // 이후 승인·환불은 전역 설정이 바뀌어도 이 값으로 라우팅된다(PaymentGatewayRegistry 참고).
+        PaymentGateway gateway = gateways.active();
+        order.setProvider(gateway.provider()); // READY 주문 재사용 시에도 현재 PG 로 다시 박제(결제창을 새로 띄우므로)
+
         // 결제창 구동값은 PG 어댑터가 만든다 — KCP 모바일이면 여기서 거래등록(외부 호출)이 일어난다.
         var params = gateway.initParams(new PaymentGateway.InitCommand(
                 order.getOrderId(), order.getOrderName(), order.getAmount(), customerKey(student), mobile));
@@ -102,7 +107,8 @@ public class PaymentService {
         }
 
         // 권위 금액은 order.getAmount() — FE 가 보낸 amount 는 위에서 대조만 하고 PG 엔 넘기지 않는다.
-        PaymentGateway.ConfirmResult result = gateway.confirm(
+        // 승인은 <b>결제창을 띄운 그 PG</b> 로 간다 — pgPayload 가 그 PG 의 인증값이므로 전역 설정을 보면 안 된다.
+        PaymentGateway.ConfirmResult result = gateways.forOrder(order.getProvider()).confirm(
                 new PaymentGateway.ConfirmCommand(orderId, order.getAmount(), pgPayload));
         if (!result.approved()) {
             throw new BadRequestException(); // PG 승인 미완(어댑터가 PG별 성공표현을 정규화)

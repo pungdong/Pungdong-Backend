@@ -1,7 +1,6 @@
 package com.diving.pungdong.payment;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.time.OffsetDateTime;
@@ -11,6 +10,7 @@ import java.util.Map;
 /**
  * 🔒 로컬/테스트 stub — 외부 PG 를 호출하지 않고 즉시 승인을 돌려준다. 로컬 개발이 외부 PG 에 묶이지 않게 하는
  * 기본 모드(외부 호출 0). 실 승인 검증은 {@code pungdong.payment.mode=toss|kcp} 로 전환.
+ * 빈은 항상 등록되며 선택은 {@link PaymentGatewayRegistry} 가 한다.
  *
  * <p>{@link #provider()} 가 {@link PaymentProvider#STUB} 이라 FE 는 결제창을 띄우지 않고 바로 confirm 을 부르면 된다.
  *
@@ -18,7 +18,6 @@ import java.util.Map;
  */
 @Slf4j
 @Component
-@ConditionalOnProperty(name = "pungdong.payment.mode", havingValue = "stub", matchIfMissing = true)
 public class StubPaymentGateway implements PaymentGateway {
 
     @Override

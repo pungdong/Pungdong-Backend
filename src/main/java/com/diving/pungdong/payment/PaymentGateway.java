@@ -6,8 +6,9 @@ import java.time.OffsetDateTime;
 import java.util.Map;
 
 /**
- * 결제 승인 경계 — BE 와 외부 PG 사이. {@code address}/{@code consent}/{@code identityverification} 과 동일한
- * "interface + 구현 교체(@ConditionalOnProperty)" 패턴. 구현은 {@code pungdong.payment.mode} 로 <b>하나만</b> 활성.
+ * 결제 승인 경계 — BE 와 외부 PG 사이. {@code address}/{@code consent}/{@code identityverification} 과 같은
+ * "interface + 구현 교체" 패턴이되, <b>선택 방식이 다르다</b>: 구현은 전부 빈으로 등록되고
+ * {@link PaymentGatewayRegistry} 가 고른다(신규 결제=전역 설정, 기존 주문=주문에 박제된 provider).
  *
  * <ul>
  *   <li>{@link StubPaymentGateway} — 외부 미호출, 즉시 승인. 기본값(로컬/테스트).</li>
