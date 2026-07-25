@@ -161,7 +161,7 @@ pungdong:
       cert-info: ${KCP_CERT_INFO:}                # 서비스 인증서 PEM 직렬화 — 승인/취소 인증 (노출 금지)
       private-key: ${KCP_PRIVATE_KEY:}            # 개인키 PEM — 취소 서명(SHA256withRSA)용 (노출 금지)
       private-key-password: ${KCP_PRIVATE_KEY_PASSWORD:}  # 개인키가 암호화된 경우
-      ret-url: ${KCP_RET_URL:}                    # 결제창 인증결과 수신 URL — BE 고정(클라이언트가 못 정함)
+      ret-url: ${KCP_RET_URL:}                    # 결제창 인증결과(enc_data 등) 수신 FE 라우트 — BE 고정(클라이언트가 못 정함, 오픈리다이렉트 방지). KCP가 여기로 form POST → FE가 /payments/confirm 호출
       live: ${KCP_LIVE:false}                     # false=테스트 엔드포인트, true=운영 (세트 단위 전환)
   # 데모/심사 토글 (둘 다 기본 false, @Profile("!test")).
   demo:

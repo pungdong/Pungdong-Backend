@@ -18,7 +18,7 @@
   - **KCP 특이점**: 모바일만 거래등록(`initParams` 안에서 외부 호출), PC 는 JS SDK. 취소엔 **RSA 서명**(개인키) 필요. `Ret_URL` 은 서버 고정(오픈 리다이렉트 방지). 응답 결제수단은 카드형/머니형/포인트형 **3갈래**라 `methodLabel()` 로 정규화하고, **금액은 응답에서 안 읽는다**(쿠폰·포인트 100% 결제 시 `card_mny=0`).
 - **엔티티**: `PaymentOrder`(orderId·**enrollmentRound**·amount(권위 금액)·status·paymentKey…) → `PaymentOrderJpaRepo`. **`RefundOrder`**(paymentOrder·amount·reason·status — 주문별 환불 감사기록) → `RefundOrderJpaRepo`. enum `PaymentStatus`(READY/DONE/CANCELED/FAILED), `RefundStatus`(REQUESTED/DONE/FAILED).
 - **dto/**: `PaymentPrepare/Confirm Request/Response`(+**`orderNo`** = CS·고객용 주문번호), **`RefundQuote`**(total + 회차별 line: tuitionPart/extraPart 분리 — 실행 매핑용).
-- **`OrderNoFormatter`**: 순차 `PaymentOrder` id → **Hashids 난독화 코드**(`PD-XXXXXXXX`, 가역·혼동문자 제외). PG `orderId`(멱등키, 내부)와 별개의 표시값 — 누적 주문 수 유추 방지. salt=`pungdong.hashids.salt`(키, 노출 금지). ⚠️ account/course 등 **다른 외부 id 난독화**는 별도 "공개 식별자 전략" 안건(아직 X).
+- **`OrderNoFormatter`**: 순차 `PaymentOrder` id → **Hashids 난독화 코드**(`PD-YYMMDD-XXXXXXXX`, 날짜+가역·혼동문자 제외). PG `orderId`(멱등키, 내부)와 별개의 표시값 — 누적 주문 수 유추 방지. salt=`pungdong.hashids.salt`(키, 노출 금지). ⚠️ account/course 등 **다른 외부 id 난독화**는 별도 "공개 식별자 전략" 안건(아직 X).
 
 레거시 `domain/payment/Payment` 는 **건드리지 않는다**(옛 예약 플로우 전용, PG 필드 없음).
 

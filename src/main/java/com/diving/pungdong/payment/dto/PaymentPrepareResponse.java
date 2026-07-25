@@ -23,7 +23,7 @@ import java.util.Map;
 public class PaymentPrepareResponse {
 
     private String orderId;     // PG 멱등키 — 결제창에 그대로 넘김(내부 식별)
-    private String orderNo;     // CS·고객용 주문번호(PD-XXXXXXXX, 난독화)
+    private String orderNo;     // CS·고객용 주문번호(PD-YYMMDD-XXXXXXXX, 날짜+난독화)
     private int amount;
     private String orderName;
 
