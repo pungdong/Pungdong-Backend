@@ -253,7 +253,18 @@ public class KcpPaymentGateway implements PaymentGateway {
         return body;
     }
 
-    /** 잔액 전부면 전체취소(STSC), 일부면 부분취소(STPC). */
+    /**
+     * 취소 타입 — 잔액 전부면 전체취소(STSC), 일부면 부분취소(STPC).
+     *
+     * <p>⚠️ <b>KCP 규칙의 함정(에러 8038)</b>: 여기서 STSC 로 판정하는 "전액 취소"는 <b>그 주문의 첫 취소</b>일 때만
+     * 맞다. 이미 <b>부분취소를 시작한 주문</b>은 남은 잔액을 전량 취소하더라도 STSC 가 아니라 <b>STPC</b>
+     * ({@code mod_mny=rem_mny})로 보내야 한다(8038 예시: 1만원 중 2천 취소 후 나머지 8천도 {@code mod_mny=8000,
+     * rem_mny=8000}).
+     *
+     * <p>지금은 {@link RefundService} 가 <b>주문당 취소를 1회만</b> 하므로(수강 단위 종료, 재환불은 차단) 이 메서드에
+     * 들어오는 취소는 언제나 첫 취소여서 판정이 옳다. <b>회차별 개별 환불을 열면</b> 부분취소 이력 유무
+     * ({@code alreadyRefunded > 0})를 인자로 받아 이력이 있으면 STPC 를 강제해야 한다.
+     */
     static String modType(int cancelAmount, int remainingAmount) {
         return cancelAmount >= remainingAmount ? "STSC" : "STPC";
     }
