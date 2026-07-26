@@ -14,7 +14,7 @@ import java.time.OffsetDateTime;
 public class PaymentConfirmResponse {
 
     private String orderId;     // 토스 멱등키(내부용). FE 표시는 orderNo 사용
-    private String orderNo;     // CS·고객용 주문번호(PD-XXXXXXXX, 난독화·가역)
+    private String orderNo;     // CS·고객용 주문번호(PD-YYMMDD-XXXXXXXX, 날짜+난독화·가역)
     private PaymentStatus status;
     private int amount;
     private OffsetDateTime approvedAt;

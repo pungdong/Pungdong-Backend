@@ -23,8 +23,8 @@ import java.util.Objects;
 
 /**
  * 환불 — 학생 측(수강 종료 = 남은 회차 환불). {@link RefundCalculator} 로 회차별 환불액을 산정하고, 수강료 몫은
- * <b>1회차 결제주문 부분취소</b>(수강료가 거기 있음), 부대 몫은 <b>각 회차 주문 부분취소</b>로 토스에 취소 요청한다.
- * 그 후 활성·미완료 회차를 모두 CANCELLED + 좌석 해제. stub/실연동은 {@link TossPaymentClient}(결제와 동일 패턴).
+ * <b>1회차 결제주문 부분취소</b>(수강료가 거기 있음), 부대 몫은 <b>각 회차 주문 부분취소</b>로 PG 에 취소 요청한다.
+ * 그 후 활성·미완료 회차를 모두 CANCELLED + 좌석 해제. PG 선택은 {@link PaymentGatewayRegistry}(주문에 박제된 provider 기준).
  *
  * <p>{@code enrollmentId} = 수강(컨테이너) id. 회차별 단건 환불이 아니라 <b>수강 단위 종료</b> — 액션매트릭스의
  * 진행 중 "환불신청". 환불율·정책은 {@link RefundCalculator} / docs/features/payment.md.
@@ -38,7 +38,7 @@ public class RefundService {
     private final PaymentOrderJpaRepo orderRepo;
     private final RefundOrderJpaRepo refundRepo;
     private final RefundCalculator calculator;
-    private final TossPaymentClient tossClient;
+    private final PaymentGatewayRegistry gateways;
     private final SessionCleaner sessionCleaner;
 
     @Transactional
@@ -74,11 +74,16 @@ public class RefundService {
             if (order == null || order.getPaymentKey() == null) {
                 continue; // 안전: 주문 없거나 미승인이면 건너뜀
             }
-            int amount = Math.min(entry.getValue(), order.getAmount()); // 주문액 초과 방지
+            // 취소가능잔액 = 승인액 − 기취소액. 이미 부분환불된 주문을 다시 환불해도 초과 취소되지 않는다.
+            int alreadyRefunded = refundRepo.findByPaymentOrderIdAndStatus(order.getId(), RefundStatus.DONE)
+                    .stream().mapToInt(RefundOrder::getAmount).sum();
+            int remaining = order.getAmount() - alreadyRefunded;
+            int amount = Math.min(entry.getValue(), remaining);
             if (amount <= 0) {
                 continue;
             }
-            tossClient.cancel(order.getPaymentKey(), amount, "수강 환불");
+            // 취소는 <b>그 주문이 결제된 PG</b> 로. 전역 설정으로 보내면 PG 를 갈아탄 뒤 과거 주문 환불이 실패한다.
+            gateways.forOrder(order.getProvider()).cancel(order.getPaymentKey(), amount, remaining, "수강 환불");
             refundRepo.save(RefundOrder.builder()
                     .paymentOrder(order).amount(amount).reason("수강 환불")
                     .status(RefundStatus.DONE).createdAt(now).build());

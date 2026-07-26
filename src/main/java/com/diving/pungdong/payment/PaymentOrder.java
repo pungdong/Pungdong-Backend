@@ -47,13 +47,36 @@ public class PaymentOrder {
     @Enumerated(EnumType.STRING)
     private PaymentStatus status;
 
-    /** 토스 승인 후 발급되는 결제 키(승인 전 null). */
+    /**
+     * 이 주문이 <b>어느 PG 에 묶였는가</b> — prepare 가 결제창을 띄운 시점의 PG 로 박제된다.
+     *
+     * <p>⚠️ <b>왜 주문에 저장하는가</b>: 전역 설정({@code pungdong.payment.mode})은 <b>신규 주문</b>이 어디로 갈지만
+     * 정한다. 주문은 설정보다 오래 산다 — KCP 로 결제한 뒤 토스로 전환하면, 그 주문의 <b>승인·환불은 여전히 KCP</b> 로
+     * 가야 한다. 전역 설정으로 라우팅하면 존재하지 않는 거래에 취소를 보내 <b>돈은 받고 환불은 실패</b>한다.
+     * 라우팅은 {@link PaymentGatewayRegistry#forOrder} 가 이 값으로 한다.
+     *
+     * <p>legacy 행(이 컬럼 도입 전)은 null 이며, 그 경우에만 현재 활성 게이트웨이로 폴백한다.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 16)
+    private PaymentProvider provider;
+
+    /**
+     * 결제를 시작한 클라이언트(web/app) — <b>KCP 콜백 리다이렉트 타겟</b> 선택용. prepare 가 박제한다.
+     * KCP 는 결제창→BE(Ret_URL)→GET 리다이렉트 구조라, 콜백이 이 값으로 web URL/app 스킴을 고른다({@link PaymentClient}).
+     * TOSS/STUB 는 FE 가 리턴을 처리하므로 안 쓴다. null(legacy)이면 web 으로 폴백.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 8)
+    private PaymentClient client;
+
+    /** PG 거래 식별자 — 토스 {@code paymentKey} / KCP {@code tno}. 승인 후 채워지며 취소에 쓴다. */
     private String paymentKey;
 
     /** 결제수단(카드/간편결제/가상계좌 등). 승인 후 채워짐. */
     private String method;
 
-    /** 토스 승인 시각(승인 전 null). */
+    /** PG 승인 시각(승인 전 null). */
     private OffsetDateTime approvedAt;
 
     private OffsetDateTime createdAt;

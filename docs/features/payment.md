@@ -4,13 +4,13 @@
 
 ## 한 줄
 
-수강신청이 **강사 수락 → 결제 → 확정**으로 닫히는 마지막 단계. 토스페이먼츠 **결제위젯 v2** 로 연동 — FE 위젯이 결제하고 BE 가 시크릿 키로 승인한다. booking([booking.md](booking.md))이 "강사 답변 대기"까지였다면, payment 는 그 수락을 실제 확정으로 만든다.
+수강신청이 **강사 수락 → 결제 → 확정**으로 닫히는 마지막 단계. **PG 중립** — FE 결제창이 결제하고 BE 가 승인한다. 실제 PG(토스페이먼츠 결제위젯 v2 / NHN KCP 표준결제)는 설정으로 교체한다. booking([booking.md](booking.md))이 "강사 답변 대기"까지였다면, payment 는 그 수락을 실제 확정으로 만든다.
 
 ## 협력 도메인
 
 | 도메인 | 구현 문서 | 역할 |
 |---|---|---|
-| payment | [payment.md](../architecture/payment.md) | 주문(PaymentOrder)·토스 승인·금액 권위·enrollment 확정 (이 피처) |
+| payment | [payment.md](../architecture/payment.md) | 주문(PaymentOrder)·PG 승인·금액 권위·enrollment 확정 (이 피처) |
 | enrollment | [enrollment.md](../architecture/enrollment.md) | 수락 → PAYMENT_PENDING(슬롯 점유) → 결제 후 CONFIRMED |
 | course | [course.md](../architecture/course.md) | 라이브 수강료(권위 금액 재계산 입력) |
 | venue | [venue.md](../architecture/venue.md) | 입장료(daypart fee) — 신청 스냅샷으로 금액에 포함 |
@@ -32,7 +32,7 @@
 
 ### 금액은 서버 권위값 (보안 핵심)
 
-클라이언트가 보낸 금액을 **절대 신뢰하지 않는다**. `POST /payments/prepare` 가 서버에서 권위 금액을 재계산해 주문(`PaymentOrder.amount`)에 박고, `confirm` 은 클라이언트 amount 가 그 값과 같을 때만 토스 승인을 호출(토스도 같은 금액 → 위젯 결제액 다르면 거절). 이중 방어. 권위 금액 = **서버 스냅샷 합**(그 회차의 수강료[1회차만·enrollment 스냅샷] + 입장료 + 장비 + 추가세션비). 수강료는 환불 정산이 깔끔하도록 **enrollment 스냅샷으로 고정**(2026-06-28 결정 — 옛 "수강료 결제 시점 라이브 재계산"을 대체).
+클라이언트가 보낸 금액을 **절대 신뢰하지 않는다**. `POST /payments/prepare` 가 서버에서 권위 금액을 재계산해 주문(`PaymentOrder.amount`)에 박고, `confirm` 은 클라이언트 amount 가 그 값과 같을 때만 PG 승인을 호출(PG 에도 **주문에 박힌 금액**을 보내므로 결제창 결제액과 다르면 PG 가 거절). 이중 방어. 권위 금액 = **서버 스냅샷 합**(그 회차의 수강료[1회차만·enrollment 스냅샷] + 입장료 + 장비 + 추가세션비). 수강료는 환불 정산이 깔끔하도록 **enrollment 스냅샷으로 고정**(2026-06-28 결정 — 옛 "수강료 결제 시점 라이브 재계산"을 대체).
 
 ### 시크릿 키는 BE 밖으로 안 나간다
 
@@ -40,11 +40,11 @@
 
 ### 멱등
 
-`confirm` 은 멱등 — 이미 DONE 인 주문 재호출(새로고침·재시도)도 200 DONE(이중 승인 없음). 토스 호출엔 `Idempotency-Key = orderId`. prepare 도 멱등(같은 enrollment 의 READY 주문 재사용).
+`confirm` 은 멱등 — 이미 DONE 인 주문 재호출(새로고침·재시도)도 200 DONE(이중 승인 없음). 토스 호출엔 `Idempotency-Key = orderId`(KCP 는 `ordr_no` 로 동일 역할). prepare 도 멱등(같은 enrollment 의 READY 주문 재사용).
 
 ### 로컬 stub / 실연동 분리
 
-로컬·테스트 기본은 stub(토스 미호출·즉시 DONE) — 외부 PG 에 묶이지 않게. staging/prod 만 `PAYMENT_MODE=toss` 로 실연동. address(juso)·identity-verification 과 같은 `@ConditionalOnProperty` interface 교체 패턴.
+로컬·테스트 기본은 stub(외부 미호출·즉시 승인) — 외부 PG 에 묶이지 않게. staging/prod 만 `PAYMENT_MODE=toss|kcp` 로 실연동(부팅 시 하나만). address(juso)·identity-verification 과 같은 `@ConditionalOnProperty` interface 교체 패턴.
 
 ## 결정 히스토리
 
@@ -58,6 +58,11 @@
 | 2026-06-28 | **가상계좌(무통장) 안 받음 + 웹훅 MVP 보류** | 예약형 UX = 즉시 좌석 lock 인데 가상계좌는 나중 입금이라 근본 충돌(자리 잡고 미입금 = 소규모 정원에서 남 자리 막음). 가상계좌만이 웹훅을 *필수*로 만드는 항목(입금이 웹훅으로 와야 확정) — 안 받으면 confirm 동기로 충분, **환불도 동기**(토스 cancel 즉시)라 웹훅 불필요. 수수료는 가상계좌가 최저(~1% vs 카드 2.x~3.4%)지만 출시 초 거래량에선 절대액 미미 → 복잡도 대비 안 남음. **위젯에서 가상계좌 OFF**(토스 `paymentMethods`/머지 콘솔, FE·운영 작업·BE 변경 0). |
 | 2026-06-28 | 웹훅은 **거래량↑·가상계좌 재검토 시** 별도 포커스 PR | 비동기 결제(가상계좌 입금)·out-of-band 취소·정산 reconciliation 용. 그때 **기존 12h 결제 TTL** 을 "가상계좌도 12h 내 입금 안 하면 좌석 해제"로 재사용 → lock+입금기한+웹훅이 자연스럽게 붙음(모델은 이미 준비). |
 | 2026-06-28 | **CS·고객용 주문번호 `orderNo`(Hashids)** — 토스 `orderId`(멱등키)와 분리 | 토스 orderId(`rnd-1-uuid`)는 부르기 어렵고 순차 노출은 누적 주문 수 유추. `OrderNoFormatter` 가 auto-increment id → 가역 코드(`PD-XXXXXXXX`). auto-increment=동시성/유일성 DB 보장(유저값 불필요), Hashids=비순차 난독화. account/course 등 **다른 외부 id 난독화는 "공개 식별자 전략" 별도 안건**(enumeration 방지, 미진행). |
+| 2026-07-25 | **KCP 표준결제 병행 연동 + 결제 포트 PG 중립화** | 토스 **심사 시작까지만 3개월** 대기 통보 — 8월 런칭을 막는 블로커. 토스는 심사에 그대로 태워두고 KCP 를 병행. PG 를 **직연동**(포트원 등 아그리게이터 미채택)한 이유: 이미 `PaymentGateway` 포트가 있어 어댑터 1개면 되고, 필요한 전환이 "주문별 라우팅"이 아니라 **앱 전체 flip**(config 한 줄)이라 아그리게이터의 값이 안 붙음. 포트원은 본인확인에만 계속 사용. |
+| 2026-07-27 | **KCP 만 confirm 주체 = BE**(Ret_URL=BE 콜백)(FE 핑퐁 #1~#3) | 앱 WebView 가 결제창의 form POST 본문을 못 읽음(`onShouldStartLoadWithRequest` 는 GET 만). 그래서 KCP 는 Ret_URL 을 BE(`/payments/kcp/return`, permitAll)로 두고 서버가 승인 후 GET 리다이렉트 → 웹·앱 통일. 리다이렉트 타겟은 주문에 박제한 `client`(web/app, V11)로 고정 allowlist 선택(오픈리다이렉트 방지). 세션리스 승인은 KCP 암호데이터가 인증. TOSS/STUB 는 FE confirm 유지. + `GET /payments/orders/{id}`(성공화면·재진입 조회). |
+| 2026-07-25 | **provider 를 주문에 박제 + 라우팅 이원화**(FE 리뷰) | 전역 설정은 *신규* 주문의 PG 만 정한다. 승인·환불은 주문에 저장된 `PaymentOrder.provider` 로 라우팅(`PaymentGatewayRegistry.forOrder`). 안 그러면 KCP→토스 전환 후 과거 KCP 주문 환불이 토스로 나가 **돈은 받고 환불 실패**. 어댑터는 `@ConditionalOnProperty` 를 떼고 전부 빈으로 등록(옛 PG 로도 취소 가능해야 하므로). V10 마이그레이션 + `RF4` 테스트. |
+| 2026-07-25 | prepare 요청에 **`roundId`** 추가(`enrollmentId` deprecated 병행)(FE 리뷰) | 결제 단위는 회차인데 옛 필드명 `enrollmentId` 가 회차 id 를 담아, 수강 id 를 쓰는 환불 path 와 이름이 겹쳐 위험. 둘 다 number 라 타입으로 안 잡힘. |
+| 2026-07-25 | KCP 는 **LITE PAY 아닌 표준결제** | LITE PAY 가 리다이렉트 통일·SDK 불필요로 더 단순했지만, **간편결제(카카오·네이버·토스페이 등)가 표준 결제창에만 노출**되고(공식 문서 명시) KCP 공식 MCP 문서도 표준결제 라인만 커버. 간편결제 상실 + 문서지원 상실 대비 FE 단순화 이득이 안 남음. |
 
 ### 환불 — 수강 종료(남은 회차 환불) (2026-06-28 구현)
 
@@ -65,7 +70,7 @@
 
 - **회차별 산정**(`RefundCalculator`): 수강 완료(done)=0 / 미배정 회차=수강료÷N(100%, 부대·패널티 0) / 배정취소=(수강료÷N + 부대)×환불율. EXTRA=부대만. 부대는 결제 완료분만.
 - **환불율**: 당일 0 / 전날 50 / 2일전 70 / 3일전+ 100, **신청 1h 내 100**. (코드 상수 — SiteSettings 이전은 튜닝 필요 시.)
-- **실행**: **수강료는 1회차 결제주문에 전액** 있으므로 수강료 몫 합 = 1회차 주문 **부분취소**, 부대 몫 = 각 회차 주문 부분취소. 토스 `POST /v1/payments/{paymentKey}/cancel`(cancelAmount). `RefundOrder` 주문별 기록. stub/실연동은 결제와 동일.
+- **실행**: **수강료는 1회차 결제주문에 전액** 있으므로 수강료 몫 합 = 1회차 주문 **부분취소**, 부대 몫 = 각 회차 주문 부분취소. PG 부분취소(토스 `cancelAmount` / KCP `STPC` + `mod_mny`·`rem_mny`). `RefundOrder` 주문별 기록. stub/실연동은 결제와 동일.
 - 응답 `RefundQuote{total, lines[]}` — 미리보기와 실행이 같은 값.
 
 ## 미해결 / 확장
@@ -78,9 +83,31 @@
 
 ## 본인이 직접 처리할 것 (코드 밖)
 
+### 토스 (심사 대기 중 — 계속 태워둠)
 - staging 배포 + `PAYMENT_MODE=toss`/`TOSS_CLIENT_KEY`/`TOSS_SECRET_KEY` 주입(문서용 테스트 키 → 발급 후 실키). ECS task def / Parameter Store.
-- 토스 PG **심사 신청**(실 결제 1건 시연 경로 확보 후).
-- FE: 위젯 SDK 로드 + `requestPayment`(successUrl/failUrl) + success 라우트에서 `/payments/confirm` 호출.
+- 토스 PG **심사 신청** 완료 — 2026-07 기준 **심사 시작까지 3개월** 통보. 풀리면 `PAYMENT_MODE=toss` 로 flip 만 하면 된다(코드 변경 0).
+
+### KCP (런칭 경로)
+- **KCP 계약 + 라이브 심사 신청.** 문의 시 같이 확인할 것:
+  1. **라이브 심사 기간** (토스보다 빨라야 갈아탄 의미가 있음 — 3주까지 대기 가능)
+  2. **부분취소 협의**(필수 — 에러코드 8392). 우리 환불은 전부 부분취소 기반이라 **협의 없으면 환불이 동작하지 않는다.** 계약 시 반드시 요청할 것.
+  3. **현금영수증**을 KCP 가 대행하는가, 가맹점 직접관리인가 — 직접관리면 머니/포인트 환불 시 현금영수증 취소 연동이 후속 필요
+  4. ~~부분취소 후 잔량 전량 취소 STSC/STPC~~ — **KCP 문서(8038)로 확정**(부분취소 시작 주문은 잔량도 STPC). 현재 주문당 1회 취소라 도달 불가, 회차별 환불 확장 시 반영. 문의 불요.
+- **🔴 환불용 고정 egress IP (승인 결제엔 불필요, 취소만)** — KCP 는 **취소를 등록된 서버 IP 에서만** 허용(에러코드 8012). 현재 ECS 는 `assign_public_ip=true`(NAT 없음)라 IP 가 바뀌어 환불이 배포마다 깨진다.
+  - **방식 = fck-nat/ASG 자가치유 나노 NAT** (~$7/월, 복구 1~3분). 관리형 NAT(~$40)는 무운영/HA 프리미엄인데 우리 트래픽엔 나노가 과분하게 충분 → 크레딧 확정 시에만 관리형 고려. 상세·근거는 [architecture/payment.md](../architecture/payment.md) 간극 섹션.
+  - **시점 = 환불 자동화 붙일 때.** 그전엔 provision 0. 초기 소량 환불은 KCP 상점관리자 수동으로 가능(정합성 수동 관리).
+  - 고정 IP 확보 후 파트너관리자 → 기술관리센터 → 보안관리 → 서버 IP 설정(결제)에 등록.
+- **운영 인지: 환불은 정산예정금액에서 차감된다**(에러코드 8178). 초기 거래량이 적으면 첫 환불이 잔액 부족으로 막힐 수 있고, 그땐 상점관리자 → 입금취소관리 → 가상계좌 발급으로 선입금해야 한다.
+- **테스트 상점ID 로 실 왕복 검증** — 결제창 실물 UX 확인 + 카드/간편결제 승인 + 부분취소/전체취소. 어댑터는 문서 기준 작성이라 이 검증 전엔 미검증 상태.
+- 시크릿 주입: `KCP_SITE_CD`/`KCP_CERT_INFO`/`KCP_PRIVATE_KEY`(+`_PASSWORD`)/`KCP_RET_URL`/`KCP_LIVE`. 인증서·개인키는 **Parameter Store SecureString**.
+
+### FE
+- `prepare` 에 **`client`(web/app)** 전송 — KCP 콜백 리다이렉트 타겟 선택용. `mobile` 과 독립 축.
+- `prepare` 응답의 **`provider` 로 분기**:
+  - `TOSS`(위젯) / `STUB`(결제창 없이 바로 confirm) → **FE 가 `/payments/confirm`** 호출(`pgPayload`=토스 `paymentKey`).
+  - `KCP`(표준결제창, 모바일=PayUrl form POST · PC=`kcp_spay_hub.js`) → **FE 는 confirm 안 함.** 결제창이 BE 콜백(Ret_URL)으로 POST → BE 승인 후 **성공/실패 URL 로 GET 리다이렉트**(web `{origin}/payment/success` · app `plop://payment/success`, 쿼리 `orderId&orderNo&status`).
+- KCP 성공화면: 리다이렉트 도착 → **`GET /payments/orders/{orderId}` 조회**로 금액·상태 렌더(새로고침·딥링크 재진입도 이걸로 복구).
+- 계약 상세: [docs/api-clients/types.ts](../api-clients/types.ts) 의 payment 섹션. **BE 직접 처리분**: `KCP_RET_URL`(BE 콜백 URL) + `KCP_RETURN_WEB_SUCCESS/FAIL`(환경별 web) 주입; app 스킴은 기본값(`plop://payment/...`).
 
 ## 관련 메모리
 

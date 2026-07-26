@@ -1261,7 +1261,7 @@ export interface AvailabilityCalendarResponse {
 // (이중부킹 방지 — submit 도 -1015 로 재검증). 첫 신청이 그 (위치,블록) session 생성, 같은 (위치,블록) 신청은
 // join. 슬롯 식별자 = (date, venueRefId, blockStart, blockEnd) — windowId 없음.
 // 흐름: 신청(PENDING) → 강사 수락(PAYMENT_PENDING, 결제 대기·슬롯 점유) → 결제 승인(CONFIRMED).
-// 결제는 payment 섹션(POST /payments/prepare·confirm, 토스 결제위젯) 참고.
+// 결제는 payment 섹션(POST /payments/prepare·confirm, PG 중립) 참고.
 
 // PAYMENT_PENDING = 강사가 수락해 결제를 기다리는 상태(좌석 점유). 결제 완료 시 CONFIRMED.
 export type EnrollmentStatus = 'PENDING' | 'PAYMENT_PENDING' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED';
@@ -1606,54 +1606,125 @@ export interface InstructorRoundCard {
 }
 
 // ============================================================
-// 결제 (payment 도메인) — 토스페이먼츠 결제위젯 v2
+// 결제 (payment 도메인) — PG 중립 (토스페이먼츠 / NHN KCP 표준결제)
 // docs/features/payment.md · docs/architecture/payment.md 참고
 // ============================================================
-// 흐름: 강사 수락(enrollment = PAYMENT_PENDING) → POST /payments/prepare(주문 생성, 위젯 구동값)
-//   → FE 위젯 렌더 + requestPayment → 토스가 successUrl?paymentKey&orderId&amount 로 리다이렉트
-//   → POST /payments/confirm(그 3개 값) → 서버가 금액 대조 후 토스 승인 → enrollment CONFIRMED.
-// ★ amount·orderId 는 서버가 정한 값(권위) — FE 는 prepare 응답값을 그대로 위젯/confirm 에 넘긴다.
-//   임의 변경 시 승인 거절(서버가 저장한 금액과 대조 + 토스도 같은 금액으로 승인). clientKey 만 공개값.
-// 로컬/테스트는 stub(토스 미호출·즉시 DONE), staging/prod 만 실연동(PAYMENT_MODE=toss).
+// ★★ 2026-07 변경: PG 를 갈아끼울 수 있게 계약이 PG 중립으로 바뀌었다(토스 심사 적체로 KCP 병행).
+//    prepare 응답의 clientKey/customerKey → provider + params(맵), confirm 의 paymentKey → pgPayload(맵).
+//
+// 흐름: 강사 수락(enrollment = PAYMENT_PENDING) → POST /payments/prepare(주문 생성 + 결제창 구동값)
+//   → FE 가 provider 로 분기해 결제창 구동 → 결제창이 PG 고유 인증값을 돌려줌
+//   → POST /payments/confirm(그 값을 pgPayload 에) → 서버가 금액 대조 후 PG 승인 → enrollment CONFIRMED.
+//
+// ★ amount·orderId 는 서버가 정한 값(권위) — FE 는 prepare 응답값을 그대로 결제창/confirm 에 넘긴다.
+//   임의 변경 시 승인 거절(서버가 저장한 금액으로 PG 에 승인 요청하므로 결제창 금액과 다르면 PG 가 거절).
+// 로컬/테스트는 stub(외부 미호출·즉시 승인), staging/prod 만 실연동(PAYMENT_MODE=toss|kcp).
 
 export type PaymentStatus = 'READY' | 'DONE' | 'CANCELED' | 'FAILED';
 
+/**
+ * 어떤 PG 로 결제하나. 신규 주문의 PG 선택은 전역 설정이 정한다(한 번에 하나).
+ * 단, 기존 주문의 승인·환불은 그 주문에 <b>박제된 provider</b> 로 라우팅된다 —
+ * PG 를 갈아탄 뒤에도 과거 KCP 주문의 환불이 KCP 로 가야 하므로(BE 가 보장, FE 는 신경 쓸 것 없음).
+ */
+export type PaymentProvider = 'STUB' | 'TOSS' | 'KCP';
+
 /** 결제 준비 — POST /payments/prepare (authenticated). 수락된(PAYMENT_PENDING) 회차에 대해 주문 생성. */
 export interface PaymentPrepareRequest {
-  enrollmentId: number; // ★ 회차 id (다회차: 결제 단위는 회차). 필드명은 호환 유지.
+  /**
+   * ★ 회차(EnrollmentRound) id. 결제 단위는 회차다.
+   * ⚠️ 이 값은 회차 id — 환불 path 의 {enrollmentId}(수강 id)와 다른 엔티티다. 둘 다 number 라 타입으로 안 잡히니 주의.
+   */
+  roundId: number;
+  /** @deprecated roundId 를 쓸 것. 회차 id 를 담던 옛 이름 — 하위호환으로 당분간만 허용. */
+  enrollmentId?: number;
+  /**
+   * 모바일 환경 여부(기본 false). KCP 표준결제가 모바일/PC 로 결제창 호출 방식이 갈려서 필요.
+   * TOSS·STUB 는 무시. 웹은 UA/뷰포트로, 앱은 항상 true.
+   */
+  mobile?: boolean;
+  /**
+   * 클라이언트 종류(기본 'web'). **KCP 콜백 리다이렉트 타겟**(web URL / app 스킴 plop://)을 BE 가 고르는 데 쓴다.
+   * ★ mobile 과 독립 축: mobile=결제창 레이아웃, client=리다이렉트 타겟. 웹 모바일브라우저 = { mobile:true, client:'web' }.
+   * 앱 → 'app', 웹(데스크탑·모바일 모두) → 'web'. TOSS·STUB 는 무시.
+   */
+  client?: 'web' | 'app';
 }
 
-/** 위젯 구동값. amount·orderId·orderName 은 서버 권위값 — 그대로 위젯에 넘긴다. clientKey 는 공개. */
+/**
+ * 결제창 구동값. amount·orderId·orderName 은 서버 권위값 — 그대로 결제창에 넘긴다.
+ * ★ params 의 키는 provider 마다 다르다 — 반드시 provider 로 분기해서 꺼낼 것:
+ *   - 'TOSS' → clientKey(공개값), customerKey  … 결제위젯 v2 로 렌더
+ *   - 'KCP'  → siteCd, payMethod, retUrl, customerKey + (mobile 일 때만) approvalKey, payUrl, traceNo
+ *              · mobile: payUrl 로 form POST(전체 페이지 전환)
+ *              · PC: kcp_spay_hub.js 의 KCP_Pay_Execute_Web() 로 호출(거래등록 없음)
+ *   - 'STUB' → customerKey 만. 결제창 없이 바로 confirm 호출 가능(로컬 개발)
+ */
 export interface PaymentPrepareResponse {
-  orderId: string;      // 토스 멱등키 — 위젯/confirm 에 그대로. 내부 식별(표시 X)
+  orderId: string;      // PG 멱등키 — 결제창/confirm 에 그대로. 내부 식별(표시 X)
   orderNo: string;      // CS·고객용 주문번호(PD-YYMMDD-XXXXXXXX, 날짜+난독화). FE 의 "주문번호" 표시는 이걸로
   amount: number;       // 원 — (첫 만남이면 수강료 스냅샷) + 입장료 + 장비 + 추가세션비. 회차 단위
   orderName: string;    // "코스명 (N회차)"
-  clientKey: string;    // 토스 위젯 클라이언트 키(공개값)
-  customerKey: string;  // 위젯 customerKey(계정 식별, PII 아님)
+  provider: PaymentProvider;
+  params: Record<string, string>;
 }
 
-/** 결제 승인 — POST /payments/confirm (authenticated). 위젯 성공 리다이렉트의 3개 값 그대로. */
+// ★★ confirm 주체가 provider 마다 다르다 (FE 핑퐁 #1~#3, WebView POST 제약):
+//   - TOSS/STUB → **FE 가** POST /payments/confirm 호출 (아래).
+//   - KCP       → **FE 는 confirm 을 호출하지 않는다.** 결제창이 인증결과를 BE 콜백(Ret_URL=BE)으로 form POST 하고,
+//                 BE 가 서버사이드 승인까지 끝낸 뒤 GET 리다이렉트한다:
+//                   web  → {origin}/payment/success?orderId&orderNo&status=paid   (실패: /payment/fail?...&status=failed)
+//                   app  → plop://payment/success?orderId&orderNo&status=paid     (실패: plop://payment/fail)
+//                 리다이렉트 타겟은 prepare 의 client(web/app)로 BE 가 고름(오픈리다이렉트 방지 — 클라가 URL 안 정함).
+//                 FE 는 그 성공화면에서 orderId 로 GET /payments/orders/{orderId} 조회해 금액·상태를 채운다.
+
+/**
+ * 결제 승인 — POST /payments/confirm (authenticated). **TOSS/STUB 전용** (KCP 는 BE 콜백이 처리 — 위 주석).
+ * ★ pgPayload 키는 provider 별로 다르다:
+ *   - 'TOSS' → { paymentKey }   (위젯 성공 리다이렉트의 값)
+ *   - 'STUB' → {} (생략 가능)
+ * 필요한 키가 없으면 400.
+ */
 export interface PaymentConfirmRequest {
-  paymentKey: string;
   orderId: string;
   amount: number;       // 서버 권위 금액과 다르면 400 (FE 는 prepare 의 amount 를 그대로)
+  pgPayload?: Record<string, string>;
 }
 
-/** 승인 결과 + 그 결과로 확정된 신청 상태. 멱등 — 이미 DONE 인 주문 재승인도 200 DONE. */
+/**
+ * 승인 결과 + 그 결과로 확정된 신청 상태. 멱등 — 이미 DONE 인 주문 재승인도 200 DONE.
+ * GET /payments/orders/{orderId} 응답도 같은 모양(성공화면 재사용).
+ */
 export interface PaymentConfirmResponse {
-  orderId: string;                // 토스 멱등키(내부). 완료 화면 "주문번호" 표시는 orderNo 사용
+  orderId: string;                // PG 멱등키(내부). 완료 화면 "주문번호" 표시는 orderNo 사용
   orderNo: string;                // CS·고객용 주문번호(PD-YYMMDD-XXXXXXXX, 날짜+난독화·가역)
   status: PaymentStatus;          // 성공 = 'DONE'
   amount: number;
   approvedAt: string | null;      // ISO-8601 offset
-  enrollmentId: number | null;        // ★ 회차 id (다회차)
+  enrollmentId: number | null;        // ★ 회차 id (다회차) — 응답 필드명은 호환 유지
   enrollmentStatus: EnrollmentStatus; // 회차 상태 — 성공 후 'CONFIRMED'
 }
 
 /**
+ * 주문 상세 조회 — GET /payments/orders/{orderId} (authenticated, 소유권 검증).
+ * KCP 성공화면(confirm 을 FE 가 안 해 리다이렉트 쿼리만 옴)에서 금액·상태를 채우는 용도 + 새로고침/딥링크 재진입 복구.
+ * 응답 = PaymentConfirmResponse 와 동일 모양. 비소유/없음 = 400(존재 숨김).
+ */
+export type PaymentOrderResponse = PaymentConfirmResponse;
+
+// ── 결제 에러 (공통 envelope: { success:false, code:number, msg:string }) ──
+// 결제 도메인은 "없음/비소유"도 404 가 아니라 400 이다(존재 숨김, repo 컨벤션). 아래는 code/msg 예시.
+//   금액 위변조 / 남의 회차 prepare / 이미 취소·만료 주문 confirm / pgPayload 필수키 누락
+//     → 400, code -1011, msg "보내신 요청 정보가 옳지 않습니다."  (구분 불가 — 의도적. 세분 code 없음)
+//   PG 승인 거절(카드 한도·정지 등) → 400, code -1011. ⚠️ PG 원문 메시지는 msg 로 넘어오지 않는다
+//     (BE 가 로그로만 남기고 고정 msg 로 응답 — 카드사 사유는 결제창 단계에서 사용자에게 노출됨).
+//   미인증/토큰만료 → 401 (code -1002), 권한없음 → 403 (code -1003).
+
+
+
+/**
  * 수강 환불(남은 회차 환불) — POST /enrollments/{enrollmentId}/refund (authenticated). 진행 중 "환불신청".
- * 활성·미완료 회차를 전부 취소하고 회차별로 환불(토스 부분취소). 응답 = 회차별 환불 내역.
+ * 활성·미완료 회차를 전부 취소하고 회차별로 환불(PG 부분취소). 응답 = 회차별 환불 내역.
  *
  * 정책(회차당): 수강 완료(done)=0 · 미배정 회차=수강료/N(100%) · 배정취소=(수강료/N+부대)×환불율.
  * 환불율 = 당일0/전날50/2일전70/3일전+100, 신청 1h 내 100. 수강료는 1회차에 전액 냈으므로 1회차 결제주문 부분취소.

@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.HttpHeaders;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -37,13 +38,18 @@ import java.util.HashSet;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 환불 use-case — 수강 종료(남은 회차 환불). 실 H2 + 시큐리티 + 실 서비스, 토스는 stub(즉시 CANCELED). 수강료가
+ * 환불 use-case — 수강 종료(남은 회차 환불). 실 H2 + 시큐리티 + 실 서비스, 외부 PG 경계만 mock. 수강료가
  * 1회차 주문에 전액 있으므로 <b>2회차 수강료 몫도 1회차 주문 부분취소</b>로 빠지는 게 핵심.
+ *
+ * <p><b>읽는 법</b>: {@code @DisplayName} 위→아래 = 사양. RF1 산정·기록 / RF2 PG 전달값 / RF3 재환불 차단.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -58,6 +64,18 @@ class RefundUseCaseTest {
     @Autowired EnrollmentRoundJpaRepo roundRepo;
     @Autowired PaymentOrderJpaRepo orderRepo;
     @Autowired RefundOrderJpaRepo refundRepo;
+
+    // 레지스트리를 mock — 어댑터 3개가 모두 빈이라 PaymentGateway 타입 mock 은 주입이 모호해진다.
+    // cancel 에 넘어가는 인자와 "어느 PG 로 갔는지"를 검증하기 위해(반환값은 서비스가 쓰지 않는다).
+    @MockBean com.diving.pungdong.payment.PaymentGatewayRegistry gateways;
+    final com.diving.pungdong.payment.PaymentGateway gateway =
+            org.mockito.Mockito.mock(com.diving.pungdong.payment.PaymentGateway.class);
+
+    @org.junit.jupiter.api.BeforeEach
+    void routeToMock() {
+        org.mockito.BDDMockito.given(gateways.active()).willReturn(gateway);
+        org.mockito.BDDMockito.given(gateways.forOrder(org.mockito.ArgumentMatchers.any())).willReturn(gateway);
+    }
 
     @AfterEach
     void clean() {
@@ -125,5 +143,93 @@ class RefundUseCaseTest {
         assertThat(refundRepo.findAll()).hasSize(2);
         assertThat(refundRepo.findAll().stream().mapToInt(com.diving.pungdong.payment.RefundOrder::getAmount).sum())
                 .isEqualTo(120000);
+    }
+
+    @Test
+    @DisplayName("RF2 주문별 취소액과 취소가능잔액이 정확히 전달된다 — 잔액이 틀리면 부분취소가 전액취소로 나간다")
+    void cancelArgumentsAreExact() throws Exception {
+        Fixture f = fixture();
+
+        mockMvc.perform(post("/enrollments/{id}/refund", f.enrollmentId).header(HttpHeaders.AUTHORIZATION, token(f.student)))
+                .andExpect(status().isOk());
+
+        // 1회차 주문(220,000) 중 100,000 만 취소 → 취소액 < 잔액 = 부분취소 경로.
+        verify(gateway).cancel(eq("pk1"), eq(100_000), eq(220_000), anyString());
+        // 2회차 주문(20,000) 전액 취소 → 취소액 == 잔액 = 전체취소 경로.
+        verify(gateway).cancel(eq("pk2"), eq(20_000), eq(20_000), anyString());
+    }
+
+    @Test
+    @DisplayName("RF3 이미 환불한 수강을 다시 환불하면 400 — 활성 회차가 없어 중복 취소가 원천 차단된다")
+    void secondRefundRejected() throws Exception {
+        Fixture f = fixture();
+        mockMvc.perform(post("/enrollments/{id}/refund", f.enrollmentId).header(HttpHeaders.AUTHORIZATION, token(f.student)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/enrollments/{id}/refund", f.enrollmentId).header(HttpHeaders.AUTHORIZATION, token(f.student)))
+                .andExpect(status().isBadRequest());
+
+        assertThat(refundRepo.findAll()).hasSize(2); // 첫 환불분만 — 두 번째로 늘지 않는다
+    }
+
+    /* ─── fixture ─── */
+
+    private static class Fixture {
+        Account student;
+        Long enrollmentId;
+    }
+
+    /** RF1 과 동일 구성: 2회차 과정(수강료 200,000), 1회차 done, 2회차 3일전+. 주문 pk1=220,000 / pk2=20,000. */
+    private Fixture fixture() {
+        Account stu = accountRepo.save(Account.builder().email("rf2@pd.com").password("x").nickName("학생2")
+                .roles(new HashSet<>(Set.of(Role.STUDENT))).build());
+        Account ins = accountRepo.save(Account.builder().email("rfi2@pd.com").password("x").nickName("강사2")
+                .roles(new HashSet<>(Set.of(Role.INSTRUCTOR))).build());
+        Course course = Course.builder().instructor(ins).title("2회차 과정")
+                .kind(CourseKind.CERTIFICATION).organizationCode("AIDA").disciplineCode("FREEDIVING")
+                .totalRounds(2).price(200000).status(CourseStatus.OPEN).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
+        course.addRound(CourseRound.builder().roundKind(RoundKind.REGULAR).roundIndex(1).build());
+        course.addRound(CourseRound.builder().roundKind(RoundKind.REGULAR).roundIndex(2).build());
+        courseRepo.save(course);
+
+        EnrollmentRound r1 = round(1, EnrollmentStatus.CONFIRMED, LocalDate.now().minusDays(3), true, 20000);
+        EnrollmentRound r2 = round(2, EnrollmentStatus.CONFIRMED, LocalDate.now().plusDays(5), false, 20000);
+        Enrollment e = Enrollment.builder().student(stu).course(course).tuitionSnapshot(200000)
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
+        e.addRound(r1);
+        e.addRound(r2);
+        enrollmentRepo.save(e);
+        order(r1, 220000, "pk1");
+        order(r2, 20000, "pk2");
+
+        Fixture f = new Fixture();
+        f.student = stu;
+        f.enrollmentId = e.getId();
+        return f;
+    }
+
+    @Test
+    @DisplayName("RF4 PG 를 갈아탄 뒤에도 과거 주문의 환불은 결제 당시 PG 로 나간다 — 전역 설정을 보지 않는다")
+    void refundRoutesToOrderProviderAfterSwitch() throws Exception {
+        Fixture f = fixture();
+        // 이 주문들은 KCP 로 결제된 것으로 박제한다(결제 당시 PG).
+        orderRepo.findAll().forEach(o -> {
+            o.setProvider(com.diving.pungdong.payment.PaymentProvider.KCP);
+            orderRepo.save(o);
+        });
+
+        // 그 뒤 전역 설정이 토스로 바뀐 상황 — active() 는 토스, forOrder(KCP) 는 KCP 를 준다.
+        var toss = org.mockito.Mockito.mock(com.diving.pungdong.payment.PaymentGateway.class);
+        var kcp = org.mockito.Mockito.mock(com.diving.pungdong.payment.PaymentGateway.class);
+        org.mockito.BDDMockito.given(gateways.active()).willReturn(toss);
+        org.mockito.BDDMockito.given(gateways.forOrder(com.diving.pungdong.payment.PaymentProvider.KCP)).willReturn(kcp);
+
+        mockMvc.perform(post("/enrollments/{id}/refund", f.enrollmentId).header(HttpHeaders.AUTHORIZATION, token(f.student)))
+                .andExpect(status().isOk());
+
+        // 취소는 전부 KCP 로. 토스로 한 건이라도 나가면 "존재하지 않는 거래" 취소라 돈은 받고 환불은 실패한다.
+        verify(kcp).cancel(eq("pk1"), eq(100_000), eq(220_000), anyString());
+        verify(kcp).cancel(eq("pk2"), eq(20_000), eq(20_000), anyString());
+        org.mockito.Mockito.verifyNoInteractions(toss);
     }
 }
