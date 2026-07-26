@@ -61,6 +61,15 @@ public class PaymentOrder {
     @Column(length = 16)
     private PaymentProvider provider;
 
+    /**
+     * 결제를 시작한 클라이언트(web/app) — <b>KCP 콜백 리다이렉트 타겟</b> 선택용. prepare 가 박제한다.
+     * KCP 는 결제창→BE(Ret_URL)→GET 리다이렉트 구조라, 콜백이 이 값으로 web URL/app 스킴을 고른다({@link PaymentClient}).
+     * TOSS/STUB 는 FE 가 리턴을 처리하므로 안 쓴다. null(legacy)이면 web 으로 폴백.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 8)
+    private PaymentClient client;
+
     /** PG 거래 식별자 — 토스 {@code paymentKey} / KCP {@code tno}. 승인 후 채워지며 취소에 쓴다. */
     private String paymentKey;
 

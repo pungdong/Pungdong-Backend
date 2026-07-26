@@ -8,7 +8,7 @@
 
 수강신청 "수락 → 결제 → 확정" 의 결제 단계. FE 위젯이 결제하고 **승인은 BE 가** 시크릿 키로 호출한다.
 
-- **컨트롤러**: `PaymentController` — `POST /payments/prepare`·`confirm`(둘 다 학생 인증). **`RefundController`** — `POST /enrollments/{enrollmentId}/refund`(수강 종료=남은 회차 환불; enrollment 경로지만 PG 취소라 payment 패키지 — enrollment→payment 역참조 방지).
+- **컨트롤러**: `PaymentController` — `POST /payments/prepare`·`confirm`(TOSS/STUB, 학생 인증)·**`GET /payments/orders/{orderId}`**(상세조회, 소유권). **`KcpReturnController`** — **`POST /payments/kcp/return`(permitAll)** = KCP 결제창 form POST 콜백 → 세션리스 승인 → 302 리다이렉트(주문 `client` 로 web/app). ⚠️ 앱 WebView 가 POST 본문을 못 읽어 KCP 만 confirm 주체가 BE. **`RefundController`** — `POST /enrollments/{enrollmentId}/refund`(수강 종료=남은 회차 환불; enrollment 경로지만 PG 취소라 payment 패키지 — enrollment→payment 역참조 방지).
 - **서비스**: `PaymentService`(권위 금액·멱등 prepare·PG 승인·회차 확정. ⚠️ **빈 이름 `@Service("enrollmentPaymentService")`** — 레거시 단순명 충돌 회피). **`RefundService`**(수강 종료 — `RefundCalculator` 산정 + 주문별 PG 부분취소 + 회차 CANCELLED + 좌석 해제). **`RefundCalculator`**(회차별 환불 정책: done=0·미배정=수강료/N·배정취소=(수강료/N+부대)×율; **수강료 몫은 1회차 주문**, 부대는 각 회차 주문).
 - **외부 경계**: **`PaymentGateway`**(interface — `provider`·`initParams`·`confirm`·**`cancel`(부분취소)**) + 구현 3개:
   - `StubPaymentGateway`(기본값, 외부 미호출·즉시 승인) / `TossPaymentGateway`(`mode=toss`) / `KcpPaymentGateway`(`mode=kcp`).
@@ -31,11 +31,11 @@
 
 ## 보안 매처
 
-`/payments/**` → authenticated (`global/security/SecurityConfiguration`). 소유/상태 게이트는 서비스(비소유/없음=400 존재 숨김, 결제대기 아님=400).
+`/payments/**` → authenticated (`global/security/SecurityConfiguration`) — **단 `POST /payments/kcp/return` 은 그 앞에서 permitAll**(KCP 콜백엔 우리 JWT 없음; 인증은 KCP 암호데이터 enc_data). 소유/상태 게이트는 서비스(비소유/없음=400 존재 숨김, 결제대기 아님=400). KCP 세션리스 승인은 소유권 대신 KCP 암호데이터가 인증.
 
 ## 설정
 
-`pungdong.payment.mode`(**stub|toss|kcp**, 부팅 시 하나만) + `toss.secret-key`/`client-key` + `kcp.site-cd`/`cert-info`/`private-key`(+`-password`)/`ret-url`/`live` — `application.yml`·`.env.example`. 로컬 stub 기본(외부 미호출). 키 발급 전 토스 **문서용 테스트 키** 사용 가능(`.env.example` 주석).
+`pungdong.payment.mode`(**stub|toss|kcp**, 부팅 시 하나만) + `toss.secret-key`/`client-key` + `kcp.site-cd`/`cert-info`/`private-key`(+`-password`)/`ret-url`(=**BE 콜백 URL**)/`return-web-success|fail`(환경별)/`return-app-success|fail`(기본 `plop://payment/...`)/`live` — `application.yml`·`.env.example`. 로컬 stub 기본(외부 미호출). 키 발급 전 토스 **문서용 테스트 키** 사용 가능(`.env.example` 주석).
 
 ## 작업 전 반드시 읽기
 

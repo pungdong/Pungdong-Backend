@@ -52,7 +52,9 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -249,6 +251,92 @@ class PaymentUseCaseTest {
                 .andExpect(status().isBadRequest()); // 만석 — 첫 신청이 좌석을 선점
     }
 
+    /* ─── K* KCP 콜백 (Ret_URL=BE) ─── */
+
+    @Test
+    @DisplayName("K1 KCP 콜백 — 결제창이 Ret_URL 로 POST 하면 서버가 승인·확정하고 app 성공 스킴으로 302 리다이렉트")
+    void kcpCallbackApprovesAndRedirectsApp() throws Exception {
+        Object[] s = setup(4);
+        Account stu = (Account) s[3];
+        EnrollmentRound e = accepted(stu, s);
+        String orderId = prepareOrderId(stu, e, "app"); // client=app 박제
+
+        mockMvc.perform(post("/payments/kcp/return") // permitAll — KCP 엔 JWT 없음
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("ordr_idxx", orderId)
+                .param("enc_data", "ENC").param("enc_info", "INFO").param("tran_cd", "00100000"))
+                .andExpect(status().isFound())
+                .andExpect(header().string("Location", org.hamcrest.Matchers.startsWith("plop://payment/success")))
+                .andExpect(header().string("Location", org.hamcrest.Matchers.containsString("orderId=" + orderId)));
+
+        assertThat(orderRepo.findByOrderId(orderId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.DONE);
+        assertThat(roundRepo.findById(e.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.CONFIRMED);
+    }
+
+    @Test
+    @DisplayName("K2 KCP 콜백 — PG 승인 거절이면 주문은 READY 유지, web 실패 URL 로 302(에러를 KCP 에 안 던진다)")
+    void kcpCallbackRedirectsFailOnDecline() throws Exception {
+        given(gateway.confirm(any())) // 이 시나리오만 거절로 덮음
+                .willReturn(new PaymentGateway.ConfirmResult(false, "8059", null, null, null, null));
+        Object[] s = setup(4);
+        Account stu = (Account) s[3];
+        EnrollmentRound e = accepted(stu, s);
+        String orderId = prepareOrderId(stu, e, "web"); // client=web
+
+        mockMvc.perform(post("/payments/kcp/return")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("ordr_idxx", orderId)
+                .param("enc_data", "ENC").param("enc_info", "INFO").param("tran_cd", "00100000"))
+                .andExpect(status().isFound())
+                .andExpect(header().string("Location", org.hamcrest.Matchers.startsWith("https://web.test/payment/fail")));
+
+        assertThat(orderRepo.findByOrderId(orderId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.READY);
+        assertThat(roundRepo.findById(e.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.PAYMENT_PENDING);
+    }
+
+    @Test
+    @DisplayName("K3 KCP 콜백 — 알 수 없는 ordr_idxx(위조)면 승인 안 하고 web 실패로 302")
+    void kcpCallbackUnknownOrder() throws Exception {
+        mockMvc.perform(post("/payments/kcp/return")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("ordr_idxx", "rnd-999-deadbeef").param("enc_data", "X"))
+                .andExpect(status().isFound())
+                .andExpect(header().string("Location", org.hamcrest.Matchers.startsWith("https://web.test/payment/fail")));
+    }
+
+    /* ─── O* 주문 상세 조회 ─── */
+
+    @Test
+    @DisplayName("O1 결제 완료 후 GET /payments/orders/{orderId} 로 주문 상세(DONE·확정)를 조회한다")
+    void getOrderReturnsDetail() throws Exception {
+        Object[] s = setup(4);
+        Account stu = (Account) s[3];
+        EnrollmentRound e = accepted(stu, s);
+        String orderId = prepareOrderId(stu, e);
+        mockMvc.perform(post("/payments/kcp/return").contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("ordr_idxx", orderId).param("enc_data", "E").param("enc_info", "I").param("tran_cd", "T"))
+                .andExpect(status().isFound());
+
+        mockMvc.perform(get("/payments/orders/{orderId}", orderId).header(HttpHeaders.AUTHORIZATION, tokenFor(stu)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DONE"))
+                .andExpect(jsonPath("$.amount").value(EXPECTED_AMOUNT))
+                .andExpect(jsonPath("$.enrollmentStatus").value("CONFIRMED"));
+    }
+
+    @Test
+    @DisplayName("O2 남의 주문을 GET 하면 400(존재 숨김) — 소유권 검증")
+    void getOrderHidesOthers() throws Exception {
+        Object[] s = setup(4);
+        Account stu = (Account) s[3];
+        EnrollmentRound e = accepted(stu, s);
+        String orderId = prepareOrderId(stu, e);
+        Account other = account("o2other@pd.com", "남");
+
+        mockMvc.perform(get("/payments/orders/{orderId}", orderId).header(HttpHeaders.AUTHORIZATION, tokenFor(other)))
+                .andExpect(status().isBadRequest());
+    }
+
     /* ─── helpers ─── */
 
     /** 신청 → 강사 수락(PAYMENT_PENDING)까지 진행한 enrollment 반환. */
@@ -262,10 +350,19 @@ class PaymentUseCaseTest {
     }
 
     private String prepareOrderId(Account student, EnrollmentRound e) throws Exception {
+        return prepareOrderId(student, e, null);
+    }
+
+    private String prepareOrderId(Account student, EnrollmentRound e, String client) throws Exception {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("enrollmentId", e.getId());
+        if (client != null) {
+            body.put("client", client);
+        }
         String resp = mockMvc.perform(post("/payments/prepare")
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(student))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(json(Map.of("enrollmentId", e.getId()))))
+                .content(json(body)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(resp).path("orderId").asText();

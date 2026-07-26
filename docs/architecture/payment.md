@@ -11,7 +11,8 @@
 ```mermaid
 flowchart TB
     subgraph payment["payment 도메인"]
-        Ctl["PaymentController<br/>/payments/prepare · /confirm"]
+        Ctl["PaymentController<br/>/prepare · /confirm · GET /orders/{id}"]
+        KcpRet["KcpReturnController<br/>POST /payments/kcp/return (permitAll)"]
         Svc["PaymentService<br/>(@Service enrollmentPaymentService)"]
         Order["PaymentOrder (엔티티)<br/>PaymentOrderJpaRepo"]
         Reg["PaymentGatewayRegistry<br/>active()=전역설정 · forOrder(provider)=주문박제"]
@@ -88,16 +89,20 @@ erDiagram
 | 엔드포인트 | 인증 | 소유권 검증 | 비고 |
 |---|---|---|---|
 | `POST /payments/prepare` | authenticated | enrollment.student == 나 + 상태 PAYMENT_PENDING | 비소유/없음 = 400, 결제대기 아님 = 400 |
-| `POST /payments/confirm` | authenticated | order.enrollment.student == 나 | amount 불일치 = 400, 멱등(이미 DONE = 200) |
+| `POST /payments/confirm` | authenticated | order.enrollment.student == 나 | **TOSS/STUB 전용**. amount 불일치 = 400, 멱등(이미 DONE = 200) |
+| `GET /payments/orders/{orderId}` | authenticated | order.enrollment.student == 나 | 성공화면·재진입 조회. 비소유 = 400 |
+| `POST /payments/kcp/return` | **permitAll** | (KCP 암호데이터 enc_data 가 인증) | KCP 결제창 form POST. 승인 후 302 리다이렉트(성패·web/app). `/payments/**` 보다 먼저 매칭 |
 
-매처: `/payments/**` → authenticated (`global/security/SecurityConfiguration`). **시크릿은 BE 전용** — 토스 시크릿키(승인 Basic 인증), KCP 인증서·개인키(승인/취소 서명). FE 엔 공개값만 `params` 로 내려간다(토스 `clientKey` 등).
+**KCP 만 confirm 주체가 BE**(FE 핑퐁 #1~#3): 앱 WebView 가 결제창의 form POST 본문을 못 읽어, Ret_URL 을 BE(`/payments/kcp/return`)로 두고 서버가 승인 후 GET 리다이렉트(주문에 박제된 `client` 로 web URL/`plop://` 선택, 고정 allowlist=오픈리다이렉트 방지). TOSS/STUB 는 종전대로 FE 가 confirm. 세션리스 승인은 소유권 대신 KCP 암호데이터가 인증.
+
+매처: `/payments/**` → authenticated (단 `/payments/kcp/return` 은 그 앞에서 permitAll) (`global/security/SecurityConfiguration`). **시크릿은 BE 전용** — 토스 시크릿키(승인 Basic 인증), KCP 인증서·개인키(승인/취소 서명). FE 엔 공개값만 `params` 로 내려간다(토스 `clientKey` 등).
 
 **`Ret_URL`(KCP 결제창 복귀 주소)은 클라이언트가 정하지 못한다** — 서버 설정(`pungdong.payment.kcp.ret-url`) 고정. 클라이언트가 넘기면 오픈 리다이렉트가 되기 때문.
 
 ## 6. 알려진 설계 간극
 
 - 🔴 **webhook 미연동** — 비동기 상태(가상계좌 입금·취소·부분취소)를 받지 못한다. v1 은 confirm 리다이렉트만. → PG webhook 엔드포인트 + 서명 검증 후속(`venue/sync/SanityWebhookVerifier` 패턴 참고).
-- 🔴 **KCP 실 왕복 미검증** — 어댑터는 문서 기준으로 작성했고 전문 사양만 테스트로 고정(`KcpPaymentTransmissionTest`). **테스트 상점ID 로 실제 결제/취소를 태워봐야** 한다. ~~기취소 이력이 있는 건의 잔액 전량 취소 STSC/STPC~~ → **KCP 문서(8038)로 확정**: 부분취소를 시작한 주문은 잔량 전액도 STPC(`mod_mny=rem_mny`). 현재는 주문당 1회 취소라 도달 불가(첫 취소는 STSC/STPC 판정 옳음); 회차별 개별 환불을 열 때 반영 필요(`modType` javadoc).
+- 🔴 **KCP 실 왕복 미검증** — 어댑터는 문서 기준으로 작성했고 전문 사양만 테스트로 고정(`KcpPaymentTransmissionTest`). **테스트 상점ID 로 실제 결제/취소 + 콜백(Ret_URL POST→승인→리다이렉트)을 태워봐야** 한다(hermetic 테스트로 전문·콜백 로직은 고정). ~~기취소 이력이 있는 건의 잔액 전량 취소 STSC/STPC~~ → **KCP 문서(8038)로 확정**: 부분취소를 시작한 주문은 잔량 전액도 STPC(`mod_mny=rem_mny`). 현재는 주문당 1회 취소라 도달 불가(첫 취소는 STSC/STPC 판정 옳음); 회차별 개별 환불을 열 때 반영 필요(`modType` javadoc).
 - 🟡 **KCP 현금영수증 후속처리 없음** — 머니(카카오·토스·SSG)/포인트(네이버) 결제는 현금성이라 현금영수증 대상이고, 취소 시 `app_cash_receipt_mny` 가 돌아온다. 현재는 **감사 로그만**. KCP 대행이면 조치 불필요, 가맹점 직접관리 계약이면 현금영수증 취소 연동 필요 → **계약 조건 확인 후 결정**.
 - 🔴 **아웃바운드 IP 비고정 → KCP 취소 불가** — ECS 태스크가 `assign_public_ip=true`(NAT 없음)라 출발지 IP 가 매번 바뀐다. KCP 문서(에러코드 **8012**): *"취소는 NHNKCP 상점관리자에 등록한 서버에서만 가능"* — **승인은 인증서로 되지만 취소는 등록 IP 에서만** 된다. 즉 현재 인프라로는 **환불이 배포·재시작마다 깨진다**. **승인 결제엔 영향 없음(인증서 인증) — 취소/환불에만 해당**.
   - **결정(2026-07-25)**: **fck-nat/ASG 자가치유 나노 NAT**(t4g.nano + EIP, **~$7/월**, 장애 시 자동 대체 1~3분)로 고정 egress 확보. 관리형 NAT 게이트웨이(~$40/월)는 용량이 아니라 무운영·HA 를 사는 것 — 우리 트래픽엔 나노가 수년치 여유라 과투자. (AWS Activate 크레딧 확정 시 관리형으로 교체 옵션 — 포트/코드 불변, NAT만 교체.)
@@ -121,5 +126,8 @@ erDiagram
 - `P5` 결제대기 아닌 신청 prepare → 400
 - `P6` 비소유 prepare → 400(존재 숨김)
 - `P7` 결제대기 점유가 둘째 수락을 막음(정원 1)
+- `K1` KCP 콜백(Ret_URL POST) → 서버 승인·확정 + app 성공 스킴 302 / `K2` PG 거절 → 주문 READY 유지, web fail 302 / `K3` 알 수 없는 ordr_idxx → web fail 302
+- `O1` GET /payments/orders/{id} 소유자 조회(DONE·확정) / `O2` 남의 주문 조회 400
+- `KcpPaymentGatewayHttpTest`(H1~H11)·`KcpPaymentTransmissionTest`(K/M/V) — KCP 전문·서명·HTTP 왕복(로컬 스텁, 자격증명 불요)
 
 enrollment 측 수락→PAYMENT_PENDING 전이는 `EnrollmentUseCaseTest`(A1/F1).

@@ -33,6 +33,10 @@ AdminMail:
 pungdong:
   payment:
     mode: stub
+    # KCP 콜백 리다이렉트 타겟 — 테스트에서 web/app 분기를 검증할 수 있게 핀(app 은 코드 기본값 plop://).
+    kcp:
+      return-web-success: https://web.test/payment/success
+      return-web-fail: https://web.test/payment/fail
   # 본인확인은 테스트 기본 stub(매직 OTP "000000"=성공). CI/DI 암호화 키는 결정적 테스트 값으로 핀
   # (미설정이면 dev 폴백 키 + WARN — 동작엔 무해하나 노이즈 제거용).
   identity-verification:

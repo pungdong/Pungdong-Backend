@@ -1643,6 +1643,12 @@ export interface PaymentPrepareRequest {
    * TOSS·STUB 는 무시. 웹은 UA/뷰포트로, 앱은 항상 true.
    */
   mobile?: boolean;
+  /**
+   * 클라이언트 종류(기본 'web'). **KCP 콜백 리다이렉트 타겟**(web URL / app 스킴 plop://)을 BE 가 고르는 데 쓴다.
+   * ★ mobile 과 독립 축: mobile=결제창 레이아웃, client=리다이렉트 타겟. 웹 모바일브라우저 = { mobile:true, client:'web' }.
+   * 앱 → 'app', 웹(데스크탑·모바일 모두) → 'web'. TOSS·STUB 는 무시.
+   */
+  client?: 'web' | 'app';
 }
 
 /**
@@ -1663,12 +1669,19 @@ export interface PaymentPrepareResponse {
   params: Record<string, string>;
 }
 
+// ★★ confirm 주체가 provider 마다 다르다 (FE 핑퐁 #1~#3, WebView POST 제약):
+//   - TOSS/STUB → **FE 가** POST /payments/confirm 호출 (아래).
+//   - KCP       → **FE 는 confirm 을 호출하지 않는다.** 결제창이 인증결과를 BE 콜백(Ret_URL=BE)으로 form POST 하고,
+//                 BE 가 서버사이드 승인까지 끝낸 뒤 GET 리다이렉트한다:
+//                   web  → {origin}/payment/success?orderId&orderNo&status=paid   (실패: /payment/fail?...&status=failed)
+//                   app  → plop://payment/success?orderId&orderNo&status=paid     (실패: plop://payment/fail)
+//                 리다이렉트 타겟은 prepare 의 client(web/app)로 BE 가 고름(오픈리다이렉트 방지 — 클라가 URL 안 정함).
+//                 FE 는 그 성공화면에서 orderId 로 GET /payments/orders/{orderId} 조회해 금액·상태를 채운다.
+
 /**
- * 결제 승인 — POST /payments/confirm (authenticated). 결제창이 돌려준 PG 고유값을 pgPayload 에 담는다.
- * ★ pgPayload 키도 provider 별로 다르다:
- *   - 'TOSS' → { paymentKey }                            (위젯 성공 리다이렉트의 값)
- *   - 'KCP'  → { enc_data, enc_info, tran_cd, pay_type? } (결제창이 Ret_URL 로 POST 한 값 그대로)
- *              pay_type 미전달 시 카드(PACA)로 간주.
+ * 결제 승인 — POST /payments/confirm (authenticated). **TOSS/STUB 전용** (KCP 는 BE 콜백이 처리 — 위 주석).
+ * ★ pgPayload 키는 provider 별로 다르다:
+ *   - 'TOSS' → { paymentKey }   (위젯 성공 리다이렉트의 값)
  *   - 'STUB' → {} (생략 가능)
  * 필요한 키가 없으면 400.
  */
@@ -1678,7 +1691,10 @@ export interface PaymentConfirmRequest {
   pgPayload?: Record<string, string>;
 }
 
-/** 승인 결과 + 그 결과로 확정된 신청 상태. 멱등 — 이미 DONE 인 주문 재승인도 200 DONE. */
+/**
+ * 승인 결과 + 그 결과로 확정된 신청 상태. 멱등 — 이미 DONE 인 주문 재승인도 200 DONE.
+ * GET /payments/orders/{orderId} 응답도 같은 모양(성공화면 재사용).
+ */
 export interface PaymentConfirmResponse {
   orderId: string;                // PG 멱등키(내부). 완료 화면 "주문번호" 표시는 orderNo 사용
   orderNo: string;                // CS·고객용 주문번호(PD-YYMMDD-XXXXXXXX, 날짜+난독화·가역)
@@ -1688,6 +1704,13 @@ export interface PaymentConfirmResponse {
   enrollmentId: number | null;        // ★ 회차 id (다회차) — 응답 필드명은 호환 유지
   enrollmentStatus: EnrollmentStatus; // 회차 상태 — 성공 후 'CONFIRMED'
 }
+
+/**
+ * 주문 상세 조회 — GET /payments/orders/{orderId} (authenticated, 소유권 검증).
+ * KCP 성공화면(confirm 을 FE 가 안 해 리다이렉트 쿼리만 옴)에서 금액·상태를 채우는 용도 + 새로고침/딥링크 재진입 복구.
+ * 응답 = PaymentConfirmResponse 와 동일 모양. 비소유/없음 = 400(존재 숨김).
+ */
+export type PaymentOrderResponse = PaymentConfirmResponse;
 
 // ── 결제 에러 (공통 envelope: { success:false, code:number, msg:string }) ──
 // 결제 도메인은 "없음/비소유"도 404 가 아니라 400 이다(존재 숨김, repo 컨벤션). 아래는 code/msg 예시.
