@@ -121,6 +121,14 @@ aws ecr describe-images --repository-name plop --image-ids imageTag=master-<sha>
 
 → GitHub Actions = *앱 이미지 배포*, Terraform = *인프라*. 매 머지에 terraform 을 엮지 않는다.
 
+### ⚠️ `infra/bootstrap` 은 **로컬 state** — 워크트리에서 apply 하지 말 것
+
+`envs/staging`·`envs/production` 은 S3 backend 지만 **`bootstrap` 은 backend 가 없다**(`main.tf` 주석: "bootstrap 은 거의 안 바뀜"). 그래서 `terraform.tfstate` 가 **메인 체크아웃 디렉토리에만** 파일로 존재하고 gitignore 라 워크트리엔 따라오지 않는다.
+
+워크트리에서 `bootstrap` 을 apply 하면 terraform 이 **state 가 비었다고 판단해 ECR 리포지토리부터 새로 만들려 든다**(2026-07-30 실제로 `Plan: 2 to add` 를 봤다 — plan 을 먼저 봐서 걸렀다). → **bootstrap 변경은 반드시 메인 체크아웃에서**, 브랜치 머지 후 `git pull` 하고 apply 한다.
+
+부수 리스크: 이 state 는 노트북에만 있다. bootstrap 을 다시 손댈 일이 생기면 S3 backend 로 옮기는 걸 먼저 검토한다.
+
 ## 8. 비용
 
 - **무료플랜(크레딧 $100, ~Dec 2026 또는 소진)** 기준. RDS `backup_retention_period` 는 무료플랜 제한으로 **1일**(유료 전환 후 7 상향).
