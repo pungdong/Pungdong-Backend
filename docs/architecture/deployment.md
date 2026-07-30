@@ -91,6 +91,20 @@ feat/xxx (로컬 개발 + 테스트)  →  PR(CI 자동 테스트)  →  master 
 
 검증: `rolloutState=COMPLETED` + CloudWatch `/ecs/plop-staging` 에 `Started PungdongApplication`. **롤링이라 새 task 가 health 못 넘기면 옛 task 가 계속 서빙 = 무중단**(새 코드만 안 뜸) — 그래서 "배포했는데 안 바뀜" 이면 새 task 크래시 로그부터 본다.
 
+### ECR 리텐션이 prod 가 핀한 이미지를 지운다 (2026-07-30 발견)
+
+**증상**: prod 를 재배포하려 하자 `CannotPullContainerError: ...plop:master-4c23ed4: not found`. 태스크가 뜨고 죽기를 반복.
+
+**원인**: ECR 라이프사이클이 `tagStatus=any, imageCountMoreThan=10` 이었는데, **`countNumber` 는 빌드 수가 아니라 매니페스트 수**다. multi-arch 빌드 하나가 3개(arm64 + amd64 + 인덱스)를 차지하므로 **실질 3~4빌드분**만 남는다. prod 태스크 정의가 핀한 7/11 빌드가 7/27 빌드에 밀려 만료됐다. → `countNumber = 60`(≈20빌드)으로 상향 (`infra/bootstrap/main.tf`).
+
+**왜 조용했나 — 그리고 왜 위험했나**: 이미 떠 있는 태스크는 이미지를 다시 당기지 않으므로 **prod 는 멀쩡히 서빙 중**이었다. 하지만 그 태스크가 죽는 순간 **띄울 이미지가 없어 복구 불가**였다(circuit breaker 도 OFF라 무한 재시도). 즉 "지금 잘 돌아감"이 "복구 가능함"을 뜻하지 않는다.
+
+**점검 습관**: prod 태스크 정의가 핀한 이미지가 ECR 에 실재하는지는 한 줄로 확인된다 —
+```bash
+aws ecs describe-task-definition --task-definition plop-prod --query 'taskDefinition.containerDefinitions[0].image' --output text
+aws ecr describe-images --repository-name plop --image-ids imageTag=master-<sha>   # ImageNotFound 면 지뢰
+```
+
 ## 6. 피처 플래그 — 환경별은 env, 전역 런타임은 Sanity
 
 | 플래그 종류 | 메커니즘 | 예 |
@@ -107,10 +121,40 @@ feat/xxx (로컬 개발 + 테스트)  →  PR(CI 자동 테스트)  →  master 
 
 → GitHub Actions = *앱 이미지 배포*, Terraform = *인프라*. 매 머지에 terraform 을 엮지 않는다.
 
+### ⚠️ `infra/bootstrap` 은 **로컬 state** — 워크트리에서 apply 하지 말 것
+
+`envs/staging`·`envs/production` 은 S3 backend 지만 **`bootstrap` 은 backend 가 없다**(`main.tf` 주석: "bootstrap 은 거의 안 바뀜"). 그래서 `terraform.tfstate` 가 **메인 체크아웃 디렉토리에만** 파일로 존재하고 gitignore 라 워크트리엔 따라오지 않는다.
+
+워크트리에서 `bootstrap` 을 apply 하면 terraform 이 **state 가 비었다고 판단해 ECR 리포지토리부터 새로 만들려 든다**(2026-07-30 실제로 `Plan: 2 to add` 를 봤다 — plan 을 먼저 봐서 걸렀다). → **bootstrap 변경은 반드시 메인 체크아웃에서**, 브랜치 머지 후 `git pull` 하고 apply 한다.
+
+부수 리스크: 이 state 는 노트북에만 있다. bootstrap 을 다시 손댈 일이 생기면 S3 backend 로 옮기는 걸 먼저 검토한다.
+
 ## 8. 비용
 
 - **무료플랜(크레딧 $100, ~Dec 2026 또는 소진)** 기준. RDS `backup_retention_period` 는 무료플랜 제한으로 **1일**(유료 전환 후 7 상향).
 - **prod 상시 ~$35-40/월**(Fargate+ALB, RDS/Redis 크레딧 내). **staging 온디맨드**라 안 쓰면 $0(destroy, 최종 스냅샷만 센트).
+
+### RDS 엔진 라이프사이클 — 표준지원 종료는 **비용 이벤트**다 (2026-07-30, MySQL 8.0 → 8.4)
+
+RDS 엔진의 표준지원(end of standard support)이 끝나면 인스턴스가 멈추는 게 아니라 **Extended Support 로 자동 넘어가면서 요금이 붙는다**. 그래서 EoSS 는 "언젠가 올려야 하는 숙제"가 아니라 **날짜가 박힌 청구서**로 취급한다.
+
+| 항목 | 수치 |
+|---|---|
+| MySQL 8.0 RDS 표준지원 종료 | **2026-07-31** (과금 시작 8/1) |
+| Extended Support 단가 (서울, Yr1-Yr2) | **$0.12 / vCPU-hour** |
+| 우리 노출액 | `db.t4g.micro`(2 vCPU) × 2대 → **≈ $350/월 (≈ $11.5/일)** = 인스턴스 원가($18/월/대)의 **약 10배**, 크레딧 $100 을 **9일**에 소진 |
+| 조치 | 2026-07-30 두 인스턴스 모두 **8.0.45 → 8.4** in-place 메이저 업그레이드 (`infra/modules/data/main.tf`) |
+
+**다음에 또 밟기 쉬운 함정 4개** (이번에 실제로 확인한 것들):
+
+1. **Extended Support 등록은 사후 해제가 불가능하다.** `EngineLifecycleSupport` 는 **생성/복원 시에만** 지정 가능한 인수로, `ModifyDBInstance` API 에 아예 필드가 없다. → 이미 뜬 인스턴스는 **메이저 업그레이드가 유일한 회피책**. Terraform 에 `engine_lifecycle_support` 를 추가하는 것도 답이 아니다 — **인스턴스 교체(=prod DB 파괴)** 를 유발한다.
+2. **메이저 업그레이드 전에 대기 중인 OS 업데이트를 먼저 적용해야 한다** (AWS 문서 명시). `describe-pending-maintenance-actions` → `apply-pending-maintenance-action --opt-in-type immediate` (재부팅 수 분).
+3. **구버전 스냅샷 복원 = 과금 재개.** EoSS 이후 8.0 스냅샷을 복원하면 Extended Support 마이너로 자동 승격되고 그 순간부터 청구된다. staging 의 `restore_snapshot_identifier` 사이클이 정확히 이 지뢰 — 복원 전 `describe-db-snapshots` 로 `EngineVersion` 을 확인한다.
+4. **업그레이드는 Terraform 으로 한다.** 콘솔/CLI 로 직접 올리면 TF state 는 옛 버전에 남아 다음 apply 가 **다운그레이드를 시도**한다(AWS 가 거부 → 드리프트). `engine_version` + `allow_major_version_upgrade = true` 를 **같은 apply** 에 넣고, 블라스트 반경을 줄이려 `-target=module.data.aws_db_instance.this` 로 좁힌다.
+
+**안전장치는 AWS 쪽이 이미 꽤 해준다** — 필수 precheck 이 비호환을 **다운타임 0으로** 먼저 걸러 업그레이드를 자동 취소하고(`PrePatchCompatibility.log`), `backup_retention_period > 0` 이면 업그레이드 전 스냅샷을 자동 생성하고, 시작 실패 시 옛 버전으로 자동 롤백한다(`RDS-EVENT-0188` + `upgradeFailure.log`). 우리 쪽 카나리아는 **Flyway + `hbm2ddl=validate`** — 앱이 부팅되면 스키마 정합은 통과한 것이다.
+
+**연 1회 확인**: `aws rds describe-db-engine-versions --engine mysql --engine-version <현재> --query 'DBEngineVersions[].ValidUpgradeTarget'` 로 상위 메이저가 열렸는지, AWS Health 에 EoSS 이벤트가 떴는지 본다. 8.4 도 LTS 지만 결국 같은 날짜가 온다.
 
 ---
 

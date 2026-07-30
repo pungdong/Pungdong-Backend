@@ -53,7 +53,7 @@ Note: `bootJar` depends on `asciidoctor` which depends on `test`, so `./gradlew 
 
 Secrets (`spring.jwt.secret`, `AdminMail.id`, `AdminMail.password`) are externalized to env vars — see `.env.example` and `.env.local` (loaded by direnv). Fail-fast on missing vars at boot.
 
-The local Docker stack (`docker compose up -d`) provides MySQL 8 (port 3306, db `pungdong`, user `pungdong/pungdongpw`) and Redis 7 (port 6379). Spring connects via the values in the example yml files.
+The local Docker stack (`docker compose up -d`) provides MySQL **8.4** (port 3306, db `pungdong`, user `pungdong/pungdongpw`) and Redis 7 (port 6379). Spring connects via the values in the example yml files. The MySQL major matches prod/staging RDS on purpose (`hbm2ddl=validate` + MySQL-dialect Flyway SQL) — both were moved 8.0 → 8.4 on 2026-07-30 because RDS MySQL 8.0 standard support ended 2026-07-31 and Extended Support would have billed ~$350/month for the two instances. Rationale, the traps (post-hoc opt-out is impossible; restoring an 8.0 snapshot re-starts the charge), and the yearly EoSS check are in [docs/architecture/deployment.md](docs/architecture/deployment.md) § 8.
 
 ### Schema = Flyway migrations (not hbm2ddl)
 
