@@ -95,7 +95,21 @@ feat/xxx (로컬 개발 + 테스트)  →  PR(CI 자동 테스트)  →  master 
 
 **증상**: prod 를 재배포하려 하자 `CannotPullContainerError: ...plop:master-4c23ed4: not found`. 태스크가 뜨고 죽기를 반복.
 
-**원인**: ECR 라이프사이클이 `tagStatus=any, imageCountMoreThan=10` 이었는데, **`countNumber` 는 빌드 수가 아니라 매니페스트 수**다. multi-arch 빌드 하나가 3개(arm64 + amd64 + 인덱스)를 차지하므로 **실질 3~4빌드분**만 남는다. prod 태스크 정의가 핀한 7/11 빌드가 7/27 빌드에 밀려 만료됐다. → `countNumber = 60`(≈20빌드)으로 상향 (`infra/bootstrap/main.tf`).
+**원인은 두 개가 겹친 것이다.**
+
+**(1) `countNumber` 는 빌드 수가 아니라 매니페스트 수다.** `tagStatus = any` 라 태그 없는 것도 센다. buildx 는 **단일 아키텍처**(`--platform linux/arm64`) 빌드에도 매니페스트를 3개 만든다:
+
+| # | 종류 | 태그 | 크기 |
+|---|---|---|---|
+| ① | OCI image **index** | `master-<sha>`, `master-latest` | 203MB |
+| ② | arm64 **이미지** 매니페스트 | (untagged) | 203MB |
+| ③ | **provenance attestation** 매니페스트 | (untagged) | ~42KB |
+
+→ `10` 은 **3.3빌드분**이다. (amd64 도 굽는 게 아니다 — 아키텍처가 늘어서 3이 된 게 아니라 index + attestation 때문이다.)
+
+**(2) 이미지는 배포가 아니라 머지마다 쌓인다.** `build.yml` 은 `on: push: branches: [master]` — 배포(수동 `deploy.yml`)와 무관하게 **머지될 때마다** 굽는다. 그래서 소진 속도는 **머지 빈도**를 따라간다.
+
+이 둘이 곱해지면 반직관적인 결론이 나온다 — **prod 를 오래 재배포하지 않을수록 위험하다.** prod 가 옛 태그에 고정된 채 master 만 굴러가면 그 태그가 조용히 창 밖으로 밀린다. 실제로 prod 가 핀한 `master-4c23ed4` 위로 머지가 4번(#179·#180·#181·#183 = 매니페스트 12개) 쌓이며 10 창을 넘겼다. → `countNumber = 60`(≈20빌드)으로 상향 (`infra/bootstrap/main.tf`).
 
 **왜 조용했나 — 그리고 왜 위험했나**: 이미 떠 있는 태스크는 이미지를 다시 당기지 않으므로 **prod 는 멀쩡히 서빙 중**이었다. 하지만 그 태스크가 죽는 순간 **띄울 이미지가 없어 복구 불가**였다(circuit breaker 도 OFF라 무한 재시도). 즉 "지금 잘 돌아감"이 "복구 가능함"을 뜻하지 않는다.
 
