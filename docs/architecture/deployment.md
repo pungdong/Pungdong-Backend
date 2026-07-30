@@ -91,6 +91,20 @@ feat/xxx (로컬 개발 + 테스트)  →  PR(CI 자동 테스트)  →  master 
 
 검증: `rolloutState=COMPLETED` + CloudWatch `/ecs/plop-staging` 에 `Started PungdongApplication`. **롤링이라 새 task 가 health 못 넘기면 옛 task 가 계속 서빙 = 무중단**(새 코드만 안 뜸) — 그래서 "배포했는데 안 바뀜" 이면 새 task 크래시 로그부터 본다.
 
+### ECR 리텐션이 prod 가 핀한 이미지를 지운다 (2026-07-30 발견)
+
+**증상**: prod 를 재배포하려 하자 `CannotPullContainerError: ...plop:master-4c23ed4: not found`. 태스크가 뜨고 죽기를 반복.
+
+**원인**: ECR 라이프사이클이 `tagStatus=any, imageCountMoreThan=10` 이었는데, **`countNumber` 는 빌드 수가 아니라 매니페스트 수**다. multi-arch 빌드 하나가 3개(arm64 + amd64 + 인덱스)를 차지하므로 **실질 3~4빌드분**만 남는다. prod 태스크 정의가 핀한 7/11 빌드가 7/27 빌드에 밀려 만료됐다. → `countNumber = 60`(≈20빌드)으로 상향 (`infra/bootstrap/main.tf`).
+
+**왜 조용했나 — 그리고 왜 위험했나**: 이미 떠 있는 태스크는 이미지를 다시 당기지 않으므로 **prod 는 멀쩡히 서빙 중**이었다. 하지만 그 태스크가 죽는 순간 **띄울 이미지가 없어 복구 불가**였다(circuit breaker 도 OFF라 무한 재시도). 즉 "지금 잘 돌아감"이 "복구 가능함"을 뜻하지 않는다.
+
+**점검 습관**: prod 태스크 정의가 핀한 이미지가 ECR 에 실재하는지는 한 줄로 확인된다 —
+```bash
+aws ecs describe-task-definition --task-definition plop-prod --query 'taskDefinition.containerDefinitions[0].image' --output text
+aws ecr describe-images --repository-name plop --image-ids imageTag=master-<sha>   # ImageNotFound 면 지뢰
+```
+
 ## 6. 피처 플래그 — 환경별은 env, 전역 런타임은 Sanity
 
 | 플래그 종류 | 메커니즘 | 예 |

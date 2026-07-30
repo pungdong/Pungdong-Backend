@@ -99,13 +99,20 @@ resource "aws_ecr_repository" "app" {
 }
 
 # 오래된 미태그/구버전 이미지 자동 정리(스토리지 비용 절감).
+#
+# ⚠️ countNumber 는 "빌드 수"가 아니라 **매니페스트 수**다. multi-arch 빌드 하나가 3개(arm64 + amd64 + 인덱스)를
+#    먹으므로 10 이면 실질 3~4빌드분만 남는다. 2026-07-30 사고: prod 태스크 정의가 핀한 master-4c23ed4(7/11 빌드)가
+#    7/27 빌드에 밀려 만료 → prod 는 이미 뜬 태스크로 서빙 중이었지만 **재배포/자동복구가 불가능한 상태**였다
+#    (CannotPullContainerError: not found, 게다가 deployment circuit breaker OFF).
+#    prod 가 핀한 이미지가 사라지는 건 "스토리지 절감"으로 감당할 리스크가 아니다 → 60(≈20빌드)으로 상향.
+#    ECR 스토리지는 $0.10/GB-월 수준이라 증분 비용은 무의미하다.
 resource "aws_ecr_lifecycle_policy" "app" {
   repository = aws_ecr_repository.app.name
   policy = jsonencode({
     rules = [{
       rulePriority = 1
-      description  = "최근 10개만 유지"
-      selection    = { tagStatus = "any", countType = "imageCountMoreThan", countNumber = 10 }
+      description  = "최근 60개 매니페스트 유지 (multi-arch 3매니페스트/빌드 ≈ 20빌드)"
+      selection    = { tagStatus = "any", countType = "imageCountMoreThan", countNumber = 60 }
       action       = { type = "expire" }
     }]
   })
