@@ -11,10 +11,19 @@ resource "aws_db_subnet_group" "this" {
 }
 
 resource "aws_db_instance" "this" {
-  identifier     = "${var.name_prefix}-mysql"
-  engine         = "mysql"
-  engine_version = "8.0"
-  instance_class = var.db_instance_class
+  identifier = "${var.name_prefix}-mysql"
+  engine     = "mysql"
+
+  # 메이저만 핀 → 마이너(8.4.x)는 AWS 최신 선택 + auto minor upgrade. 마이너 드리프트로 plan 이 흔들리지 않음.
+  # 8.0 → 8.4 (2026-07-30): 8.0 은 2026-07-31 RDS 표준지원 종료.
+  #   방치하면 8/1부터 Extended Support 과금 = 서울 $0.12/vCPU-h × 2 vCPU × 2대 ≈ $350/월 (인스턴스 원가의 ~10배, 크레딧 9일치).
+  #   ⚠️ Extended Support 등록은 ModifyDBInstance 에 필드가 없어 기존 인스턴스에서 해제 불가 → 메이저 업그레이드가 유일한 회피책이었음.
+  #   ⚠️ 그러니 engine_lifecycle_support 를 여기 추가하지 말 것 — 생성/복원 시에만 지정 가능한 인수라 인스턴스 교체(=prod DB 파괴)를 유발한다.
+  engine_version = "8.4"
+  # 메이저 업그레이드는 이 플래그가 같은 apply 안에 있어야 modify 가 통과한다. (자동 실행 트리거가 아니라 "허용"일 뿐 —
+  # engine_version 리터럴을 바꾸지 않으면 TF 가 버전을 건드리지 않음.)
+  allow_major_version_upgrade = true
+  instance_class              = var.db_instance_class
 
   allocated_storage = var.db_allocated_storage
   storage_type      = "gp2" # 프리티어 = 20GB GP SSD
