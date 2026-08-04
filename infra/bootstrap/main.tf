@@ -100,9 +100,17 @@ resource "aws_ecr_repository" "app" {
 
 # 오래된 미태그/구버전 이미지 자동 정리(스토리지 비용 절감).
 #
-# ⚠️ countNumber 는 "빌드 수"가 아니라 **매니페스트 수**다. multi-arch 빌드 하나가 3개(arm64 + amd64 + 인덱스)를
-#    먹으므로 10 이면 실질 3~4빌드분만 남는다. 2026-07-30 사고: prod 태스크 정의가 핀한 master-4c23ed4(7/11 빌드)가
-#    7/27 빌드에 밀려 만료 → prod 는 이미 뜬 태스크로 서빙 중이었지만 **재배포/자동복구가 불가능한 상태**였다
+# ⚠️ countNumber 는 "빌드 수"가 아니라 **매니페스트 수**이고, `tagStatus = any` 라 태그 없는 것도 센다.
+#    buildx 는 단일 아키텍처(--platform linux/arm64) 빌드에도 매니페스트를 **3개** 만든다:
+#      ① OCI image index (태그 master-<sha> + master-latest 가 붙는 것)
+#      ② arm64 이미지 매니페스트 (untagged)
+#      ③ provenance attestation 매니페스트 (untagged, ~42KB)
+#    → 10 이면 실질 3.3빌드분만 남는다. (amd64 는 굽지 않는다 — 아키텍처를 늘려서 3이 된 게 아니다.)
+#
+#    그리고 이미지는 **배포가 아니라 머지마다** 쌓인다(build.yml: on.push.branches=[master]).
+#    즉 소진 속도는 머지 빈도를 따라가므로, prod 를 오래 재배포하지 않을수록 prod 가 핀한 태그가 창 밖으로 밀린다.
+#    2026-07-30 사고: prod 가 핀한 master-4c23ed4 위로 머지가 4번(#179·#180·#181·#183 = 매니페스트 12개) 쌓여
+#    10 창을 넘기며 만료 → prod 는 이미 뜬 태스크로 서빙 중이었지만 **재배포/자동복구가 불가능한 상태**였다
 #    (CannotPullContainerError: not found, 게다가 deployment circuit breaker OFF).
 #    prod 가 핀한 이미지가 사라지는 건 "스토리지 절감"으로 감당할 리스크가 아니다 → 60(≈20빌드)으로 상향.
 #    ECR 스토리지는 $0.10/GB-월 수준이라 증분 비용은 무의미하다.
@@ -111,7 +119,7 @@ resource "aws_ecr_lifecycle_policy" "app" {
   policy = jsonencode({
     rules = [{
       rulePriority = 1
-      description  = "최근 60개 매니페스트 유지 (multi-arch 3매니페스트/빌드 ≈ 20빌드)"
+      description  = "최근 60개 매니페스트 유지 (buildx 3매니페스트/빌드 ≈ 20빌드)"
       selection    = { tagStatus = "any", countType = "imageCountMoreThan", countNumber = 60 }
       action       = { type = "expire" }
     }]
