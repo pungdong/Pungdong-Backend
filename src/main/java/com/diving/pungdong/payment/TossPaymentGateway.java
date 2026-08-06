@@ -93,6 +93,8 @@ public class TossPaymentGateway implements PaymentGateway {
                 throw new BadRequestException();
             }
             String status = json.path("status").asText(null);
+            log.info("[payment-toss] 승인 완료 orderId={} paymentKey={} status={} method={} amount={}",
+                    command.orderId(), paymentKey, status, json.path("method").asText(null), command.amount());
             return new ConfirmResult(
                     "DONE".equals(status), // 토스 어휘 정규화 — 서비스는 approved 만 본다
                     status,
@@ -129,6 +131,7 @@ public class TossPaymentGateway implements PaymentGateway {
             }
             // 부분취소면 마지막 cancels[] 의 시각을 쓸 수 있으나, 표시엔 최상위 status + now 로 충분.
             String status = json.path("status").asText(null);
+            log.info("[payment-toss] 취소 완료 paymentKey={} status={} 취소액={}", pgTransactionId, status, cancelAmount);
             return new CancelResult(
                     "CANCELED".equals(status) || "PARTIAL_CANCELED".equals(status),
                     status,

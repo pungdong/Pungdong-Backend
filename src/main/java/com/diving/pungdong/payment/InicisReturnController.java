@@ -56,6 +56,8 @@ public class InicisReturnController {
     @PostMapping(value = "/payments/inicis/return", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
     public ResponseEntity<Void> inicisReturn(@RequestParam Map<String, String> form) {
         String orderId = form.get("P_OID");
+        log.info("[payment-inicis] 콜백 수신 P_OID={} P_STATUS={} P_IDCNAME={}",
+                orderId, form.get("P_STATUS"), form.get("P_IDCNAME"));
         PaymentService.OrderRedirect redirect = orderId == null ? null : paymentService.callbackRedirect(orderId);
         if (redirect == null) {
             // 알 수 없는 주문(위조/오배송) — 어느 client 인지 모르니 web fail 로.
@@ -72,6 +74,7 @@ public class InicisReturnController {
             paymentService.confirmByCallback(orderId, Map.of(
                     "P_AUTH_TID", form.getOrDefault("P_AUTH_TID", ""),
                     "P_IDCNAME", form.getOrDefault("P_IDCNAME", "")));
+            log.info("[payment-inicis] 콜백 승인 성공 orderId={} client={} → 성공 리다이렉트", orderId, redirect.client());
             return found(target(redirect.client(), true, orderId, redirect.orderNo()));
         } catch (RuntimeException e) {
             log.warn("[payment-inicis] 콜백 승인 실패 orderId={} : {}", orderId, e.toString());

@@ -160,13 +160,18 @@ public class InicisPaymentGateway implements PaymentGateway {
             log.error("[payment-inicis] ⚠️ 승인액 불일치 tid={} 서버={} INICIS={}",
                     refundTid(res), command.amount(), approved);
         }
+        String tid = refundTid(res);
+        String method = methodLabel(res);
+        // 감사로그(성공 경로도 반드시 남긴다) — tid 가 어느 필드(P_TID/P_APPL_TID)로 왔는지까지 드러낸다.
+        log.info("[payment-inicis] 승인 완료 oid={} tid={} (P_TID={}, P_APPL_TID={}) method={} amount={}",
+                command.orderId(), tid, res.get("P_TID"), res.get("P_APPL_TID"), method, approved);
         return new ConfirmResult(
                 true,
                 status,
-                methodLabel(res),
+                method,
                 parseTime(res.get("P_APPL_DT"), res.get("P_APPL_TM")),
-                null,               // 이니시스는 승인 응답으로 영수증 URL 을 주지 않는다
-                refundTid(res));    // 환불에 쓰는 거래번호(P_TID)
+                null,   // 이니시스는 승인 응답으로 영수증 URL 을 주지 않는다
+                tid);   // 환불에 쓰는 거래번호(P_TID 우선, 없으면 P_APPL_TID)
     }
 
     @Override
@@ -186,6 +191,8 @@ public class InicisPaymentGateway implements PaymentGateway {
                     resultCode, json.path("resultMsg").asText(""));
             throw new BadRequestException();
         }
+        log.info("[payment-inicis] 환불 완료 tid={} type={} 취소액={} resultCode={}",
+                pgTransactionId, type, cancelAmount, resultCode);
         return new CancelResult(true, resultCode, refundTime(json));
     }
 
