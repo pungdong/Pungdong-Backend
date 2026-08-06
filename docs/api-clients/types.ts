@@ -1606,28 +1606,29 @@ export interface InstructorRoundCard {
 }
 
 // ============================================================
-// 결제 (payment 도메인) — PG 중립 (토스페이먼츠 / NHN KCP 표준결제)
+// 결제 (payment 도메인) — PG 중립 (토스페이먼츠 / KG이니시스 INIpay PRO 표준결제)
 // docs/features/payment.md · docs/architecture/payment.md 참고
 // ============================================================
-// ★★ 2026-07 변경: PG 를 갈아끼울 수 있게 계약이 PG 중립으로 바뀌었다(토스 심사 적체로 KCP 병행).
-//    prepare 응답의 clientKey/customerKey → provider + params(맵), confirm 의 paymentKey → pgPayload(맵).
+// ★★ 2026-07~08 변경: PG 를 갈아끼울 수 있게 계약이 PG 중립으로 바뀌었다(토스 심사 적체 → KCP 시도 →
+//    KCP "중개 미지원" 거절 → KG이니시스로 전환). prepare 응답의 clientKey/customerKey → provider + params(맵),
+//    confirm 의 paymentKey → pgPayload(맵). 토스·이니시스는 공존(BE 가 PAYMENT_MODE 로 스왑, FE 는 provider 로만 분기).
 //
 // 흐름: 강사 수락(enrollment = PAYMENT_PENDING) → POST /payments/prepare(주문 생성 + 결제창 구동값)
-//   → FE 가 provider 로 분기해 결제창 구동 → 결제창이 PG 고유 인증값을 돌려줌
-//   → POST /payments/confirm(그 값을 pgPayload 에) → 서버가 금액 대조 후 PG 승인 → enrollment CONFIRMED.
+//   → FE 가 provider 로 분기해 결제창 구동 → (TOSS/STUB) FE 가 confirm / (INICIS) 결제창이 BE 콜백으로 POST → BE 승인
+//   → enrollment CONFIRMED.
 //
 // ★ amount·orderId 는 서버가 정한 값(권위) — FE 는 prepare 응답값을 그대로 결제창/confirm 에 넘긴다.
 //   임의 변경 시 승인 거절(서버가 저장한 금액으로 PG 에 승인 요청하므로 결제창 금액과 다르면 PG 가 거절).
-// 로컬/테스트는 stub(외부 미호출·즉시 승인), staging/prod 만 실연동(PAYMENT_MODE=toss|kcp).
+// 로컬/테스트는 stub(외부 미호출·즉시 승인), staging/prod 만 실연동(PAYMENT_MODE=toss|inicis).
 
 export type PaymentStatus = 'READY' | 'DONE' | 'CANCELED' | 'FAILED';
 
 /**
  * 어떤 PG 로 결제하나. 신규 주문의 PG 선택은 전역 설정이 정한다(한 번에 하나).
  * 단, 기존 주문의 승인·환불은 그 주문에 <b>박제된 provider</b> 로 라우팅된다 —
- * PG 를 갈아탄 뒤에도 과거 KCP 주문의 환불이 KCP 로 가야 하므로(BE 가 보장, FE 는 신경 쓸 것 없음).
+ * PG 를 갈아탄 뒤에도 과거 이니시스 주문의 환불이 이니시스로 가야 하므로(BE 가 보장, FE 는 신경 쓸 것 없음).
  */
-export type PaymentProvider = 'STUB' | 'TOSS' | 'KCP';
+export type PaymentProvider = 'STUB' | 'TOSS' | 'INICIS';
 
 /** 결제 준비 — POST /payments/prepare (authenticated). 수락된(PAYMENT_PENDING) 회차에 대해 주문 생성. */
 export interface PaymentPrepareRequest {
@@ -1639,12 +1640,12 @@ export interface PaymentPrepareRequest {
   /** @deprecated roundId 를 쓸 것. 회차 id 를 담던 옛 이름 — 하위호환으로 당분간만 허용. */
   enrollmentId?: number;
   /**
-   * 모바일 환경 여부(기본 false). KCP 표준결제가 모바일/PC 로 결제창 호출 방식이 갈려서 필요.
+   * 모바일 환경 여부(기본 false). 이니시스 표준결제의 P_DEVICE_TYPE(MOBILE/WEB) 분기에 쓰인다.
    * TOSS·STUB 는 무시. 웹은 UA/뷰포트로, 앱은 항상 true.
    */
   mobile?: boolean;
   /**
-   * 클라이언트 종류(기본 'web'). **KCP 콜백 리다이렉트 타겟**(web URL / app 스킴 plop://)을 BE 가 고르는 데 쓴다.
+   * 클라이언트 종류(기본 'web'). **이니시스 콜백 리다이렉트 타겟**(web URL / app 스킴 plop://)을 BE 가 고르는 데 쓴다.
    * ★ mobile 과 독립 축: mobile=결제창 레이아웃, client=리다이렉트 타겟. 웹 모바일브라우저 = { mobile:true, client:'web' }.
    * 앱 → 'app', 웹(데스크탑·모바일 모두) → 'web'. TOSS·STUB 는 무시.
    */
@@ -1654,11 +1655,13 @@ export interface PaymentPrepareRequest {
 /**
  * 결제창 구동값. amount·orderId·orderName 은 서버 권위값 — 그대로 결제창에 넘긴다.
  * ★ params 의 키는 provider 마다 다르다 — 반드시 provider 로 분기해서 꺼낼 것:
- *   - 'TOSS' → clientKey(공개값), customerKey  … 결제위젯 v2 로 렌더
- *   - 'KCP'  → siteCd, payMethod, retUrl, customerKey + (mobile 일 때만) approvalKey, payUrl, traceNo
- *              · mobile: payUrl 로 form POST(전체 페이지 전환)
- *              · PC: kcp_spay_hub.js 의 KCP_Pay_Execute_Web() 로 호출(거래등록 없음)
- *   - 'STUB' → customerKey 만. 결제창 없이 바로 confirm 호출 가능(로컬 개발)
+ *   - 'TOSS'   → clientKey(공개값), customerKey  … 결제위젯 v2 로 렌더
+ *   - 'INICIS' → P_ 파라미터 일습(P_MID, P_OID, P_PAY_TYPE, P_DEVICE_TYPE, P_IDCCODE, P_AMT, P_GOODS,
+ *                P_UNAME, P_NEXT_URL, P_TIMESTAMP, P_CHKFAKE(서명), P_CHARSET).
+ *                · INIPayPro_v2.js(https://paypro.inicis.com/std/payment/js/INIPayPro_v2.js)를 로드하고
+ *                  INIPayPro.requestPayment(params) 로 결제창 구동. ⚠️ 구버전 stdpay.inicis.com 아님.
+ *                · P_GOODS/P_UNAME 은 서명 대상이 아니라 표시용 — FE 가 덮어도 금액/주문은 위조 불가.
+ *   - 'STUB'   → customerKey 만. 결제창 없이 바로 confirm 호출 가능(로컬 개발)
  */
 export interface PaymentPrepareResponse {
   orderId: string;      // PG 멱등키 — 결제창/confirm 에 그대로. 내부 식별(표시 X)
@@ -1669,9 +1672,9 @@ export interface PaymentPrepareResponse {
   params: Record<string, string>;
 }
 
-// ★★ confirm 주체가 provider 마다 다르다 (FE 핑퐁 #1~#3, WebView POST 제약):
+// ★★ confirm 주체가 provider 마다 다르다 (WebView POST 제약):
 //   - TOSS/STUB → **FE 가** POST /payments/confirm 호출 (아래).
-//   - KCP       → **FE 는 confirm 을 호출하지 않는다.** 결제창이 인증결과를 BE 콜백(Ret_URL=BE)으로 form POST 하고,
+//   - INICIS    → **FE 는 confirm 을 호출하지 않는다.** 결제창이 인증결과를 BE 콜백(P_NEXT_URL=BE)으로 form POST 하고,
 //                 BE 가 서버사이드 승인까지 끝낸 뒤 GET 리다이렉트한다:
 //                   web  → {origin}/payment/success?orderId&orderNo&status=paid   (실패: /payment/fail?...&status=failed)
 //                   app  → plop://payment/success?orderId&orderNo&status=paid     (실패: plop://payment/fail)
@@ -1679,7 +1682,7 @@ export interface PaymentPrepareResponse {
 //                 FE 는 그 성공화면에서 orderId 로 GET /payments/orders/{orderId} 조회해 금액·상태를 채운다.
 
 /**
- * 결제 승인 — POST /payments/confirm (authenticated). **TOSS/STUB 전용** (KCP 는 BE 콜백이 처리 — 위 주석).
+ * 결제 승인 — POST /payments/confirm (authenticated). **TOSS/STUB 전용** (INICIS 는 BE 콜백이 처리 — 위 주석).
  * ★ pgPayload 키는 provider 별로 다르다:
  *   - 'TOSS' → { paymentKey }   (위젯 성공 리다이렉트의 값)
  *   - 'STUB' → {} (생략 가능)
@@ -1707,7 +1710,7 @@ export interface PaymentConfirmResponse {
 
 /**
  * 주문 상세 조회 — GET /payments/orders/{orderId} (authenticated, 소유권 검증).
- * KCP 성공화면(confirm 을 FE 가 안 해 리다이렉트 쿼리만 옴)에서 금액·상태를 채우는 용도 + 새로고침/딥링크 재진입 복구.
+ * 이니시스 성공화면(confirm 을 FE 가 안 해 리다이렉트 쿼리만 옴)에서 금액·상태를 채우는 용도 + 새로고침/딥링크 재진입 복구.
  * 응답 = PaymentConfirmResponse 와 동일 모양. 비소유/없음 = 400(존재 숨김).
  */
 export type PaymentOrderResponse = PaymentConfirmResponse;
