@@ -91,6 +91,16 @@ feat/xxx (로컬 개발 + 테스트)  →  PR(CI 자동 테스트)  →  master 
 
 검증: `rolloutState=COMPLETED` + CloudWatch `/ecs/plop-staging` 에 `Started PungdongApplication`. **롤링이라 새 task 가 health 못 넘기면 옛 task 가 계속 서빙 = 무중단**(새 코드만 안 뜸) — 그래서 "배포했는데 안 바뀜" 이면 새 task 크래시 로그부터 본다.
 
+### PG 스왑 / `PAYMENT_MODE` 변경 — 이미지가 enum 을 가진 뒤에만 flip (2026-08-06)
+
+결제 PG 를 갈아끼울 때(`PAYMENT_MODE`=stub|toss|inicis 변경, 또는 새 PG 추가)의 함정: **그 값에 해당하는 `PaymentProvider` enum 이 배포된 이미지에 있어야 한다.** 없으면 `PaymentGatewayRegistry` 가 부팅 시 `PaymentProvider.valueOf(mode)` 로 터져 — **그 어댑터 하나가 아니라 앱 전체가 안 뜬다**(`IllegalStateException`). 즉 `PAYMENT_MODE` 는 **런타임 토글이 아니라 배포와 묶인 값**이다.
+
+- **순서(스왑)**: ① 새 provider 를 추가한 이미지가 `master-latest` 로 빌드됐는지 확인(위 함정 1) → ② SSM 시크릿 선행 — `user_secret_names` 에 추가한 이름(`INICIS_HASH_KEY`·`INICIS_API_KEY` 등)이 `/plop/<env>/` 에 **실재**해야 task 가 뜬다(없으면 secret fetch 실패로 기동 실패) → ③ **이미지 + 새 `PAYMENT_MODE` 를 같은 task def revision 에** 실어 배포(staging-up 이 새 revision 생성 → 그 revision 으로 `update-service --force-new-deployment`, 위 함정 2). 이미지와 mode 가 한 revision 이라 **원자적** = 부팅 실패 창(옛 이미지+새 mode) 자체가 안 생긴다.
+- **절대 금지**: `PAYMENT_MODE` 만 먼저 바꾸고 옛 이미지에 `force-new-deployment` — 옛 이미지엔 그 enum 이 없어 부팅 실패.
+- **롤백도 역순**: 새 provider 를 뺀 옛 이미지로 되돌리기 전에 `PAYMENT_MODE` 를 옛 값으로 **먼저** 내린다(안 그러면 롤백 이미지가 enum 없이 새 mode 를 만나 또 부팅 실패).
+- **과거 주문은 무영향**: 스왑해도 각 주문은 `PaymentOrder.provider`(박제)로 환불·승인 라우팅(`PaymentGatewayRegistry.forOrder`) — mode 는 *신규* 주문만 정한다. 그래서 옛 PG 어댑터는 코드에 남겨둬야 그 PG 로 결제된 과거 주문을 취소할 수 있다(폐기 PG 라도 미결/환불 대기 주문이 없을 때만 어댑터 삭제).
+- **prod 는 스테이징 검증 뒤에만**: 운영 PG flip 은 (a) 스테이징에서 실 왕복 확인 + (b) 그 PG 의 라이브 심사(카드사) 완료 후. 그전엔 운영 `PAYMENT_MODE` 를 안전한 값(toss)으로 유지.
+
 ### ECR 리텐션이 prod 가 핀한 이미지를 지운다 (2026-07-30 발견)
 
 **증상**: prod 를 재배포하려 하자 `CannotPullContainerError: ...plop:master-4c23ed4: not found`. 태스크가 뜨고 죽기를 반복.
