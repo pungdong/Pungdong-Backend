@@ -13,14 +13,15 @@ import java.util.Map;
  * <ul>
  *   <li>{@link StubPaymentGateway} — 외부 미호출, 즉시 승인. 기본값(로컬/테스트).</li>
  *   <li>{@link TossPaymentGateway} — 토스페이먼츠 결제위젯 v2({@code mode=toss}).</li>
- *   <li>{@link KcpPaymentGateway} — NHN KCP 표준결제({@code mode=kcp}).</li>
+ *   <li>{@link InicisPaymentGateway} — KG이니시스 INIpay PRO 표준결제({@code mode=inicis}).</li>
  * </ul>
  *
- * <p><b>왜 PG 중립인가</b>: 토스 심사가 밀려(2026-07) KCP 를 병행 연동하게 되면서, PG 를 갈아끼우는 비용을
- * "어댑터 1개 + config 한 줄"로 묶어두기 위해. 토스 고유 어휘(paymentKey/DONE)는 어댑터 안에 가둔다.
+ * <p><b>왜 PG 중립인가</b>: 토스 심사가 밀려(2026-07) 이니시스로 전환하면서, PG 를 갈아끼우는 비용을
+ * "어댑터 1개 + config 한 줄"로 묶어두기 위해. 토스↔이니시스는 {@code mode} 만 바꿔 스왑하고(플러그식),
+ * PG 고유 어휘(paymentKey/DONE / P_TID/P_STATUS)는 어댑터 안에 가둔다.
  *
  * <p><b>공통 불변식</b>: 승인 금액은 <b>서버 권위 금액</b>({@code amount})이다 — FE 가 보낸 값이 아니라
- * {@link PaymentOrder} 에 박힌 값을 그대로 PG 에 넘겨 대조시킨다. 시크릿(토스 시크릿키 / KCP 인증서)은 BE 밖으로 안 나간다.
+ * {@link PaymentOrder} 에 박힌 값을 그대로 PG 에 넘겨 대조시킨다. 시크릿(토스 시크릿키 / 이니시스 hashKey·apiKey)은 BE 밖으로 안 나간다.
  */
 public interface PaymentGateway {
 
@@ -33,8 +34,8 @@ public interface PaymentGateway {
      *
      * <ul>
      *   <li>토스 — {@code clientKey}(공개), {@code customerKey}. 외부 호출 없음.</li>
-     *   <li>KCP — {@code siteCd} + (모바일) 거래등록 결과 {@code approvalKey}/{@code payUrl}/{@code traceNo}.
-     *       모바일은 여기서 KCP 거래등록을 <b>실제로 호출</b>한다. PC 는 거래등록 없이 JS SDK 로 바로 띄운다.</li>
+     *   <li>이니시스 — P_ 파라미터({@code P_MID}·{@code P_OID}·{@code P_AMT}·서명 {@code P_CHKFAKE} 등). 외부 호출 없이
+     *       계산만 하고, FE 가 {@code INIPayPro_v2.js} 로 결제창을 띄운다.</li>
      * </ul>
      */
     Map<String, String> initParams(InitCommand command);
@@ -47,17 +48,17 @@ public interface PaymentGateway {
 
     /**
      * 결제 취소(환불) — {@code cancelAmount} 로 <b>부분 취소</b>. {@code pgTransactionId} 는 승인 때 받아
-     * 저장해 둔 PG 거래 식별자(토스 {@code paymentKey} / KCP {@code tno}).
+     * 저장해 둔 PG 거래 식별자(토스 {@code paymentKey} / 이니시스 {@code P_TID}).
      *
-     * @param remainingAmount 이 취소 <b>직전</b>의 취소가능잔액(= 승인액 − 기취소액). KCP 부분취소가
-     *                        {@code rem_mny} 를 필수로 요구해서 포트에 있다. 토스는 무시한다.
+     * @param remainingAmount 이 취소 <b>직전</b>의 취소가능잔액(= 승인액 − 기취소액). 이니시스 부분취소는 이 값에서
+     *                        {@code cancelAmount} 를 뺀 "취소 후 잔액"({@code confirmPrice})으로 변환해 쓴다. 토스는 무시한다.
      */
     CancelResult cancel(String pgTransactionId, int cancelAmount, int remainingAmount, String reason);
 
     /* ─── 명령/결과 ─── */
 
     /**
-     * 결제창 구동 요청. {@code mobile} 은 KCP 가 모바일(거래등록+PayUrl)과 PC(JS SDK) 흐름이 갈리기 때문에 필요.
+     * 결제창 구동 요청. {@code mobile} 은 이니시스 {@code P_DEVICE_TYPE}(WEB/MOBILE) 분기에 쓰인다.
      *
      * <p>⚠️ 리턴 URL 은 <b>여기 없다</b> — 클라이언트가 정하면 오픈 리다이렉트가 되므로 BE 설정값으로 고정한다.
      */
@@ -65,8 +66,8 @@ public interface PaymentGateway {
     }
 
     /**
-     * 승인 요청. {@code amount} 는 서버 권위 금액, {@code pgPayload} 는 결제창이 FE 로 돌려준 PG 고유 인증값
-     * (토스: {@code paymentKey} / KCP: {@code enc_data}·{@code enc_info}·{@code tran_cd}).
+     * 승인 요청. {@code amount} 는 서버 권위 금액, {@code pgPayload} 는 결제창이 콜백으로 돌려준 PG 고유 인증값
+     * (토스: {@code paymentKey} / 이니시스: {@code P_AUTH_TID}·{@code P_IDCNAME}).
      */
     record ConfirmCommand(String orderId, int amount, Map<String, String> pgPayload) {
 
@@ -81,17 +82,17 @@ public interface PaymentGateway {
     }
 
     /**
-     * 승인 결과. {@code approved} 는 PG 별 성공 표현(토스 {@code status=DONE} / KCP {@code res_cd=0000})을
+     * 승인 결과. {@code approved} 는 PG 별 성공 표현(토스 {@code status=DONE} / 이니시스 {@code P_STATUS=00})을
      * <b>어댑터가 정규화</b>한 값 — 서비스 계층에 PG 어휘가 새지 않게 한다.
      *
-     * @param pgTransactionId 이후 취소에 쓰는 PG 거래 식별자(토스 paymentKey / KCP tno). KCP 는 승인 응답으로만 알 수 있어
-     *                        결과에 포함한다.
+     * @param pgTransactionId 이후 취소에 쓰는 PG 거래 식별자(토스 paymentKey / 이니시스 P_TID). 이니시스는 승인 응답으로만
+     *                        알 수 있어 결과에 포함한다.
      */
     record ConfirmResult(boolean approved, String rawStatus, String method,
                          OffsetDateTime approvedAt, String receiptUrl, String pgTransactionId) {
     }
 
-    /** 취소 결과 — {@code canceled} 는 어댑터가 정규화(토스 CANCELED/PARTIAL_CANCELED / KCP res_cd=0000). */
+    /** 취소 결과 — {@code canceled} 는 어댑터가 정규화(토스 CANCELED/PARTIAL_CANCELED / 이니시스 resultCode=00). */
     record CancelResult(boolean canceled, String rawStatus, OffsetDateTime canceledAt) {
     }
 }

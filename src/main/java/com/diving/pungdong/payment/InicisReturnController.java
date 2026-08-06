@@ -16,8 +16,8 @@ import java.util.Map;
 
 /**
  * 이니시스 INIpay PRO <b>인증결과 콜백</b> — 결제창이 {@code P_NEXT_URL}(=여기)로 form POST 하는 인증결과를 BE 가 받아
- * <b>서버사이드 승인까지</b> 끝내고, 그 결과를 FE 로 <b>GET 리다이렉트</b>한다. (KCP 콜백과 같은 구조 — WebView 가
- * form POST 본문을 못 읽어 Ret_URL 을 BE 로 둔다.)
+ * <b>서버사이드 승인까지</b> 끝내고, 그 결과를 FE 로 <b>GET 리다이렉트</b>한다. (앱 WebView 가 결제창의
+ * form POST 본문을 못 읽어 P_NEXT_URL 을 BE 로 둔다.)
  *
  * <p><b>보안</b>: {@code permitAll} — 이니시스 POST 엔 우리 JWT 가 없다. 인증은 {@code P_AUTH_TID}(우리 콜백에만 옴)가
  * 대신하고, 승인 전문의 금액은 <b>주문 권위값</b>으로 보낸다. 리다이렉트 URL 은 클라이언트가 정하지 않고 주문에 박제된

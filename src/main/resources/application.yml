@@ -156,18 +156,6 @@ pungdong:
     toss:
       secret-key: ${TOSS_SECRET_KEY:}             # 결제 승인 Basic 인증 (BE 전용, 노출 금지)
       client-key: ${TOSS_CLIENT_KEY:}             # 위젯 클라이언트 키 (FE 노출용 공개값)
-    kcp:
-      site-cd: ${KCP_SITE_CD:}                    # 가맹점 사이트코드 (5byte, 예: T0000)
-      cert-info: ${KCP_CERT_INFO:}                # 서비스 인증서 PEM 직렬화 — 승인/취소 인증 (노출 금지)
-      private-key: ${KCP_PRIVATE_KEY:}            # 개인키 PEM — 취소 서명(SHA256withRSA)용 (노출 금지)
-      private-key-password: ${KCP_PRIVATE_KEY_PASSWORD:}  # 개인키가 암호화된 경우
-      ret-url: ${KCP_RET_URL:}                    # 결제창 인증결과(enc_data 등) 수신 BE 콜백 URL — 예: https://api-staging.plop.cool/payments/kcp/return. 앱 WebView가 form POST 본문을 못 읽어 BE가 받아 승인 후 GET 리다이렉트(FE 핑퐁 #1). BE 고정=오픈리다이렉트 방지
-      # 콜백 후 GET 리다이렉트 타겟 — 주문의 client(web/app)로 고정 allowlist 중 하나 선택. web은 환경별(staging/prod), app은 등록된 스킴.
-      return-web-success: ${KCP_RETURN_WEB_SUCCESS:}   # 예: https://staging.plop.cool/payment/success
-      return-web-fail: ${KCP_RETURN_WEB_FAIL:}         # 예: https://staging.plop.cool/payment/fail
-      return-app-success: ${KCP_RETURN_APP_SUCCESS:plop://payment/success}
-      return-app-fail: ${KCP_RETURN_APP_FAIL:plop://payment/fail}
-      live: ${KCP_LIVE:false}                     # false=테스트 엔드포인트, true=운영 (세트 단위 전환)
     # 이니시스 INIpay PRO 표준결제. 테스트/운영은 엔드포인트가 아니라 MID 로 갈린다(테스트 INIpayTest) — live 플래그 없음.
     inicis:
       mid: ${INICIS_MID:}                         # 가맹점 MID (테스트 INIpayTest)

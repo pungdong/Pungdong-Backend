@@ -212,24 +212,24 @@ class RefundUseCaseTest {
     @DisplayName("RF4 PG 를 갈아탄 뒤에도 과거 주문의 환불은 결제 당시 PG 로 나간다 — 전역 설정을 보지 않는다")
     void refundRoutesToOrderProviderAfterSwitch() throws Exception {
         Fixture f = fixture();
-        // 이 주문들은 KCP 로 결제된 것으로 박제한다(결제 당시 PG).
+        // 이 주문들은 이니시스로 결제된 것으로 박제한다(결제 당시 PG).
         orderRepo.findAll().forEach(o -> {
-            o.setProvider(com.diving.pungdong.payment.PaymentProvider.KCP);
+            o.setProvider(com.diving.pungdong.payment.PaymentProvider.INICIS);
             orderRepo.save(o);
         });
 
-        // 그 뒤 전역 설정이 토스로 바뀐 상황 — active() 는 토스, forOrder(KCP) 는 KCP 를 준다.
+        // 그 뒤 전역 설정이 토스로 바뀐 상황 — active() 는 토스, forOrder(INICIS) 는 이니시스를 준다.
         var toss = org.mockito.Mockito.mock(com.diving.pungdong.payment.PaymentGateway.class);
-        var kcp = org.mockito.Mockito.mock(com.diving.pungdong.payment.PaymentGateway.class);
+        var inicis = org.mockito.Mockito.mock(com.diving.pungdong.payment.PaymentGateway.class);
         org.mockito.BDDMockito.given(gateways.active()).willReturn(toss);
-        org.mockito.BDDMockito.given(gateways.forOrder(com.diving.pungdong.payment.PaymentProvider.KCP)).willReturn(kcp);
+        org.mockito.BDDMockito.given(gateways.forOrder(com.diving.pungdong.payment.PaymentProvider.INICIS)).willReturn(inicis);
 
         mockMvc.perform(post("/enrollments/{id}/refund", f.enrollmentId).header(HttpHeaders.AUTHORIZATION, token(f.student)))
                 .andExpect(status().isOk());
 
-        // 취소는 전부 KCP 로. 토스로 한 건이라도 나가면 "존재하지 않는 거래" 취소라 돈은 받고 환불은 실패한다.
-        verify(kcp).cancel(eq("pk1"), eq(100_000), eq(220_000), anyString());
-        verify(kcp).cancel(eq("pk2"), eq(20_000), eq(20_000), anyString());
+        // 취소는 전부 이니시스로. 토스로 한 건이라도 나가면 "존재하지 않는 거래" 취소라 돈은 받고 환불은 실패한다.
+        verify(inicis).cancel(eq("pk1"), eq(100_000), eq(220_000), anyString());
+        verify(inicis).cancel(eq("pk2"), eq(20_000), eq(20_000), anyString());
         org.mockito.Mockito.verifyNoInteractions(toss);
     }
 }

@@ -110,7 +110,7 @@ public class TossPaymentGateway implements PaymentGateway {
 
     @Override
     public CancelResult cancel(String pgTransactionId, int cancelAmount, int remainingAmount, String reason) {
-        // remainingAmount 는 토스에 불필요 — 토스는 cancelAmount 만으로 부분취소를 처리한다(KCP 요구사항).
+        // remainingAmount 는 토스에 불필요 — 토스는 cancelAmount 만으로 부분취소를 처리한다(이니시스는 confirmPrice 로 변환해 사용).
         String body = "{\"cancelReason\":\"" + esc(reason) + "\",\"cancelAmount\":" + cancelAmount + "}";
         HttpRequest req = HttpRequest.newBuilder(URI.create(String.format(CANCEL_URL, pgTransactionId)))
                 .timeout(Duration.ofSeconds(15))

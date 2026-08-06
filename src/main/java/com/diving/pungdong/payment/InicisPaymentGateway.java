@@ -30,7 +30,7 @@ import java.util.regex.Pattern;
  * KG이니시스 <b>INIpay PRO 표준결제</b> 어댑터 — 간편결제(카카오·네이버·토스·애플페이)가 카드 결제창 안에 노출되므로
  * {@code P_PAY_TYPE=CARD} 하나로 카드+간편결제를 모두 받는다. 가상계좌·계좌이체는 붙이지 않는다.
  *
- * <p><b>흐름</b> (KCP 와 같은 "Ret_URL = BE 콜백" 구조):
+ * <p><b>흐름</b> ("P_NEXT_URL = BE 콜백" 구조 — 앱 WebView 가 결제창의 form POST 본문을 못 읽어서):
  * <ol>
  *   <li>FE 가 {@code INIPayPro_v2.js} 를 로드하고 {@code INIPayPro.requestPayment(obj)} 로 결제창을 띄운다.
  *       {@code obj}(P_ 파라미터 + 서명 {@code P_CHKFAKE})는 {@link #initParams}가 만들어 내려준다 — 외부 호출 없음.</li>
@@ -53,8 +53,8 @@ import java.util.regex.Pattern;
  *       body 의 {@code data}가 <b>바이트 동일</b>해야 하므로 {@code data} 를 한 번만 직렬화해 양쪽에 쓴다.</li>
  * </ul>
  *
- * <p>테스트/운영은 <b>엔드포인트가 아니라 MID 로 갈린다</b>(테스트 {@code INIpayTest}) — 그래서 KCP 처럼 live
- * 플래그가 없다. 승인 호스트는 콜백이, 환불 호스트는 고정({@code iniapi})이다.
+ * <p>테스트/운영은 <b>엔드포인트가 아니라 MID 로 갈린다</b>(테스트 {@code INIpayTest}) — 그래서 live
+ * 플래그가 없다. 승인 호스트는 콜백({@code P_IDCNAME})이, 환불 호스트는 고정({@code iniapi})이다.
  *
  * <p>빈은 항상 등록되고 사용 여부는 {@link PaymentGatewayRegistry}가 정한다(신규 결제=전역 설정, 기존 주문 환불=
  * 주문에 박제된 provider). 자격증명이 비어 있으면 실제 호출 시점에 실패한다.
@@ -215,7 +215,7 @@ public class InicisPaymentGateway implements PaymentGateway {
 
     /**
      * 환불 {@code data} 객체. 부분취소면 {@code price}(취소액)+{@code confirmPrice}(<b>취소 후</b> 잔액)가 필수 —
-     * KCP {@code rem_mny}(취소 <b>직전</b> 잔액)와 의미가 반대라 {@code remainingAmount - cancelAmount}로 변환한다.
+     * 포트의 {@code remainingAmount} 는 취소 <b>직전</b> 잔액이므로 {@code remainingAmount - cancelAmount}로 변환한다.
      */
     static Map<String, Object> refundData(String tid, int cancelAmount, int remainingAmount, String reason) {
         Map<String, Object> data = new LinkedHashMap<>();
