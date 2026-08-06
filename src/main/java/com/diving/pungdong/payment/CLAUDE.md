@@ -37,6 +37,8 @@
 
 `pungdong.payment.mode`(**stub|toss|inicis**, 부팅 시 하나만) + `toss.secret-key`/`client-key` + `inicis.mid`/`hash-key`(P_CHKFAKE 서명)/`api-key`(환불 hashData)/`client-ip`(환불 전문 IP)/`ret-url`(=**BE 콜백 URL** `.../payments/inicis/return`)/`return-web-success|fail`(환경별)/`return-app-success|fail`(기본 `plop://payment/...`) — `application.yml`·`.env.example`. 로컬 stub 기본(외부 미호출). 이니시스 테스트/운영은 엔드포인트가 아니라 **MID**(테스트 `INIpayTest`)로 갈려 live 플래그 없음. 키 발급 전 토스 **문서용 테스트 키**도 사용 가능(`.env.example` 주석).
 
+⚠️ **`PAYMENT_MODE` 스왑은 배포와 묶인 값**(런타임 토글 아님): mode 가 배포 이미지에 없는 `PaymentProvider` enum 을 가리키면 `PaymentGatewayRegistry` 가 부팅 실패로 **앱 전체가 안 뜬다**. 이미지가 enum 가진 뒤에만 flip, 롤백은 역순, SSM 시크릿 선행 — 스왑 런북은 [docs/architecture/deployment.md](../../../../../../../docs/architecture/deployment.md) "PG 스왑 / PAYMENT_MODE 변경".
+
 ## 작업 전 반드시 읽기
 
 - **[docs/features/payment.md](../../../../../../../docs/features/payment.md)** — 정책·왜·히스토리. **여기부터.**
