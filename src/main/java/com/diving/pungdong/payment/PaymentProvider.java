@@ -15,5 +15,8 @@ public enum PaymentProvider {
     TOSS,
 
     /** NHN KCP 표준결제(간편결제 포함). */
-    KCP
+    KCP,
+
+    /** KG이니시스 INIpay PRO 표준결제(카드+간편결제). */
+    INICIS
 }
