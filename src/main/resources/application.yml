@@ -152,22 +152,22 @@ pungdong:
   # staging/prod 만 실연동: PAYMENT_MODE=toss + 시크릿/클라이언트 키. 시크릿 키는 BE 밖으로 안 나간다
   # (승인은 BE 가 /v1/payments/confirm 으로). FE 엔 client-key(공개)만 내려간다.
   payment:
-    mode: ${PAYMENT_MODE:stub}                    # stub | toss | kcp  (부팅 시 하나만 활성)
+    mode: ${PAYMENT_MODE:stub}                    # stub | toss | kcp | inicis  (부팅 시 하나만 활성)
     toss:
       secret-key: ${TOSS_SECRET_KEY:}             # 결제 승인 Basic 인증 (BE 전용, 노출 금지)
       client-key: ${TOSS_CLIENT_KEY:}             # 위젯 클라이언트 키 (FE 노출용 공개값)
-    kcp:
-      site-cd: ${KCP_SITE_CD:}                    # 가맹점 사이트코드 (5byte, 예: T0000)
-      cert-info: ${KCP_CERT_INFO:}                # 서비스 인증서 PEM 직렬화 — 승인/취소 인증 (노출 금지)
-      private-key: ${KCP_PRIVATE_KEY:}            # 개인키 PEM — 취소 서명(SHA256withRSA)용 (노출 금지)
-      private-key-password: ${KCP_PRIVATE_KEY_PASSWORD:}  # 개인키가 암호화된 경우
-      ret-url: ${KCP_RET_URL:}                    # 결제창 인증결과(enc_data 등) 수신 BE 콜백 URL — 예: https://api-staging.plop.cool/payments/kcp/return. 앱 WebView가 form POST 본문을 못 읽어 BE가 받아 승인 후 GET 리다이렉트(FE 핑퐁 #1). BE 고정=오픈리다이렉트 방지
-      # 콜백 후 GET 리다이렉트 타겟 — 주문의 client(web/app)로 고정 allowlist 중 하나 선택. web은 환경별(staging/prod), app은 등록된 스킴.
-      return-web-success: ${KCP_RETURN_WEB_SUCCESS:}   # 예: https://staging.plop.cool/payment/success
-      return-web-fail: ${KCP_RETURN_WEB_FAIL:}         # 예: https://staging.plop.cool/payment/fail
-      return-app-success: ${KCP_RETURN_APP_SUCCESS:plop://payment/success}
-      return-app-fail: ${KCP_RETURN_APP_FAIL:plop://payment/fail}
-      live: ${KCP_LIVE:false}                     # false=테스트 엔드포인트, true=운영 (세트 단위 전환)
+    # 이니시스 INIpay PRO 표준결제. 테스트/운영은 엔드포인트가 아니라 MID 로 갈린다(테스트 INIpayTest) — live 플래그 없음.
+    inicis:
+      mid: ${INICIS_MID:}                         # 가맹점 MID (테스트 INIpayTest)
+      hash-key: ${INICIS_HASH_KEY:}               # P_CHKFAKE 서명용 HMAC 해시키 (노출 금지)
+      api-key: ${INICIS_API_KEY:}                 # 환불(INIAPI) hashData 용 키 (노출 금지)
+      client-ip: ${INICIS_CLIENT_IP:127.0.0.1}    # 환불 전문의 가맹점 서버 IP (이니시스가 등록 IP와 대조 시 고정 egress 필요)
+      ret-url: ${INICIS_RET_URL:}                 # P_NEXT_URL — 인증결과 수신 BE 콜백 — 예: https://api-staging.plop.cool/payments/inicis/return
+      # 콜백 후 GET 리다이렉트 타겟 — 주문의 client(web/app)로 고정 allowlist 중 하나 선택.
+      return-web-success: ${INICIS_RETURN_WEB_SUCCESS:}   # 예: https://staging.plop.cool/payment/success
+      return-web-fail: ${INICIS_RETURN_WEB_FAIL:}         # 예: https://staging.plop.cool/payment/fail
+      return-app-success: ${INICIS_RETURN_APP_SUCCESS:plop://payment/success}
+      return-app-fail: ${INICIS_RETURN_APP_FAIL:plop://payment/fail}
   # 데모/심사 토글 (둘 다 기본 false, @Profile("!test")).
   demo:
     # 유지: 시드 강의(seeded) 강사에게 가용시간 전체 개방 → 시드 강의가 신청 가능해짐. coverage 는 한 번

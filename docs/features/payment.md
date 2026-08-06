@@ -4,7 +4,7 @@
 
 ## 한 줄
 
-수강신청이 **강사 수락 → 결제 → 확정**으로 닫히는 마지막 단계. **PG 중립** — FE 결제창이 결제하고 BE 가 승인한다. 실제 PG(토스페이먼츠 결제위젯 v2 / NHN KCP 표준결제)는 설정으로 교체한다. booking([booking.md](booking.md))이 "강사 답변 대기"까지였다면, payment 는 그 수락을 실제 확정으로 만든다.
+수강신청이 **강사 수락 → 결제 → 확정**으로 닫히는 마지막 단계. **PG 중립** — FE 결제창이 결제하고 BE 가 승인한다. 실제 PG(토스페이먼츠 결제위젯 v2 / KG이니시스 INIpay PRO 표준결제)는 `PAYMENT_MODE` 로 교체한다(플러그식 스왑). booking([booking.md](booking.md))이 "강사 답변 대기"까지였다면, payment 는 그 수락을 실제 확정으로 만든다.
 
 ## 협력 도메인
 
@@ -40,11 +40,11 @@
 
 ### 멱등
 
-`confirm` 은 멱등 — 이미 DONE 인 주문 재호출(새로고침·재시도)도 200 DONE(이중 승인 없음). 토스 호출엔 `Idempotency-Key = orderId`(KCP 는 `ordr_no` 로 동일 역할). prepare 도 멱등(같은 enrollment 의 READY 주문 재사용).
+`confirm` 은 멱등 — 이미 DONE 인 주문 재호출(새로고침·재시도)도 200 DONE(이중 승인 없음). 토스 호출엔 `Idempotency-Key = orderId`(이니시스는 콜백 승인이 주문 상태로 멱등 — 이미 DONE 이면 재승인 안 함). prepare 도 멱등(같은 회차의 READY 주문 재사용).
 
 ### 로컬 stub / 실연동 분리
 
-로컬·테스트 기본은 stub(외부 미호출·즉시 승인) — 외부 PG 에 묶이지 않게. staging/prod 만 `PAYMENT_MODE=toss|kcp` 로 실연동(부팅 시 하나만). address(juso)·identity-verification 과 같은 `@ConditionalOnProperty` interface 교체 패턴.
+로컬·테스트 기본은 stub(외부 미호출·즉시 승인) — 외부 PG 에 묶이지 않게. staging/prod 만 `PAYMENT_MODE=toss|inicis` 로 실연동(부팅 시 하나만). address(juso)·identity-verification 과 같은 interface 교체 패턴이되, 선택은 `PaymentGatewayRegistry` 가 한다(어댑터는 전부 빈으로 등록).
 
 ## 결정 히스토리
 
@@ -63,6 +63,8 @@
 | 2026-07-25 | **provider 를 주문에 박제 + 라우팅 이원화**(FE 리뷰) | 전역 설정은 *신규* 주문의 PG 만 정한다. 승인·환불은 주문에 저장된 `PaymentOrder.provider` 로 라우팅(`PaymentGatewayRegistry.forOrder`). 안 그러면 KCP→토스 전환 후 과거 KCP 주문 환불이 토스로 나가 **돈은 받고 환불 실패**. 어댑터는 `@ConditionalOnProperty` 를 떼고 전부 빈으로 등록(옛 PG 로도 취소 가능해야 하므로). V10 마이그레이션 + `RF4` 테스트. |
 | 2026-07-25 | prepare 요청에 **`roundId`** 추가(`enrollmentId` deprecated 병행)(FE 리뷰) | 결제 단위는 회차인데 옛 필드명 `enrollmentId` 가 회차 id 를 담아, 수강 id 를 쓰는 환불 path 와 이름이 겹쳐 위험. 둘 다 number 라 타입으로 안 잡힘. |
 | 2026-07-25 | KCP 는 **LITE PAY 아닌 표준결제** | LITE PAY 가 리다이렉트 통일·SDK 불필요로 더 단순했지만, **간편결제(카카오·네이버·토스페이 등)가 표준 결제창에만 노출**되고(공식 문서 명시) KCP 공식 MCP 문서도 표준결제 라인만 커버. 간편결제 상실 + 문서지원 상실 대비 FE 단순화 이득이 안 남음. |
+| 2026-07-29 | **KCP 폐기 → KG이니시스로 전환** | KCP 가 학생→플랫폼 결제 후 강사 정산 구조를 **"중개 플랫폼 미지원"으로 온보딩 거절**. 이니시스는 중개서비스(지급대행) 공식 지원 → 전환. PG중립 구조라 **어댑터 하나 교체**(KCP 코드 삭제, `provider:INICIS`). 되살릴 일 없어 KCP 는 fallback 아님(이론상 fallback 은 토스). [[payment_pg_kcp_switch]] |
+| 2026-08 | **이니시스 INIpay PRO 어댑터 + KCP 제거**(이 PR) | INIpay PRO 표준결제(P_ 스킴, `INIPayPro_v2.js`). 흐름은 KCP 와 동일(P_NEXT_URL=BE 콜백 → 서버승인 → 302). **카드+간편결제만**(P_PAY_TYPE=CARD, 가상계좌·계좌이체 제외 → 입금통보 webhook 회피). 승인(payAppl.ini)엔 서명이 없어 **금액 서버권위 대조 + P_IDCNAME allowlist(SSRF)** 가 방어. 환불 hashData 는 body 의 data 와 **바이트 동일**해야 통과. 테스트/운영은 엔드포인트 아닌 **MID**(INIpayTest)로 갈려 live 플래그 없음. **토스·이니시스 공존**(PAYMENT_MODE 로 플러그식 스왑, forOrder 로 과거 주문 원 PG 환불). |
 
 ### 환불 — 수강 종료(남은 회차 환불) (2026-06-28 구현)
 
@@ -70,7 +72,7 @@
 
 - **회차별 산정**(`RefundCalculator`): 수강 완료(done)=0 / 미배정 회차=수강료÷N(100%, 부대·패널티 0) / 배정취소=(수강료÷N + 부대)×환불율. EXTRA=부대만. 부대는 결제 완료분만.
 - **환불율**: 당일 0 / 전날 50 / 2일전 70 / 3일전+ 100, **신청 1h 내 100**. (코드 상수 — SiteSettings 이전은 튜닝 필요 시.)
-- **실행**: **수강료는 1회차 결제주문에 전액** 있으므로 수강료 몫 합 = 1회차 주문 **부분취소**, 부대 몫 = 각 회차 주문 부분취소. PG 부분취소(토스 `cancelAmount` / KCP `STPC` + `mod_mny`·`rem_mny`). `RefundOrder` 주문별 기록. stub/실연동은 결제와 동일.
+- **실행**: **수강료는 1회차 결제주문에 전액** 있으므로 수강료 몫 합 = 1회차 주문 **부분취소**, 부대 몫 = 각 회차 주문 부분취소. PG 부분취소(토스 `cancelAmount` / 이니시스 `partialRefund` + `price`·`confirmPrice`[취소 후 잔액]). `RefundOrder` 주문별 기록. stub/실연동은 결제와 동일.
 - 응답 `RefundQuote{total, lines[]}` — 미리보기와 실행이 같은 값.
 
 ## 미해결 / 확장
@@ -87,30 +89,26 @@
 - staging 배포 + `PAYMENT_MODE=toss`/`TOSS_CLIENT_KEY`/`TOSS_SECRET_KEY` 주입(문서용 테스트 키 → 발급 후 실키). ECS task def / Parameter Store.
 - 토스 PG **심사 신청** 완료 — 2026-07 기준 **심사 시작까지 3개월** 통보. 풀리면 `PAYMENT_MODE=toss` 로 flip 만 하면 된다(코드 변경 0).
 
-### KCP (런칭 경로)
-- **KCP 계약 + 라이브 심사 신청.** 문의 시 같이 확인할 것:
-  1. **라이브 심사 기간** (토스보다 빨라야 갈아탄 의미가 있음 — 3주까지 대기 가능)
-  2. **부분취소 협의**(필수 — 에러코드 8392). 우리 환불은 전부 부분취소 기반이라 **협의 없으면 환불이 동작하지 않는다.** 계약 시 반드시 요청할 것.
-  3. **현금영수증**을 KCP 가 대행하는가, 가맹점 직접관리인가 — 직접관리면 머니/포인트 환불 시 현금영수증 취소 연동이 후속 필요
-  4. ~~부분취소 후 잔량 전량 취소 STSC/STPC~~ — **KCP 문서(8038)로 확정**(부분취소 시작 주문은 잔량도 STPC). 현재 주문당 1회 취소라 도달 불가, 회차별 환불 확장 시 반영. 문의 불요.
-- **🔴 환불용 고정 egress IP (승인 결제엔 불필요, 취소만)** — KCP 는 **취소를 등록된 서버 IP 에서만** 허용(에러코드 8012). 현재 ECS 는 `assign_public_ip=true`(NAT 없음)라 IP 가 바뀌어 환불이 배포마다 깨진다.
-  - **방식 = fck-nat/ASG 자가치유 나노 NAT** (~$7/월, 복구 1~3분). 관리형 NAT(~$40)는 무운영/HA 프리미엄인데 우리 트래픽엔 나노가 과분하게 충분 → 크레딧 확정 시에만 관리형 고려. 상세·근거는 [architecture/payment.md](../architecture/payment.md) 간극 섹션.
-  - **시점 = 환불 자동화 붙일 때.** 그전엔 provision 0. 초기 소량 환불은 KCP 상점관리자 수동으로 가능(정합성 수동 관리).
-  - 고정 IP 확보 후 파트너관리자 → 기술관리센터 → 보안관리 → 서버 IP 설정(결제)에 등록.
-- **운영 인지: 환불은 정산예정금액에서 차감된다**(에러코드 8178). 초기 거래량이 적으면 첫 환불이 잔액 부족으로 막힐 수 있고, 그땐 상점관리자 → 입금취소관리 → 가상계좌 발급으로 선입금해야 한다.
-- **테스트 상점ID 로 실 왕복 검증** — 결제창 실물 UX 확인 + 카드/간편결제 승인 + 부분취소/전체취소. 어댑터는 문서 기준 작성이라 이 검증 전엔 미검증 상태.
-- 시크릿 주입: `KCP_SITE_CD`/`KCP_CERT_INFO`/`KCP_PRIVATE_KEY`(+`_PASSWORD`)/`KCP_RET_URL`/`KCP_LIVE`. 인증서·개인키는 **Parameter Store SecureString**.
+### 이니시스 (런칭 경로)
+- **온보딩**(사전심사 통과 → 전자계약 → MID 발급 → 카드사심사 7~10영업일). 테스트/운영은 엔드포인트가 아니라 **MID**(테스트 `INIpayTest`)로 갈리므로, 개발은 테스트 MID 로 지금 가능하고 실 라이브는 MID·키 발급 후 env 스왑.
+- **지급대행 가입(중개 필수)** — 학생→플랫폼 결제 후 강사 정산을 이니시스가 대행. 계약 완료 후 상점관리자페이지에서 추가 신청. **런칭은 상점관리자페이지 수동 운영(코드 0)**, 지급대행 API 는 후속. ⚠️ 강사 **정산계좌는 국내·본인명의만**(타명의/해외계좌 입점불가) — 강사 온보딩에서 이 제약을 받을 것. 수수료 건당 500원.
+- **보증보험 가입** — 장기/비실물 선불이라 필수(케이스마트인슈 (02)719-8488, 1000만 방향). 최고 객단가 = 1회차 결제액(수강료 전액+부대)로 승인한도 산정.
+- **사이트 수정**(카드사심사 요건) — 상품명 "체험"→**"프리다이버 자격 과정 1일 레슨"**(⚠️ 모니터링에서 일반인 레슨으로 확인되면 계약불이익 — 실제로 자격 과정 입문 회차라는 서사 유지), 하단 **사업자정보·통신판매신고번호·민원책임 문구**("모든 거래 책임·환불·민원은 풍덩이 처리"). ⚠️ 이 민원책임 문구가 **약관 refund §6("강사가 당사자")과 상충** → 법무 검토.
+- **테스트 MID(`INIpayTest`)로 실 왕복 검증** — 결제창 실물 UX + 카드/간편결제 승인 + 부분/전체취소(테스트 거래는 자정 자동취소). 어댑터는 샘플 기준 작성이라 이 검증 전엔 미검증. ⚠️ **payAppl.ini 승인 응답의 환불 tid 필드명**(P_TID vs P_APPL_TID) 실거래로 확정.
+- **🔴 환불용 고정 egress IP** — 환불 전문(iniapi)에 `clientIp` 가 들어간다. **이니시스가 등록 IP 와 대조하면** ECS 비고정 egress라 환불이 배포마다 깨진다(승인은 콜백 기반이라 무관). ⚠️ **이니시스 환불이 clientIp 등록을 요구하는지 먼저 확인** — 요구 시 fck-nat/나노 NAT(~$7/월). 상세·근거는 [architecture/payment.md](../architecture/payment.md) 간극 섹션. 시점 = 환불 자동화 붙일 때(그전엔 provision 0, 소량 환불은 상점관리자 수동).
+- 시크릿 주입: `INICIS_MID`/`INICIS_HASH_KEY`/`INICIS_API_KEY`/`INICIS_CLIENT_IP`/`INICIS_RET_URL`/`INICIS_RETURN_WEB_SUCCESS|FAIL`. hashKey·apiKey 는 **Parameter Store SecureString**.
 
 ### FE
-- `prepare` 에 **`client`(web/app)** 전송 — KCP 콜백 리다이렉트 타겟 선택용. `mobile` 과 독립 축.
+- `prepare` 에 **`client`(web/app)** 전송 — 이니시스 콜백 리다이렉트 타겟 선택용. `mobile` 과 독립 축(`mobile` → `P_DEVICE_TYPE`).
 - `prepare` 응답의 **`provider` 로 분기**:
   - `TOSS`(위젯) / `STUB`(결제창 없이 바로 confirm) → **FE 가 `/payments/confirm`** 호출(`pgPayload`=토스 `paymentKey`).
-  - `KCP`(표준결제창, 모바일=PayUrl form POST · PC=`kcp_spay_hub.js`) → **FE 는 confirm 안 함.** 결제창이 BE 콜백(Ret_URL)으로 POST → BE 승인 후 **성공/실패 URL 로 GET 리다이렉트**(web `{origin}/payment/success` · app `plop://payment/success`, 쿼리 `orderId&orderNo&status`).
-- KCP 성공화면: 리다이렉트 도착 → **`GET /payments/orders/{orderId}` 조회**로 금액·상태 렌더(새로고침·딥링크 재진입도 이걸로 복구).
-- 계약 상세: [docs/api-clients/types.ts](../api-clients/types.ts) 의 payment 섹션. **BE 직접 처리분**: `KCP_RET_URL`(BE 콜백 URL) + `KCP_RETURN_WEB_SUCCESS/FAIL`(환경별 web) 주입; app 스킴은 기본값(`plop://payment/...`).
+  - `INICIS` → **FE 는 confirm 안 함.** `INIPayPro_v2.js`(`https://paypro.inicis.com/std/payment/js/INIPayPro_v2.js`)를 로드하고 `INIPayPro.requestPayment(params)` 로 결제창 구동(`params` = prepare 응답의 P_ 파라미터, ⚠️ **구버전 `stdpay.inicis.com` 아님**). 결제창이 BE 콜백(`P_NEXT_URL`)으로 form POST → BE 승인 후 **성공/실패 URL 로 GET 리다이렉트**(web `{origin}/payment/success` · app `plop://payment/success`, 쿼리 `orderId&orderNo&status`).
+- 이니시스 성공화면: 리다이렉트 도착 → **`GET /payments/orders/{orderId}` 조회**로 금액·상태 렌더(새로고침·딥링크 재진입도 이걸로 복구).
+- 계약 상세: [docs/api-clients/types.ts](../api-clients/types.ts) 의 payment 섹션. **BE 직접 처리분**: `INICIS_RET_URL`(BE 콜백 URL) + `INICIS_RETURN_WEB_SUCCESS/FAIL`(환경별 web) 주입; app 스킴은 기본값(`plop://payment/...`).
 
 ## 관련 메모리
 
+- [[payment_pg_kcp_switch]] — PG 여정: 토스(적체)→KCP(중개 미지원 폐기)→이니시스(지급대행·건당제·INIpay PRO)
 - [[phase_4_deployment_decisions]] — Toss PG 심사가 staging 배포를 요구(Phase 4 진입 트리거)
 - [[enrollment_domain_concept]] — 신청 시 결제 없음, 수락 후 결제(이 피처가 채운 간극)
 - [[address_geocode_domain]] — 동일한 외부 경계 stub/real 교체 패턴

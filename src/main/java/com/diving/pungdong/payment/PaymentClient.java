@@ -1,10 +1,10 @@
 package com.diving.pungdong.payment;
 
 /**
- * 결제를 시작한 클라이언트 종류 — <b>KCP 콜백 리다이렉트 타겟</b>을 고르는 데 쓴다.
+ * 결제를 시작한 클라이언트 종류 — <b>이니시스 콜백 리다이렉트 타겟</b>을 고르는 데 쓴다.
  *
- * <p>KCP 표준결제는 결제창이 인증결과를 <b>Ret_URL 로 form POST</b> 하는데, 앱(WebView)은 그 POST 본문을 못 읽는다
- * ({@code onShouldStartLoadWithRequest} 는 GET 네비게이션만 가로챔). 그래서 KCP 는 Ret_URL 을 BE 로 두고, BE 가
+ * <p>이니시스 표준결제는 결제창이 인증결과를 <b>P_NEXT_URL 로 form POST</b> 하는데, 앱(WebView)은 그 POST 본문을 못 읽는다
+ * ({@code onShouldStartLoadWithRequest} 는 GET 네비게이션만 가로챔). 그래서 P_NEXT_URL 을 BE 로 두고, BE 가
  * 승인까지 끝낸 뒤 <b>GET 리다이렉트</b>로 FE 에 돌려준다 — 이때 web URL 로 갈지 app 스킴({@code plop://})으로 갈지를
  * 이 값으로 정한다.
  *

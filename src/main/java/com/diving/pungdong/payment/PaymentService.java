@@ -18,7 +18,7 @@ import java.util.UUID;
 
 /**
  * 결제 — 학생 측(준비/승인). enrollment "수락 → 결제 → 확정" 의 결제 단계. 실제 PG 호출은 {@link PaymentGateway}
- * 뒤에 있다(토스/KCP/stub 교체). 다회차: 결제 단위는 <b>회차(EnrollmentRound)</b> — API 의 {@code enrollmentId} 는 회차 id 다.
+ * 뒤에 있다(토스/이니시스/stub 교체). 다회차: 결제 단위는 <b>회차(EnrollmentRound)</b> — API 의 {@code enrollmentId} 는 회차 id 다.
  *
  * <p><b>보안 핵심</b>: 금액은 클라이언트를 신뢰하지 않는다. {@link #prepare}가 서버에서 권위 금액을 재계산해
  * {@link PaymentOrder}에 박고, {@link #confirm}은 클라이언트가 보낸 amount 가 그 값과 같을 때만 승인을
@@ -73,9 +73,9 @@ public class PaymentService {
         // 이후 승인·환불은 전역 설정이 바뀌어도 이 값으로 라우팅된다(PaymentGatewayRegistry 참고).
         PaymentGateway gateway = gateways.active();
         order.setProvider(gateway.provider()); // READY 주문 재사용 시에도 현재 PG 로 다시 박제(결제창을 새로 띄우므로)
-        order.setClient(PaymentClient.from(client)); // KCP 콜백 리다이렉트 타겟(web/app) — 재진입 시에도 갱신
+        order.setClient(PaymentClient.from(client)); // 이니시스 콜백 리다이렉트 타겟(web/app) — 재진입 시에도 갱신
 
-        // 결제창 구동값은 PG 어댑터가 만든다 — KCP 모바일이면 여기서 거래등록(외부 호출)이 일어난다.
+        // 결제창 구동값은 PG 어댑터가 만든다 — 이니시스는 P_ 파라미터+서명 계산(외부 호출 없음).
         var params = gateway.initParams(new PaymentGateway.InitCommand(
                 order.getOrderId(), order.getOrderName(), order.getAmount(), customerKey(student), mobile));
         return PaymentPrepareResponse.of(order, orderNoFormatter.format(order.getId(), order.getCreatedAt()),
@@ -98,8 +98,8 @@ public class PaymentService {
     }
 
     /**
-     * KCP 콜백 승인 — 결제창이 Ret_URL(BE)로 POST 한 인증값으로 서버가 직접 승인한다. <b>세션이 없다</b>(KCP POST 엔
-     * 우리 JWT 가 없음) — 소유권 검증을 생략하는 대신 <b>KCP 암호데이터(enc_data)가 인증</b>이다(위조 POST 는 KCP
+     * 이니시스 콜백 승인 — 결제창이 P_NEXT_URL(BE)로 POST 한 인증값으로 서버가 직접 승인한다. <b>세션이 없다</b>(콜백 POST 엔
+     * 우리 JWT 가 없음) — 소유권 검증을 생략하는 대신 <b>P_AUTH_TID(우리 콜백에만 옴)가 인증</b>이다(위조 POST 는
      * 승인 호출에서 거절). 금액은 클라가 아니라 <b>주문 권위값</b>. FE confirm 과 동일한 {@link #applyConfirm} 을 탄다.
      */
     @Transactional
@@ -109,7 +109,7 @@ public class PaymentService {
     }
 
     /**
-     * 승인 코어 — FE confirm 과 KCP 콜백이 공유한다. 멱등(이미 DONE = 성공 반환)·상태검증·PG 승인·확정.
+     * 승인 코어 — FE confirm 과 이니시스 콜백이 공유한다. 멱등(이미 DONE = 성공 반환)·상태검증·PG 승인·확정.
      * 금액은 언제나 <b>주문 권위값</b>({@code order.getAmount()})으로 PG 에 보낸다(FE 가 보낸 값 아님).
      */
     private PaymentConfirmResponse applyConfirm(PaymentOrder order, Map<String, String> pgPayload) {
@@ -132,7 +132,7 @@ public class PaymentService {
         }
 
         order.setStatus(PaymentStatus.DONE);
-        order.setPaymentKey(result.pgTransactionId()); // PG 거래 식별자(토스 paymentKey / KCP tno) — 취소에 쓴다
+        order.setPaymentKey(result.pgTransactionId()); // PG 거래 식별자(토스 paymentKey / 이니시스 P_TID) — 취소에 쓴다
         order.setMethod(result.method());
         order.setApprovedAt(result.approvedAt());
         order.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
@@ -141,7 +141,7 @@ public class PaymentService {
     }
 
     /**
-     * 주문 상세 조회 — 성공화면(특히 KCP: confirm 을 FE 가 안 해 리다이렉트 쿼리만 옴) + 새로고침/딥링크 재진입 복구용.
+     * 주문 상세 조회 — 성공화면(특히 이니시스: confirm 을 FE 가 안 해 리다이렉트 쿼리만 옴) + 새로고침/딥링크 재진입 복구용.
      * 소유권 검증(없음/남의 것 = 존재 숨김). 어느 PG 든 동일 모양({@link PaymentConfirmResponse}).
      */
     public PaymentConfirmResponse getOrder(Account student, String orderId) {
@@ -150,7 +150,7 @@ public class PaymentService {
         return response(order);
     }
 
-    /** KCP 콜백 리다이렉트용 — 주문의 client(web/app) + orderNo. 승인 성패와 무관하게 리다이렉트 타겟을 정한다. 없으면 null. */
+    /** 이니시스 콜백 리다이렉트용 — 주문의 client(web/app) + orderNo. 승인 성패와 무관하게 리다이렉트 타겟을 정한다. 없으면 null. */
     public OrderRedirect callbackRedirect(String orderId) {
         return orderRepo.findByOrderId(orderId)
                 .map(o -> new OrderRedirect(o.getClient(), orderNoFormatter.format(o.getId(), o.getCreatedAt())))

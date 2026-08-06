@@ -60,7 +60,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * 결제(payment) use-case — 실 H2 + Spring Security 필터 + 실 서비스/JPA. 외부 PG 경계인 {@link PaymentGateway} 만
- * {@code @MockBean} 으로 격리(결정적). <b>PG 중립</b> — 토스든 KCP든 이 사양은 같아야 한다.
+ * {@code @MockBean} 으로 격리(결정적). <b>PG 중립</b> — 토스든 이니시스든 이 사양은 같아야 한다.
  *
  * <p><b>읽는 법</b>: {@code @DisplayName} 위→아래 = 사양. P* 결제 준비·승인 / 보안·멱등.
  *
@@ -251,20 +251,20 @@ class PaymentUseCaseTest {
                 .andExpect(status().isBadRequest()); // 만석 — 첫 신청이 좌석을 선점
     }
 
-    /* ─── K* KCP 콜백 (Ret_URL=BE) ─── */
+    /* ─── I* 이니시스 콜백 (P_NEXT_URL=BE) ─── */
 
     @Test
-    @DisplayName("K1 KCP 콜백 — 결제창이 Ret_URL 로 POST 하면 서버가 승인·확정하고 app 성공 스킴으로 302 리다이렉트")
-    void kcpCallbackApprovesAndRedirectsApp() throws Exception {
+    @DisplayName("I1 이니시스 콜백 — 결제창이 P_NEXT_URL 로 POST 하면 서버가 승인·확정하고 app 성공 스킴으로 302 리다이렉트")
+    void inicisCallbackApprovesAndRedirectsApp() throws Exception {
         Object[] s = setup(4);
         Account stu = (Account) s[3];
         EnrollmentRound e = accepted(stu, s);
         String orderId = prepareOrderId(stu, e, "app"); // client=app 박제
 
-        mockMvc.perform(post("/payments/kcp/return") // permitAll — KCP 엔 JWT 없음
+        mockMvc.perform(post("/payments/inicis/return") // permitAll — 이니시스 콜백엔 JWT 없음
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                .param("ordr_idxx", orderId)
-                .param("enc_data", "ENC").param("enc_info", "INFO").param("tran_cd", "00100000"))
+                .param("P_OID", orderId)
+                .param("P_STATUS", "00").param("P_AUTH_TID", "auth-x").param("P_IDCNAME", "fc"))
                 .andExpect(status().isFound())
                 .andExpect(header().string("Location", org.hamcrest.Matchers.startsWith("plop://payment/success")))
                 .andExpect(header().string("Location", org.hamcrest.Matchers.containsString("orderId=" + orderId)));
@@ -274,19 +274,19 @@ class PaymentUseCaseTest {
     }
 
     @Test
-    @DisplayName("K2 KCP 콜백 — PG 승인 거절이면 주문은 READY 유지, web 실패 URL 로 302(에러를 KCP 에 안 던진다)")
-    void kcpCallbackRedirectsFailOnDecline() throws Exception {
+    @DisplayName("I2 이니시스 콜백 — PG 승인 거절이면 주문은 READY 유지, web 실패 URL 로 302(에러를 PG 에 안 던진다)")
+    void inicisCallbackRedirectsFailOnDecline() throws Exception {
         given(gateway.confirm(any())) // 이 시나리오만 거절로 덮음
-                .willReturn(new PaymentGateway.ConfirmResult(false, "8059", null, null, null, null));
+                .willReturn(new PaymentGateway.ConfirmResult(false, "01", null, null, null, null));
         Object[] s = setup(4);
         Account stu = (Account) s[3];
         EnrollmentRound e = accepted(stu, s);
         String orderId = prepareOrderId(stu, e, "web"); // client=web
 
-        mockMvc.perform(post("/payments/kcp/return")
+        mockMvc.perform(post("/payments/inicis/return")
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                .param("ordr_idxx", orderId)
-                .param("enc_data", "ENC").param("enc_info", "INFO").param("tran_cd", "00100000"))
+                .param("P_OID", orderId)
+                .param("P_STATUS", "00").param("P_AUTH_TID", "auth-x").param("P_IDCNAME", "fc"))
                 .andExpect(status().isFound())
                 .andExpect(header().string("Location", org.hamcrest.Matchers.startsWith("https://web.test/payment/fail")));
 
@@ -295,11 +295,30 @@ class PaymentUseCaseTest {
     }
 
     @Test
-    @DisplayName("K3 KCP 콜백 — 알 수 없는 ordr_idxx(위조)면 승인 안 하고 web 실패로 302")
-    void kcpCallbackUnknownOrder() throws Exception {
-        mockMvc.perform(post("/payments/kcp/return")
+    @DisplayName("I3 이니시스 콜백 — 인증실패(P_STATUS≠00)면 승인 호출 없이 실패로 302")
+    void inicisCallbackAuthFailNoApproval() throws Exception {
+        Object[] s = setup(4);
+        Account stu = (Account) s[3];
+        EnrollmentRound e = accepted(stu, s);
+        String orderId = prepareOrderId(stu, e, "web");
+
+        mockMvc.perform(post("/payments/inicis/return")
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                .param("ordr_idxx", "rnd-999-deadbeef").param("enc_data", "X"))
+                .param("P_OID", orderId)
+                .param("P_STATUS", "01").param("P_RMESG", "사용자취소"))
+                .andExpect(status().isFound())
+                .andExpect(header().string("Location", org.hamcrest.Matchers.startsWith("https://web.test/payment/fail")));
+
+        verify(gateway, never()).confirm(any()); // 인증실패면 승인 자체를 안 한다
+        assertThat(orderRepo.findByOrderId(orderId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.READY);
+    }
+
+    @Test
+    @DisplayName("I4 이니시스 콜백 — 알 수 없는 P_OID(위조)면 승인 안 하고 web 실패로 302")
+    void inicisCallbackUnknownOrder() throws Exception {
+        mockMvc.perform(post("/payments/inicis/return")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("P_OID", "rnd-999-deadbeef").param("P_STATUS", "00"))
                 .andExpect(status().isFound())
                 .andExpect(header().string("Location", org.hamcrest.Matchers.startsWith("https://web.test/payment/fail")));
     }
@@ -313,8 +332,8 @@ class PaymentUseCaseTest {
         Account stu = (Account) s[3];
         EnrollmentRound e = accepted(stu, s);
         String orderId = prepareOrderId(stu, e);
-        mockMvc.perform(post("/payments/kcp/return").contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                .param("ordr_idxx", orderId).param("enc_data", "E").param("enc_info", "I").param("tran_cd", "T"))
+        mockMvc.perform(post("/payments/inicis/return").contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("P_OID", orderId).param("P_STATUS", "00").param("P_AUTH_TID", "auth-x").param("P_IDCNAME", "fc"))
                 .andExpect(status().isFound());
 
         mockMvc.perform(get("/payments/orders/{orderId}", orderId).header(HttpHeaders.AUTHORIZATION, tokenFor(stu)))

@@ -15,14 +15,14 @@ import org.springframework.web.bind.annotation.*;
 import javax.validation.Valid;
 
 /**
- * 결제 — 학생 측. PG 중립 엔드포인트({@link com.diving.pungdong.payment.PaymentGateway} 뒤에 토스/KCP/stub).
+ * 결제 — 학생 측. PG 중립 엔드포인트({@link com.diving.pungdong.payment.PaymentGateway} 뒤에 토스/이니시스/stub).
  *
  * <p>매처: {@code /payments/**} → authenticated. 흐름:
  * <ol>
  *   <li>{@code POST /payments/prepare} — 수락된 신청의 주문 생성. 서버 권위 금액·orderId 와 함께
- *       {@code provider}(TOSS/KCP/STUB) + {@code params}(그 PG 의 결제창 구동값)를 반환한다.</li>
+ *       {@code provider}(TOSS/INICIS/STUB) + {@code params}(그 PG 의 결제창 구동값)를 반환한다.</li>
  *   <li>FE 가 {@code provider} 로 분기해 결제창 구동 → 결제창이 PG 고유 인증값을 돌려준다
- *       (토스 {@code paymentKey} / KCP {@code enc_data}·{@code enc_info}·{@code tran_cd}).</li>
+ *       (토스 {@code paymentKey} / 이니시스 {@code P_AUTH_TID}·{@code P_IDCNAME}, 콜백으로).</li>
  *   <li>{@code POST /payments/confirm} — 그 값들을 {@code pgPayload} 에 담아 승인
  *       (서버가 금액 대조 후 PG 승인 → 신청 CONFIRMED).</li>
  * </ol>
@@ -51,7 +51,7 @@ public class PaymentController {
     }
 
     /**
-     * 주문 상세 조회 — 성공화면·재진입 복구용. 특히 KCP 는 confirm 을 FE 가 안 하고 콜백이 리다이렉트 쿼리(orderId)만
+     * 주문 상세 조회 — 성공화면·재진입 복구용. 특히 이니시스는 confirm 을 FE 가 안 하고 콜백이 리다이렉트 쿼리(orderId)만
      * 주므로, FE 가 이걸로 금액·상태를 채운다. 응답 모양은 {@code confirm} 과 동일. 소유권 검증(비소유=400).
      */
     @GetMapping("/orders/{orderId}")

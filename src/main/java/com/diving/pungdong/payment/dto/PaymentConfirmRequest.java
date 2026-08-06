@@ -17,7 +17,7 @@ import java.util.Map;
  * <p>{@code pgPayload} 에 담을 키는 PG 마다 다르다:
  * <ul>
  *   <li>{@code TOSS} — {@code paymentKey} (위젯 성공 리다이렉트의 값)</li>
- *   <li>{@code KCP} — {@code enc_data}, {@code enc_info}, {@code tran_cd} (결제창이 Ret_URL 로 POST 한 값)</li>
+ *   <li>{@code INICIS} — 콜백이 BE 로 form POST 하므로 FE 가 confirm 을 호출하지 않는다(BE 서버승인). 이 DTO 는 TOSS/STUB 전용.</li>
  *   <li>{@code STUB} — 비어도 됨</li>
  * </ul>
  *

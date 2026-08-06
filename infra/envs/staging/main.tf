@@ -23,10 +23,10 @@ locals {
 
   # 사용자가 SSM 콘솔에 미리 만들 SecureString. (container env var 이름 = SSM 파라미터 이름)
   # 경로: /plop/staging/<NAME>
-  # TOSS_*: 토스 결제위젯 키(테스트). SANITY_TOKEN: legal 프록시용 Viewer read 토큰(legal/CLAUDE.md).
-  # ⚠️ staging-up 전에 /plop/staging/{TOSS_SECRET_KEY,TOSS_CLIENT_KEY,SANITY_TOKEN} 를 SSM 에 미리
+  # TOSS_*: 토스 결제위젯 키(테스트). INICIS_*: 이니시스 서명 키(테스트 MID INIpayTest 값). SANITY_TOKEN: legal 프록시용 Viewer read 토큰(legal/CLAUDE.md).
+  # ⚠️ staging-up 전에 /plop/staging/{TOSS_SECRET_KEY,TOSS_CLIENT_KEY,INICIS_HASH_KEY,INICIS_API_KEY,SANITY_TOKEN} 를 SSM 에 미리
   # 넣어야 task 가 기동된다(secret 미존재면 ECS 가 task 시작 실패). SANITY_TOKEN 은 이미 존재.
-  user_secret_names = ["JWT_SECRET", "ADMIN_MAIL_ID", "ADMIN_MAIL_PASSWORD", "JUSO_SEARCH_KEY", "JUSO_COORD_KEY", "TOSS_SECRET_KEY", "TOSS_CLIENT_KEY", "SANITY_TOKEN"]
+  user_secret_names = ["JWT_SECRET", "ADMIN_MAIL_ID", "ADMIN_MAIL_PASSWORD", "JUSO_SEARCH_KEY", "JUSO_COORD_KEY", "TOSS_SECRET_KEY", "TOSS_CLIENT_KEY", "INICIS_HASH_KEY", "INICIS_API_KEY", "SANITY_TOKEN"]
   user_secrets = {
     for n in local.user_secret_names :
     n => "arn:aws:ssm:${var.aws_region}:${local.account_id}:parameter${local.ssm_prefix}/${n}"
@@ -69,8 +69,13 @@ locals {
     IDENTITY_VERIFICATION_MODE = "stub"
     ADDRESS_GEOCODE_MODE       = "juso"
     JUSO_REFERER               = "https://staging.plop.cool"
-    # 결제: 토스 실연동(PG 심사용). 키는 위 secrets(SSM) 주입. 현재 테스트 키(실결제 X).
-    PAYMENT_MODE = "toss"
+    # 결제: 이니시스 실 왕복 검증. 테스트 MID INIpayTest — 실승인되나 자정 자동취소(실결제 아님).
+    # hashKey/apiKey 는 위 secrets(SSM /plop/staging/INICIS_*) 주입. app 스킴은 코드 기본값(plop://).
+    PAYMENT_MODE              = "inicis"
+    INICIS_MID                = "INIpayTest"
+    INICIS_RET_URL            = "https://api-staging.plop.cool/payments/inicis/return"
+    INICIS_RETURN_WEB_SUCCESS = "https://staging.plop.cool/payment/success"
+    INICIS_RETURN_WEB_FAIL    = "https://staging.plop.cool/payment/fail"
   }
 }
 

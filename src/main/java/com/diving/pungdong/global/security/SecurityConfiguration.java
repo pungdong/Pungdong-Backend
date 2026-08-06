@@ -59,9 +59,9 @@ public class SecurityConfiguration {
                         .antMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
                         .antMatchers(HttpMethod.GET, "/legal/**").permitAll()
                         .antMatchers(HttpMethod.POST, "/webhooks/sanity/venue").permitAll()
-                        // KCP 결제창이 인증결과를 form POST 하는 콜백 — KCP 엔 우리 JWT 가 없어 permitAll.
-                        // 인증은 KCP 암호데이터(enc_data)가 대신하고, 승인 실패 시 fail 로 리다이렉트한다. /payments/** 보다 먼저.
-                        .antMatchers(HttpMethod.POST, "/payments/kcp/return").permitAll()
+                        // 이니시스 결제창이 인증결과를 form POST 하는 콜백 — 콜백엔 우리 JWT 가 없어 permitAll.
+                        // 인증은 P_AUTH_TID(우리 콜백에만 옴)가 대신하고, 승인 실패 시 fail 로 리다이렉트한다. /payments/** 보다 먼저.
+                        .antMatchers(HttpMethod.POST, "/payments/inicis/return").permitAll()
                         .antMatchers("/admin/instructor-applications/**").hasRole("ADMIN")
                         .antMatchers("/instructor-applications/**").authenticated()
                         .antMatchers("/identity-verifications/**").authenticated()

@@ -31,8 +31,8 @@ public class PaymentPrepareRequest {
     }
 
     /**
-     * 모바일 환경 여부 — KCP 표준결제가 <b>모바일(거래등록 후 PayUrl 이동)과 PC(JS SDK 직접 호출)</b>로 흐름이
-     * 갈리기 때문에 필요하다. 토스 위젯은 무관(무시). 미전달 시 PC 로 본다.
+     * 모바일 환경 여부 — 이니시스 표준결제의 {@code P_DEVICE_TYPE}(MOBILE/WEB) 분기에 쓰인다.
+     * 토스 위젯은 무관(무시). 미전달 시 PC(WEB)로 본다.
      *
      * <p>보안값이 아니라 흐름 선택값이라 클라이언트가 보내도 안전하다 — 리턴 URL 처럼 위조 시 위험한 값은
      * 받지 않고 BE 설정으로 고정한다.
@@ -40,7 +40,7 @@ public class PaymentPrepareRequest {
     private boolean mobile;
 
     /**
-     * 클라이언트 종류 — {@code "web"} | {@code "app"} (미전달 시 web). <b>KCP 콜백 리다이렉트 타겟</b> 선택용
+     * 클라이언트 종류 — {@code "web"} | {@code "app"} (미전달 시 web). <b>이니시스 콜백 리다이렉트 타겟</b> 선택용
      * ({@link com.diving.pungdong.payment.PaymentClient}). {@code mobile} 과 독립 축 — 웹 모바일브라우저는
      * {@code mobile:true, client:"web"} 다. TOSS/STUB 는 무시. 값 자체는 리다이렉트 URL 을 정하는 게 아니라
      * BE 의 고정 allowlist 중 하나를 고르게 할 뿐이라 클라이언트가 보내도 안전(오픈 리다이렉트 불가).

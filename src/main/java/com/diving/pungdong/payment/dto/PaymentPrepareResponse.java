@@ -14,7 +14,7 @@ import java.util.Map;
  * <p>{@code provider} 로 <b>FE 가 결제창 구동 방식을 분기</b>하고, {@code params} 에서 그 PG 에 필요한 값을 꺼낸다:
  * <ul>
  *   <li>{@code TOSS} — {@code clientKey}(공개), {@code customerKey} → 결제위젯 v2</li>
- *   <li>{@code KCP} — {@code siteCd} + (모바일) {@code approvalKey}·{@code payUrl}·{@code traceNo} → 표준결제창</li>
+ *   <li>{@code INICIS} — P_ 파라미터({@code P_MID}·{@code P_OID}·{@code P_AMT}·서명 {@code P_CHKFAKE} 등) → INIPayPro_v2.js 표준결제창</li>
  *   <li>{@code STUB} — 결제창 없음. 바로 confirm 호출 가능(로컬).</li>
  * </ul>
  */

@@ -15,24 +15,17 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * KCP 표준결제 <b>인증결과 콜백</b> — 결제창이 Ret_URL 로 form POST 하는 {@code enc_data} 등을 BE 가 받아
- * <b>서버사이드 승인까지</b> 끝내고, 그 결과를 FE 로 <b>GET 리다이렉트</b>한다.
+ * 이니시스 INIpay PRO <b>인증결과 콜백</b> — 결제창이 {@code P_NEXT_URL}(=여기)로 form POST 하는 인증결과를 BE 가 받아
+ * <b>서버사이드 승인까지</b> 끝내고, 그 결과를 FE 로 <b>GET 리다이렉트</b>한다. (앱 WebView 가 결제창의
+ * form POST 본문을 못 읽어 P_NEXT_URL 을 BE 로 둔다.)
  *
- * <p><b>왜 BE 가 받나</b>(FE 핑퐁 #1~#3): 앱(WebView)은 결제창의 form POST 본문을 못 읽는다
- * ({@code onShouldStartLoadWithRequest} 는 GET 만 가로챔). 그래서 Ret_URL 을 FE 가 아니라 BE 로 두고, BE 가
- * 승인 후 GET(웹 URL / app 스킴 {@code plop://})으로 돌려주면 웹·앱 통일 + POST 문제 소거. TOSS/STUB 은 종전대로
- * FE 가 confirm 을 호출한다(위젯 성공은 GET 리다이렉트라 WebView 가 가로챔).
- *
- * <p><b>보안</b>: 이 엔드포인트는 {@code permitAll} — KCP POST 엔 우리 JWT 가 없다. 인증은 <b>KCP 암호데이터
- * (enc_data)</b>가 대신한다(위조 POST 는 KCP 승인 호출에서 거절). 소유권은 prepare 때 이미 주문에 묶였고, 콜백은
- * 그 주문의 상태확정만 한다.
- *
- * <p><b>오픈 리다이렉트 방지</b>: 리다이렉트 URL 은 클라이언트가 정하지 않는다 — 주문에 박제된 {@link PaymentClient}
- * (web/app)로 <b>BE 설정의 고정 allowlist</b>(success/fail × web/app 4개) 중 하나만 고른다.
+ * <p><b>보안</b>: {@code permitAll} — 이니시스 POST 엔 우리 JWT 가 없다. 인증은 {@code P_AUTH_TID}(우리 콜백에만 옴)가
+ * 대신하고, 승인 전문의 금액은 <b>주문 권위값</b>으로 보낸다. 리다이렉트 URL 은 클라이언트가 정하지 않고 주문에 박제된
+ * {@link PaymentClient}(web/app)로 BE 설정의 고정 allowlist 중 하나만 고른다(오픈 리다이렉트 방지).
  */
 @Slf4j
 @RestController
-public class KcpReturnController {
+public class InicisReturnController {
 
     private final PaymentService paymentService;
     private final String webSuccess;
@@ -40,12 +33,12 @@ public class KcpReturnController {
     private final String appSuccess;
     private final String appFail;
 
-    public KcpReturnController(
+    public InicisReturnController(
             PaymentService paymentService,
-            @Value("${pungdong.payment.kcp.return-web-success:}") String webSuccess,
-            @Value("${pungdong.payment.kcp.return-web-fail:}") String webFail,
-            @Value("${pungdong.payment.kcp.return-app-success:plop://payment/success}") String appSuccess,
-            @Value("${pungdong.payment.kcp.return-app-fail:plop://payment/fail}") String appFail) {
+            @Value("${pungdong.payment.inicis.return-web-success:}") String webSuccess,
+            @Value("${pungdong.payment.inicis.return-web-fail:}") String webFail,
+            @Value("${pungdong.payment.inicis.return-app-success:plop://payment/success}") String appSuccess,
+            @Value("${pungdong.payment.inicis.return-app-fail:plop://payment/fail}") String appFail) {
         this.paymentService = paymentService;
         this.webSuccess = webSuccess;
         this.webFail = webFail;
@@ -54,29 +47,34 @@ public class KcpReturnController {
     }
 
     /**
-     * KCP 결제창 → Ret_URL(=여기) 로 form POST. 필수: {@code ordr_idxx}(=우리 orderId), {@code enc_data},
-     * {@code enc_info}, {@code tran_cd}. 주문 식별 → 승인 → 302 리다이렉트(성공/실패, web/app).
+     * 이니시스 결제창 → P_NEXT_URL(=여기)로 form POST. 필수: {@code P_OID}(=우리 orderId), {@code P_STATUS}("00"=인증성공),
+     * {@code P_AUTH_TID}, {@code P_IDCNAME}. 주문 식별 → (인증성공이면) 승인 → 302 리다이렉트(성공/실패, web/app).
      *
-     * <p>승인이 실패해도 KCP 에 에러를 던지지 않는다 — 사용자의 브라우저/WebView 는 어떻든 <b>실패 화면으로
-     * 리다이렉트</b>되어야 한다. 그래서 승인 예외를 잡아 fail 리다이렉트로 매핑한다.
+     * <p>인증 실패({@code P_STATUS != "00"})면 승인을 부르지 않고 바로 fail 리다이렉트. 승인이 실패해도 이니시스에
+     * 에러를 던지지 않는다 — 사용자의 브라우저/WebView 는 어떻든 실패 화면으로 리다이렉트되어야 한다.
      */
-    @PostMapping(value = "/payments/kcp/return", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
-    public ResponseEntity<Void> kcpReturn(@RequestParam Map<String, String> form) {
-        String orderId = form.get("ordr_idxx");
+    @PostMapping(value = "/payments/inicis/return", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+    public ResponseEntity<Void> inicisReturn(@RequestParam Map<String, String> form) {
+        String orderId = form.get("P_OID");
         PaymentService.OrderRedirect redirect = orderId == null ? null : paymentService.callbackRedirect(orderId);
         if (redirect == null) {
             // 알 수 없는 주문(위조/오배송) — 어느 client 인지 모르니 web fail 로.
-            log.warn("[payment-kcp] 콜백 — 알 수 없는 ordr_idxx={}", orderId);
+            log.warn("[payment-inicis] 콜백 — 알 수 없는 P_OID={}", orderId);
             return found(target(PaymentClient.WEB, false, null, "unknown"));
+        }
+        if (!"00".equals(form.get("P_STATUS"))) {
+            // 인증 실패 — 승인 호출 없이 실패 리다이렉트.
+            log.warn("[payment-inicis] 콜백 인증실패 orderId={} P_STATUS={} P_RMESG={}",
+                    orderId, form.get("P_STATUS"), form.get("P_RMESG"));
+            return found(target(redirect.client(), false, orderId, redirect.orderNo()));
         }
         try {
             paymentService.confirmByCallback(orderId, Map.of(
-                    "enc_data", form.getOrDefault("enc_data", ""),
-                    "enc_info", form.getOrDefault("enc_info", ""),
-                    "tran_cd", form.getOrDefault("tran_cd", "")));
+                    "P_AUTH_TID", form.getOrDefault("P_AUTH_TID", ""),
+                    "P_IDCNAME", form.getOrDefault("P_IDCNAME", "")));
             return found(target(redirect.client(), true, orderId, redirect.orderNo()));
         } catch (RuntimeException e) {
-            log.warn("[payment-kcp] 콜백 승인 실패 orderId={} : {}", orderId, e.toString());
+            log.warn("[payment-inicis] 콜백 승인 실패 orderId={} : {}", orderId, e.toString());
             return found(target(redirect.client(), false, orderId, redirect.orderNo()));
         }
     }
