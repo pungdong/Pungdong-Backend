@@ -8,6 +8,7 @@ import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.payment.dto.PaymentConfirmResponse;
 import com.diving.pungdong.payment.dto.PaymentPrepareResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,6 +30,7 @@ import java.util.UUID;
  */
 // 명시적 빈 이름 — 레거시 com.diving.pungdong.service.PaymentService(죽은 예약 플로우)와 단순명이 같아
 // 컴포넌트 스캔 시 기본 빈 이름("paymentService")이 충돌하기 때문. 주입은 타입으로(둘은 다른 타입).
+@Slf4j
 @Service("enrollmentPaymentService")
 @Transactional(readOnly = true)
 public class PaymentService {
@@ -78,6 +80,8 @@ public class PaymentService {
         // 결제창 구동값은 PG 어댑터가 만든다 — 이니시스는 P_ 파라미터+서명 계산(외부 호출 없음).
         var params = gateway.initParams(new PaymentGateway.InitCommand(
                 order.getOrderId(), order.getOrderName(), order.getAmount(), customerKey(student), mobile));
+        log.info("[payment] 결제 준비 order={} amount={} provider={} round={} client={}",
+                order.getOrderId(), order.getAmount(), gateway.provider(), roundId, order.getClient());
         return PaymentPrepareResponse.of(order, orderNoFormatter.format(order.getId(), order.getCreatedAt()),
                 gateway.provider(), params);
     }
@@ -137,6 +141,9 @@ public class PaymentService {
         order.setApprovedAt(result.approvedAt());
         order.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         r.setStatus(EnrollmentStatus.CONFIRMED); // 결제 완료 = 확정 (pay-first: 강사는 이후 수영장 예약)
+        log.info("[payment] 승인 확정 order={} amount={} provider={} round={} tid={} method={} → CONFIRMED",
+                order.getOrderId(), order.getAmount(), order.getProvider(), r.getId(),
+                result.pgTransactionId(), result.method());
         return response(order);
     }
 

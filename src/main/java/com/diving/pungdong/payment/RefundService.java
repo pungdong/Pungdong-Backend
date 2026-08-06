@@ -12,6 +12,7 @@ import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.payment.dto.RefundQuote;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,6 +30,7 @@ import java.util.Objects;
  * <p>{@code enrollmentId} = 수강(컨테이너) id. 회차별 단건 환불이 아니라 <b>수강 단위 종료</b> — 액션매트릭스의
  * 진행 중 "환불신청". 환불율·정책은 {@link RefundCalculator} / docs/features/payment.md.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -83,10 +85,13 @@ public class RefundService {
                 continue;
             }
             // 취소는 <b>그 주문이 결제된 PG</b> 로. 전역 설정으로 보내면 PG 를 갈아탄 뒤 과거 주문 환불이 실패한다.
+            log.info("[payment] 환불 요청 enrollment={} order={} provider={} 취소액={} 잔액={} tid={}",
+                    enrollmentId, order.getOrderId(), order.getProvider(), amount, remaining, order.getPaymentKey());
             gateways.forOrder(order.getProvider()).cancel(order.getPaymentKey(), amount, remaining, "수강 환불");
             refundRepo.save(RefundOrder.builder()
                     .paymentOrder(order).amount(amount).reason("수강 환불")
                     .status(RefundStatus.DONE).createdAt(now).build());
+            log.info("[payment] 환불 완료 enrollment={} order={} 취소액={}", enrollmentId, order.getOrderId(), amount);
         }
 
         // 활성·미완료 회차 모두 CANCELLED + 빈 일정 해제(완료/이미취소는 유지)
