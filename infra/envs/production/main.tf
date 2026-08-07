@@ -19,11 +19,11 @@ locals {
   db_url = "jdbc:mysql://${module.data.db_endpoint}:${module.data.db_port}/${module.data.db_name}?characterEncoding=UTF-8&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&useSSL=false&allowPublicKeyRetrieval=true"
 
   # 운영 시크릿은 /plop/production/<NAME> (staging 과 분리). 사용자가 SSM 에 미리 생성.
-  # TOSS_*: 토스페이먼츠 결제위젯 키. 현재 테스트 키(test_*) — PG 심사/실결제 시 운영키로 교체.
-  # client-key 는 공개값이지만 사용자가 SSM(SecureString)에 같이 넣어 일괄 참조.
+  # TOSS_*: 토스페이먼츠 결제위젯 키(테스트). 토스는 휴면(PAYMENT_MODE=inicis) 이지만 과거 주문 환불 라우팅용으로 유지.
+  # INICIS_*: 이니시스 서명 키(현재 테스트 MID INIpayTest 값). client-key 는 공개값이지만 SSM 에 같이 넣어 일괄 참조.
   # SANITY_TOKEN: legal 프록시(GET /legal/{slug})가 Sanity legalDocument 를 읽는 Viewer read 토큰
   #   (legalDocument 가 익명 거부라 토큰 필요 — legal/CLAUDE.md). ⚠️ SSM 에 미리 넣어야 task 기동.
-  user_secret_names = ["JWT_SECRET", "ADMIN_MAIL_ID", "ADMIN_MAIL_PASSWORD", "JUSO_SEARCH_KEY", "JUSO_COORD_KEY", "TOSS_SECRET_KEY", "TOSS_CLIENT_KEY", "SANITY_TOKEN"]
+  user_secret_names = ["JWT_SECRET", "ADMIN_MAIL_ID", "ADMIN_MAIL_PASSWORD", "JUSO_SEARCH_KEY", "JUSO_COORD_KEY", "TOSS_SECRET_KEY", "TOSS_CLIENT_KEY", "INICIS_HASH_KEY", "INICIS_API_KEY", "SANITY_TOKEN"]
   user_secrets = {
     for n in local.user_secret_names :
     n => "arn:aws:ssm:${var.aws_region}:${local.account_id}:parameter${local.ssm_prefix}/${n}"
@@ -53,9 +53,16 @@ locals {
     # 심사 끝나면 두 값 false 로 되돌리고 DemoAutoAcceptScheduler 제거(application.yml 주석 참고).
     DEMO_AUTO_ACCEPT       = "true"
     DEMO_SEED_AVAILABILITY = "true"
-    # 결제: 토스 실연동(stub→toss). 키(TOSS_SECRET_KEY/CLIENT_KEY)는 위 secrets(SSM)에서 주입.
-    # 현재 테스트 키라 실결제 안 됨(테스트 카드로 시뮬레이션). 심사 후 운영키 교체.
-    PAYMENT_MODE = "toss"
+    # 결제: 토스 → 이니시스 스왑. 토스 테스트 키의 결제위젯이 prod 에서 variantKey 오류로 아예 안 떠
+    # (심사자가 결제창을 못 봄), 스테이징에서 실 왕복 검증된(#192) 이니시스로 맞춘다.
+    # ⚠️ MID 는 아직 테스트(INIpayTest) — 실승인되나 자정 자동취소 = 실 정산 아님. 운영 MID 발급되면 이 값만 교체.
+    # ⚠️ 이 flip 은 이니시스 어댑터(PaymentProvider.INICIS)가 든 이미지와 **같은 task def revision** 으로만 나가야 한다
+    #    (옛 이미지 + inicis mode = valueOf 실패로 앱 전체 부팅 실패). 순서는 deployment.md "PG 스왑" 런북.
+    PAYMENT_MODE              = "inicis"
+    INICIS_MID                = "INIpayTest"
+    INICIS_RET_URL            = "https://api.plop.cool/payments/inicis/return"
+    INICIS_RETURN_WEB_SUCCESS = "https://plop.cool/payment/success"
+    INICIS_RETURN_WEB_FAIL    = "https://plop.cool/payment/fail"
   }
 }
 
