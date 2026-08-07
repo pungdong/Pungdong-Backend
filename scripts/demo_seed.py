@@ -255,9 +255,9 @@ INSTRUCTORS = [
     {
         "email": "demo_inst1@plop.cool", "nick": "김도현", "discipline": "FREEDIVING", "org": "AIDA",
         "lecture": {
-            "slug": "lecture-1", "title": "프리다이빙 입문 체험 클래스", "kind": "TRIAL", "price": 50000,
-            "rounds": ["수심 5m 풀에서 첫 호흡 정지와 이퀄라이징을 배우는 1:1 입문 세션입니다."],
-            "description": "숨을 참고 물속으로 내려가는 첫 경험. 호흡법·이퀄라이징·안전 수칙을 1:1로 차근차근 익히는 입문 체험 클래스입니다. 장비 없이 수영만 가능하면 누구나 참여할 수 있어요.",
+            "slug": "lecture-1", "title": "프리다이빙 1일 레슨", "kind": "TRIAL", "price": 50000,
+            "rounds": ["수심 5m 풀에서 호흡 정지와 이퀄라이징을 배우는 1:1 입문 세션입니다."],
+            "description": "프리다이빙의 기초 — 호흡법·이퀄라이징·안전 수칙을 1:1로 배우는 입문 레슨입니다. 정규 자격 과정을 시작하기 전, 프리다이빙의 토대를 다지는 교육 과정이에요.",
         },
         "tour": {
             "slug": "tour-1", "title": "부산 오륙도 프리다이빙 투어", "kind": "TRAINING", "price": 150000,
