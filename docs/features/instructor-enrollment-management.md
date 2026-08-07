@@ -20,7 +20,8 @@
 
 학생 hub 와 동일한 원칙 — 상태를 저장하지 않고 회차(`EnrollmentRound`)들에서 매번 파생한다. 강사 관점 어휘:
 
-- **회차(`InstructorRoundStatus`)**: `WAITING`(신규 신청) · `CHANGING`(학생 직접 일정수정 받음) · `PROPOSED`(강사가 일정변경요청함 → 학생 대기) · `PAYMENT_DUE`(수락됨·결제 대기) · `CONFIRMED`(확정·진행 예정) · `CLOSING`(세션 종료·마무리 필요) · `DONE` · `REJECTED` · `CANCELLED`.
+- **회차(`InstructorRoundStatus`)**: `WAITING`(결제완료 신규 신청 = 선결제 1회차 `ACCEPT_PENDING`, 또는 2회차 강사 수락 대기) · `CHANGING`(학생 직접 일정수정 받음 — 선결제 1회차는 결제완료 후 검토) · `PROPOSED`(강사가 일정변경요청함 → 학생 대기) · `PAYMENT_DUE`(학생 결제 대기 = 선결제 1회차 미결제 `PENDING`, 또는 2회차 `PAYMENT_PENDING` — **강사 액션 아님**) · `CONFIRMED`(확정·진행 예정) · `CLOSING`(세션 종료·마무리 필요) · `DONE` · `REJECTED` · `CANCELLED`.
+  - ⚠️ 선결제라 **강사는 결제완료(ACCEPT_PENDING) 건만** 수락/거절한다 — 학생이 아직 결제 안 한 1회차(PENDING)는 `PAYMENT_DUE`(학생 차례)라 강사 액션 목록에 안 뜬다.
 - **카드(`InstructorEnrollmentStatus`)**: `ACTION_NEEDED`(WAITING/CHANGING/CLOSING 있음) · `PROGRESS` · `COMPLETED` · `CANCELLED`. 정렬 = 이 순서(액션 먼저).
 - **플래그(`InstructorActionFlag`)**: `NEW_REQUEST` · `CHANGE_REQUEST` · `CLOSING` — 그 수강에서 강사가 지금 할 1차 행동(없으면 null). `actionLine` = 한 줄 안내.
 

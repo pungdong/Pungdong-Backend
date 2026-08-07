@@ -4,24 +4,28 @@
 
 ## 한 줄
 
-수강신청이 **강사 수락 → 결제 → 확정**으로 닫히는 마지막 단계. **PG 중립** — FE 결제창이 결제하고 BE 가 승인한다. 실제 PG(토스페이먼츠 결제위젯 v2 / KG이니시스 INIpay PRO 표준결제)는 `PAYMENT_MODE` 로 교체한다(플러그식 스왑). booking([booking.md](booking.md))이 "강사 답변 대기"까지였다면, payment 는 그 수락을 실제 확정으로 만든다.
+수강신청의 **결제** 단계. **선결제(2026-08-07)** — 1회차는 **신청 즉시 결제**하고(장바구니 없이 "주문→결제"), 강사는 그 뒤 수락/거절만 한다(거절·무응답 시 자동환불). **PG 중립** — FE 결제창이 결제하고 BE 가 승인한다. 실제 PG(토스페이먼츠 결제위젯 v2 / KG이니시스 INIpay PRO 표준결제)는 `PAYMENT_MODE` 로 교체한다(플러그식 스왑). (2회차+ 는 아직 강사 사전수락 후 결제 — 스코프 1회차.)
 
 ## 협력 도메인
 
 | 도메인 | 구현 문서 | 역할 |
 |---|---|---|
 | payment | [payment.md](../architecture/payment.md) | 주문(PaymentOrder)·PG 승인·금액 권위·enrollment 확정 (이 피처) |
-| enrollment | [enrollment.md](../architecture/enrollment.md) | 수락 → PAYMENT_PENDING(슬롯 점유) → 결제 후 CONFIRMED |
+| enrollment | [enrollment.md](../architecture/enrollment.md) | (선결제 1회차) 신청 PENDING → 결제 후 ACCEPT_PENDING → 강사 수락 CONFIRMED / 거절·만료 자동환불 |
 | course | [course.md](../architecture/course.md) | 라이브 수강료(권위 금액 재계산 입력) |
 | venue | [venue.md](../architecture/venue.md) | 입장료(daypart fee) — 신청 스냅샷으로 금액에 포함 |
 
 ## 정책 (requirements)
 
-### 수락 → 결제 → 확정 (생명주기) + pay-first
+### 선결제 (신청 → 즉시 결제 → 강사 수락/거절) — 2026-08-07
 
-강사 수락은 즉시 확정이 아니다. 수락 = `PAYMENT_PENDING`(결제 대기, **슬롯 점유**). 학생이 결제를 승인해야 `CONFIRMED`.
+**1회차는 신청과 동시에 결제한다.** 신청 = `PENDING`(미결제·**좌석 점유**) → 학생이 곧바로 결제 → `ACCEPT_PENDING`(결제완료·강사 확인 대기) → 강사 수락 `CONFIRMED` / 강사 거절·무응답 24h `REJECTED`·`CANCELLED` + **전액 자동환불**. 미결제로 방치하면 12h 뒤 좌석 해제(환불 없음).
 
-**pay-first (2026-06-28)**: 강사는 **결제 이후에** 수영장을 예약한다(옛 "풀 먼저 예약 후 수락"은 학생 미결제 시 강사가 수영장 패널티를 떠안는 구멍이라 폐기). 결제로 돈이 확보된 뒤 강사가 풀을 잡고, 풀부킹 실패면 **전액 무료 환불/일정변경**(학생 무과실). 학생에겐 "결제완료"로만 보이고 별도 상태 없음. → 결제 미완 취소는 **무료**(강사가 풀 안 잡음), 결제 후 취소만 환불정책. (경계 = 결제. [booking.md](booking.md).)
+**왜 신청 시점으로 앞당겼나**: ① 제품상 어차피 붙일 방향. ② **카드사 심사 리스크↓** — "신청 따로 / 결제 따로"는 카드사에 결제 흐름을 별도로 설명해야 하는 비표준 구조. "주문 즉시 결제"가 카드사가 익숙한 표준이라 심사가 깔끔. 어차피 할 거면 심사 전에 표준 흐름으로 바꿔 받는 게 유리. 결제·환불 인프라는 이미 있고 실카드 왕복 검증 완료(2026-08-07)라 거절→자동환불은 검증된 코드 재사용.
+
+**용어 정정**: 옛 "pay-first(2026-06-28)"는 *"강사가 수영장을 결제 이후에 예약한다"*(= 풀부킹이 결제 뒤)는 뜻이었다. 그 통찰(돈 확보 후 풀 잡기, 풀부킹 실패 시 전액 무료 환불)은 그대로 유효하고, 이제 결제 시점이 **강사 수락보다도 앞(신청 시점)**으로 더 당겨진 것. 결제 경계는 여전히 유효.
+
+**동시성**: 선결제라 오버부킹 = 이중결제이므로 좌석 경합을 원천 차단(비관적 락 + 세션 자연키 UNIQUE). 상세는 [enrollment.md](../architecture/enrollment.md) §3-2.
 
 ### 회차별 결제 — 수강료 1회차 / 부대비용 회차마다 (2026-06-28 다회차)
 
@@ -66,6 +70,7 @@
 | 2026-07-29 | **KCP 폐기 → KG이니시스로 전환** | KCP 가 학생→플랫폼 결제 후 강사 정산 구조를 **"중개 플랫폼 미지원"으로 온보딩 거절**. 이니시스는 중개서비스(지급대행) 공식 지원 → 전환. PG중립 구조라 **어댑터 하나 교체**(KCP 코드 삭제, `provider:INICIS`). 되살릴 일 없어 KCP 는 fallback 아님(이론상 fallback 은 토스). [[payment_pg_kcp_switch]] |
 | 2026-08 | **이니시스 INIpay PRO 어댑터 + KCP 제거**(이 PR) | INIpay PRO 표준결제(P_ 스킴, `INIPayPro_v2.js`). 흐름은 KCP 와 동일(P_NEXT_URL=BE 콜백 → 서버승인 → 302). **카드+간편결제만**(P_PAY_TYPE=CARD, 가상계좌·계좌이체 제외 → 입금통보 webhook 회피). 승인(payAppl.ini)엔 서명이 없어 **금액 서버권위 대조 + P_IDCNAME allowlist(SSRF)** 가 방어. 환불 hashData 는 body 의 data 와 **바이트 동일**해야 통과. 테스트/운영은 엔드포인트 아닌 **MID**(INIpayTest)로 갈려 live 플래그 없음. **토스·이니시스 공존**(PAYMENT_MODE 로 플러그식 스왑, forOrder 로 과거 주문 원 PG 환불). |
 | 2026-08-07 | **이니시스 결제+환불 실 왕복 검증 완료**(staging 테스트 MID) | 실카드로 결제창→승인→DONE→CONFIRMED→환불(iniapi)→CANCELLED 전 사이클 성공 + **카드 승인·취소 문자 수신**. 확정: 환불 tid 필드 OK · **clientIp 등록 불요 → fck-nat 불필요** · hashData 바이트동일성 · 전액취소 정상. 결제 감사로그(성공 경로) 추가. prod flip(카드사심사)이 다음. |
+| 2026-08-07 | **선결제 전환**(1회차): 신청 즉시 결제 → 강사 수락/거절(자동환불). 신규 상태 `ACCEPT_PENDING` | ① 어차피 붙일 방향 ② **카드사 심사 리스크↓** — "신청 따로/결제 따로"는 카드사에 흐름을 설명해야 하는 비표준. "주문 즉시 결제"가 표준이라 심사 전에 바꿔 받는 게 유리. 거절→자동환불은 검증된 PG cancel 재사용(이벤트→listener→`refundRoundFully`, 동기·롤백안전). 오버부킹=이중결제라 좌석 경합 하드닝(비관락+UNIQUE, V12). 스코프=1회차(2회차+ 는 구 흐름 유지). prod flip(inicis+선결제 함께)이 다음. |
 
 ### 환불 — 수강 종료(남은 회차 환불) (2026-06-28 구현)
 
@@ -79,10 +84,10 @@
 ## 미해결 / 확장
 
 - 🟢 **webhook** — **MVP 보류**(2026-06-28 결정, 위 히스토리). 가상계좌 안 받으면 confirm·환불 다 동기라 불필요. 거래량↑/가상계좌 재검토 시 별도 PR(비동기 입금·out-of-band 취소·reconciliation + 서명 검증). **가상계좌 받기로 하면 그때 필수.**
-- 🟢 **결제 대기 만료** — PAYMENT_PENDING **12h** 미결제 자동 만료(슬롯 해제) **구현**(2026-06-28, `EnrollmentExpiryService` + `SiteSettings` TTL). 만료 푸시 알림·환불(CANCELED) 상태기계는 후속.
+- 🟢 **결제 대기/응답 만료 + 자동환불** — 선결제 전환으로: 미결제 `PENDING` **12h**(createdAt) 만료·슬롯 해제(환불 없음), 결제완료 `ACCEPT_PENDING` **24h**(결제시각) 강사 무응답 만료 + **전액 자동환불**, 강사 거절 시 자동환불. `EnrollmentExpiryService` + `SiteSettings` TTL + enrollment 이벤트. 만료/거절 푸시 알림은 후속.
 - 🟢 **가격은 모두 스냅샷 (live 재계산 안 함 — 결정됨)** — 수강료(enrollment 스냅샷)·입장료·장비 전부 신청/일정 시점 가격으로 박제. 결제 시 현재가로 다시 계산하지 않는다. **학생이 본 가격 보장 + 환불 정산 깔끔**(2026-06-28 결정 — 옛 "입장료/장비 live 재계산" 안건 폐기). 권위 금액은 클라가 아닌 서버 스냅샷 합이라 보안도 무관.
 - 🟢 **정산 수수료 분해** — PG 3.4% + 플랫폼 6.6%(enrollment `아직 안 한 것`과 함께).
-- 🟢 **캘린더 미결제 별도 표시** — 현재 PAYMENT_PENDING 은 confirmed 점유 버킷에 합산.
+- 🟢 **캘린더 미결제 별도 표시** — 결제완료·점유 상태(ACCEPT_PENDING/PAYMENT_PENDING/CONFIRMED)는 confirmed 점유 버킷에 합산. 미결제 PENDING 을 별도 표시하려면 카운트 분리 후속.
 
 ## 본인이 직접 처리할 것 (코드 밖)
 
@@ -111,5 +116,5 @@
 
 - [[payment_pg_kcp_switch]] — PG 여정: 토스(적체)→KCP(중개 미지원 폐기)→이니시스(지급대행·건당제·INIpay PRO)
 - [[phase_4_deployment_decisions]] — Toss PG 심사가 staging 배포를 요구(Phase 4 진입 트리거)
-- [[enrollment_domain_concept]] — 신청 시 결제 없음, 수락 후 결제(이 피처가 채운 간극)
+- [[enrollment_domain_concept]] — (선결제 2026-08-07) 1회차는 신청 즉시 결제 → ACCEPT_PENDING → 강사 수락/거절(자동환불)
 - [[address_geocode_domain]] — 동일한 외부 경계 stub/real 교체 패턴
