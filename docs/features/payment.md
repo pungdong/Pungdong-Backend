@@ -65,6 +65,7 @@
 | 2026-07-25 | KCP 는 **LITE PAY 아닌 표준결제** | LITE PAY 가 리다이렉트 통일·SDK 불필요로 더 단순했지만, **간편결제(카카오·네이버·토스페이 등)가 표준 결제창에만 노출**되고(공식 문서 명시) KCP 공식 MCP 문서도 표준결제 라인만 커버. 간편결제 상실 + 문서지원 상실 대비 FE 단순화 이득이 안 남음. |
 | 2026-07-29 | **KCP 폐기 → KG이니시스로 전환** | KCP 가 학생→플랫폼 결제 후 강사 정산 구조를 **"중개 플랫폼 미지원"으로 온보딩 거절**. 이니시스는 중개서비스(지급대행) 공식 지원 → 전환. PG중립 구조라 **어댑터 하나 교체**(KCP 코드 삭제, `provider:INICIS`). 되살릴 일 없어 KCP 는 fallback 아님(이론상 fallback 은 토스). [[payment_pg_kcp_switch]] |
 | 2026-08 | **이니시스 INIpay PRO 어댑터 + KCP 제거**(이 PR) | INIpay PRO 표준결제(P_ 스킴, `INIPayPro_v2.js`). 흐름은 KCP 와 동일(P_NEXT_URL=BE 콜백 → 서버승인 → 302). **카드+간편결제만**(P_PAY_TYPE=CARD, 가상계좌·계좌이체 제외 → 입금통보 webhook 회피). 승인(payAppl.ini)엔 서명이 없어 **금액 서버권위 대조 + P_IDCNAME allowlist(SSRF)** 가 방어. 환불 hashData 는 body 의 data 와 **바이트 동일**해야 통과. 테스트/운영은 엔드포인트 아닌 **MID**(INIpayTest)로 갈려 live 플래그 없음. **토스·이니시스 공존**(PAYMENT_MODE 로 플러그식 스왑, forOrder 로 과거 주문 원 PG 환불). |
+| 2026-08-07 | **이니시스 결제+환불 실 왕복 검증 완료**(staging 테스트 MID) | 실카드로 결제창→승인→DONE→CONFIRMED→환불(iniapi)→CANCELLED 전 사이클 성공 + **카드 승인·취소 문자 수신**. 확정: 환불 tid 필드 OK · **clientIp 등록 불요 → fck-nat 불필요** · hashData 바이트동일성 · 전액취소 정상. 결제 감사로그(성공 경로) 추가. prod flip(카드사심사)이 다음. |
 
 ### 환불 — 수강 종료(남은 회차 환불) (2026-06-28 구현)
 
@@ -94,8 +95,8 @@
 - **지급대행 가입(중개 필수)** — 학생→플랫폼 결제 후 강사 정산을 이니시스가 대행. 계약 완료 후 상점관리자페이지에서 추가 신청. **런칭은 상점관리자페이지 수동 운영(코드 0)**, 지급대행 API 는 후속. ⚠️ 강사 **정산계좌는 국내·본인명의만**(타명의/해외계좌 입점불가) — 강사 온보딩에서 이 제약을 받을 것. 수수료 건당 500원.
 - **보증보험 가입** — 장기/비실물 선불이라 필수(케이스마트인슈 (02)719-8488, 1000만 방향). 최고 객단가 = 1회차 결제액(수강료 전액+부대)로 승인한도 산정.
 - **사이트 수정**(카드사심사 요건) — 상품명 "체험"→**"프리다이버 자격 과정 1일 레슨"**(⚠️ 모니터링에서 일반인 레슨으로 확인되면 계약불이익 — 실제로 자격 과정 입문 회차라는 서사 유지), 하단 **사업자정보·통신판매신고번호·민원책임 문구**("모든 거래 책임·환불·민원은 풍덩이 처리"). ⚠️ 이 민원책임 문구가 **약관 refund §6("강사가 당사자")과 상충** → 법무 검토.
-- **테스트 MID(`INIpayTest`)로 실 왕복 검증** — 결제창 실물 UX + 카드/간편결제 승인 + 부분/전체취소(테스트 거래는 자정 자동취소). 어댑터는 샘플 기준 작성이라 이 검증 전엔 미검증. ⚠️ **payAppl.ini 승인 응답의 환불 tid 필드명**(P_TID vs P_APPL_TID) 실거래로 확정.
-- **🔴 환불용 고정 egress IP** — 환불 전문(iniapi)에 `clientIp` 가 들어간다. **이니시스가 등록 IP 와 대조하면** ECS 비고정 egress라 환불이 배포마다 깨진다(승인은 콜백 기반이라 무관). ⚠️ **이니시스 환불이 clientIp 등록을 요구하는지 먼저 확인** — 요구 시 fck-nat/나노 NAT(~$7/월). 상세·근거는 [architecture/payment.md](../architecture/payment.md) 간극 섹션. 시점 = 환불 자동화 붙일 때(그전엔 provision 0, 소량 환불은 상점관리자 수동).
+- **✅ 실 왕복 검증 완료**(2026-08-07, staging 테스트 MID) — 실카드로 결제창→승인→환불(iniapi)→CANCELLED 전 사이클 성공(카드 승인·취소 문자 수신). 환불 tid 필드 OK(저장 tid로 환불 승인), hashData·전액취소 정상. prod MID(`plopol1192`)는 카드사심사 flip 때 재확인.
+- **✅ 환불 clientIp 등록 불요**(2026-08-07 검증) — 기본 clientIp로 환불 통과 → **고정 egress(fck-nat) 불필요**, 환불 자동화 인프라 부담 0. (prod MID 재확인 권장이나 강신호. prod에서 IP 제약 나타나면 fck-nat ~$7/월 옵션.)
 - 시크릿 주입: `INICIS_MID`/`INICIS_HASH_KEY`/`INICIS_API_KEY`/`INICIS_CLIENT_IP`/`INICIS_RET_URL`/`INICIS_RETURN_WEB_SUCCESS|FAIL`. hashKey·apiKey 는 **Parameter Store SecureString**.
 
 ### FE

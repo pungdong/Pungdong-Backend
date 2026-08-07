@@ -106,10 +106,9 @@ erDiagram
 
 ## 6. 알려진 설계 간극
 
-- 🔴 **이니시스 실 왕복 미검증** — 어댑터는 샘플/문서 기준으로 작성했고 전문 사양만 테스트로 고정(`InicisPaymentTransmissionTest`). **테스트 MID(`INIpayTest`)로 실제 결제/취소 + 콜백(P_NEXT_URL POST→승인→리다이렉트)을 태워봐야** 한다(테스트 거래는 자정 자동취소). ⚠️ 특히 **payAppl.ini 승인 응답의 환불 tid 필드명**(P_TID vs P_APPL_TID)을 실거래로 확정 필요 — 지금은 P_TID 우선·P_APPL_TID 폴백.
+- 🟢 **이니시스 실 왕복 검증 완료** (2026-08-07, staging 테스트 MID `INIpayTest`) — **실카드**로 결제창→승인(payAppl)→DONE→CONFIRMED→**환불(iniapi)**→CANCELLED **전 사이클 성공**(카드 승인·취소 문자까지 수신). 저장한 tid 로 환불이 승인돼 **환불 tid 필드 OK**(P_TID 우선·P_APPL_TID 폴백 정상), hashData 바이트동일성·전액취소(type=refund) 정상. 검증법: raw JWT(Bearer 안 붙임) → `GET /enrollments/mine` → `POST /enrollments/{id}/refund`. prod MID(`plopol1192`)는 카드사심사 flip 때 재확인.
 - 🔴 **webhook 미연동** — 비동기 상태(취소·부분취소 통보)를 받지 못한다. v1 은 콜백 승인 + 환불 API 동기 응답만. 카드+간편결제만 받아 가상계좌 입금통보는 불필요. → PG webhook 엔드포인트 + 서명 검증 후속(`venue/sync/SanityWebhookVerifier` 패턴 참고).
-- 🔴 **아웃바운드 IP 비고정 → 환불 clientIp** — 환불 전문(iniapi V2)에 `clientIp`(가맹점 서버 IP)가 들어간다. **이니시스가 이 값을 등록 IP 와 대조하면**, ECS 태스크가 `assign_public_ip=true`(NAT 없음)라 출발지 IP 가 매번 바뀌어 **환불이 배포·재시작마다 깨진다**(승인은 콜백 기반이라 무관, **취소/환불에만 해당**). ⚠️ **이니시스 환불이 clientIp 등록을 요구하는지 실확인 필요** — 요구 안 하면 이 간극 자체가 사라진다.
-  - **결정(2026-07-25, KCP 때와 동일)**: 요구 시 **fck-nat/ASG 자가치유 나노 NAT**(t4g.nano + EIP, **~$7/월**, 장애 시 자동 대체 1~3분)로 고정 egress 확보. 관리형 NAT(~$40/월)는 무운영·HA 를 사는 것 — 우리 트래픽엔 나노가 과분. provision 시점 = **환불 자동화 붙일 때**(그전엔 $0). 초기엔 이니시스 상점관리자 수동 환불로 대체 가능(단 DB 자동반영 안 됨 = 정합성 수동). ⚠️ 도입은 "퍼블릭 직통 → 프라이빗+NAT" 네트워크 재구성이라 블래스트 반경 큼 — 서두르지 말 것.
+- 🟢 **환불 clientIp 등록 불요** (2026-08-07 검증) — 환불 전문의 `clientIp`(기본값·변동 egress)로 이니시스 환불이 통과했다. 즉 **고정 egress(fck-nat) 불필요** — 환불 자동화에 인프라 부담 0. (KCP 8012 취소-IP 제약과 달리 이니시스는 IP 대조를 안 하는 것으로 확인. prod MID 에서 재확인 권장이나 강신호. 만약 prod 에서 IP 제약이 나타나면 fck-nat/나노 NAT ~$7/월 옵션 — 히스토리는 git.)
 - 🟡 **결제 미완 만료·환불 상태기계 부재** — 수락 후 결제를 안 하면 `PAYMENT_PENDING` 으로 무기한 좌석 점유. → 만료(자동 거절/슬롯 해제) + 환불(CANCELED) 상태기계 후속.
 - 🟡 **입장료/장비 live 재계산 안 함** — 권위 금액은 수강료만 라이브, 입장료/장비는 신청 스냅샷. venue 블록 재도출 후속.
 - 🟢 **정산(지급대행) 미연동** — 강사 정산은 이니시스 **지급대행**이 대행한다(런칭엔 상점관리자페이지 수동 운영, 지급대행 API 는 후속). 플랫폼 수수료/포인트 분해 정산은 우리 로직이 계산(런칭엔 포인트 없음). → 정책은 [docs/features/payment.md](../features/payment.md).
