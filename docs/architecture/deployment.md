@@ -99,6 +99,9 @@ feat/xxx (로컬 개발 + 테스트)  →  PR(CI 자동 테스트)  →  master 
 - **절대 금지**: `PAYMENT_MODE` 만 먼저 바꾸고 옛 이미지에 `force-new-deployment` — 옛 이미지엔 그 enum 이 없어 부팅 실패.
 - **롤백도 역순**: 새 provider 를 뺀 옛 이미지로 되돌리기 전에 `PAYMENT_MODE` 를 옛 값으로 **먼저** 내린다(안 그러면 롤백 이미지가 enum 없이 새 mode 를 만나 또 부팅 실패).
 - **과거 주문은 무영향**: 스왑해도 각 주문은 `PaymentOrder.provider`(박제)로 환불·승인 라우팅(`PaymentGatewayRegistry.forOrder`) — mode 는 *신규* 주문만 정한다. 그래서 옛 PG 어댑터는 코드에 남겨둬야 그 PG 로 결제된 과거 주문을 취소할 수 있다(폐기 PG 라도 미결/환불 대기 주문이 없을 때만 어댑터 삭제).
+- **MID(가맹점 식별자)와 서명 키는 한 짝 — 환경별로 섞이면 결제창이 인증 전에 거절한다.** 이니시스는 `INICIS_MID`(평문 env, 공개값)와 `INICIS_HASH_KEY`/`INICIS_API_KEY`(SSM 시크릿)가 **MID 별로 발급**된다. 테스트 MID(`INIpayTest`) + 운영 MID 키를 섞으면 서명이 안 맞아 **결제창이 뜨기도 전에** `P_NEXT_URL` 로 `P_OID=null P_STATUS=01` 이 되돌아온다 — FE 는 바로 "결제에 실패했어요". **BE 로그상 "결제 준비" 는 정상**이라 BE 만 보면 원인이 안 보인다.
+  - **감별법**: 콜백에 `P_OID` 가 **null** = 이니시스가 우리 주문을 인식하기 전에 거절 = **호출 파라미터/서명 문제**(짝 불일치 1순위). `P_OID` 가 있는데 `P_STATUS != "00"` = 사용자 취소/카드사 거절 등 **정상적인 인증 실패**.
+  - 그래서 env 를 갈 때 **MID 와 SSM 키를 항상 같이** 본다. 두 환경의 키가 다른지는 값을 안 찍고 지문으로 비교: `aws ssm get-parameter --name /plop/<env>/INICIS_HASH_KEY --with-decryption --query Parameter.Value --output text | shasum -a 256`.
 - **prod 는 스테이징 검증 뒤에만**: 운영 PG flip 의 선행조건은 **(a) 스테이징에서 실 왕복 확인**. (b) 카드사 라이브 심사는 *실 정산*의 조건이지 *flip* 의 조건이 아니다 — **MID 가 테스트(INIpayTest)면 결제창은 뜨되 자정 자동취소라 실 정산이 없다**. 즉 라이브 심사 전에도 테스트 MID 로 prod flip 은 안전하고, 심사 통과 후엔 `INICIS_MID` 한 값만 운영 MID 로 교체한다.
   - **2026-08-07 실제 사례**: 운영을 "안전한 값(toss)" 으로 두는 게 오히려 위험했다. prod 의 토스 **테스트 키에 결제위젯 variantKey 가 없어 결제창이 아예 안 떴고**(심사자 화면: "결제 위젯을 불러오지 못했어요"), 하필 그 화면이 이니시스 신규계약 심사 대상이었다 → 이니시스(테스트 MID)로 flip. **교훈: "운영에 안 건드린 옛 PG 를 남겨둔다" 는 그 옛 PG 가 운영에서 실제로 동작할 때만 안전하다** — 휴면 PG 는 검증된 적 없는 경로다.
 
