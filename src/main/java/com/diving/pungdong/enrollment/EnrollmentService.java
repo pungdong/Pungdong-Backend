@@ -446,10 +446,17 @@ public class EnrollmentService {
         return size;
     }
 
-    /** 만석 — 신청 시점 좌석 lock(선착순): 활성 + 외부 hold 가 유효정원을 채웠으면 거부. */
+    /**
+     * 만석 — 신청 시점 좌석 lock(선착순): 활성 + 외부 hold 가 유효정원을 채웠으면 거부.
+     *
+     * <p><b>동시성</b>: count 직전에 세션 행을 <b>비관적 쓰기잠금</b>({@code lockById} = SELECT … FOR UPDATE)으로 잡는다.
+     * 동시 신청 두 건이 정원 1 을 함께 통과하는 오버부킹을 막는다 — 두 트랜잭션이 같은 세션 행 위에서 직렬화돼,
+     * 뒤 신청은 앞 신청이 커밋(좌석 채움)한 뒤에야 count 를 실행해 만석을 본다. (중복 세션 생성 경합은 자연키 UNIQUE 제약으로 차단.)
+     */
     private void requireSeat(AvailabilitySession session) {
-        int occupied = roundRepo.countByAvailabilitySessionIdAndStatusIn(session.getId(), EnrollmentStatus.ACTIVE);
-        if (occupied + session.heldCount() >= session.effectiveCapacity()) {
+        AvailabilitySession locked = sessionRepo.lockById(session.getId()).orElse(session);
+        int occupied = roundRepo.countByAvailabilitySessionIdAndStatusIn(locked.getId(), EnrollmentStatus.ACTIVE);
+        if (occupied + locked.heldCount() >= locked.effectiveCapacity()) {
             throw new BadRequestException(); // 만석
         }
     }
