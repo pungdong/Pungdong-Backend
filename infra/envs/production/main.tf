@@ -55,11 +55,15 @@ locals {
     DEMO_SEED_AVAILABILITY = "true"
     # 결제: 토스 → 이니시스 스왑. 토스 테스트 키의 결제위젯이 prod 에서 variantKey 오류로 아예 안 떠
     # (심사자가 결제창을 못 봄), 스테이징에서 실 왕복 검증된(#192) 이니시스로 맞춘다.
-    # ⚠️ MID 는 아직 테스트(INIpayTest) — 실승인되나 자정 자동취소 = 실 정산 아님. 운영 MID 발급되면 이 값만 교체.
+    # ⚠️ MID 와 키는 **짝**이다 — 섞으면 결제창이 인증 전에 거절(콜백 P_OID=null P_STATUS=01).
+    # ⚠️ 지금은 **테스트 MID(INIpayTest)** — 운영 MID(plopol1192)는 카드사 심사 통과 전이라 결제창 자체가 안 열린다
+    #    (2026-08-07 운영 MID+운영 키로 배포해 확인: 준비는 되나 결제창이 즉시 거절).
+    #    그래서 /plop/production/INICIS_{HASH,API}_KEY 에도 **테스트 MID 용 키**가 들어있다.
+    #    운영 키는 같은 이름 + _LIVE 파라미터에 백업 — 카드사 심사 통과 시 **MID 와 키 두 값을 함께** 되돌린다.
     # ⚠️ 이 flip 은 이니시스 어댑터(PaymentProvider.INICIS)가 든 이미지와 **같은 task def revision** 으로만 나가야 한다
     #    (옛 이미지 + inicis mode = valueOf 실패로 앱 전체 부팅 실패). 순서는 deployment.md "PG 스왑" 런북.
     PAYMENT_MODE              = "inicis"
-    INICIS_MID                = "INIpayTest"
+    INICIS_MID                = "INIpayTest" # 심사 통과 후 → plopol1192 (SSM 키 _LIVE 복원과 동시에)
     INICIS_RET_URL            = "https://api.plop.cool/payments/inicis/return"
     INICIS_RETURN_WEB_SUCCESS = "https://plop.cool/payment/success"
     INICIS_RETURN_WEB_FAIL    = "https://plop.cool/payment/fail"
