@@ -20,8 +20,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 🧪 [DEMO·DROP 대상] PG 심사 동안만 — 들어온 신청(PENDING)을 ~3초 뒤 <b>자동 수락</b>한다. 정상 흐름은
- * "학생 신청 → 강사 수동 수락 → 결제"라 심사자 혼자선 결제까지 못 가므로, 강사 수락만 자동화한다.
+ * 🧪 [DEMO·DROP 대상] PG 심사 동안만 — 결제완료된 신청(<b>ACCEPT_PENDING</b>)을 ~3초 뒤 <b>자동 수락</b>(→ CONFIRMED)한다.
+ * 선결제 흐름은 "학생 신청 → 즉시 결제(ACCEPT_PENDING) → 강사 수동 수락(CONFIRMED)"이라 심사자 혼자선 확정까지 못 가므로,
+ * 심사자가 결제를 마친 건을 강사 대신 자동 수락해 확정 상태를 볼 수 있게 한다.
  *
  * <p><b>이 클래스(+토글)가 심사 후 삭제 대상</b>이다(가용시간 시딩 {@link SeededCourseAvailabilitySeeder} 은
  * 유지 — 별도 토글). 실제 강사 수락 로직({@link InstructorEnrollmentService#accept})을 그대로 호출하므로 정원
@@ -58,7 +59,7 @@ public class DemoAutoAcceptScheduler {
             List<Object[]> list = new ArrayList<>();
             for (Account ins : SeededCourseAvailabilitySeeder.seededCourseInstructors(courseRepo)) {
                 for (EnrollmentRound r : roundRepo.findByEnrollment_Course_Instructor_IdAndStatusOrderByIdDesc(
-                        ins.getId(), EnrollmentStatus.PENDING)) {
+                        ins.getId(), EnrollmentStatus.ACCEPT_PENDING)) {
                     if (r.getCreatedAt() == null || r.getCreatedAt().isBefore(cutoff)) {
                         list.add(new Object[]{ins, r.getId()}); // ins 는 detached 후 getId() 만 쓰임
                     }
@@ -74,7 +75,7 @@ public class DemoAutoAcceptScheduler {
             Long enrollmentId = (Long) p[1];
             try {
                 instructorEnrollmentService.accept(ins, enrollmentId);
-                log.warn("[DEMO] 신청 {} 자동 수락(PAYMENT_PENDING)", enrollmentId);
+                log.warn("[DEMO] 신청 {} 자동 수락(ACCEPT_PENDING→CONFIRMED)", enrollmentId);
             } catch (Exception ex) {
                 log.warn("[DEMO] 신청 {} 자동 수락 건너뜀 ({})", enrollmentId, ex.toString());
             }

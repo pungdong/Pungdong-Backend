@@ -6,7 +6,7 @@
 
 ## 무엇이 들어있나 — PG 중립 결제(토스 위젯 v2 / 이니시스 표준결제)
 
-수강신청 "수락 → 결제 → 확정" 의 결제 단계. FE 위젯이 결제하고 **승인은 BE 가** 시크릿 키로 호출한다.
+수강신청의 결제 단계. **선결제(2026-08-07)** — 1회차는 "신청 → 즉시 결제(ACCEPT_PENDING) → 강사 수락(CONFIRMED)/거절·만료(자동환불)", 2회차+ 는 구 "강사 사전수락(PAYMENT_PENDING) → 결제(CONFIRMED)". FE 위젯이 결제하고 **승인은 BE 가** 시크릿 키로 호출한다.
 
 - **컨트롤러**: `PaymentController` — `POST /payments/prepare`·`confirm`(TOSS/STUB, 학생 인증)·**`GET /payments/orders/{orderId}`**(상세조회, 소유권). **`InicisReturnController`** — **`POST /payments/inicis/return`(permitAll)** = 이니시스 결제창 form POST 콜백 → 세션리스 승인 → 302 리다이렉트(주문 `client` 로 web/app). ⚠️ 앱 WebView 가 POST 본문을 못 읽어 이니시스는 confirm 주체가 BE. **`RefundController`** — `POST /enrollments/{enrollmentId}/refund`(수강 종료=남은 회차 환불; enrollment 경로지만 PG 취소라 payment 패키지 — enrollment→payment 역참조 방지).
 - **서비스**: `PaymentService`(권위 금액·멱등 prepare·PG 승인·회차 확정. ⚠️ **빈 이름 `@Service("enrollmentPaymentService")`** — 레거시 단순명 충돌 회피). **`RefundService`**(수강 종료 — `RefundCalculator` 산정 + 주문별 PG 부분취소 + 회차 CANCELLED + 좌석 해제). **`RefundCalculator`**(회차별 환불 정책: done=0·미배정=수강료/N·배정취소=(수강료/N+부대)×율; **수강료 몫은 1회차 주문**, 부대는 각 회차 주문).
@@ -25,7 +25,7 @@
 ## 핵심 불변식
 
 - **금액은 서버 권위값** — 클라이언트가 보낸 amount 를 신뢰하지 않는다. prepare 가 서버에서 재계산(`코스 라이브 수강료 + 입장료 스냅샷 + 장비 스냅샷`)해 주문에 박고, confirm 은 클라 amount 가 그 값과 같을 때만 PG 승인. **PG 에도 주문에 박힌 금액**을 보내므로 결제창 결제액이 다르면 PG 가 거절.
-- **결제 완료 = 확정** — `ConfirmResult.approved` 만이 enrollment 를 `PAYMENT_PENDING` → `CONFIRMED` 로 넘긴다.
+- **결제 완료 = 전이** — `ConfirmResult.approved` 만이 enrollment 를 다음 상태로: 선결제 1회차 `PENDING → ACCEPT_PENDING`(강사 확인 대기), 2회차+ `PAYMENT_PENDING → CONFIRMED`. 강사 거절·무응답 만료 시 enrollment 이벤트(`EnrollmentRefundRequestedEvent`)를 `EnrollmentRefundListener` 가 받아 `RefundService.refundRoundFully` 로 **전액 자동환불**(동기·롤백안전, payment→enrollment 방향).
 - **시크릿 키는 BE 밖으로 안 나간다** — 승인 Basic 인증용. FE 엔 `clientKey`(공개)만 prepare 응답으로.
 - **멱등** — confirm 재호출(이미 DONE)도 200 DONE. prepare 는 READY 주문 재사용. 토스엔 `Idempotency-Key=orderId`(이니시스는 콜백 승인이 주문 상태로 멱등 — 이미 DONE 이면 재승인 안 함).
 

@@ -11,7 +11,7 @@
 | 도메인 | 문서 | hub 에서의 역할 | 현 상태 |
 |---|---|---|---|
 | enrollment | [architecture/enrollment.md](../architecture/enrollment.md) | 거래·회차 데이터 + 상태(5값) | ✅ 있음 (`GET /enrollments/mine`) |
-| payment | [features/payment.md](payment.md) | 결제 대기/완료·금액 | ✅ 결제, ❌ 만료/환불 상태기계 |
+| payment | [features/payment.md](payment.md) | 결제 대기/완료·금액 | ✅ 결제, ✅ 선결제 만료/거절 자동환불(2026-08-07) |
 | availability | [architecture/availability.md](../architecture/availability.md) | 회차=session(위치·시간) | ✅ 있음 |
 | course | [architecture/course.md](../architecture/course.md) | 강의 정체성(title·org·level·회차정의) | ✅ 있음 |
 | review | [architecture/review.md](../architecture/review.md) | 완료 후 리뷰 | ⚠️ **레거시(Lecture/Reservation), enrollment 미연결** |
@@ -24,21 +24,22 @@
 ### 회차(enrollment) 상태
 | BE `EnrollmentStatus` | 설계 회차 status | hub 노출 |
 |---|---|---|
-| `PENDING` | `waiting` (강사 확인 중) | ✅ |
-| `PAYMENT_PENDING` | `payment_due` (결제 필요) + amount | ✅ |
+| `PENDING` | (선결제 1회차) `payment_due` (결제 필요) / (2회차) `waiting` | ✅ `isFirstMeeting` 분기 |
+| `ACCEPT_PENDING` | `waiting` (결제완료·강사 확인 중) | ✅ 선결제 신규 |
+| `PAYMENT_PENDING` | `payment_due` (2회차 결제 필요) + amount | ✅ |
 | `CONFIRMED` | `confirmed` (확정) | ✅ |
 | `REJECTED` | `rejected` (강사 거절·복구가능) + 사유 | ✅ |
 | `CANCELLED` | `cancelled` (학생 취소) | ✅ |
 | — 없음 — | `done`(수강완료) | ❌ **출석/완료 개념 BE 없음** |
 | — 없음 — | `changing`(일정조정중) | ❌ reschedule 미구현 |
 | — 없음 — | `locked`(잠금=다회차) | ❌ 다회차 진행 미구현 |
-| — 없음 — | `payment_expired`(결제만료) | ❌ 만료 상태기계 미구현 |
+| `CANCELLED`(만료 유래) | `cancelled` | ✅ 선결제 만료 구현(미결제 12h·결제완료 24h+환불) — 별도 expired status 없이 CANCELLED |
 
 ### 강의(course) 상태 — 회차들에서 파생
 | 설계 강의 status | 파생 규칙(현 buildable) |
 |---|---|
-| `payment_due` | 회차 중 PAYMENT_PENDING 있음 |
-| `waiting` | 회차 중 PENDING 있음 |
+| `payment_due` | 회차 중 결제 필요(선결제 1회차 미결제 PENDING · 2회차 PAYMENT_PENDING) 있음 |
+| `waiting` | 회차 중 강사 확인 대기(ACCEPT_PENDING · 2회차 PENDING) 있음 |
 | `progress` | 회차 중 CONFIRMED 있음(그 외 액션 없음) |
 | `rescheduling` | 회차 중 REJECTED 있음(복구 가능) |
 | `cancelled` | 전부 CANCELLED |
@@ -56,7 +57,7 @@
 - **세션 채팅(회차별 단체채팅)** — 엔티티/컨트롤러 없음 (enrollment "아직 안 한 것"에 명시).
 - **일정 변경(reschedule) 요청** — changing/rejected-대안날짜 없음.
 - **환불(refund)** — `PaymentStatus.CANCELED` 값만, 로직 없음.
-- **결제 만료(payment_expired)** — PAYMENT_PENDING 24h 자동취소 없음.
+- ~~**결제 만료**~~ ✅ 선결제 전환(2026-08-07)으로 구현 — 미결제 PENDING 12h·결제완료 ACCEPT_PENDING 24h(+자동환불)·2회차 PAYMENT_PENDING 12h 자동 만료(`EnrollmentExpiryService`). CANCELLED 로 통합(별도 status 없음).
 - **리뷰 ↔ 완료 enrollment 연결** — Review 는 레거시 `Lecture/Reservation` 에 묶임, `Course/Enrollment` 미연결.
 - **자격증 등록** — certificate 도메인 BE 부재.
 - **다회차 진행(2회차+)** — enrollment 는 첫 만남(roundIndex=1) 1건. "나머지 회차 일정 결정은 후속".

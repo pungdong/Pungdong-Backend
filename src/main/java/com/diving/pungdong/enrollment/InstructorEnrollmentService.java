@@ -14,6 +14,7 @@ import com.diving.pungdong.course.Course;
 import com.diving.pungdong.course.CourseRound;
 import com.diving.pungdong.course.RoundKind;
 import com.diving.pungdong.enrollment.dto.InstructorEnrollmentResponse;
+import com.diving.pungdong.enrollment.event.EnrollmentRefundRequestedEvent;
 import com.diving.pungdong.enrollment.dto.InstructorScheduleHubResponse;
 import com.diving.pungdong.enrollment.dto.InstructorScheduleHubResponse.EnrollmentCard;
 import com.diving.pungdong.enrollment.dto.InstructorScheduleHubResponse.FilterCount;
@@ -28,6 +29,7 @@ import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
 import com.diving.pungdong.venue.VenueRefResolver;
 import com.diving.pungdong.venue.dto.VenueResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -70,6 +72,7 @@ public class InstructorEnrollmentService {
     private final AvailabilitySessionJpaRepo sessionRepo;
     private final AvailabilityHoldJpaRepo holdRepo;
     private final SiteSettingsProvider siteSettings;
+    private final ApplicationEventPublisher events; // 선결제 거절 → 환불 이벤트 발행(payment 가 수신)
 
     public List<InstructorEnrollmentResponse> list(Account instructor, EnrollmentStatus status) {
         requireInstructorTrack(instructor);
@@ -265,11 +268,11 @@ public class InstructorEnrollmentService {
     @Transactional
     public InstructorEnrollmentResponse accept(Account instructor, Long roundId) {
         EnrollmentRound r = requireForInstructor(instructor, roundId);
-        if (r.getStatus() != EnrollmentStatus.PENDING) {
-            throw new BadRequestException(); // 대기 건만 수락
+        if (r.getStatus() != EnrollmentStatus.ACCEPT_PENDING) {
+            throw new BadRequestException(); // 선결제: 결제완료·수락대기 건만 수락
         }
-        // 좌석은 신청(PENDING) 시점에 이미 lock(선착순) — 수락은 그 슬롯을 결제 대기로 전환만(정원 재검증 불필요).
-        r.setStatus(EnrollmentStatus.PAYMENT_PENDING);
+        // 학생이 이미 결제완료(좌석도 신청 시점 lock) — 수락 = 곧장 확정.
+        r.setStatus(EnrollmentStatus.CONFIRMED);
         r.getProposedSlots().clear(); // 혹시 남은 제안 정리
         r.setRespondedAt(OffsetDateTime.now(ZoneOffset.UTC));
         return InstructorEnrollmentResponse.of(r, venueName(r.getVenueRefId()));
@@ -279,8 +282,8 @@ public class InstructorEnrollmentService {
     @Transactional
     public InstructorEnrollmentResponse reject(Account instructor, Long roundId, String reason) {
         EnrollmentRound r = requireForInstructor(instructor, roundId);
-        if (r.getStatus() != EnrollmentStatus.PENDING) {
-            throw new BadRequestException(); // 대기 건만 거절
+        if (r.getStatus() != EnrollmentStatus.ACCEPT_PENDING) {
+            throw new BadRequestException(); // 선결제: 결제완료·수락대기 건만 거절
         }
         if (!r.isFirstMeeting()) {
             throw new BadRequestException(); // 거절은 1회차 한정 — 진행 중은 일정변경요청
@@ -289,6 +292,8 @@ public class InstructorEnrollmentService {
         r.setStatus(EnrollmentStatus.REJECTED);
         r.setRejectionReason(StringUtils.hasText(reason) ? reason.trim() : null);
         r.setRespondedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        // 학생이 이미 결제완료 → 전액 자동환불. 동기 이벤트라 환불 실패 시 이 트랜잭션(REJECTED)도 롤백된다.
+        events.publishEvent(new EnrollmentRefundRequestedEvent(roundId, "강사 거절"));
         InstructorEnrollmentResponse resp = InstructorEnrollmentResponse.of(r, venueName(r.getVenueRefId()));
         sessionCleaner.deleteIfEmpty(session);
         return resp;

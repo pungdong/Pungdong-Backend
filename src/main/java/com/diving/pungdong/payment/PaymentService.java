@@ -18,7 +18,8 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * 결제 — 학생 측(준비/승인). enrollment "수락 → 결제 → 확정" 의 결제 단계. 실제 PG 호출은 {@link PaymentGateway}
+ * 결제 — 학생 측(준비/승인). <b>선결제</b>: 1회차는 신청 직후(PENDING) 결제 → 승인 시 {@code ACCEPT_PENDING}(강사 확인 대기);
+ * 2회차+ 는 강사 사전수락(PAYMENT_PENDING) 후 결제 → {@code CONFIRMED}. 실제 PG 호출은 {@link PaymentGateway}
  * 뒤에 있다(토스/이니시스/stub 교체). 다회차: 결제 단위는 <b>회차(EnrollmentRound)</b> — API 의 {@code enrollmentId} 는 회차 id 다.
  *
  * <p><b>보안 핵심</b>: 금액은 클라이언트를 신뢰하지 않는다. {@link #prepare}가 서버에서 권위 금액을 재계산해
@@ -49,7 +50,7 @@ public class PaymentService {
     }
 
     /**
-     * 결제 준비 — 수락된(PAYMENT_PENDING) 회차에 대해 권위 금액을 재계산하고 READY 주문을 만든다(멱등 —
+     * 결제 준비 — 결제 대기 회차(선결제 1회차 PENDING / 2회차 PAYMENT_PENDING)에 대해 권위 금액을 재계산하고 READY 주문을 만든다(멱등 —
      * 이미 READY 주문이 있으면 재사용, 금액 변동 시 갱신). FE 가 이 응답으로 위젯을 띄운다. {@code roundId} = 회차 id.
      */
     @Transactional
@@ -124,8 +125,10 @@ public class PaymentService {
             throw new BadRequestException(); // 취소/실패 주문은 승인 불가
         }
         EnrollmentRound r = order.getEnrollmentRound();
-        if (r == null || r.getStatus() != EnrollmentStatus.PAYMENT_PENDING) {
-            throw new BadRequestException(); // 결제 대기 상태가 아님(이미 확정/취소 등)
+        // 선결제: 신청 직후(PENDING)에 결제 허용. 2회차+ 사전수락(PAYMENT_PENDING) 경로도 유지.
+        EnrollmentStatus before = r == null ? null : r.getStatus();
+        if (before != EnrollmentStatus.PENDING && before != EnrollmentStatus.PAYMENT_PENDING) {
+            throw new BadRequestException(); // 결제 가능 상태가 아님(이미 확정/취소/만료 등)
         }
 
         // 승인은 <b>결제창을 띄운 그 PG</b> 로 간다 — pgPayload 가 그 PG 의 인증값이므로 전역 설정을 보면 안 된다.
@@ -140,10 +143,15 @@ public class PaymentService {
         order.setMethod(result.method());
         order.setApprovedAt(result.approvedAt());
         order.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
-        r.setStatus(EnrollmentStatus.CONFIRMED); // 결제 완료 = 확정 (pay-first: 강사는 이후 수영장 예약)
-        log.info("[payment] 승인 확정 order={} amount={} provider={} round={} tid={} method={} → CONFIRMED",
+        // 선결제(PENDING서 결제) → 강사 수락 대기(ACCEPT_PENDING). 결제시각을 respondedAt 에 = 강사 24h 무응답 시계 시작.
+        // 2회차+(PAYMENT_PENDING서 결제) → 강사 이미 수락했으니 곧장 확정(CONFIRMED).
+        EnrollmentStatus after = before == EnrollmentStatus.PENDING
+                ? EnrollmentStatus.ACCEPT_PENDING : EnrollmentStatus.CONFIRMED;
+        r.setStatus(after);
+        r.setRespondedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        log.info("[payment] 승인 확정 order={} amount={} provider={} round={} tid={} method={} → {}",
                 order.getOrderId(), order.getAmount(), order.getProvider(), r.getId(),
-                result.pgTransactionId(), result.method());
+                result.pgTransactionId(), result.method(), after);
         return response(order);
     }
 
@@ -190,8 +198,9 @@ public class PaymentService {
         if (owner == null || !owner.getId().equals(student.getId())) {
             throw new ResourceNotFoundException();
         }
-        if (r.getStatus() != EnrollmentStatus.PAYMENT_PENDING) {
-            throw new BadRequestException(); // 수락(결제 대기) 상태에서만 결제
+        // 선결제: 신청 직후(PENDING)에 결제 가능. 2회차+ 사전수락(PAYMENT_PENDING)도 유지.
+        if (r.getStatus() != EnrollmentStatus.PENDING && r.getStatus() != EnrollmentStatus.PAYMENT_PENDING) {
+            throw new BadRequestException(); // 결제 가능 상태(신청 직후/사전수락)에서만 결제
         }
         return r;
     }

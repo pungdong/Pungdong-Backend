@@ -1260,11 +1260,16 @@ export interface AvailabilityCalendarResponse {
 // venue 부가 coverage 에 통째로 ⊆ 일 때만 옵션이 됨(부분겹침 불가). 강사 기존 일정과 시간 겹치는 부는 제외
 // (이중부킹 방지 — submit 도 -1015 로 재검증). 첫 신청이 그 (위치,블록) session 생성, 같은 (위치,블록) 신청은
 // join. 슬롯 식별자 = (date, venueRefId, blockStart, blockEnd) — windowId 없음.
-// 흐름: 신청(PENDING) → 강사 수락(PAYMENT_PENDING, 결제 대기·슬롯 점유) → 결제 승인(CONFIRMED).
-// 결제는 payment 섹션(POST /payments/prepare·confirm, PG 중립) 참고.
+// 흐름(선결제 — 1회차): 신청(PENDING, 좌석 점유·결제 대기) → **즉시 결제**(POST /payments/prepare·confirm)
+//   → ACCEPT_PENDING(결제완료·강사 확인 대기) → 강사 수락(CONFIRMED) / 강사 거절·무응답 만료(REJECTED·CANCELLED + 자동환불).
+// 즉, 신청과 동시에 결제하고, 강사는 그 뒤 수락/거절만 한다(표준 이커머스 "주문→결제"). 결제는 payment 섹션 참고.
+// 2회차+ 는 아직 사전수락 후 결제(PAYMENT_PENDING) 경로 — pick-slot / POST /rounds 참고.
 
-// PAYMENT_PENDING = 강사가 수락해 결제를 기다리는 상태(좌석 점유). 결제 완료 시 CONFIRMED.
-export type EnrollmentStatus = 'PENDING' | 'PAYMENT_PENDING' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED';
+// PENDING          = 신청 직후·미결제(좌석 점유). 여기서 바로 결제창을 띄운다.
+// ACCEPT_PENDING   = 결제완료·강사 확인 대기(좌석 점유). 강사가 수락/거절한다. ← 선결제 신규 상태
+// PAYMENT_PENDING  = (2회차+) 강사 사전수락 후 결제 대기(좌석 점유).
+// CONFIRMED        = 확정. REJECTED/CANCELLED = 거절·취소(결제분은 자동환불).
+export type EnrollmentStatus = 'PENDING' | 'ACCEPT_PENDING' | 'PAYMENT_PENDING' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED';
 
 /**
  * 신청 옵션 — GET /enrollments/options?courseId= (authenticated). 교집합 평탄 슬롯 + 위치별 장비.
@@ -1451,9 +1456,9 @@ export interface EnrollmentResponse extends HalLinks {
 
 /** 회차(=EnrollmentRound 1건) 진행상태. BE EnrollmentStatus + 일정변경 제안 파생. */
 export type RoundScheduleStatus =
-  | 'WAITING'       // PENDING(제안 없음) — 강사 확인 중
+  | 'WAITING'       // ACCEPT_PENDING(결제완료·강사 확인 중) 또는 2회차 PENDING — 강사 확인 중
   | 'RESCHEDULING'  // 강사 일정변경 제안 — 학생이 proposedSlots 중 골라 pick-slot
-  | 'PAYMENT_DUE'
+  | 'PAYMENT_DUE'   // 결제 필요 — 선결제 1회차 미결제(PENDING) 또는 2회차 수락 후(PAYMENT_PENDING)
   | 'CONFIRMED'     // 확정·미완료(진행 대기)
   | 'DONE'          // 회차 수강 완료(강사 complete 또는 세션일 +24h 자동)
   | 'REJECTED'
@@ -1554,10 +1559,10 @@ export type InstructorEnrollmentStatus = 'ACTION_NEEDED' | 'PROGRESS' | 'COMPLET
 export type InstructorActionFlag = 'NEW_REQUEST' | 'CHANGE_REQUEST' | 'CLOSING';
 /** 회차 상태(강사 시점). */
 export type InstructorRoundStatus =
-  | 'WAITING'      // 신규 신청 — 수락/거절/일정변경요청
+  | 'WAITING'      // 결제완료 신규 신청(선결제 1회차) 또는 2회차 강사 수락 대기 — 수락/거절/일정변경요청
   | 'CHANGING'     // 학생이 직접 일정수정 — 검토(previousSlot 노출)
   | 'PROPOSED'     // 강사가 일정변경요청함 — 학생 선택 대기(강사 액션 아님)
-  | 'PAYMENT_DUE'  // 수락됨, 학생 결제 대기
+  | 'PAYMENT_DUE'  // 학생 결제 대기 — 선결제 1회차 미결제 또는 2회차 수락 후
   | 'CONFIRMED'    // 확정·진행 예정
   | 'CLOSING'      // 세션 종료 — 마무리(done) 필요
   | 'DONE' | 'REJECTED' | 'CANCELLED';
@@ -1613,9 +1618,10 @@ export interface InstructorRoundCard {
 //    KCP "중개 미지원" 거절 → KG이니시스로 전환). prepare 응답의 clientKey/customerKey → provider + params(맵),
 //    confirm 의 paymentKey → pgPayload(맵). 토스·이니시스는 공존(BE 가 PAYMENT_MODE 로 스왑, FE 는 provider 로만 분기).
 //
-// 흐름: 강사 수락(enrollment = PAYMENT_PENDING) → POST /payments/prepare(주문 생성 + 결제창 구동값)
+// 흐름(선결제 — 1회차): 신청 직후(enrollment = PENDING) 곧바로 POST /payments/prepare(주문 생성 + 결제창 구동값)
 //   → FE 가 provider 로 분기해 결제창 구동 → (TOSS/STUB) FE 가 confirm / (INICIS) 결제창이 BE 콜백으로 POST → BE 승인
-//   → enrollment CONFIRMED.
+//   → enrollment **ACCEPT_PENDING**(결제완료·강사 확인 대기). 이후 강사 수락 시 CONFIRMED / 거절·무응답 만료 시 자동환불.
+//   ※ 2회차+ 는 강사 사전수락(PAYMENT_PENDING) 후 결제 → CONFIRMED 경로 유지(pick-slot / POST /rounds).
 //
 // ★ amount·orderId 는 서버가 정한 값(권위) — FE 는 prepare 응답값을 그대로 결제창/confirm 에 넘긴다.
 //   임의 변경 시 승인 거절(서버가 저장한 금액으로 PG 에 승인 요청하므로 결제창 금액과 다르면 PG 가 거절).
@@ -1630,7 +1636,8 @@ export type PaymentStatus = 'READY' | 'DONE' | 'CANCELED' | 'FAILED';
  */
 export type PaymentProvider = 'STUB' | 'TOSS' | 'INICIS';
 
-/** 결제 준비 — POST /payments/prepare (authenticated). 수락된(PAYMENT_PENDING) 회차에 대해 주문 생성. */
+/** 결제 준비 — POST /payments/prepare (authenticated). 결제 대기 회차에 대해 주문 생성.
+ *  (1회차 선결제 = 신청 직후 PENDING / 2회차+ = 강사 사전수락 후 PAYMENT_PENDING). 그 외 상태면 400. */
 export interface PaymentPrepareRequest {
   /**
    * ★ 회차(EnrollmentRound) id. 결제 단위는 회차다.
@@ -1705,7 +1712,7 @@ export interface PaymentConfirmResponse {
   amount: number;
   approvedAt: string | null;      // ISO-8601 offset
   enrollmentId: number | null;        // ★ 회차 id (다회차) — 응답 필드명은 호환 유지
-  enrollmentStatus: EnrollmentStatus; // 회차 상태 — 성공 후 'CONFIRMED'
+  enrollmentStatus: EnrollmentStatus; // 회차 상태 — 결제 성공 후 1회차 선결제 = 'ACCEPT_PENDING'(강사 확인 대기), 2회차+ = 'CONFIRMED'
 }
 
 /**

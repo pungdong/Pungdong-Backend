@@ -23,7 +23,11 @@ import java.util.List;
  * 모델). 점유 = 외부/수동 {@link AvailabilityHold} + 풍덩 enrollment(enrollment 도메인 소유).
  */
 @Entity
-@Table(name = "availability_session")
+// 자연키(강사,날짜,시간,위치) UNIQUE — 동시 신청이 같은 슬롯에 <b>중복 세션</b>을 만드는 경합을 DB 레벨에서 차단
+// (오버부킹 방지의 한 축; 다른 축은 requireSeat 의 비관락). venue_ref_id NULL(위치없는 점유)은 대상 아님(다중 허용).
+@Table(name = "availability_session",
+        uniqueConstraints = @UniqueConstraint(name = "uk_availability_session_slot",
+                columnNames = {"instructor_id", "date", "startTime", "endTime", "venueRefId"}))
 @Getter @Setter
 @Builder
 @NoArgsConstructor @AllArgsConstructor

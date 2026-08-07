@@ -4,9 +4,11 @@ import com.diving.pungdong.availability.AvailabilityHold;
 import com.diving.pungdong.availability.AvailabilityHoldJpaRepo;
 import com.diving.pungdong.availability.AvailabilitySession;
 import com.diving.pungdong.availability.SessionCleaner;
+import com.diving.pungdong.enrollment.event.EnrollmentRefundRequestedEvent;
 import com.diving.pungdong.global.sitesettings.SiteSettings;
 import com.diving.pungdong.global.sitesettings.SiteSettingsProvider;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -22,11 +24,12 @@ import java.util.stream.Collectors;
  * 좌석 lock 자동 만료 — 신청 시점 좌석 lock(선착순)의 짝꿍. 방치된 점유를 풀어 슬롯을 다른 학생에게 돌린다.
  *
  * <ul>
- *   <li><b>PENDING</b>(강사 응답 대기) — 신청({@code createdAt}) 후 {@code pendingTtlHours}(기본 24h) 무응답이면 만료.</li>
- *   <li><b>PAYMENT_PENDING</b>(결제 대기) — 수락({@code respondedAt}) 후 {@code paymentTtlHours}(기본 12h) 미결제면 만료.</li>
+ *   <li><b>PENDING</b>(선결제 미결제·장바구니) — 신청({@code createdAt}) 후 {@code paymentTtlHours}(기본 12h) 미결제면 만료(환불 없음).</li>
+ *   <li><b>ACCEPT_PENDING</b>(결제완료·강사 확인 대기) — 결제({@code respondedAt}) 후 {@code pendingTtlHours}(기본 24h) 강사 무응답이면 만료 <b>+ 전액 자동환불</b>({@code EnrollmentRefundRequestedEvent} → payment).</li>
+ *   <li><b>PAYMENT_PENDING</b>(2회차+ 결제 대기) — 사전수락({@code respondedAt}) 후 {@code paymentTtlHours}(기본 12h) 미결제면 만료.</li>
  * </ul>
  *
- * <p>만료 = {@code CANCELLED} 로 전환 + 점유 0 이면 {@link SessionCleaner} 가 빈 일정 삭제(좌석 해제). TTL 값은
+ * <p>만료 = {@code CANCELLED} 로 전환 + 점유 0 이면 {@link SessionCleaner} 가 빈 일정 삭제(좌석 해제). 결제완료분(ACCEPT_PENDING)은 자동환불. TTL 값은
  * {@link SiteSettings}(Sanity, 런타임 config). 각 건은 자기 트랜잭션 — 한 건 실패가 배치를 막지 않는다.
  * (만료 알림 — 학생에게 "시간 초과 자동취소" 푸시 — 은 후속: enrollment→notification outbox 연동 필요.)
  */
@@ -38,15 +41,17 @@ public class EnrollmentExpiryService {
     private final AvailabilityHoldJpaRepo holdRepo;
     private final SessionCleaner sessionCleaner;
     private final SiteSettingsProvider siteSettings;
+    private final ApplicationEventPublisher events; // ACCEPT_PENDING 만료 → 환불 이벤트(payment 수신)
     private final TransactionTemplate tx;
 
     public EnrollmentExpiryService(EnrollmentRoundJpaRepo roundRepo, AvailabilityHoldJpaRepo holdRepo,
                                    SessionCleaner sessionCleaner, SiteSettingsProvider siteSettings,
-                                   PlatformTransactionManager txManager) {
+                                   ApplicationEventPublisher events, PlatformTransactionManager txManager) {
         this.roundRepo = roundRepo;
         this.holdRepo = holdRepo;
         this.sessionCleaner = sessionCleaner;
         this.siteSettings = siteSettings;
+        this.events = events;
         this.tx = new TransactionTemplate(txManager);
     }
 
@@ -55,8 +60,14 @@ public class EnrollmentExpiryService {
         List<Long> ids = tx.execute(st -> {
             SiteSettings s = siteSettings.current();
             List<Long> out = new ArrayList<>();
-            roundRepo.findByStatusAndCreatedAtBefore(EnrollmentStatus.PENDING, now.minusHours(s.pendingTtlHours()))
+            // 선결제: PENDING = 미결제(장바구니) → 결제창 window(paymentTtlHours 12h, createdAt 기준). 환불 없음.
+            roundRepo.findByStatusAndCreatedAtBefore(EnrollmentStatus.PENDING, now.minusHours(s.paymentTtlHours()))
                     .forEach(r -> out.add(r.getId()));
+            // ACCEPT_PENDING = 결제완료·강사 수락 대기 → 강사 응답 window(pendingTtlHours 24h, 결제시각 respondedAt 기준). 만료 시 자동환불.
+            roundRepo.findByStatusAndRespondedAtBefore(
+                            EnrollmentStatus.ACCEPT_PENDING, now.minusHours(s.pendingTtlHours()))
+                    .forEach(r -> out.add(r.getId()));
+            // PAYMENT_PENDING = 2회차+ 사전수락 후 미결제 → 결제 window(paymentTtlHours 12h, respondedAt 기준). 환불 없음.
             roundRepo.findByStatusAndRespondedAtBefore(
                             EnrollmentStatus.PAYMENT_PENDING, now.minusHours(s.paymentTtlHours()))
                     .forEach(r -> out.add(r.getId()));
@@ -166,14 +177,20 @@ public class EnrollmentExpiryService {
 
     private boolean expireOne(Long id, OffsetDateTime now) {
         EnrollmentRound r = roundRepo.findById(id).orElse(null);
-        if (r == null
-                || (r.getStatus() != EnrollmentStatus.PENDING && r.getStatus() != EnrollmentStatus.PAYMENT_PENDING)) {
+        if (r == null || (r.getStatus() != EnrollmentStatus.PENDING
+                && r.getStatus() != EnrollmentStatus.ACCEPT_PENDING
+                && r.getStatus() != EnrollmentStatus.PAYMENT_PENDING)) {
             return false; // 그새 수락/결제/취소됨 — 멱등
         }
+        boolean wasPaid = r.getStatus() == EnrollmentStatus.ACCEPT_PENDING; // 결제완료분만 환불 대상
         AvailabilitySession session = r.getAvailabilitySession();
         r.setStatus(EnrollmentStatus.CANCELLED);
         r.setRespondedAt(now);
         roundRepo.save(r);
+        if (wasPaid) {
+            // 결제완료(ACCEPT_PENDING) 무응답 만료 → 전액 자동환불. 동기 이벤트라 환불 실패 시 이 트랜잭션(CANCELLED)까지 롤백 → 다음 sweep 재시도.
+            events.publishEvent(new EnrollmentRefundRequestedEvent(id, "미응답 만료"));
+        }
         sessionCleaner.deleteIfEmpty(session); // 점유 0 이면 빈 일정 삭제(좌석 해제)
         return true;
     }
