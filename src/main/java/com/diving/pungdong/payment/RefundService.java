@@ -117,4 +117,33 @@ public class RefundService {
     private java.util.Optional<PaymentOrder> paidOrder(Long roundId) {
         return orderRepo.findByEnrollmentRoundIdAndStatus(roundId, PaymentStatus.DONE);
     }
+
+    /**
+     * 단일 회차 전액 환불 — <b>선결제 강사 거절/무응답 만료</b>가 이벤트로 호출한다({@code EnrollmentRefundListener}).
+     * 학생 게이트 없음(시스템 트리거). 그 회차의 DONE 주문을 취소가능잔액 전액 취소 + {@code RefundOrder} 기록.
+     *
+     * <p>발행자(reject/expiry)의 <b>같은 트랜잭션</b>에서 동기 실행된다(REQUIRED) — PG 취소가 실패하면 예외가
+     * 전파돼 상태변경까지 롤백된다(환불 성공해야 REJECTED/CANCELLED 도 커밋). 이미 환불됐거나 미결제면 no-op.
+     */
+    @Transactional
+    public void refundRoundFully(Long roundId, String reason) {
+        PaymentOrder order = paidOrder(roundId).orElse(null);
+        if (order == null || order.getPaymentKey() == null) {
+            return; // 결제 없음 = 환불할 것 없음(선결제 전 미결제 상태에서 만료된 경우 등)
+        }
+        int alreadyRefunded = refundRepo.findByPaymentOrderIdAndStatus(order.getId(), RefundStatus.DONE)
+                .stream().mapToInt(RefundOrder::getAmount).sum();
+        int remaining = order.getAmount() - alreadyRefunded;
+        if (remaining <= 0) {
+            return; // 이미 전액 환불됨(멱등)
+        }
+        log.info("[payment] 회차 환불 요청 round={} order={} provider={} 취소액={} tid={} 사유={}",
+                roundId, order.getOrderId(), order.getProvider(), remaining, order.getPaymentKey(), reason);
+        // 전액 취소 — cancelAmount == remaining → 어댑터가 전체취소로 처리(이니시스 refund / 토스 cancel).
+        gateways.forOrder(order.getProvider()).cancel(order.getPaymentKey(), remaining, remaining, reason);
+        refundRepo.save(RefundOrder.builder()
+                .paymentOrder(order).amount(remaining).reason(reason)
+                .status(RefundStatus.DONE).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
+        log.info("[payment] 회차 환불 완료 round={} 취소액={}", roundId, remaining);
+    }
 }

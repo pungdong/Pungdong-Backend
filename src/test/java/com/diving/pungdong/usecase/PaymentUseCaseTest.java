@@ -130,11 +130,11 @@ class PaymentUseCaseTest {
     /* ─── P* 결제 ─── */
 
     @Test
-    @DisplayName("P1 수락된 신청에 prepare 하면 서버 권위 금액으로 READY 주문이 생기고 위젯 구동값을 돌려준다")
+    @DisplayName("P1 신청(PENDING) 직후 prepare 하면 서버 권위 금액으로 READY 주문이 생기고 위젯 구동값을 돌려준다")
     void prepareCreatesReadyOrder() throws Exception {
         Object[] s = setup(4);
         Account stu = (Account) s[3];
-        EnrollmentRound e = accepted(stu, s);
+        EnrollmentRound e = submitOk(stu, s);
 
         mockMvc.perform(post("/payments/prepare")
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(stu))
@@ -152,11 +152,11 @@ class PaymentUseCaseTest {
     }
 
     @Test
-    @DisplayName("P2 confirm 성공 → 토스 승인 후 주문 DONE, 신청 CONFIRMED 로 확정된다")
+    @DisplayName("P2 confirm 성공 → PG 승인 후 주문 DONE, 신청 ACCEPT_PENDING(결제완료·강사확인 대기)로 전이된다")
     void confirmConfirmsEnrollment() throws Exception {
         Object[] s = setup(4);
         Account stu = (Account) s[3];
-        EnrollmentRound e = accepted(stu, s);
+        EnrollmentRound e = submitOk(stu, s);
         String orderId = prepareOrderId(stu, e);
 
         mockMvc.perform(post("/payments/confirm")
@@ -165,10 +165,10 @@ class PaymentUseCaseTest {
                 .content(json(Map.of("pgPayload", Map.of("paymentKey", "pk_test_1"), "orderId", orderId, "amount", EXPECTED_AMOUNT))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("DONE"))
-                .andExpect(jsonPath("$.enrollmentStatus").value("CONFIRMED"));
+                .andExpect(jsonPath("$.enrollmentStatus").value("ACCEPT_PENDING"));
 
         assertThat(orderRepo.findByOrderId(orderId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.DONE);
-        assertThat(roundRepo.findById(e.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.CONFIRMED);
+        assertThat(roundRepo.findById(e.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.ACCEPT_PENDING);
     }
 
     @Test
@@ -176,7 +176,7 @@ class PaymentUseCaseTest {
     void confirmRejectsAmountMismatch() throws Exception {
         Object[] s = setup(4);
         Account stu = (Account) s[3];
-        EnrollmentRound e = accepted(stu, s);
+        EnrollmentRound e = submitOk(stu, s);
         String orderId = prepareOrderId(stu, e);
 
         mockMvc.perform(post("/payments/confirm")
@@ -186,7 +186,7 @@ class PaymentUseCaseTest {
                 .andExpect(status().isBadRequest());
 
         verify(gateway, never()).confirm(any()); // 금액 대조에서 막혀 PG 승인 미호출
-        assertThat(roundRepo.findById(e.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.PAYMENT_PENDING);
+        assertThat(roundRepo.findById(e.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.PENDING);
         assertThat(orderRepo.findByOrderId(orderId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.READY);
     }
 
@@ -195,7 +195,7 @@ class PaymentUseCaseTest {
     void confirmIsIdempotent() throws Exception {
         Object[] s = setup(4);
         Account stu = (Account) s[3];
-        EnrollmentRound e = accepted(stu, s);
+        EnrollmentRound e = submitOk(stu, s);
         String orderId = prepareOrderId(stu, e);
         String body = json(Map.of("pgPayload", Map.of("paymentKey", "pk_test_1"), "orderId", orderId, "amount", EXPECTED_AMOUNT));
 
@@ -205,16 +205,24 @@ class PaymentUseCaseTest {
                 .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("DONE"))
-                .andExpect(jsonPath("$.enrollmentStatus").value("CONFIRMED"));
+                .andExpect(jsonPath("$.enrollmentStatus").value("ACCEPT_PENDING"));
     }
 
     @Test
-    @DisplayName("P5 아직 수락 전(PENDING) 신청에 prepare 하면 400(결제 대기 상태가 아님)")
-    void prepareRejectsNonPaymentPending() throws Exception {
+    @DisplayName("P5 이미 결제완료(ACCEPT_PENDING)된 신청에 다시 prepare 하면 400(결제 대기 상태가 아님)")
+    void prepareRejectsAlreadyPaid() throws Exception {
         Object[] s = setup(4);
         Account stu = (Account) s[3];
-        EnrollmentRound e = submitOk(stu, s); // PENDING — 강사 수락 전
+        EnrollmentRound e = submitOk(stu, s);
+        String orderId = prepareOrderId(stu, e);
+        // 결제 완료 → ACCEPT_PENDING(강사 확인 대기)
+        mockMvc.perform(post("/payments/confirm")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(stu))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json(Map.of("pgPayload", Map.of("paymentKey", "pk_test_1"), "orderId", orderId, "amount", EXPECTED_AMOUNT))))
+                .andExpect(status().isOk());
 
+        // 이미 결제완료라 결제 대기 상태가 아님 → 재-prepare 거부
         mockMvc.perform(post("/payments/prepare")
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(stu))
                 .contentType(MediaType.APPLICATION_JSON)
@@ -227,7 +235,7 @@ class PaymentUseCaseTest {
     void prepareHidesOthers() throws Exception {
         Object[] s = setup(4);
         Account stu = (Account) s[3];
-        EnrollmentRound e = accepted(stu, s);
+        EnrollmentRound e = submitOk(stu, s);
         Account other = account("other@pd.com", "남");
 
         mockMvc.perform(post("/payments/prepare")
@@ -254,11 +262,11 @@ class PaymentUseCaseTest {
     /* ─── I* 이니시스 콜백 (P_NEXT_URL=BE) ─── */
 
     @Test
-    @DisplayName("I1 이니시스 콜백 — 결제창이 P_NEXT_URL 로 POST 하면 서버가 승인·확정하고 app 성공 스킴으로 302 리다이렉트")
+    @DisplayName("I1 이니시스 콜백 — 결제창이 P_NEXT_URL 로 POST 하면 서버가 승인하고(신청 ACCEPT_PENDING) app 성공 스킴으로 302 리다이렉트")
     void inicisCallbackApprovesAndRedirectsApp() throws Exception {
         Object[] s = setup(4);
         Account stu = (Account) s[3];
-        EnrollmentRound e = accepted(stu, s);
+        EnrollmentRound e = submitOk(stu, s);
         String orderId = prepareOrderId(stu, e, "app"); // client=app 박제
 
         mockMvc.perform(post("/payments/inicis/return") // permitAll — 이니시스 콜백엔 JWT 없음
@@ -270,7 +278,7 @@ class PaymentUseCaseTest {
                 .andExpect(header().string("Location", org.hamcrest.Matchers.containsString("orderId=" + orderId)));
 
         assertThat(orderRepo.findByOrderId(orderId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.DONE);
-        assertThat(roundRepo.findById(e.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.CONFIRMED);
+        assertThat(roundRepo.findById(e.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.ACCEPT_PENDING);
     }
 
     @Test
@@ -280,7 +288,7 @@ class PaymentUseCaseTest {
                 .willReturn(new PaymentGateway.ConfirmResult(false, "01", null, null, null, null));
         Object[] s = setup(4);
         Account stu = (Account) s[3];
-        EnrollmentRound e = accepted(stu, s);
+        EnrollmentRound e = submitOk(stu, s);
         String orderId = prepareOrderId(stu, e, "web"); // client=web
 
         mockMvc.perform(post("/payments/inicis/return")
@@ -291,7 +299,7 @@ class PaymentUseCaseTest {
                 .andExpect(header().string("Location", org.hamcrest.Matchers.startsWith("https://web.test/payment/fail")));
 
         assertThat(orderRepo.findByOrderId(orderId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.READY);
-        assertThat(roundRepo.findById(e.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.PAYMENT_PENDING);
+        assertThat(roundRepo.findById(e.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.PENDING);
     }
 
     @Test
@@ -299,7 +307,7 @@ class PaymentUseCaseTest {
     void inicisCallbackAuthFailNoApproval() throws Exception {
         Object[] s = setup(4);
         Account stu = (Account) s[3];
-        EnrollmentRound e = accepted(stu, s);
+        EnrollmentRound e = submitOk(stu, s);
         String orderId = prepareOrderId(stu, e, "web");
 
         mockMvc.perform(post("/payments/inicis/return")
@@ -326,11 +334,11 @@ class PaymentUseCaseTest {
     /* ─── O* 주문 상세 조회 ─── */
 
     @Test
-    @DisplayName("O1 결제 완료 후 GET /payments/orders/{orderId} 로 주문 상세(DONE·확정)를 조회한다")
+    @DisplayName("O1 결제 완료 후 GET /payments/orders/{orderId} 로 주문 상세(DONE·강사확인 대기)를 조회한다")
     void getOrderReturnsDetail() throws Exception {
         Object[] s = setup(4);
         Account stu = (Account) s[3];
-        EnrollmentRound e = accepted(stu, s);
+        EnrollmentRound e = submitOk(stu, s);
         String orderId = prepareOrderId(stu, e);
         mockMvc.perform(post("/payments/inicis/return").contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .param("P_OID", orderId).param("P_STATUS", "00").param("P_AUTH_TID", "auth-x").param("P_IDCNAME", "fc"))
@@ -340,7 +348,7 @@ class PaymentUseCaseTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("DONE"))
                 .andExpect(jsonPath("$.amount").value(EXPECTED_AMOUNT))
-                .andExpect(jsonPath("$.enrollmentStatus").value("CONFIRMED"));
+                .andExpect(jsonPath("$.enrollmentStatus").value("ACCEPT_PENDING"));
     }
 
     @Test
@@ -348,7 +356,7 @@ class PaymentUseCaseTest {
     void getOrderHidesOthers() throws Exception {
         Object[] s = setup(4);
         Account stu = (Account) s[3];
-        EnrollmentRound e = accepted(stu, s);
+        EnrollmentRound e = submitOk(stu, s);
         String orderId = prepareOrderId(stu, e);
         Account other = account("o2other@pd.com", "남");
 
@@ -357,16 +365,6 @@ class PaymentUseCaseTest {
     }
 
     /* ─── helpers ─── */
-
-    /** 신청 → 강사 수락(PAYMENT_PENDING)까지 진행한 enrollment 반환. */
-    private EnrollmentRound accepted(Account student, Object[] s) throws Exception {
-        EnrollmentRound e = submitOk(student, s);
-        Account ins = (Account) s[4];
-        mockMvc.perform(post("/instructor/enrollments/{id}/accept", e.getId())
-                .header(HttpHeaders.AUTHORIZATION, tokenFor(ins)))
-                .andExpect(status().isOk());
-        return roundRepo.findById(e.getId()).orElseThrow();
-    }
 
     private String prepareOrderId(Account student, EnrollmentRound e) throws Exception {
         return prepareOrderId(student, e, null);

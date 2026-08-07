@@ -64,6 +64,8 @@ class RefundUseCaseTest {
     @Autowired EnrollmentRoundJpaRepo roundRepo;
     @Autowired PaymentOrderJpaRepo orderRepo;
     @Autowired RefundOrderJpaRepo refundRepo;
+    @Autowired com.diving.pungdong.enrollment.InstructorEnrollmentService instructorEnrollmentService;
+    @Autowired com.diving.pungdong.enrollment.EnrollmentExpiryService expiryService;
 
     // 레지스트리를 mock — 어댑터 3개가 모두 빈이라 PaymentGateway 타입 mock 은 주입이 모호해진다.
     // cancel 에 넘어가는 인자와 "어느 PG 로 갔는지"를 검증하기 위해(반환값은 서비스가 쓰지 않는다).
@@ -231,5 +233,60 @@ class RefundUseCaseTest {
         verify(inicis).cancel(eq("pk1"), eq(100_000), eq(220_000), anyString());
         verify(inicis).cancel(eq("pk2"), eq(20_000), eq(20_000), anyString());
         org.mockito.Mockito.verifyNoInteractions(toss);
+    }
+
+    /* ─── RF5·RF6 선결제 자동환불 (강사 거절 / 무응답 만료) ─── */
+
+    @Test
+    @DisplayName("RF5 강사가 결제완료(ACCEPT_PENDING) 신청을 거절 → REJECTED + 결제된 주문 전액 자동환불(cancel 호출·환불기록)")
+    void rejectRefundsPaidOrder() {
+        Account stu = accountRepo.save(Account.builder().email("rf5@pd.com").password("x").nickName("학생5")
+                .roles(new HashSet<>(Set.of(Role.STUDENT))).build());
+        Account ins = accountRepo.save(Account.builder().email("rfi5@pd.com").password("x").nickName("강사5")
+                .roles(new HashSet<>(Set.of(Role.INSTRUCTOR))).build());
+        Long roundId = paidSingleRound(stu, ins, EnrollmentStatus.ACCEPT_PENDING, 350000, "pkR");
+
+        instructorEnrollmentService.reject(ins, roundId, "일정이 안 맞아요");
+
+        assertThat(roundRepo.findById(roundId).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.REJECTED);
+        // 결제 당시 PG 로 전액 취소(cancelAmount == 잔액 == 결제액).
+        verify(gateway).cancel(eq("pkR"), eq(350000), eq(350000), anyString());
+        assertThat(refundRepo.findAll()).hasSize(1);
+        assertThat(refundRepo.findAll().get(0).getAmount()).isEqualTo(350000);
+    }
+
+    @Test
+    @DisplayName("RF6 결제완료(ACCEPT_PENDING) 신청이 강사 무응답으로 만료 → CANCELLED + 전액 자동환불")
+    void expiryRefundsPaidOrder() {
+        Account stu = accountRepo.save(Account.builder().email("rf6@pd.com").password("x").nickName("학생6")
+                .roles(new HashSet<>(Set.of(Role.STUDENT))).build());
+        Account ins = accountRepo.save(Account.builder().email("rfi6@pd.com").password("x").nickName("강사6")
+                .roles(new HashSet<>(Set.of(Role.INSTRUCTOR))).build());
+        // round() 헬퍼가 respondedAt = 2일 전으로 세팅 → pendingTtlHours(24h) 초과 = 만료 대상.
+        Long roundId = paidSingleRound(stu, ins, EnrollmentStatus.ACCEPT_PENDING, 350000, "pkE");
+
+        int expired = expiryService.sweepExpired(OffsetDateTime.now(ZoneOffset.UTC));
+
+        assertThat(expired).isEqualTo(1);
+        assertThat(roundRepo.findById(roundId).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.CANCELLED);
+        verify(gateway).cancel(eq("pkE"), eq(350000), eq(350000), anyString());
+        assertThat(refundRepo.findAll()).hasSize(1);
+    }
+
+    /** 1회차 선결제 완료 엔롤 + DONE 주문 한 건. roundId 반환(거절/만료 대상). */
+    private Long paidSingleRound(Account stu, Account ins, EnrollmentStatus status, int amount, String key) {
+        Course course = Course.builder().instructor(ins).title("프리다이빙 1일 레슨")
+                .kind(CourseKind.CERTIFICATION).organizationCode("AIDA").disciplineCode("FREEDIVING")
+                .totalRounds(1).price(amount).status(CourseStatus.OPEN).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
+        course.addRound(CourseRound.builder().roundKind(RoundKind.REGULAR).roundIndex(1).build());
+        courseRepo.save(course);
+
+        EnrollmentRound r1 = round(1, status, LocalDate.now().plusDays(5), false, 0);
+        Enrollment e = Enrollment.builder().student(stu).course(course).tuitionSnapshot(amount)
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
+        e.addRound(r1);
+        enrollmentRepo.save(e);
+        order(r1, amount, key);
+        return r1.getId();
     }
 }

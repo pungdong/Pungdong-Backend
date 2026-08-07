@@ -8,9 +8,9 @@ package com.diving.pungdong.enrollment;
  * 로 내려, FE 가 placeholder 를 그린다. 설계의 {@code done/payment_expired} 는 출석/만료 추적 후속이라 미매핑.
  */
 public enum RoundScheduleStatus {
-    WAITING,       // PENDING(제안 없음) — 강사 확인 중
+    WAITING,       // ACCEPT_PENDING(결제완료·강사 확인 중) 또는 2회차 PENDING(제안 없음) — 강사 확인 중
     RESCHEDULING,  // PENDING + 강사 일정변경 제안 — 학생이 제안 슬롯 선택 대기
-    PAYMENT_DUE,   // PAYMENT_PENDING — 결제 필요(수락됨)
+    PAYMENT_DUE,   // 결제 필요 — 1회차 선결제 미결제(PENDING) 또는 2회차 수락 후(PAYMENT_PENDING)
     CONFIRMED,     // CONFIRMED, 미완료 — 확정(결제 완료), 진행 대기
     DONE,          // CONFIRMED + doneAt — 회차 수강 완료
     REJECTED,      // REJECTED — 강사 거절(1회차 한정, 복구 가능)
@@ -24,7 +24,9 @@ public enum RoundScheduleStatus {
             return DONE;
         }
         switch (r.getStatus()) {
-            case PENDING:         return WAITING;
+            // 선결제: 1회차 미결제(PENDING) = 학생이 결제해야 함 → PAYMENT_DUE. 2회차+ 강사 확인 전 = 대기(WAITING).
+            case PENDING:         return r.isFirstMeeting() ? PAYMENT_DUE : WAITING;
+            case ACCEPT_PENDING:  return WAITING;   // 결제완료·강사 확인 중 — 학생은 대기
             case PAYMENT_PENDING: return PAYMENT_DUE;
             case CONFIRMED:       return CONFIRMED;
             case REJECTED:        return REJECTED;

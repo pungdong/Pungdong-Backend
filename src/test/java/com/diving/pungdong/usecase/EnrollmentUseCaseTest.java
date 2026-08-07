@@ -60,8 +60,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *
  * <p>핵심: 슬롯 = 강사 <b>coverage(예약가능시간) ∩ venue 운영블록</b>(부 전체가 coverage 에 ⊆). 첫 신청이 그
  * (위치,블록) session 을 생성, 같은 (위치,블록) 신청은 join. 정원 = 계정 기본값(여기선 강사 defaultCapacity 로
- * 결정적 셋업). 신청 PENDING → 강사 수락 시 PAYMENT_PENDING(결제 대기) → 결제 승인 시 CONFIRMED(결제는
- * PaymentUseCaseTest). 수락은 슬롯을 점유. 캘린더 sessions[] 에 반영. ⚠️ raw JWT.
+ * 결정적 셋업). <b>선결제 흐름</b>: 신청 PENDING(좌석 점유·결제 대기) → 결제 승인 시 ACCEPT_PENDING(결제완료·
+ * 강사 확인 대기) → 강사 수락 시 CONFIRMED / 강사 거절 시 REJECTED+자동환불(결제는 PaymentUseCaseTest). 신청
+ * 즉시 슬롯을 점유. 캘린더 sessions[] 에 반영. ⚠️ raw JWT.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -438,7 +439,7 @@ class EnrollmentUseCaseTest {
     /* ─── F* 만석 ─── */
 
     @Test
-    @DisplayName("F1 정원이 수락(결제대기)으로 다 차면(만석) 새 신청은 400")
+    @DisplayName("F1 정원이 신청(PENDING·좌석 점유)으로 다 차면(만석) 새 신청은 400")
     void fullRejectsNewApplication() throws Exception {
         Account ins = account("ins7@pd.com", "강사7");
         enterInstructorTrack(ins);
@@ -447,11 +448,8 @@ class EnrollmentUseCaseTest {
         String venueRef = (String) s[2];
         String ticketRef = ticketRefOf((Venue) s[1]);
 
-        EnrollmentRound first = submitOk(account("c@pd.com", "학생C"), course, venueRef, ticketRef);
-        // 수락 = 결제 대기(슬롯 점유). 결제 전이라도 정원을 차지하므로 새 신청은 만석.
-        mockMvc.perform(post("/instructor/enrollments/{id}/accept", first.getId())
-                .header(HttpHeaders.AUTHORIZATION, tokenFor(ins)))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("PAYMENT_PENDING"));
+        // 선결제 흐름 — 신청은 즉시(결제·수락 전에도) 좌석을 점유한다. 정원 1이 이미 만석.
+        submitOk(account("c@pd.com", "학생C"), course, venueRef, ticketRef);
 
         mockMvc.perform(post("/enrollments")
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(account("d@pd.com", "학생D")))
@@ -463,20 +461,20 @@ class EnrollmentUseCaseTest {
     /* ─── A* 강사 수락·거절 ─── */
 
     @Test
-    @DisplayName("A1 강사가 수락하면 PAYMENT_PENDING(결제 대기)이 되고 캘린더엔 점유 1명으로 반영된다")
+    @DisplayName("A1 결제완료(ACCEPT_PENDING) 신청을 강사가 수락하면 CONFIRMED 가 되고 캘린더엔 점유 1명으로 반영된다")
     void acceptConfirms() throws Exception {
         Account ins = account("ins8@pd.com", "강사8");
         enterInstructorTrack(ins);
         Object[] s = setup(ins, 4);
-        EnrollmentRound e = submitOk(account("e@pd.com", "학생E"), (Course) s[0], (String) s[2], ticketRefOf((Venue) s[1]));
+        EnrollmentRound e = paid(submitOk(account("e@pd.com", "학생E"), (Course) s[0], (String) s[2], ticketRefOf((Venue) s[1])));
 
         mockMvc.perform(post("/instructor/enrollments/{id}/accept", e.getId())
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(ins)))
                 .andExpect(status().isOk());
 
-        // 수락 = 결제 대기(아직 확정 아님). 결제 승인이 CONFIRMED 로 넘긴다(PaymentUseCaseTest).
+        // 선결제라 수락 = 확정(CONFIRMED). 결제는 이미 완료(ACCEPT_PENDING)돼 있었다.
         assertThat(roundRepo.findById(e.getId()).orElseThrow().getStatus())
-                .isEqualTo(EnrollmentStatus.PAYMENT_PENDING);
+                .isEqualTo(EnrollmentStatus.CONFIRMED);
         // 캘린더는 점유(결제대기+확정)를 confirmed 버킷으로 합산 — 슬롯은 차지된 것으로 표시(v1).
         mockMvc.perform(get("/instructor/availability")
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(ins))
@@ -491,7 +489,8 @@ class EnrollmentUseCaseTest {
         Account ins = account("ins9@pd.com", "강사9");
         enterInstructorTrack(ins);
         Object[] s = setup(ins, 4);
-        EnrollmentRound e = submitOk(account("f@pd.com", "학생F"), (Course) s[0], (String) s[2], ticketRefOf((Venue) s[1]));
+        // 선결제 흐름 — 거절은 결제완료(ACCEPT_PENDING) 상태에서만 가능(결제 없는 이 신청은 환불 no-op).
+        EnrollmentRound e = paid(submitOk(account("f@pd.com", "학생F"), (Course) s[0], (String) s[2], ticketRefOf((Venue) s[1])));
 
         mockMvc.perform(post("/instructor/enrollments/{id}/reject", e.getId())
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(ins))
@@ -593,6 +592,16 @@ class EnrollmentUseCaseTest {
                 .content(json(req(course.getId(), venueRef, ticketRef, B_START, B_END, List.of()))))
                 .andExpect(status().isCreated());
         return roundRepo.findByEnrollment_Student_IdOrderByIdDesc(student.getId()).get(0);
+    }
+
+    /**
+     * 신청(PENDING)을 결제완료(ACCEPT_PENDING)로 올린다 — 결제 자체의 검증은 PaymentUseCaseTest 소관이라
+     * 여기선 강사 수락/거절 mechanics 만 보려고 상태를 직접 세팅한다. respondedAt = 강사 24h 응답시계 시작(결제시각).
+     */
+    private EnrollmentRound paid(EnrollmentRound e) {
+        e.setStatus(EnrollmentStatus.ACCEPT_PENDING);
+        e.setRespondedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        return roundRepo.save(e);
     }
 
     /* ─── E* 장비 사이즈 캡처 ─── */

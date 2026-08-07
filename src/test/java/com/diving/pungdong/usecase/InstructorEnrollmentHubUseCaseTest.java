@@ -9,6 +9,7 @@ import com.diving.pungdong.availability.AvailabilitySessionJpaRepo;
 import com.diving.pungdong.course.*;
 import com.diving.pungdong.enrollment.EnrollmentJpaRepo;
 import com.diving.pungdong.enrollment.EnrollmentRound;
+import com.diving.pungdong.enrollment.EnrollmentStatus;
 import com.diving.pungdong.enrollment.EnrollmentRoundEquipment;
 import com.diving.pungdong.enrollment.EnrollmentRoundJpaRepo;
 import com.diving.pungdong.global.security.JwtTokenProvider;
@@ -159,8 +160,16 @@ class InstructorEnrollmentHubUseCaseTest {
                 .andExpect(status().isCreated());
     }
 
+    /** 학생의 최근 신청을 결제완료(ACCEPT_PENDING)로 올린다 — 선결제 흐름에서 강사 액션 대상이 되는 상태(결제 자체는 PaymentUseCaseTest). */
+    private void paid(Account stu) {
+        EnrollmentRound r = roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).get(0);
+        r.setStatus(EnrollmentStatus.ACCEPT_PENDING);
+        r.setRespondedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        roundRepo.save(r);
+    }
+
     @Test
-    @DisplayName("I1 신규 1회차 신청은 강사 hub 에서 ACTION_NEEDED · NEW_REQUEST · 회차 WAITING 으로 뜬다")
+    @DisplayName("I1 결제완료된 신규 1회차 신청은 강사 hub 에서 ACTION_NEEDED · NEW_REQUEST · 회차 WAITING 으로 뜬다")
     void newRequestSurfaces() throws Exception {
         Account ins = instructor("ins-i1@pd.com", "강사I1");
         Venue v = venue(ins);
@@ -170,6 +179,7 @@ class InstructorEnrollmentHubUseCaseTest {
         openCoverage(ins, D1);
         Account stu = account("stu-i1@pd.com", "지원", Role.STUDENT);
         applyRound1(stu, course, ref, ticket, D1);
+        paid(stu); // 선결제 — 강사는 결제완료(ACCEPT_PENDING) 건만 수락/거절한다(미결제 PENDING 은 학생 결제 대기)
 
         mockMvc.perform(get("/instructor/enrollments/hub").header(HttpHeaders.AUTHORIZATION, token(ins)))
                 .andExpect(status().isOk())
@@ -183,7 +193,7 @@ class InstructorEnrollmentHubUseCaseTest {
     }
 
     @Test
-    @DisplayName("I2 학생이 직접 일정수정하면 강사 hub 에서 CHANGE_REQUEST · 회차 CHANGING · 직전 슬롯(previousSlot) 노출")
+    @DisplayName("I2 학생이 직접 일정수정 후 결제하면 강사 hub 에서 CHANGE_REQUEST · 회차 CHANGING · 직전 슬롯(previousSlot) 노출")
     void changeRequestSurfacesWithPreviousSlot() throws Exception {
         Account ins = instructor("ins-i2@pd.com", "강사I2");
         Venue v = venue(ins);
@@ -195,13 +205,14 @@ class InstructorEnrollmentHubUseCaseTest {
         applyRound1(stu, course, ref, ticket, D1);
         EnrollmentRound r1 = roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).get(0);
 
-        // 학생 직접 일정수정 D1 → D2
+        // 학생 직접 일정수정 D1 → D2 (결제 전 PENDING 에서)
         mockMvc.perform(post("/enrollments/rounds/{id}/reschedule", r1.getId())
                         .header(HttpHeaders.AUTHORIZATION, token(stu))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of("date", D2.toString(), "venueRefId", ref, "ticketRef", ticket,
                                 "blockStart", START.toString(), "blockEnd", END.toString()))))
                 .andExpect(status().isOk());
+        paid(stu); // 결제완료(ACCEPT_PENDING) — 이제 강사가 변경된 슬롯을 검토(CHANGING). 슬롯이력은 결제 후에도 보존.
 
         mockMvc.perform(get("/instructor/enrollments/hub?filter=action").header(HttpHeaders.AUTHORIZATION, token(ins)))
                 .andExpect(status().isOk())
