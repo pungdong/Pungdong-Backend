@@ -49,9 +49,8 @@ locals {
     IDENTITY_VERIFICATION_MODE = "stub" # 실 본인확인기관 연동 전까지(심사용). 정식 출시 전 disabled/real 검토.
     ADDRESS_GEOCODE_MODE       = "juso"
     JUSO_REFERER               = "https://plop.cool" # 운영 juso 키 등록 referer 와 일치
-    # 🧪 공모전/PG심사 데모 동안만 — 신청 자동수락(강사 수동수락 대체) + seeded 강의 가용시간 개방.
-    # 심사 끝나면 두 값 false 로 되돌리고 DemoAutoAcceptScheduler 제거(application.yml 주석 참고).
-    DEMO_AUTO_ACCEPT       = "true"
+    # 🧪 seeded 강의 가용시간 개방(신청 가능하게). (자동수락 DEMO_AUTO_ACCEPT 은 선결제 전환으로 제거됨 —
+    # 결제가 강사 수락 앞으로 와서 자동수락이 원천 불필요.)
     DEMO_SEED_AVAILABILITY = "true"
     # 결제: 토스 → 이니시스 스왑. 토스 테스트 키의 결제위젯이 prod 에서 variantKey 오류로 아예 안 떠
     # (심사자가 결제창을 못 봄), 스테이징에서 실 왕복 검증된(#192) 이니시스로 맞춘다.

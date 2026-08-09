@@ -12,7 +12,7 @@
 |---|---|---|
 | `src/main/java/com/diving/pungdong/demo/DemoAutoAcceptScheduler.java` | 신청을 ~3초 뒤 자동수락 (강사 수동수락 대체) | ✅ **파일 삭제 완료** |
 | `pungdong.demo.auto-accept` (application.yml) + `DEMO_AUTO_ACCEPT` (.env.example) | 위 스케줄러 토글 | ✅ **라인 제거 완료** |
-| `DEMO_AUTO_ACCEPT="true"` (`infra/envs/{staging,production}/main.tf` 배포 env) | 배포 task def env | ⏳ **남음(의도)** — 코드에서 빈이 사라져 이제 orphan. staging 은 이 배포로 자동 무효화. **prod 는 아직 구 흐름으로 심사 중이라 실행 이미지가 이 env 를 읽어 자동수락 유지가 필요** → prod terraform env 제거는 **selprepay prod 배포와 함께**(심사 후). |
+| `DEMO_AUTO_ACCEPT="true"` (`infra/envs/{staging,production}/main.tf` 배포 env) | 배포 task def env | ✅ **staging·prod 둘 다 제거** — 선결제 코드가 배포되면 빈이 없어 어차피 inert. **내일 prod 에 selprepay + 이 클렌징이 함께 나가 selprepay 흐름으로 카드심사**. (참고: production-deploy 는 현재 task def 를 렌더하므로 running env 에서 orphan 이 잠시 남을 수 있으나 기능 무해 — 어차피 아무도 안 읽음.) |
 
 ## ② 선택 제거 — 게이트 off 면 무해 (데모 지원)
 
