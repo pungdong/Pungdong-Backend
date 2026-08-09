@@ -59,25 +59,32 @@ sequenceDiagram
   end
 ```
 
-### 3-2. 선결제 상태기계 (1회차: 신청 → 즉시 결제 → 강사 수락/거절)
+### 3-2. 선결제 상태기계 (전 회차: 신청 → 즉시 결제 → 강사 결정)
 
 **선결제 전환(2026-08-07)** — 결제가 강사 수락 *뒤*가 아니라 신청 *직후*로 이동. 표준 이커머스 "주문 즉시 결제"라 카드사 심사가 익숙한 흐름이 되고, 제품상 어차피 붙일 방향. 결제·환불 인프라(PG 중립 어댑터·실카드 왕복 검증)는 이미 있어 어댑터 재사용.
+**전 회차 통일(2026-08-09)** — 1회차만 바꾼 상태는 상태기계가 반쪽이었다(2회차 `accept` 가 400 으로 막히는 seam). 회차 구분을 없애고 `PAYMENT_PENDING` 을 제거해 **상태기계 하나로 수렴**.
 
 ```
-신청 → PENDING (미결제·좌석 점유 = "장바구니")
-  └[결제 prepare/confirm]→ ACCEPT_PENDING (결제완료·좌석 점유·강사 확인 대기)  ← 선결제 신규 상태
-        ├[강사 수락]      → CONFIRMED
-        ├[강사 거절]      → REJECTED  + 전액 자동환불
-        └[강사 무응답 24h] → CANCELLED + 전액 자동환불
-  └[미결제 만료 12h]      → CANCELLED (좌석 해제, 환불 없음)
+신청(1회차 submit · 2회차+ /rounds) → PENDING (미결제·좌석 점유 = "장바구니")
+  └[결제 prepare/confirm]→ ACCEPT_PENDING (결제완료·좌석 점유·강사 결정 대기)
+        ├[강사 수락]         → CONFIRMED
+        ├[강사 거절]         → REJECTED  + 전액 자동환불   (그 회차만 · 재신청 가능)
+        ├[강사 일정조정 제안] → ACCEPT_PENDING + proposedSlots (학생 차례)
+        │     ├[학생 ㅇㅋ pick-slot]   → CONFIRMED (+ 싸졌으면 차액 자동환불)
+        │     ├[학생 재제안 reschedule]→ ACCEPT_PENDING (24h 재시작 · 강사에겐 CHANGING)
+        │     ├[학생 ㄴㄴ cancel]      → CANCELLED + 전액 자동환불
+        │     └[제안 6h 만료]          → 제안만 소멸(강사 차례로 복귀)
+        ├[학생 취소]         → CANCELLED + 전액 자동환불
+        └[강사 무응답 24h]    → CANCELLED + 전액 자동환불
+  └[미결제 만료 12h]         → CANCELLED (좌석 해제, 환불 없음)
 ```
 
-- **결제** = `POST /payments/prepare`·`confirm`([payment.md](payment.md)). 성공 시 `PENDING → ACCEPT_PENDING`, `respondedAt=결제시각`(강사 24h 응답시계 시작). 좌석은 *신청* 시점에 이미 점유(결제 전에도) — 결제는 좌석을 새로 잡지 않는다.
-- **수락**(`ACCEPT_PENDING → CONFIRMED`) — 이미 결제·좌석 확보라 재검증 없이 곧장 확정.
-- **거절/무응답 만료**(`→ REJECTED`/`CANCELLED`) — enrollment 패키지가 `EnrollmentRefundRequestedEvent` 발행 → payment 패키지 `EnrollmentRefundListener` 가 **동기(같은 트랜잭션)** 로 전액 환불(`RefundService.refundRoundFully`). 동기라 환불 실패 시 상태전이도 함께 롤백(다음 sweep 재시도). 의존 방향 = payment→enrollment (역방향 금지 준수).
-- **만료 스위퍼**(`EnrollmentExpiryService.sweepExpired`, 5분) — PENDING(미결제)은 `createdAt` 기준 `paymentTtlHours`(12h), ACCEPT_PENDING(결제완료)은 `respondedAt` 기준 `pendingTtlHours`(24h)+환불, PAYMENT_PENDING(2회차)은 12h. TTL 은 Sanity `siteSettings` 런타임 config.
-
-> **2회차+ 는 아직 구(舊) 흐름** — 사전수락(`PAYMENT_PENDING`) 후 결제 → `CONFIRMED`(pick-slot/`/rounds`). 심사가 보는 브라우즈→신청→결제는 1회차라 스코프를 1회차로 끊음.
+- **결제** = `POST /payments/prepare`·`confirm`([payment.md](payment.md)). 성공 시 **항상** `PENDING → ACCEPT_PENDING`, `respondedAt=결제시각`(강사 24h 응답시계 시작). 좌석은 *신청* 시점에 이미 점유(결제 전에도) — 결제는 좌석을 새로 잡지 않는다. 금액만 회차별로 다르다(수강료는 1회차 주문에 전액, 2회차+ 는 부대비용만).
+- **강사 결정은 3지선다** — 수락 / 거절 / 일정조정 제안. 셋 다 `ACCEPT_PENDING` 에서만. 결제가 앞으로 당겨졌으니 제안도 결제 *후* 시점이 되고, 그래서 **학생은 결제가 아니라 ㅇㅋ/ㄴㄴ만** 하면 된다(제안 자리는 강사가 이미 승인한 자리 → pick 은 재수락도 추가결제도 없이 곧장 `CONFIRMED`).
+- **금액 불변식** — "그 회차에 남은 결제 순액 == `chargeTotal()`". 결제 후 슬롯 변경(pick/reschedule)은 **금액이 늘면 400**(더 비싼 시간대는 취소 후 재신청), 줄면 `EnrollmentPartialRefundRequestedEvent` 로 차액 자동환불. 제안 단계에서 이미 더 비싼 슬롯을 걸러낸다. 덕분에 enrollment 는 payment 를 조회하지 않고도(역참조 금지) 결제액을 안다.
+- **거절/취소 = 그 회차만** — 수강 자체는 유지되고 `RoundGate` 가 자리를 비우므로(활성 회차만 "이미 잡음"으로 봄) 학생이 **그 회차를 다른 날짜로 다시 신청**할 수 있다(시간 제한 없음). "제안이 다 안 되니 다음에 다시" 가 성립하는 근거. hub 파생은 같은 회차에 더 최근 활성/완료 행이 있으면 죽은 행을 제외한다(안 그러면 재신청 후에도 강의가 영구 `RESCHEDULING`).
+- **자동환불**(거절·학생취소·무응답) — enrollment 가 `EnrollmentRefundRequestedEvent` 발행 → payment 의 `EnrollmentRefundListener` 가 **동기(같은 트랜잭션)** 로 전액 환불(`RefundService.refundRoundFully`). 동기라 환불 실패 시 상태전이도 함께 롤백(다음 sweep 재시도). 의존 방향 = payment→enrollment (역방향 금지 준수). 차액 환불도 같은 계약(`refundRoundPartially`).
+- **만료 스위퍼**(`EnrollmentExpiryService.sweepExpired`, 5분) — PENDING(미결제)은 `createdAt` 기준 `paymentTtlHours`(12h, 환불 없음), ACCEPT_PENDING(결제완료)은 `respondedAt` 기준 `pendingTtlHours`(24h)+전액환불. **두 갈래뿐.** TTL 은 Sanity `siteSettings` 런타임 config.
 
 ```mermaid
 sequenceDiagram
@@ -86,14 +93,22 @@ sequenceDiagram
   participant I as 강사
   participant IES as InstructorEnrollmentService
 
-  S->>IES: POST /enrollments  → 201 PENDING (좌석 점유)
+  S->>IES: POST /enrollments (1회차) · POST /{id}/rounds (2회차+) → 201 PENDING (좌석 점유)
   S->>P: POST /payments/prepare·confirm
-  P-->>S: ACCEPT_PENDING (결제완료·강사 확인 대기)
+  P-->>S: ACCEPT_PENDING (결제완료·강사 결정 대기)
   Note over I: GET /instructor/enrollments/hub → ACCEPT_PENDING = 액션 필요(WAITING)
   alt 강사 수락
     I->>IES: POST /{id}/accept → CONFIRMED
   else 강사 거절 / 무응답 24h
     I->>IES: POST /{id}/reject → REJECTED + 자동환불(event→payment)
+    Note over S: 그 회차만 무효 — 다른 날짜로 재신청 가능
+  else 강사 일정조정 제안
+    I->>IES: POST /{id}/propose-slots (좌석 hold 6h)
+    alt 학생 ㅇㅋ
+      S->>IES: POST /rounds/{id}/pick-slot → CONFIRMED (결제 없음, 차액만 환불)
+    else 학생 ㄴㄴ
+      S->>IES: POST /{id}/cancel → CANCELLED + 전액환불 (나중에 재신청)
+    end
   end
 ```
 
@@ -145,17 +160,19 @@ erDiagram
 | GET `/enrollments/options` | ✅ | — | 코스 OPEN |
 | POST `/enrollments` | ✅(학생) | **본인인증(최신 VERIFIED)** — 없으면 403 -1017([identity-verification.md](identity-verification.md)) | 코스 OPEN·1회차 위치/이용권 · 블록이 venue 운영블록 · 블록⊆coverage · exact-match · 만석 · 장비소속 |
 | GET `/enrollments/mine` | ✅ | — | 내 것만 |
-| POST `/enrollments/{id}/cancel` | ✅ | — | 내 PENDING 만, 비소유=400 |
+| POST `/enrollments/{id}/cancel` | ✅ | — | 내 **PENDING**(무료) / **ACCEPT_PENDING**(전액 자동환불) 만, 비소유=400. 취소된 회차는 재신청 가능 |
 | GET `/instructor/enrollments` | ✅ | 강사신청 보유 | 내 코스 신청만 |
 | POST `/instructor/enrollments/{id}/accept` | ✅ | 강사신청 | 내 코스 · **ACCEPT_PENDING**(결제완료) → CONFIRMED |
-| POST `/instructor/enrollments/{id}/reject` | ✅ | 강사신청 | 내 코스 · **ACCEPT_PENDING** · 1회차 → REJECTED + 자동환불 |
+| POST `/instructor/enrollments/{id}/reject` | ✅ | 강사신청 | 내 코스 · **ACCEPT_PENDING** · **전 회차** → REJECTED + 전액 자동환불(그 회차만) |
 | GET `/instructor/enrollments/{id}/propose-options` | ✅ | 강사신청 | 내 코스 회차만(비소유=숨김) · `ticketName`·`unavailableReason`(FULL/TIME_CONFLICT) 포함 · **위치 고정**(회차 venue 1개로 스코프) · 중복 제거 · 오늘+8주 ∩ coverage window |
-| POST `/instructor/enrollments/{id}/propose-slots` | ✅ | 강사신청 | 내 코스 · PENDING · **최대 3** · bookable+좌석여유만 채택 → 좌석 보장 hold |
-| POST `/enrollments/rounds/{id}/pick-slot` | ✅(학생) | — | 내 회차 · 제안목록 내 슬롯 · **hold 보장(만석 무관)** → PAYMENT_PENDING |
+| POST `/instructor/enrollments/{id}/propose-slots` | ✅ | 강사신청 | 내 코스 · **ACCEPT_PENDING** · **최대 3** · bookable+좌석여유+**결제액 이하**만 채택 → 좌석 보장 hold |
+| POST `/enrollments/rounds/{id}/pick-slot` | ✅(학생) | — | 내 회차 · 제안목록 내 슬롯 · **hold 보장(만석 무관)** → **CONFIRMED**(추가 결제 없음, 차액만 환불) |
+| POST `/enrollments/rounds/{id}/reschedule` | ✅(학생) | — | 내 **PENDING**(미결제) 또는 **ACCEPT_PENDING**(결제 유지 재제안) · 금액 증가 시 400 |
 
 ## 6. 알려진 설계 간극
 
-- 🟢 **선결제 전환(2026-08-07)** — 1회차는 신청 직후 결제(`PENDING → 결제 → ACCEPT_PENDING`) → 강사 수락 `CONFIRMED` / 거절·무응답 만료 시 자동환불. 상태기계·동시성 하드닝은 §3-2. [payment 도메인](payment.md)(PG 중립) 소유. 남은 것: notification 결제/거절 푸시 · 정산 수수료 분해 · 2회차+ 선결제화.
+- 🟢 **선결제 전환(2026-08-07) → 전 회차 통일(2026-08-09)** — 회차 구분 없이 신청 직후 결제(`PENDING → 결제 → ACCEPT_PENDING`) → 강사 수락 `CONFIRMED` / 거절·취소·무응답 만료 시 자동환불. `PAYMENT_PENDING` 제거(잔존 행은 Flyway `V13` 이 `PENDING` 으로 이관). 상태기계·동시성 하드닝은 §3-2. [payment 도메인](payment.md)(PG 중립) 소유. 남은 것: notification 결제/거절 푸시 · 정산 수수료 분해.
+- 🟢 **더 비싼 슬롯으로의 결제후 변경** — 금액이 늘어나는 슬롯 변경은 400 이고, 취소(전액환불) 후 재신청으로 우회한다. 차액 추가 청구를 하려면 "결제 대기" 상태가 다시 필요해지는데, 그게 이번에 없앤 것이라 의도적으로 막았다. 실제로 걸리는 빈도를 보고 재검토.
 - 🟢 **venue 운영 정밀도** — `BookableSlotDeriver` 는 FIXED·OPEN(단일)·SAME, WEEKLY·MONTHLY 휴무 지원. 공휴일·OPEN 세분화는 후속.
 - 🟢 **가격 권위성** — 신청 스냅샷은 추정치. 권위(청구) 금액은 결제 시점 `POST /payments/prepare` 가 재계산(수강료 라이브 + 입장료/장비 스냅샷). 입장료/장비 live 재도출은 후속([payment.md](payment.md)).
 - 🟢 **applicants = enrollment 만** — 캘린더 슬롯 안 신청자 행은 풍덩 enrollment 만(외부 hold 는 externalCount 로만). 디자인의 external applicant 행은 후속.
@@ -171,7 +188,9 @@ erDiagram
   - A1/A2: (결제완료 ACCEPT_PENDING 전제) 수락→CONFIRMED+캘린더(점유), 거절→REJECTED(session 잔존, 점유 0=AVAILABLE). 결제는 `PaymentUseCaseTest`
   - C1: 취소→CANCELLED
   - G0/R1/R2/R3: 인증·게이트·격리
-- `src/test/.../usecase/PaymentUseCaseTest` — 선결제 결제: P1~P2 신청(PENDING) 직후 prepare/confirm → `ACCEPT_PENDING`, I1~I4 이니시스 콜백, O1~O2 주문조회.
+- `src/test/.../usecase/PaymentUseCaseTest` — 선결제 결제: P1~P2 신청(PENDING) 직후 prepare/confirm → `ACCEPT_PENDING`, P8 **2회차도 동일**(권위 금액 = 부대비용만), I1~I4 이니시스 콜백, O1~O2 주문조회.
+- `src/test/.../usecase/MultiRoundProgressUseCaseTest` — 전 회차 통일 사양: M3 제안→pick→`CONFIRMED`(추가 결제 없음), M4 2회차 거절→**재신청 가능**, M4-1 제안 전부 거절(취소)→**재신청 가능**, M6-1 결제 후 학생 재제안→`ACCEPT_PENDING`+강사 hub `CHANGING`.
+- `src/test/.../usecase/ScheduleHubUseCaseTest` — SH4/SH5 재신청한 회차가 옛 거절 행을 대체(강의가 영구 `RESCHEDULING` 으로 굳지 않음) / 재신청 전엔 거절 행이 남아 액션을 띄움.
 - `src/test/.../usecase/RefundUseCaseTest` — RF5 강사 거절→REJECTED+전액 자동환불(cancel 호출·환불기록), RF6 무응답 만료→CANCELLED+환불(`EnrollmentExpiryService.sweepExpired`).
   - G1/G2: 본인인증 게이트 — 미인증 신청 403(-1017)·아무 것도 안 생김 / 인증 후 정상 통과
 - REST Docs `document(...)` 컨트롤러 테스트는 venue/course/availability 와 동일하게 미작성(후속).

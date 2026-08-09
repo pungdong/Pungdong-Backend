@@ -13,7 +13,7 @@
 | enrollment | [enrollment.md](../architecture/enrollment.md) | 회차(EnrollmentRound)·proposedSlots·pick/reschedule·상태전이 (이 피처) |
 | availability | [availability.md](../architecture/availability.md) | session(정원 단위)·좌석 lock·**좌석 hold**·점유 0 정리 |
 | venue | [venue.md](../architecture/venue.md) | 운영 시간블록·daypart 입장료(날짜 바뀌면 재산정) |
-| payment | [payment.md](payment.md) | pick 후 PAYMENT_PENDING → 결제 |
+| payment | [payment.md](payment.md) | 제안 시점엔 이미 결제됨 — pick 은 추가 결제 없이 확정(싸지면 차액 환불) |
 
 ## 정책 (requirements)
 
@@ -25,7 +25,7 @@
 | 위치 | **회차에 고정** (날짜만 바뀜) | **변경 가능** (날짜 따라 위치가 달라질 수 있음) |
 | 장비 | **원 회차 그대로** | **재선택 가능** |
 | 슬롯 필드 | `{date, ticketRef, blockStart, blockEnd}` | `{date, venueRefId, ticketRef, blockStart, blockEnd, equipmentRefs[]}` |
-| 결과 상태 | 학생 pick → **PAYMENT_PENDING** (강사 사전수락) | **PENDING** (강사 재수락 필요) |
+| 결과 상태 | 학생 pick → **CONFIRMED** (강사가 승인한 자리·이미 결제) | **ACCEPT_PENDING** 유지 (강사 재수락 필요) |
 
 - **위치 고정인 이유**: 위치가 같아도 **날짜가 바뀌면 그 날짜 daypart 기준으로 이용권·입장료·운영블록이 달라짐** → 슬롯은 "날짜+이용권+블록" 완전체로 제안. 위치까지 바꾸려면 학생 `reschedule` 경로.
 - **둘 다 취소가 아님** — 회차 유지, 옛 슬롯은 `slotHistory` 적재(CS/증빙). PENDING 회차에만 가능.
@@ -42,7 +42,7 @@
 
 - **propose 시 슬롯별로 좌석 hold** (회차 귀속, expiresAt). 못 잡는 만석 슬롯은 제안에서 제외(하나도 못 잡으면 400).
 - hold 동안 다른 학생 신청은 `requireSeat` 가 hold 를 세서 **정상적으로 막힘**(보장이 작동하는 것). 학생은 옛 좌석(1) + 제안(N) = 한시적 1+N석 점유.
-- **pick = 항상 성공**: 고른 슬롯 hold→실점유 전환, 나머지 N-1 + 옛 좌석 release(빈 session `SessionCleaner` 정리) → PAYMENT_PENDING.
+- **pick = 항상 성공**: 고른 슬롯 hold→실점유 전환, 나머지 N-1 + 옛 좌석 release(빈 session `SessionCleaner` 정리) → CONFIRMED.
 - **제안 슬롯 시스템 강제 max 3** — hold 를 거니 "한 명이 잠그는 좌석 수" 상한. 강사도 보통 3개면 충분, 학생도 3개 이내가 고르기 편함.
 - **proposalTtlHours = 6h** (신설, 결제 `paymentTtlHours`=12h 와 분리). 제안 결정 윈도우 = hold 가 다른 학생을 막는 시간이라 짧게. 만료 sweep(`EnrollmentExpiryService.sweepExpiredProposals`) = hold release + proposedSlots clear + 회차는 평범한 PENDING(취소 아님 → hub 에서 RESCHEDULING→WAITING, 강사 재제안 가능). 값은 SiteSettings(Sanity) 런타임.
 - **캘린더에 hold 도 "제안중"으로 반영** — `HoldResponse.kind='PROPOSAL'`, 잔여 인원에 자동 반영(올바른 표시).
@@ -58,6 +58,7 @@
 |---|---|---|
 | 2026-06-28 | reschedule(학생 직접) — 취소 아닌 제자리 변경 + 슬롯 이력 | PR #108 |
 | 2026-06-28 | propose-slots(강사 제안) → pick-slot(학생 택1) → PAYMENT_PENDING | 강사 hub #109 |
+| 2026-08-09 | 제안 시점이 **결제 후**(ACCEPT_PENDING)로 이동 — pick 은 추가 결제 없이 CONFIRMED, 학생 선택지는 ㅇㅋ/ㄴㄴ(취소+환불 또는 내 슬롯 재제안). 더 비싼 슬롯은 제안 단계에서 제외 | 전 회차 선결제 통일([payment.md](payment.md) 결정 히스토리) |
 | 2026-06-28 | **정원 처리 = (C) hold-and-guarantee** (max 3 · proposalTtlHours 6h · 캘린더 hold 표시 · 강사 옵션 엔드포인트). 하드캡 우회 금지, 보장은 사전 hold 로 | ✅ 구현 |
 | 2026-06-28 | 구현 = 별도 테이블 대신 `AvailabilityHold` 재사용(heldCount 자동 합산으로 하드캡 한 곳 계산). V3 마이그레이션 | ✅ |
 
