@@ -21,6 +21,8 @@ import com.diving.pungdong.enrollment.dto.PickSlotRequest;
 import com.diving.pungdong.enrollment.dto.RoundScheduleRequest;
 import com.diving.pungdong.enrollment.dto.RoundSlotInput;
 import com.diving.pungdong.enrollment.dto.ScheduleHubResponse;
+import com.diving.pungdong.enrollment.event.EnrollmentPartialRefundRequestedEvent;
+import com.diving.pungdong.enrollment.event.EnrollmentRefundRequestedEvent;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.IdentityVerificationRequiredException;
 import com.diving.pungdong.global.advice.exception.PreLaunchException;
@@ -32,6 +34,7 @@ import com.diving.pungdong.venue.dto.VenueResponse;
 import com.diving.pungdong.venue.equipment.VenueEquipmentService;
 import com.diving.pungdong.venue.equipment.dto.VenueEquipmentResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -73,6 +76,7 @@ public class EnrollmentService {
     private final SessionOverlapGuard overlapGuard;
     private final com.diving.pungdong.global.sitesettings.SiteSettingsProvider siteSettings;
     private final IdentityVerificationJpaRepo identityVerificationRepo;
+    private final ApplicationEventPublisher events; // 결제된 회차의 취소·차액 환불(payment 리스너 수신)
 
     /** 1회차 신청 — 수강 컨테이너 + 첫 만남 회차 생성. */
     @Transactional
@@ -124,8 +128,10 @@ public class EnrollmentService {
     }
 
     /**
-     * 강사 일정변경요청 중 학생이 슬롯 선택 — 위치 고정, 날짜/이용권/블록을 그 제안 슬롯으로 바꿔 재검증 후
-     * reschedule. 강사가 이용권·블록까지 정해 제안 = 사전 수락이라 곧장 PAYMENT_PENDING(입장료는 그 daypart 로 재산정).
+     * 강사 일정변경요청 중 학생이 슬롯 선택("ㅇㅋ") — 위치 고정, 날짜/이용권/블록을 그 제안 슬롯으로 바꿔 재검증 후
+     * reschedule. <b>선결제라 이미 결제된 회차</b>이고 강사가 이용권·블록까지 정해 제안한 = 강사가 승인한 자리이므로,
+     * 추가 결제도 재수락도 없이 <b>곧장 {@code CONFIRMED}</b>. 입장료는 그 daypart 로 재산정되며, 싸졌으면 차액을
+     * 자동 환불한다(비싼 슬롯은 애초에 제안 단계에서 걸러진다 — {@code InstructorEnrollmentService.proposeSlots}).
      *
      * <p><b>좌석 보장</b>: 좌석은 제안 시점에 그 일정에 hold 로 잡아뒀으므로 pick 은 만석으로 막히지 않는다(하드캡
      * 우회가 아니라 — 미리 잡아둔 자리를 쓰는 것). 고른 슬롯의 hold 를 회수해 실점유로 전환하고, 안 고른 나머지
@@ -158,6 +164,7 @@ public class EnrollmentService {
         // 제안 보장 hold 회수(고른 슬롯 것 포함) — 고른 자리는 곧 실점유로 전환되니 hold 를 풀어 이중계산 방지.
         List<AvailabilitySession> heldSessions = releaseProposalHolds(round);
 
+        int paidTotal = round.chargeTotal(); // 변경 전 = 이미 결제된 금액
         round.archiveCurrentSlot(OffsetDateTime.now(ZoneOffset.UTC)); // 옛 슬롯 이력 (취소 아님)
         round.setAvailabilitySession(newSession);
         round.setDate(date);
@@ -166,8 +173,9 @@ public class EnrollmentService {
         round.setBlockEnd(end);
         round.setEntrySnapshot(block.getFee()); // 그 슬롯 daypart 입장료
         round.getProposedSlots().clear();
-        round.setStatus(EnrollmentStatus.PAYMENT_PENDING); // 강사 사전 수락 → 결제 대기
+        round.setStatus(EnrollmentStatus.CONFIRMED); // 이미 결제 + 강사가 승인한 자리 → 곧장 확정
         round.setRespondedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        settleSlotChange(round, paidTotal, "일정 변경 차액");
         // 옛 슬롯 + 안 고른 제안 슬롯 일정 정리(점유 0이면 삭제). 고른 newSession 은 실점유라 보존.
         if (oldSession != null && !oldSession.getId().equals(newSession.getId())) {
             sessionCleaner.deleteIfEmpty(oldSession);
@@ -198,14 +206,22 @@ public class EnrollmentService {
 
     /**
      * 직접 일정 수정 — 학생이 (제안 외) 원하는 슬롯으로 회차를 바꾼다. 날짜에 따라 위치가 다를 수 있어 위치·이용권·
-     * 장비까지 재선택 가능. <b>취소 아님</b> — 회차 유지, 옛 슬롯은 이력 적재. 강사가 제안 안 한 슬롯이라 → PENDING(재수락).
-     * 결제 전(PENDING)만. {@code roundId} = 회차 id.
+     * 장비까지 재선택 가능. <b>취소 아님</b> — 회차 유지, 옛 슬롯은 이력 적재. {@code roundId} = 회차 id.
+     *
+     * <p>두 경로 모두 허용한다:
+     * <ul>
+     *   <li><b>미결제({@code PENDING})</b> — 아직 아무 일도 안 일어난 신청이라 슬롯만 갈아끼우고 결제 시계 재시작.</li>
+     *   <li><b>결제완료({@code ACCEPT_PENDING})</b> — 강사 제안이 다 안 맞을 때의 <b>학생 재제안</b>. 결제는 유지한 채
+     *       슬롯만 바꾸고 강사 결정 시계(24h)를 재시작한다(강사 hub 에 {@code CHANGING} 으로 뜬다). 강사가 제안 안 한
+     *       슬롯이라 강사 재수락이 필요하다. 금액이 줄면 차액 자동환불, 늘면 400(추가 청구 없이는 못 옮김).</li>
+     * </ul>
      */
     @Transactional
     public EnrollmentResponse reschedule(Account student, Long roundId, RoundScheduleRequest req) {
         EnrollmentRound round = requireMyRound(student, roundId);
-        if (round.getStatus() != EnrollmentStatus.PENDING) {
-            throw new BadRequestException(); // 결제 전(강사 응답 대기) 회차만 직접 수정
+        boolean paid = round.getStatus() == EnrollmentStatus.ACCEPT_PENDING;
+        if (round.getStatus() != EnrollmentStatus.PENDING && !paid) {
+            throw new BadRequestException(); // 확정/취소/거절된 회차는 직접 수정 불가
         }
         Course course = round.getEnrollment() == null ? null : round.getEnrollment().getCourse();
         if (course == null) {
@@ -228,6 +244,7 @@ public class EnrollmentService {
         requireSeat(newSession);
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        int paidTotal = round.chargeTotal(); // 결제완료 경로에서 = 이미 결제된 금액
         round.archiveCurrentSlot(now); // 옛 슬롯 이력 (취소 아님)
         round.setAvailabilitySession(newSession);
         round.setVenueRefId(req.getVenueRefId());
@@ -240,9 +257,16 @@ public class EnrollmentService {
         round.setEquipmentSnapshot(addEquipment(round, req.getEquipmentRefs(), req.getEquipmentSizes(),
                 equipmentItems(instructor, req.getVenueRefId())));
         round.getProposedSlots().clear();
-        round.setStatus(EnrollmentStatus.PENDING); // 제안 외 슬롯 → 강사 재수락
-        round.setCreatedAt(now);     // 새 요청 = PENDING 24h 클럭 재시작
-        round.setRespondedAt(null);  // 아직 강사 응답 전
+        if (paid) {
+            // 학생 재제안 — 결제는 유지, 강사 결정 대기로 되돌리고 24h 시계 재시작. 금액 줄면 차액 환불.
+            round.setStatus(EnrollmentStatus.ACCEPT_PENDING);
+            round.setRespondedAt(now);
+            settleSlotChange(round, paidTotal, "일정 변경 차액");
+        } else {
+            round.setStatus(EnrollmentStatus.PENDING); // 미결제 — 그대로 결제 대기
+            round.setCreatedAt(now);     // 새 요청 = 결제 클럭 재시작
+            round.setRespondedAt(null);  // 아직 강사 응답 전
+        }
         if (oldSession != null && !oldSession.getId().equals(newSession.getId())) {
             sessionCleaner.deleteIfEmpty(oldSession);
         }
@@ -250,18 +274,48 @@ public class EnrollmentService {
     }
 
     /**
-     * 회차 취소 — <b>결제 전(PENDING·PAYMENT_PENDING)만 무료</b>. pay-first 라 강사가 풀을 안 잡았으니 손해 0.
-     * 결제 후(CONFIRMED) 취소는 환불 거래(후속 PR). {@code roundId} = 회차 id.
+     * 결제된 회차의 슬롯이 바뀌었을 때 금액 정산 — 줄었으면 차액 자동환불, 늘었으면 400.
+     *
+     * <p><b>불변식</b>: "그 회차에 남아 있는 결제 순액 == {@code chargeTotal()}" — 줄 때마다 즉시 환불하므로
+     * 변경 <i>전</i> {@code chargeTotal()} 이 곧 결제액이다(payment 도메인 조회 불필요 = 역참조 없음).
+     * 더 비싼 슬롯으로 옮기려면 취소(전액환불) 후 재신청 — 추가 청구 상태를 되살리지 않으려는 의도적 제약.
+     */
+    private void settleSlotChange(EnrollmentRound round, int paidTotal, String reason) {
+        int refundable = paidTotal - round.chargeTotal();
+        if (refundable < 0) {
+            throw new BadRequestException(); // 금액이 늘어남 — 추가 결제 없이는 못 옮김
+        }
+        if (refundable > 0) {
+            events.publishEvent(new EnrollmentPartialRefundRequestedEvent(round.getId(), refundable, reason));
+        }
+    }
+
+    /**
+     * 회차 취소 — <b>강사 확정 전(PENDING·ACCEPT_PENDING)</b> 언제든. 취소된 회차는 자리를 비우므로 학생은 나중에
+     * <b>그 회차를 다른 날짜로 다시 신청</b>할 수 있다({@code RoundGate} 는 활성 회차만 "이미 잡음"으로 본다).
+     *
+     * <ul>
+     *   <li><b>PENDING</b>(미결제) — 낸 돈이 없으니 좌석만 반납.</li>
+     *   <li><b>ACCEPT_PENDING</b>(결제완료·강사 결정 대기) — <b>전액 자동환불</b>. 강사 제안이 다 안 맞을 때의
+     *       "ㄴㄴ" 경로이기도 하다. 환불은 동기라 실패하면 취소까지 롤백된다(돈-상태 원자성).</li>
+     * </ul>
+     *
+     * <p>확정(CONFIRMED) 이후 취소는 수강 단위 환불 거래({@code RefundService.refundEnrollment}) 소관.
+     * {@code roundId} = 회차 id.
      */
     @Transactional
     public EnrollmentResponse cancel(Account student, Long roundId) {
         EnrollmentRound round = requireMyRound(student, roundId);
-        if (round.getStatus() != EnrollmentStatus.PENDING && round.getStatus() != EnrollmentStatus.PAYMENT_PENDING) {
-            throw new BadRequestException(); // 결제 전에만 무료 취소
+        boolean paid = round.getStatus() == EnrollmentStatus.ACCEPT_PENDING;
+        if (round.getStatus() != EnrollmentStatus.PENDING && !paid) {
+            throw new BadRequestException(); // 확정/거절/이미취소된 회차는 이 경로로 취소 불가
         }
         AvailabilitySession session = round.getAvailabilitySession();
         round.setStatus(EnrollmentStatus.CANCELLED);
         round.setRespondedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        if (paid) {
+            events.publishEvent(new EnrollmentRefundRequestedEvent(roundId, "학생 취소"));
+        }
         EnrollmentResponse resp = EnrollmentResponse.of(round, venueName(round.getVenueRefId()), instructorName(round));
         sessionCleaner.deleteIfEmpty(session);
         return resp;
@@ -295,7 +349,8 @@ public class EnrollmentService {
     }
 
     private ScheduleHubResponse.ScheduleCourse buildScheduleCourse(Enrollment e, Map<String, String> venueNames) {
-        List<ScheduleHubResponse.ScheduleRound> rounds = e.getRounds().stream()
+        // 재신청으로 대체된 죽은 회차는 제외 — 안 그러면 옛 REJECTED 때문에 강의가 영원히 RESCHEDULING 으로 굳는다.
+        List<ScheduleHubResponse.ScheduleRound> rounds = RoundHistory.current(e.getRounds()).stream()
                 .sorted(Comparator.comparing(r -> r.getRoundIndex() == null ? Integer.MAX_VALUE : r.getRoundIndex()))
                 .map(r -> ScheduleHubResponse.ScheduleRound.builder()
                         .roundId(r.getId())

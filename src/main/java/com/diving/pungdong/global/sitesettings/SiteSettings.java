@@ -7,7 +7,7 @@ package com.diving.pungdong.global.sitesettings;
  * @param launched           정식 런칭 여부. false 면 전 코스 신청 차단(BE 강제) + FE 런칭대기 배너.
  * @param showSeededCourses  데모(seeded) 코스 공개 노출 여부. false 면 둘러보기에서 제외.
  * @param pendingTtlHours    (선결제) 결제완료·강사 확인 대기(ACCEPT_PENDING) 자동 만료 시간 — 강사 무응답 시 슬롯 해제 + 자동환불. 기본 24h.
- * @param paymentTtlHours    결제 대기 자동 만료 시간 — 미결제(선결제 PENDING·2회차 PAYMENT_PENDING) 시 슬롯 해제(환불 없음). 기본 12h.
+ * @param paymentTtlHours    결제 대기 자동 만료 시간 — 미결제(PENDING) 시 슬롯 해제(환불 없음). 기본 12h.
  * @param proposalTtlHours   강사 일정변경 제안(propose-slots) 좌석 hold 자동 만료 시간 — 학생 미선택 시 보장
  *                           hold 해제(다른 학생을 막는 시간이라 짧게). 결제 TTL 과 분리. 기본 6h.
  */

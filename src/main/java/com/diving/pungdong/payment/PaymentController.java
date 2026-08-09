@@ -35,7 +35,7 @@ public class PaymentController {
 
     private final PaymentService paymentService;
 
-    /** 결제 준비 — 결제 대기 신청(선결제 1회차 PENDING / 2회차 PAYMENT_PENDING)에 대한 주문 생성. 위젯 구동값 반환. */
+    /** 결제 준비 — 미결제 신청(신청 직후 PENDING)에 대한 주문 생성. 위젯 구동값 반환. */
     @PostMapping("/prepare")
     public ResponseEntity<PaymentPrepareResponse> prepare(@CurrentUser Account account,
                                                           @Valid @RequestBody PaymentPrepareRequest request,

@@ -7,10 +7,10 @@ import java.time.LocalDate;
  * 제안 + 세션일을 강사 관점으로 파생(저장 X). 학생 hub 의 {@link RoundScheduleStatus} 거울.
  *
  * <ul>
- *   <li>{@code WAITING} — 결제완료 신규 신청(선결제 1회차 ACCEPT_PENDING) 또는 2회차 강사 수락 대기(PENDING, 제안·변경 없음). 강사가 수락/거절.</li>
- *   <li>{@code CHANGING} — 학생이 직접 일정수정(선결제 1회차 결제완료 ACCEPT_PENDING + 슬롯이력 有, 또는 2회차 PENDING + 슬롯이력 有). 강사가 변경 검토.</li>
- *   <li>{@code PROPOSED} — 강사가 일정변경요청함(2회차 PENDING + 제안 有). 학생 선택 대기(강사 액션 아님).</li>
- *   <li>{@code PAYMENT_DUE} — 학생 결제 대기: 선결제 1회차 미결제(PENDING) 또는 2회차 수락 후(PAYMENT_PENDING). 강사 액션 아님.</li>
+ *   <li>{@code WAITING} — 결제완료 신규 신청(ACCEPT_PENDING, 제안·변경 없음). 강사가 수락/거절/일정조정 제안.</li>
+ *   <li>{@code CHANGING} — 학생이 직접 일정수정(ACCEPT_PENDING + 슬롯이력 有). 강사가 변경 검토.</li>
+ *   <li>{@code PROPOSED} — 강사가 일정변경요청함(ACCEPT_PENDING + 제안 有). 학생 선택 대기(강사 액션 아님).</li>
+ *   <li>{@code PAYMENT_DUE} — 학생 결제 대기(미결제 PENDING). 강사 액션 아님.</li>
  *   <li>{@code CONFIRMED} — 결제·확정, 세션 미도래(진행 예정).</li>
  *   <li>{@code CLOSING} — 확정 + 세션일 지남 + 미완료. 강사가 마무리(done).</li>
  *   <li>{@code DONE} — 수강 완료(CONFIRMED + doneAt).</li>
@@ -23,21 +23,14 @@ public enum InstructorRoundStatus {
     public static InstructorRoundStatus from(EnrollmentRound r, LocalDate today) {
         switch (r.getStatus()) {
             case PENDING:
-                if (r.isFirstMeeting()) {
-                    return PAYMENT_DUE; // 선결제 1회차 미결제 — 학생 결제 대기(강사 액션 아님)
-                }
-                if (r.hasRescheduleOffer()) {
-                    return PROPOSED; // 강사가 제안함 → 학생 차례
-                }
-                if (!r.getSlotHistory().isEmpty()) {
-                    return CHANGING; // 학생이 직접 일정수정 → 강사 검토
-                }
-                return WAITING; // 신규 신청(2회차+ 강사 수락 대기)
+                return PAYMENT_DUE; // 선결제 미결제 — 학생 결제 대기(강사 액션 아님)
             case ACCEPT_PENDING:
-                // 선결제 결제완료 — 강사가 수락/거절(액션 필요). 학생이 결제 전 직접 일정수정했으면 변경검토(CHANGING), 아니면 신규(WAITING).
+                // 선결제 결제완료 — 강사 결정 차례(수락/거절/제안). 단 이미 제안했으면 학생 차례(PROPOSED),
+                // 학생이 일정을 바꿔 되보냈으면 변경검토(CHANGING), 아니면 신규(WAITING).
+                if (r.hasRescheduleOffer()) {
+                    return PROPOSED;
+                }
                 return r.getSlotHistory().isEmpty() ? WAITING : CHANGING;
-            case PAYMENT_PENDING:
-                return PAYMENT_DUE;
             case CONFIRMED:
                 if (r.getDoneAt() != null) {
                     return DONE;

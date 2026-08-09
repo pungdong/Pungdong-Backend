@@ -80,9 +80,13 @@ public class RefundCalculator {
         return new RefundQuote(total, lines);
     }
 
-    /** 부대비용은 결제 완료(CONFIRMED)분만 환불 — 미결제(PENDING/PAYMENT_PENDING)는 낸 게 없음. */
+    /**
+     * 부대비용은 <b>결제된</b> 회차만 환불 — 미결제(PENDING)는 낸 게 없다. 선결제라 결제 시점이 강사 수락보다
+     * 앞이므로 확정 전(ACCEPT_PENDING)도 이미 낸 상태 = 환불 대상이다.
+     */
     private int paidExtras(EnrollmentRound r) {
-        return r.getStatus() == EnrollmentStatus.CONFIRMED ? r.extrasTotal() : 0;
+        return r.getStatus() == EnrollmentStatus.CONFIRMED
+                || r.getStatus() == EnrollmentStatus.ACCEPT_PENDING ? r.extrasTotal() : 0;
     }
 
     /** 그 정규 회차 idx 의 현재 회차(활성 또는 완료). 거절/취소만 있으면(또는 없으면) 미배정. */

@@ -108,8 +108,8 @@ class ScheduleHubUseCaseTest {
         Course b = course(instructor, "PADI 프리다이버 과정");
         Course c = course(instructor, "SSI 베이직 프리다이버");
 
-        // 강의 A: 1회차 결제대기(수강료 90,000 → 1회차에 전액) + 2회차 수락대기 → 강의=결제대기
-        enroll(student, a, 90000, roundOf(1, EnrollmentStatus.PAYMENT_PENDING), roundOf(2, EnrollmentStatus.PENDING));
+        // 강의 A: 1회차 미결제(수강료 90,000 → 1회차에 전액) + 2회차 결제완료·강사 확인 대기 → 강의=결제대기
+        enroll(student, a, 90000, roundOf(1, EnrollmentStatus.PENDING), roundOf(2, EnrollmentStatus.ACCEPT_PENDING));
         // 강의 B: 확정 → 진행중
         enroll(student, b, 350000, roundOf(1, EnrollmentStatus.CONFIRMED));
         // 강의 C: 강사 거절 → 일정 변경
@@ -170,5 +170,35 @@ class ScheduleHubUseCaseTest {
                 .andExpect(jsonPath("$.courses[0].rounds[0].gearItems[0].sizeLabel").value("270"))
                 .andExpect(jsonPath("$.courses[0].rounds[0].gearItems[1].name").value("슈트"))
                 .andExpect(jsonPath("$.courses[0].rounds[0].gearItems[1].sizeLabel").value("L"));
+    }
+
+    @Test
+    @DisplayName("SH4 거절된 회차를 다시 신청하면 옛 거절 행은 hub 에서 빠진다(강의가 영구 RESCHEDULING 으로 굳지 않음)")
+    void reappliedRoundSupersedesRejected() throws Exception {
+        Account ins = account("ins-sh4@pd.com", "강사SH4");
+        Account stu = account("stu-sh4@pd.com", "학생SH4");
+        Course c = course(ins, "AIDA2 과정");
+        // 1회차가 거절된 뒤 같은 회차를 다시 신청해 확정된 상태(같은 자리에 두 행 공존 — DB 유니크 제약 없음)
+        enroll(stu, c, 350000, roundOf(1, EnrollmentStatus.REJECTED), roundOf(1, EnrollmentStatus.CONFIRMED));
+
+        mockMvc.perform(get("/enrollments/mine/schedule").header(HttpHeaders.AUTHORIZATION, token(stu)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.courses[0].rounds.length()").value(1))
+                .andExpect(jsonPath("$.courses[0].rounds[0].status").value("CONFIRMED"))
+                .andExpect(jsonPath("$.courses[0].status").value("PROGRESS")); // RESCHEDULING 아님
+    }
+
+    @Test
+    @DisplayName("SH5 거절 후 아직 재신청 안 했으면 거절 행은 남아 '다시 잡아주세요'(RESCHEDULING)를 띄운다")
+    void rejectedStaysUntilReapplied() throws Exception {
+        Account ins = account("ins-sh5@pd.com", "강사SH5");
+        Account stu = account("stu-sh5@pd.com", "학생SH5");
+        Course c = course(ins, "AIDA2 과정");
+        enroll(stu, c, 350000, roundOf(1, EnrollmentStatus.REJECTED));
+
+        mockMvc.perform(get("/enrollments/mine/schedule").header(HttpHeaders.AUTHORIZATION, token(stu)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.courses[0].rounds.length()").value(1))
+                .andExpect(jsonPath("$.courses[0].status").value("RESCHEDULING"));
     }
 }

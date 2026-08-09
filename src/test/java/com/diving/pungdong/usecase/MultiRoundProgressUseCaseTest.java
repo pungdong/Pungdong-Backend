@@ -78,10 +78,30 @@ class MultiRoundProgressUseCaseTest {
     @Autowired EnrollmentRoundJpaRepo roundRepo;
     @Autowired AvailabilityHoldJpaRepo holdRepo;
     @Autowired EnrollmentExpiryService expiryService;
+    @Autowired com.diving.pungdong.payment.PaymentOrderJpaRepo orderRepo;
+
+    // PG 는 유일한 외부 경계라 mock(결정적). 레지스트리째 mock 하는 이유 = 어댑터 3개가 모두 빈이라
+    // PaymentGateway 타입으로 mock 하면 주입이 모호해진다(PaymentUseCaseTest 와 같은 패턴).
+    @org.springframework.boot.test.mock.mockito.MockBean com.diving.pungdong.payment.PaymentGatewayRegistry gateways;
+    final com.diving.pungdong.payment.PaymentGateway gateway =
+            org.mockito.Mockito.mock(com.diving.pungdong.payment.PaymentGateway.class);
+
+    @org.junit.jupiter.api.BeforeEach
+    void stubGatewayApproved() {
+        org.mockito.BDDMockito.given(gateways.active()).willReturn(gateway);
+        org.mockito.BDDMockito.given(gateways.forOrder(org.mockito.ArgumentMatchers.any())).willReturn(gateway);
+        org.mockito.BDDMockito.given(gateway.provider()).willReturn(com.diving.pungdong.payment.PaymentProvider.STUB);
+        org.mockito.BDDMockito.given(gateway.initParams(org.mockito.ArgumentMatchers.any()))
+                .willReturn(Map.of("customerKey", "cust"));
+        org.mockito.BDDMockito.given(gateway.confirm(org.mockito.ArgumentMatchers.any()))
+                .willReturn(new com.diving.pungdong.payment.PaymentGateway.ConfirmResult(
+                        true, "DONE", "간편결제", OffsetDateTime.now(ZoneOffset.UTC), null, "pk_test_1"));
+    }
 
     @AfterEach
     void clean() {
         holdRepo.deleteAll();
+        orderRepo.deleteAll(); // enrollment_round FK — 회차 삭제 전
         enrollmentRepo.deleteAll();
         sessionRepo.deleteAll();
         coverageRepo.deleteAll();
@@ -290,7 +310,44 @@ class MultiRoundProgressUseCaseTest {
     }
 
     @Test
-    @DisplayName("M3 강사 일정변경요청 → 학생이 제안 날짜 선택하면 사전 수락이라 곧장 PAYMENT_PENDING")
+    @DisplayName("M7 2회차도 신청 즉시 결제 — 결제하면 ACCEPT_PENDING(강사 확인 대기), 강사가 수락하면 CONFIRMED")
+    void secondRoundPrepayThenInstructorAccepts() throws Exception {
+        Account ins = instructor("ins-m7@pd.com", "강사M7", 4);
+        Venue v = venue(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String ticket = v.getTickets().get(0).getRef();
+        Course course = twoRoundCourse(ins, ref, ticket);
+        openCoverage(ins, D1); openCoverage(ins, D2);
+        Account stu = account("stu-m7@pd.com", "학생M7", Role.STUDENT);
+        EnrollmentRound r2 = round2Pending(ins, course, ref, ticket, stu);
+
+        // 권위 금액 = 부대비용만(수강료는 1회차 주문에 전액) = 입장료 15,000
+        String prepared = mockMvc.perform(post("/payments/prepare").header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("enrollmentId", r2.getId()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.amount").value(15000))
+                .andReturn().getResponse().getContentAsString();
+        String orderId = objectMapper.readTree(prepared).path("orderId").asText();
+
+        // 결제 → 1회차와 똑같이 ACCEPT_PENDING(옛 흐름의 "곧장 CONFIRMED" 아님)
+        mockMvc.perform(post("/payments/confirm").header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("pgPayload", Map.of("paymentKey", "pk_test_1"),
+                                "orderId", orderId, "amount", 15000))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enrollmentStatus").value("ACCEPT_PENDING"));
+
+        // 강사 수락 → 확정 (통일 전에는 이 호출이 400 이었다 — 2회차가 PENDING 으로 들어와 accept 게이트에 막혔음)
+        mockMvc.perform(post("/instructor/enrollments/{id}/accept", r2.getId())
+                        .header(HttpHeaders.AUTHORIZATION, token(ins)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CONFIRMED"));
+        assertThat(roundRepo.findById(r2.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.CONFIRMED);
+    }
+
+    @Test
+    @DisplayName("M3 강사 일정변경요청 → 학생이 제안 날짜 선택하면 추가 결제 없이 곧장 CONFIRMED(강사가 승인한 자리)")
     void rescheduleProposeThenPick() throws Exception {
         Account ins = instructor("ins-m3@pd.com", "강사M3", 4);
         Venue v = venue(ins);
@@ -307,9 +364,9 @@ class MultiRoundProgressUseCaseTest {
         mockMvc.perform(post("/enrollments/{id}/rounds", enrollmentId).header(HttpHeaders.AUTHORIZATION, token(stu))
                         .contentType(MediaType.APPLICATION_JSON).content(roundBody(ref, ticket, D2)))
                 .andExpect(status().isCreated());
-        EnrollmentRound r2 = roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).get(0);
+        EnrollmentRound r2 = paid(roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).get(0));
 
-        // 강사 일정변경요청 — D2 대신 d3 슬롯(같은 이용권·블록) 제안
+        // 강사 일정변경요청 — D2 대신 d3 슬롯(같은 이용권·블록) 제안. 결제완료 건이라 강사 차례다.
         Map<String, Object> slot = Map.of("date", d3.toString(), "ticketRef", ticket,
                 "blockStart", START.toString(), "blockEnd", END.toString());
         mockMvc.perform(post("/instructor/enrollments/{id}/propose-slots", r2.getId())
@@ -322,37 +379,83 @@ class MultiRoundProgressUseCaseTest {
                 .andExpect(jsonPath("$.courses[0].rounds[1].status").value("RESCHEDULING"))
                 .andExpect(jsonPath("$.courses[0].rounds[1].proposedSlots[0].date").value(d3.toString()));
 
-        // 학생이 그 슬롯 선택 → 사전 수락 → PAYMENT_PENDING
+        // 학생이 그 슬롯 선택("ㅇㅋ") → 이미 결제 + 강사가 승인한 자리 → 곧장 확정
         mockMvc.perform(post("/enrollments/rounds/{id}/pick-slot", r2.getId())
                         .header(HttpHeaders.AUTHORIZATION, token(stu))
                         .contentType(MediaType.APPLICATION_JSON).content(json(slot)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("PAYMENT_PENDING"))
+                .andExpect(jsonPath("$.status").value("CONFIRMED"))
                 .andExpect(jsonPath("$.date").value(d3.toString()));
-        assertThat(roundRepo.findById(r2.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.PAYMENT_PENDING);
+        assertThat(roundRepo.findById(r2.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.CONFIRMED);
     }
 
     @Test
-    @DisplayName("M4 진행 중 회차(2회차)는 강사가 거절할 수 없다(일정변경요청만) — 400")
-    void rejectBlockedForNonFirstRound() throws Exception {
+    @DisplayName("M4 2회차도 강사가 거절할 수 있고(그 회차만 무효), 학생은 그 회차를 다른 날짜로 다시 신청할 수 있다")
+    void rejectSecondRoundThenReapply() throws Exception {
         Account ins = instructor("ins-m4@pd.com", "강사M4", 4);
         Venue v = venue(ins);
         String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
         String ticket = v.getTickets().get(0).getRef();
         Course course = twoRoundCourse(ins, ref, ticket);
-        openCoverage(ins, D1); openCoverage(ins, D2);
+        LocalDate d3 = LocalDate.now().plusWeeks(3);
+        openCoverage(ins, D1); openCoverage(ins, D2); openCoverage(ins, d3);
         Account stu = account("stu-m4@pd.com", "학생M4", Role.STUDENT);
         Long enrollmentId = enrollWithDoneRound1(stu, course, ref, ticket);
 
         mockMvc.perform(post("/enrollments/{id}/rounds", enrollmentId).header(HttpHeaders.AUTHORIZATION, token(stu))
                         .contentType(MediaType.APPLICATION_JSON).content(roundBody(ref, ticket, D2)))
                 .andExpect(status().isCreated());
-        EnrollmentRound r2 = roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).get(0);
+        EnrollmentRound r2 = paid(roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).get(0));
 
         mockMvc.perform(post("/instructor/enrollments/{id}/reject", r2.getId())
                         .header(HttpHeaders.AUTHORIZATION, token(ins))
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"안돼요\"}"))
-                .andExpect(status().isBadRequest()); // 거절은 1회차만
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"그날은 어려워요\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REJECTED"));
+        assertThat(roundRepo.findById(r2.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.REJECTED);
+
+        // 거절은 그 회차만 무효 — 수강은 살아 있고 2회차 자리가 비었으므로 다른 날짜(d3)로 다시 신청 가능
+        mockMvc.perform(post("/enrollments/{id}/rounds", enrollmentId).header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON).content(roundBody(ref, ticket, d3)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.roundIndex").value(2))
+                .andExpect(jsonPath("$.date").value(d3.toString()));
+    }
+
+    @Test
+    @DisplayName("M4-1 학생이 강사 제안을 다 거절(ㄴㄴ)해 취소해도, 나중에 그 회차를 다시 신청할 수 있다")
+    void cancelAfterProposalThenReapply() throws Exception {
+        Account ins = instructor("ins-m41@pd.com", "강사M41", 4);
+        Venue v = venue(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String ticket = v.getTickets().get(0).getRef();
+        Course course = twoRoundCourse(ins, ref, ticket);
+        LocalDate d3 = LocalDate.now().plusWeeks(3);
+        LocalDate d4 = LocalDate.now().plusWeeks(4);
+        openCoverage(ins, D1); openCoverage(ins, D2); openCoverage(ins, d3); openCoverage(ins, d4);
+        Account stu = account("stu-m41@pd.com", "학생M41", Role.STUDENT);
+        Long enrollmentId = enrollWithDoneRound1(stu, course, ref, ticket);
+
+        mockMvc.perform(post("/enrollments/{id}/rounds", enrollmentId).header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON).content(roundBody(ref, ticket, D2)))
+                .andExpect(status().isCreated());
+        EnrollmentRound r2 = paid(roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).get(0));
+
+        propose(ins, r2.getId(), List.of(slot(d3, ticket))).andExpect(status().isOk());
+
+        // 제안이 다 안 맞음 → 취소(ㄴㄴ). 결제분은 자동환불(주문 없으면 no-op) + 좌석 반납
+        mockMvc.perform(post("/enrollments/{id}/cancel", r2.getId())
+                        .header(HttpHeaders.AUTHORIZATION, token(stu)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        // 나중에 고민해보고 다시 신청 — 그 회차 자리가 비었으므로 열려 있다
+        mockMvc.perform(post("/enrollments/{id}/rounds", enrollmentId).header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON).content(roundBody(ref, ticket, d4)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.roundIndex").value(2));
     }
 
     @Test
@@ -434,9 +537,46 @@ class MultiRoundProgressUseCaseTest {
         assertThat(after.getDate()).isEqualTo(d3);
     }
 
+    @Test
+    @DisplayName("M6-1 결제 후 학생 재제안 — 강사 제안이 다 안 맞으면 내 슬롯으로 되보낸다(결제 유지·강사에게 변경검토 CHANGING)")
+    void studentCounterProposesAfterPayment() throws Exception {
+        Account ins = instructor("ins-m61@pd.com", "강사M61", 4);
+        Venue v = venue(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String ticket = v.getTickets().get(0).getRef();
+        Course course = twoRoundCourse(ins, ref, ticket);
+        LocalDate d3 = LocalDate.now().plusWeeks(3);
+        LocalDate d4 = LocalDate.now().plusWeeks(4);
+        openCoverage(ins, D1); openCoverage(ins, D2); openCoverage(ins, d3); openCoverage(ins, d4);
+        Account stu = account("stu-m61@pd.com", "학생M61", Role.STUDENT);
+        EnrollmentRound r2 = round2Paid(ins, course, ref, ticket, stu);
+
+        propose(ins, r2.getId(), List.of(slot(d3, ticket))).andExpect(status().isOk());
+
+        // 제안(d3)이 안 맞아 학생이 d4 로 되보냄 — 결제는 유지되고 강사 결정 대기로 돌아간다
+        mockMvc.perform(post("/enrollments/rounds/{id}/reschedule", r2.getId())
+                        .header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON).content(roundBody(ref, ticket, d4)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ACCEPT_PENDING"))
+                .andExpect(jsonPath("$.date").value(d4.toString()));
+
+        // 강사 hub 에는 "변경 검토(CHANGING)" 로 뜬다(= 강사 액션 필요)
+        mockMvc.perform(get("/instructor/enrollments/hub").header(HttpHeaders.AUTHORIZATION, token(ins)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enrollments[0].flag").value("CHANGE_REQUEST"))
+                .andExpect(jsonPath("$.enrollments[0].rounds[1].status").value("CHANGING"));
+    }
+
     /* ─── PH* 강사 제안 보장 hold (hold-and-guarantee) ─── */
 
-    /** 2회차 PENDING 회차를 만들어 반환(D2 슬롯). */
+    /** 2회차를 만들어 <b>결제완료(ACCEPT_PENDING)</b> 로 올려 반환(D2 슬롯) — 강사 결정(수락/거절/제안)이 열리는 상태. */
+    private EnrollmentRound round2Paid(Account ins, Course course, String ref, String ticket, Account stu)
+            throws Exception {
+        return paid(round2Pending(ins, course, ref, ticket, stu));
+    }
+
+    /** 2회차 PENDING(미결제) 회차를 만들어 반환(D2 슬롯). */
     private EnrollmentRound round2Pending(Account ins, Course course, String ref, String ticket, Account stu)
             throws Exception {
         Long enrollmentId = enrollWithDoneRound1(stu, course, ref, ticket);
@@ -444,6 +584,16 @@ class MultiRoundProgressUseCaseTest {
                         .contentType(MediaType.APPLICATION_JSON).content(roundBody(ref, ticket, D2)))
                 .andExpect(status().isCreated());
         return roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).get(0);
+    }
+
+    /**
+     * 회차를 결제완료(ACCEPT_PENDING)로 올린다 — 결제 자체의 검증은 {@code PaymentUseCaseTest} 소관이라 여기선
+     * 진행 mechanics 만 보려고 상태를 직접 세팅한다. respondedAt = 강사 24h 응답시계 시작(결제시각).
+     */
+    private EnrollmentRound paid(EnrollmentRound r) {
+        r.setStatus(EnrollmentStatus.ACCEPT_PENDING);
+        r.setRespondedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        return roundRepo.save(r);
     }
 
     private ResultActions applyRound1(Account stu, Course course, String ref, String ticket, LocalDate date)
@@ -477,7 +627,7 @@ class MultiRoundProgressUseCaseTest {
         LocalDate d3 = LocalDate.now().plusWeeks(3);
         openCoverage(ins, D1); openCoverage(ins, D2); openCoverage(ins, d3);
         Account stu = account("stu-ph1@pd.com", "학생PH1", Role.STUDENT);
-        EnrollmentRound r2 = round2Pending(ins, course, ref, ticket, stu);
+        EnrollmentRound r2 = round2Paid(ins, course, ref, ticket, stu);
 
         propose(ins, r2.getId(), List.of(slot(d3, ticket))).andExpect(status().isOk());
         assertThat(holdRepo.findByProposalRoundId(r2.getId())).hasSize(1); // 보장 hold 1개
@@ -488,7 +638,7 @@ class MultiRoundProgressUseCaseTest {
     }
 
     @Test
-    @DisplayName("PH2 학생이 제안 슬롯을 고르면 보장대로 성공(PAYMENT_PENDING), 안 고른 제안 슬롯 hold 는 풀려 다른 학생이 신청 가능")
+    @DisplayName("PH2 학생이 제안 슬롯을 고르면 보장대로 성공(CONFIRMED), 안 고른 제안 슬롯 hold 는 풀려 다른 학생이 신청 가능")
     void pickGuaranteedAndReleasesOtherHolds() throws Exception {
         Account ins = instructor("ins-ph2@pd.com", "강사PH2", 1);
         Venue v = venue(ins);
@@ -499,7 +649,7 @@ class MultiRoundProgressUseCaseTest {
         LocalDate d4 = LocalDate.now().plusWeeks(4);
         openCoverage(ins, D1); openCoverage(ins, D2); openCoverage(ins, d3); openCoverage(ins, d4);
         Account stu = account("stu-ph2@pd.com", "학생PH2", Role.STUDENT);
-        EnrollmentRound r2 = round2Pending(ins, course, ref, ticket, stu);
+        EnrollmentRound r2 = round2Paid(ins, course, ref, ticket, stu);
 
         propose(ins, r2.getId(), List.of(slot(d3, ticket), slot(d4, ticket))).andExpect(status().isOk());
         assertThat(holdRepo.findByProposalRoundId(r2.getId())).hasSize(2);
@@ -509,7 +659,7 @@ class MultiRoundProgressUseCaseTest {
                         .header(HttpHeaders.AUTHORIZATION, token(stu))
                         .contentType(MediaType.APPLICATION_JSON).content(json(slot(d3, ticket))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("PAYMENT_PENDING"))
+                .andExpect(jsonPath("$.status").value("CONFIRMED"))
                 .andExpect(jsonPath("$.date").value(d3.toString()));
         assertThat(holdRepo.findByProposalRoundId(r2.getId())).isEmpty(); // 모든 제안 hold 회수됨
 
@@ -528,7 +678,7 @@ class MultiRoundProgressUseCaseTest {
         Course course = twoRoundCourse(ins, ref, ticket);
         openCoverage(ins, D1); openCoverage(ins, D2);
         Account stu = account("stu-ph3@pd.com", "학생PH3", Role.STUDENT);
-        EnrollmentRound r2 = round2Pending(ins, course, ref, ticket, stu);
+        EnrollmentRound r2 = round2Paid(ins, course, ref, ticket, stu);
 
         List<Map<String, Object>> four = List.of(
                 slot(LocalDate.now().plusWeeks(3), ticket), slot(LocalDate.now().plusWeeks(4), ticket),
@@ -546,7 +696,7 @@ class MultiRoundProgressUseCaseTest {
         Course course = twoRoundCourse(ins, ref, ticket);
         openCoverage(ins, D1); openCoverage(ins, D2);
         Account stu = account("stu-ph4@pd.com", "학생PH4", Role.STUDENT);
-        EnrollmentRound r2 = round2Pending(ins, course, ref, ticket, stu);
+        EnrollmentRound r2 = round2Paid(ins, course, ref, ticket, stu);
 
         mockMvc.perform(get("/instructor/enrollments/{id}/propose-options", r2.getId())
                         .header(HttpHeaders.AUTHORIZATION, token(ins)))
@@ -563,7 +713,7 @@ class MultiRoundProgressUseCaseTest {
     }
 
     @Test
-    @DisplayName("PH5 제안 만료(proposalTtl 경과) — 보장 hold 가 풀리고 제안이 사라지며 회차는 PENDING 유지, 다른 학생 신청 가능")
+    @DisplayName("PH5 제안 만료(proposalTtl 경과) — 보장 hold 가 풀리고 제안이 사라지며 회차는 유지(강사 차례로 복귀), 다른 학생 신청 가능")
     void proposalExpirySweepReleasesHold() throws Exception {
         Account ins = instructor("ins-ph5@pd.com", "강사PH5", 1);
         Venue v = venue(ins);
@@ -573,7 +723,7 @@ class MultiRoundProgressUseCaseTest {
         LocalDate d3 = LocalDate.now().plusWeeks(3);
         openCoverage(ins, D1); openCoverage(ins, D2); openCoverage(ins, d3);
         Account stu = account("stu-ph5@pd.com", "학생PH5", Role.STUDENT);
-        EnrollmentRound r2 = round2Pending(ins, course, ref, ticket, stu);
+        EnrollmentRound r2 = round2Paid(ins, course, ref, ticket, stu);
 
         propose(ins, r2.getId(), List.of(slot(d3, ticket))).andExpect(status().isOk());
         assertThat(holdRepo.findByProposalRoundId(r2.getId())).hasSize(1);
@@ -583,9 +733,9 @@ class MultiRoundProgressUseCaseTest {
         assertThat(lapsed).isEqualTo(1);
         assertThat(holdRepo.findByProposalRoundId(r2.getId())).isEmpty(); // 보장 hold 해제
         assertThat(roundRepo.findById(r2.getId()).orElseThrow().getStatus())
-                .isEqualTo(EnrollmentStatus.PENDING); // 회차는 유지(취소 아님)
+                .isEqualTo(EnrollmentStatus.ACCEPT_PENDING); // 회차는 유지(취소 아님) — 강사가 다시 결정
 
-        // 제안만 lapse — hub 에서 RESCHEDULING 이 아니라 WAITING(제안 없는 PENDING)으로 보인다(proposedSlots 비움 확인)
+        // 제안만 lapse — hub 에서 RESCHEDULING 이 아니라 WAITING(제안 없는 강사 확인 중)으로 보인다(proposedSlots 비움 확인)
         mockMvc.perform(get("/enrollments/mine/schedule").header(HttpHeaders.AUTHORIZATION, token(stu)))
                 .andExpect(jsonPath("$.courses[0].rounds[1].status").value("WAITING"));
 
@@ -604,7 +754,7 @@ class MultiRoundProgressUseCaseTest {
         Course course = twoRoundCourse(ins, ref, ticket);
         openCoverage(ins, D1); openCoverage(ins, D2);
         Account stu = account("stu-ph6@pd.com", "학생PH6", Role.STUDENT);
-        EnrollmentRound r2 = round2Pending(ins, course, ref, ticket, stu);
+        EnrollmentRound r2 = round2Paid(ins, course, ref, ticket, stu);
 
         mockMvc.perform(get("/instructor/enrollments/{id}/propose-options", r2.getId())
                         .header(HttpHeaders.AUTHORIZATION, token(ins)))
@@ -646,7 +796,7 @@ class MultiRoundProgressUseCaseTest {
         Course course = dupVenueCourse(ins, ref, ticket); // 회차마다 같은 후보 2번
         openCoverage(ins, D1); openCoverage(ins, D2);
         Account stu = account("stu-ph8@pd.com", "학생PH8", Role.STUDENT);
-        EnrollmentRound r2 = round2Pending(ins, course, ref, ticket, stu);
+        EnrollmentRound r2 = round2Paid(ins, course, ref, ticket, stu);
 
         // 후보가 2배여도 (D1,D2)×1블록×1이용권 = 2슬롯 (중복 제거)
         mockMvc.perform(get("/instructor/enrollments/{id}/propose-options", r2.getId())

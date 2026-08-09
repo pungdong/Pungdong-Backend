@@ -146,4 +146,36 @@ public class RefundService {
                 .status(RefundStatus.DONE).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
         log.info("[payment] 회차 환불 완료 round={} 취소액={}", roundId, remaining);
     }
+
+    /**
+     * 단일 회차 <b>부분</b> 환불 — 선결제 회차의 슬롯이 더 싼 슬롯으로 바뀌었을 때의 차액 반환
+     * ({@code EnrollmentPartialRefundListener} 가 이벤트로 호출). 학생 게이트 없음(시스템 트리거).
+     *
+     * <p>{@link #refundRoundFully} 와 같은 동기·원자성 계약. 취소가능잔액을 넘지 않게 clamp 하며,
+     * 미결제/잔액 0 이면 no-op(멱등).
+     */
+    @Transactional
+    public void refundRoundPartially(Long roundId, int amount, String reason) {
+        if (amount <= 0) {
+            return;
+        }
+        PaymentOrder order = paidOrder(roundId).orElse(null);
+        if (order == null || order.getPaymentKey() == null) {
+            return; // 결제 없음 = 환불할 것 없음
+        }
+        int alreadyRefunded = refundRepo.findByPaymentOrderIdAndStatus(order.getId(), RefundStatus.DONE)
+                .stream().mapToInt(RefundOrder::getAmount).sum();
+        int remaining = order.getAmount() - alreadyRefunded;
+        int cancelAmount = Math.min(amount, remaining);
+        if (cancelAmount <= 0) {
+            return; // 이미 전액 환불됨
+        }
+        log.info("[payment] 회차 차액 환불 요청 round={} order={} provider={} 취소액={} 잔액={} tid={} 사유={}",
+                roundId, order.getOrderId(), order.getProvider(), cancelAmount, remaining, order.getPaymentKey(), reason);
+        gateways.forOrder(order.getProvider()).cancel(order.getPaymentKey(), cancelAmount, remaining, reason);
+        refundRepo.save(RefundOrder.builder()
+                .paymentOrder(order).amount(cancelAmount).reason(reason)
+                .status(RefundStatus.DONE).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
+        log.info("[payment] 회차 차액 환불 완료 round={} 취소액={}", roundId, cancelAmount);
+    }
 }

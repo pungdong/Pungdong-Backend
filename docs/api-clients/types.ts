@@ -1260,16 +1260,18 @@ export interface AvailabilityCalendarResponse {
 // venue 부가 coverage 에 통째로 ⊆ 일 때만 옵션이 됨(부분겹침 불가). 강사 기존 일정과 시간 겹치는 부는 제외
 // (이중부킹 방지 — submit 도 -1015 로 재검증). 첫 신청이 그 (위치,블록) session 생성, 같은 (위치,블록) 신청은
 // join. 슬롯 식별자 = (date, venueRefId, blockStart, blockEnd) — windowId 없음.
-// 흐름(선결제 — 1회차): 신청(PENDING, 좌석 점유·결제 대기) → **즉시 결제**(POST /payments/prepare·confirm)
-//   → ACCEPT_PENDING(결제완료·강사 확인 대기) → 강사 수락(CONFIRMED) / 강사 거절·무응답 만료(REJECTED·CANCELLED + 자동환불).
-// 즉, 신청과 동시에 결제하고, 강사는 그 뒤 수락/거절만 한다(표준 이커머스 "주문→결제"). 결제는 payment 섹션 참고.
-// 2회차+ 는 아직 사전수락 후 결제(PAYMENT_PENDING) 경로 — pick-slot / POST /rounds 참고.
+// 흐름(선결제 — **전 회차 동일**, 2026-08-09 통일): 신청(PENDING, 좌석 점유·결제 대기)
+//   → **즉시 결제**(POST /payments/prepare·confirm) → ACCEPT_PENDING(결제완료·강사 결정 대기)
+//   → 강사 수락(CONFIRMED) / 거절·무응답 만료(REJECTED·CANCELLED + 전액 자동환불).
+// 즉, 신청과 동시에 결제하고 강사는 그 뒤에 결정한다(표준 이커머스 "주문→결제"). 2회차+ 도 같다.
+// 강사의 세 번째 선택지 = **일정조정 제안**(propose-slots) → 학생은 결제가 아니라 ㅇㅋ(pick-slot → 곧장 CONFIRMED)
+//   / ㄴㄴ(cancel → 전액환불, 또는 reschedule 로 내 슬롯 재제안)만 한다. 결제는 payment 섹션 참고.
+// 거절·취소된 회차는 그 회차만 무효 → **같은 회차를 다른 날짜로 다시 신청**할 수 있다(POST /rounds 재호출).
 
-// PENDING          = 신청 직후·미결제(좌석 점유). 여기서 바로 결제창을 띄운다.
-// ACCEPT_PENDING   = 결제완료·강사 확인 대기(좌석 점유). 강사가 수락/거절한다. ← 선결제 신규 상태
-// PAYMENT_PENDING  = (2회차+) 강사 사전수락 후 결제 대기(좌석 점유).
+// PENDING          = 신청 직후·미결제(좌석 점유). 여기서 바로 결제창을 띄운다. 12h 미결제 시 자동 만료.
+// ACCEPT_PENDING   = 결제완료·강사 결정 대기(좌석 점유). 강사가 수락/거절/일정조정 제안. 24h 무응답 시 자동환불.
 // CONFIRMED        = 확정. REJECTED/CANCELLED = 거절·취소(결제분은 자동환불).
-export type EnrollmentStatus = 'PENDING' | 'ACCEPT_PENDING' | 'PAYMENT_PENDING' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED';
+export type EnrollmentStatus = 'PENDING' | 'ACCEPT_PENDING' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED';
 
 /**
  * 신청 옵션 — GET /enrollments/options?courseId= (authenticated). 교집합 평탄 슬롯 + 위치별 장비.
@@ -1383,25 +1385,32 @@ export interface SlotProposal {
 
 /**
  * 강사 일정변경요청 — POST /instructor/enrollments/{roundId}/propose-slots. 완전한 대안 슬롯 제안(**최대 3개**).
- * 서버가 bookable + **좌석 여유**인 것만 채택하고, 채택된 슬롯마다 그 일정에 **좌석 보장 hold**(proposalTtl, 기본 6h)를 잡아
- * 학생 pick 이 만석으로 막히지 않게 한다(그 동안 다른 학생 신청은 막힘). 4개 이상이거나 전부 불가/만석이면 400.
+ * **결제완료(ACCEPT_PENDING) 회차에만** — 수락/거절과 나란한 강사의 세 번째 선택지다.
+ * 서버가 bookable + **좌석 여유** + **입장료가 결제액 이하**인 것만 채택하고, 채택된 슬롯마다 그 일정에
+ * **좌석 보장 hold**(proposalTtl, 기본 6h)를 잡아 학생 pick 이 만석으로 막히지 않게 한다(그 동안 다른 학생 신청은 막힘).
+ * 4개 이상이거나 전부 불가/만석/더 비싸면 400. (더 비싼 슬롯을 빼는 이유 = 학생에게 추가 청구가 생기면 안 되므로.)
  */
 export interface ProposeSlotsRequest {
   slots: SlotProposal[]; // 최대 3
 }
 
 /**
- * 제안 슬롯 선택 — POST /enrollments/rounds/{roundId}/pick-slot → 200. 사전 수락이라 곧장 PAYMENT_PENDING.
+ * 제안 슬롯 선택("ㅇㅋ") — POST /enrollments/rounds/{roundId}/pick-slot → 200.
+ * 이미 결제된 회차 + 강사가 승인한 자리라 **추가 결제도 재수락도 없이 곧장 CONFIRMED**(입장료가 싸졌으면 차액 자동환불).
  * 좌석은 제안 시점 hold 로 보장돼 있어 만석으로 막히지 않는다(제안이 TTL 만료로 사라졌으면 400 — status 가 WAITING 으로 돌아감).
+ * 제안이 다 안 맞으면("ㄴㄴ") cancel(전액환불) 또는 reschedule(내 슬롯으로 재제안).
  */
 export type PickSlotRequest = SlotProposal; // proposedSlots 중 하나
 
 /**
  * 직접 일정 수정 (제안 외 원하는 슬롯) — POST /enrollments/rounds/{roundId}/reschedule (body = RoundScheduleRequest) → 200.
  * 회차를 **제자리 변경**(취소 아님 — 회차 id 유지, 옛 슬롯은 slotHistory 적재). 날짜에 따라 위치가 다를 수 있어 위치/장비
- * 재선택 가능. 강사가 제안 안 한 슬롯이라 → status **PENDING**(강사 재수락). 결제 전(PENDING) 회차만.
+ * 재선택 가능. 두 경로:
+ *  - 미결제(PENDING) → status 그대로 **PENDING**(결제 시계 재시작).
+ *  - 결제완료(ACCEPT_PENDING) → **결제를 유지한 채 학생 재제안**. status 그대로 **ACCEPT_PENDING**(강사 24h 시계 재시작,
+ *    강사 hub 엔 CHANGING). 금액이 줄면 차액 자동환불, **늘면 400**(더 비싼 슬롯은 취소 후 재신청).
+ * 확정(CONFIRMED)·거절·취소된 회차는 400.
  * 슬롯 후보는 GET /enrollments/rounds/{roundId}/options (1회차 옵션과 동일 EnrollmentOptionsResponse — 슬롯 UI 재사용).
- * (제안 슬롯을 그대로 고르는 빠른 길은 pick-slot → 즉시 PAYMENT_PENDING.)
  */
 
 export interface EnrollmentEquipmentLine {
@@ -1456,9 +1465,9 @@ export interface EnrollmentResponse extends HalLinks {
 
 /** 회차(=EnrollmentRound 1건) 진행상태. BE EnrollmentStatus + 일정변경 제안 파생. */
 export type RoundScheduleStatus =
-  | 'WAITING'       // ACCEPT_PENDING(결제완료·강사 확인 중) 또는 2회차 PENDING — 강사 확인 중
-  | 'RESCHEDULING'  // 강사 일정변경 제안 — 학생이 proposedSlots 중 골라 pick-slot
-  | 'PAYMENT_DUE'   // 결제 필요 — 선결제 1회차 미결제(PENDING) 또는 2회차 수락 후(PAYMENT_PENDING)
+  | 'WAITING'       // ACCEPT_PENDING(결제완료·강사 결정 대기) — 강사 확인 중
+  | 'RESCHEDULING'  // 강사 일정변경 제안 — 학생이 proposedSlots 중 골라 pick-slot(ㅇㅋ) 또는 cancel/reschedule(ㄴㄴ)
+  | 'PAYMENT_DUE'   // 결제 필요 — 미결제(PENDING). 전 회차 동일
   | 'CONFIRMED'     // 확정·미완료(진행 대기)
   | 'DONE'          // 회차 수강 완료(강사 complete 또는 세션일 +24h 자동)
   | 'REJECTED'
@@ -1559,10 +1568,10 @@ export type InstructorEnrollmentStatus = 'ACTION_NEEDED' | 'PROGRESS' | 'COMPLET
 export type InstructorActionFlag = 'NEW_REQUEST' | 'CHANGE_REQUEST' | 'CLOSING';
 /** 회차 상태(강사 시점). */
 export type InstructorRoundStatus =
-  | 'WAITING'      // 결제완료 신규 신청(선결제 1회차) 또는 2회차 강사 수락 대기 — 수락/거절/일정변경요청
-  | 'CHANGING'     // 학생이 직접 일정수정 — 검토(previousSlot 노출)
+  | 'WAITING'      // 결제완료 신규 신청(ACCEPT_PENDING) — 수락/거절/일정조정 제안. 전 회차 동일
+  | 'CHANGING'     // 학생이 직접 일정수정(결제 유지한 재제안) — 검토(previousSlot 노출)
   | 'PROPOSED'     // 강사가 일정변경요청함 — 학생 선택 대기(강사 액션 아님)
-  | 'PAYMENT_DUE'  // 학생 결제 대기 — 선결제 1회차 미결제 또는 2회차 수락 후
+  | 'PAYMENT_DUE'  // 학생 결제 대기 — 미결제(PENDING). 전 회차 동일
   | 'CONFIRMED'    // 확정·진행 예정
   | 'CLOSING'      // 세션 종료 — 마무리(done) 필요
   | 'DONE' | 'REJECTED' | 'CANCELLED';
@@ -1618,10 +1627,11 @@ export interface InstructorRoundCard {
 //    KCP "중개 미지원" 거절 → KG이니시스로 전환). prepare 응답의 clientKey/customerKey → provider + params(맵),
 //    confirm 의 paymentKey → pgPayload(맵). 토스·이니시스는 공존(BE 가 PAYMENT_MODE 로 스왑, FE 는 provider 로만 분기).
 //
-// 흐름(선결제 — 1회차): 신청 직후(enrollment = PENDING) 곧바로 POST /payments/prepare(주문 생성 + 결제창 구동값)
+// 흐름(선결제 — **전 회차 동일**): 신청 직후(enrollment = PENDING) 곧바로 POST /payments/prepare(주문 생성 + 결제창 구동값)
 //   → FE 가 provider 로 분기해 결제창 구동 → (TOSS/STUB) FE 가 confirm / (INICIS) 결제창이 BE 콜백으로 POST → BE 승인
-//   → enrollment **ACCEPT_PENDING**(결제완료·강사 확인 대기). 이후 강사 수락 시 CONFIRMED / 거절·무응답 만료 시 자동환불.
-//   ※ 2회차+ 는 강사 사전수락(PAYMENT_PENDING) 후 결제 → CONFIRMED 경로 유지(pick-slot / POST /rounds).
+//   → enrollment **ACCEPT_PENDING**(결제완료·강사 결정 대기). 이후 강사 수락 시 CONFIRMED / 거절·무응답 만료 시 자동환불.
+//   ※ 2회차+ 도 같다(2026-08-09 통일). 금액만 다르다 — 수강료는 1회차 주문에 전액, 2회차+ 는 부대비용만.
+//   ※ pick-slot(강사 제안 수락)은 이미 결제된 회차의 일정 변경이라 **결제 없이** CONFIRMED 로 간다.
 //
 // ★ amount·orderId 는 서버가 정한 값(권위) — FE 는 prepare 응답값을 그대로 결제창/confirm 에 넘긴다.
 //   임의 변경 시 승인 거절(서버가 저장한 금액으로 PG 에 승인 요청하므로 결제창 금액과 다르면 PG 가 거절).
@@ -1636,8 +1646,8 @@ export type PaymentStatus = 'READY' | 'DONE' | 'CANCELED' | 'FAILED';
  */
 export type PaymentProvider = 'STUB' | 'TOSS' | 'INICIS';
 
-/** 결제 준비 — POST /payments/prepare (authenticated). 결제 대기 회차에 대해 주문 생성.
- *  (1회차 선결제 = 신청 직후 PENDING / 2회차+ = 강사 사전수락 후 PAYMENT_PENDING). 그 외 상태면 400. */
+/** 결제 준비 — POST /payments/prepare (authenticated). 미결제 회차(신청 직후 PENDING)에 대해 주문 생성.
+ *  전 회차 동일. 그 외 상태면 400(이미 결제/확정/취소/만료). */
 export interface PaymentPrepareRequest {
   /**
    * ★ 회차(EnrollmentRound) id. 결제 단위는 회차다.
@@ -1712,7 +1722,7 @@ export interface PaymentConfirmResponse {
   amount: number;
   approvedAt: string | null;      // ISO-8601 offset
   enrollmentId: number | null;        // ★ 회차 id (다회차) — 응답 필드명은 호환 유지
-  enrollmentStatus: EnrollmentStatus; // 회차 상태 — 결제 성공 후 1회차 선결제 = 'ACCEPT_PENDING'(강사 확인 대기), 2회차+ = 'CONFIRMED'
+  enrollmentStatus: EnrollmentStatus; // 회차 상태 — 결제 성공 후 항상 'ACCEPT_PENDING'(강사 결정 대기). ★ 2회차+ 도 동일(옛 'CONFIRMED' 아님)
 }
 
 /**

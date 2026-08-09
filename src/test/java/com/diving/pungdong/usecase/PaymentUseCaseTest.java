@@ -64,9 +64,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *
  * <p><b>읽는 법</b>: {@code @DisplayName} 위→아래 = 사양. P* 결제 준비·승인 / 보안·멱등.
  *
- * <p>흐름: 학생 신청(PENDING) → 강사 수락(PAYMENT_PENDING) → {@code /payments/prepare}(서버 권위 금액·주문 생성
- * + provider/params 반환) → 결제창 → {@code /payments/confirm}(금액 대조 후 PG 승인 → CONFIRMED). 권위 금액 = 코스 라이브 수강료
- * + 입장료 스냅샷 + 장비 스냅샷. 여기선 350,000 + 15,000 + 0 = 365,000(결정적). ⚠️ raw JWT.
+ * <p>흐름(<b>선결제 · 전 회차 동일</b>): 학생 신청(PENDING·미결제) → {@code /payments/prepare}(서버 권위 금액·주문 생성
+ * + provider/params 반환) → 결제창 → {@code /payments/confirm}(금액 대조 후 PG 승인 → <b>ACCEPT_PENDING</b>·강사 결정 대기).
+ * 권위 금액 = 그 회차 수강료(1회차만) + 입장료 스냅샷 + 장비 스냅샷. 여기선 350,000 + 15,000 + 0 = 365,000(결정적).
+ * 2회차 결제 왕복(부대비용만)은 {@code MultiRoundProgressUseCaseTest} M7. ⚠️ raw JWT.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
