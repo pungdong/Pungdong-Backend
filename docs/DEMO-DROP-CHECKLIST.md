@@ -4,12 +4,15 @@
 > 심사·데모가 끝나면 아래대로 정리한다. **이 브랜치는 master 에 머지하지 않는다** — 데모 런타임(`com.diving.pungdong.demo`)은
 > master 에 없어야 한다. (영구 런칭 인프라 #77 = `seeded` 컬럼·`siteSettings.showSeededCourses` 토글은 이미 master 에 있고 유지.)
 
-## ① 반드시 제거 — throwaway 런타임
+## ① 반드시 제거 — throwaway 런타임 ✅ 제거됨 (선결제 전환으로 원천 불필요)
 
-| 대상 | 무엇 | 제거 방법 |
+> **선결제 전환(2026-08-09)으로 자동수락 자체가 무의미** — 결제가 강사 수락 *앞*으로 와서, 심사자가 자동수락 없이도 신청→즉시 결제까지 도달한다.
+
+| 대상 | 무엇 | 상태 |
 |---|---|---|
-| `src/main/java/com/diving/pungdong/demo/DemoAutoAcceptScheduler.java` | 신청을 ~2초 뒤 자동수락 (강사 수동수락 대체). **실 UX 아님** — PG 심사 때 결제 플로우만 보이려는 임시 | 파일 삭제 |
-| `pungdong.demo.auto-accept` (application.yml) + `DEMO_AUTO_ACCEPT` (.env.example/.env.local/배포 env) | 위 스케줄러 토글 | 라인 제거 |
+| `src/main/java/com/diving/pungdong/demo/DemoAutoAcceptScheduler.java` | 신청을 ~3초 뒤 자동수락 (강사 수동수락 대체) | ✅ **파일 삭제 완료** |
+| `pungdong.demo.auto-accept` (application.yml) + `DEMO_AUTO_ACCEPT` (.env.example) | 위 스케줄러 토글 | ✅ **라인 제거 완료** |
+| `DEMO_AUTO_ACCEPT="true"` (`infra/envs/{staging,production}/main.tf` 배포 env) | 배포 task def env | ⏳ **남음(의도)** — 코드에서 빈이 사라져 이제 orphan. staging 은 이 배포로 자동 무효화. **prod 는 아직 구 흐름으로 심사 중이라 실행 이미지가 이 env 를 읽어 자동수락 유지가 필요** → prod terraform env 제거는 **selprepay prod 배포와 함께**(심사 후). |
 
 ## ② 선택 제거 — 게이트 off 면 무해 (데모 지원)
 
@@ -21,7 +24,7 @@
 
 ## ③ 플래그/토글 상태
 
-- 배포(스테이징) env: 심사 중에만 `DEMO_AUTO_ACCEPT=true`, `DEMO_SEED_AVAILABILITY=true`. 심사 후 둘 다 끄기/제거.
+- 배포 env: `DEMO_SEED_AVAILABILITY=true`(시드 강의 가용시간 개방, 유지). `DEMO_AUTO_ACCEPT` 은 코드에서 제거됨 — terraform env 는 prod selprepay 배포 때 함께 정리(①표 참조).
 - Sanity `siteSettings.showSeededCourses`: **런칭 시 `false`** → 데모(seeded) 코스가 둘러보기/상세에서 숨겨짐(데이터는 보존, #77 동작). 데모 기간엔 `true`.
 
 ## ④ 데모 데이터 (DB / Sanity)
