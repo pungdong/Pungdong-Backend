@@ -25,8 +25,8 @@ import java.util.Map;
  * 텍스트까지 공들여 만든 데모 상품(브라우즈에 노출, Sanity {@code showSeededCourses} 토글로 표시 제어)인데
  * 강사 가용시간이 없으면 신청 옵션(교집합 슬롯)이 안 생긴다 — 그 빈칸을 채운다.
  *
- * <p><b>유지 성격</b>(자동수락 {@link DemoAutoAcceptScheduler} 과 분리). coverage 는 한 번 쓰면 DB 에 남으므로
- * 토글을 한 번 켜 부팅하면 끝. 멱등 — 이미 coverage 가 있는 날은 안 건드린다(강사 본인이 연 일정 보호).
+ * <p><b>유지 성격</b> — coverage 는 한 번 쓰면 DB 에 남으므로 토글을 한 번 켜 부팅하면 끝. 멱등 — 이미
+ * coverage 가 있는 날은 안 건드린다(강사 본인이 연 일정 보호). (심사용 자동수락 스케줄러는 선결제 전환으로 제거됐다.)
  *
  * <p><b>범위 = {@code course.seeded == true} 강사만</b> — 테스트로 만든 비-시드 강의(강사1 등)는 제외.
  * 시드 강사는 이미 강사 등록(InstructorApplication)·종목을 가지므로 가용시간만 연다(역할/종목 안 건드림).
