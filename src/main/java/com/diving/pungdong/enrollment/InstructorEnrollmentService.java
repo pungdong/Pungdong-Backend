@@ -132,7 +132,8 @@ public class InstructorEnrollmentService {
                 .filter(cr -> cr.getRoundKind() == RoundKind.REGULAR).count();
 
         // 회차 정렬: 정규(roundIndex) → EXTRA(뒤). 파생용 전체 상태 + 표시용(취소 제외) 분리.
-        List<EnrollmentRound> sorted = e.getRounds().stream()
+        // 재신청으로 대체된 죽은 회차는 애초에 제외(학생 hub 와 같은 규칙 — RoundHistory).
+        List<EnrollmentRound> sorted = RoundHistory.current(e.getRounds()).stream()
                 .sorted(Comparator.comparing((EnrollmentRound r) -> r.getRoundKind() == RoundKind.EXTRA)
                         .thenComparing(r -> r.getRoundIndex() == null ? Integer.MAX_VALUE : r.getRoundIndex())
                         .thenComparing(EnrollmentRound::getId))

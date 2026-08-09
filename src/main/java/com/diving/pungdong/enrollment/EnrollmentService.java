@@ -349,7 +349,8 @@ public class EnrollmentService {
     }
 
     private ScheduleHubResponse.ScheduleCourse buildScheduleCourse(Enrollment e, Map<String, String> venueNames) {
-        List<ScheduleHubResponse.ScheduleRound> rounds = e.getRounds().stream()
+        // 재신청으로 대체된 죽은 회차는 제외 — 안 그러면 옛 REJECTED 때문에 강의가 영원히 RESCHEDULING 으로 굳는다.
+        List<ScheduleHubResponse.ScheduleRound> rounds = RoundHistory.current(e.getRounds()).stream()
                 .sorted(Comparator.comparing(r -> r.getRoundIndex() == null ? Integer.MAX_VALUE : r.getRoundIndex()))
                 .map(r -> ScheduleHubResponse.ScheduleRound.builder()
                         .roundId(r.getId())

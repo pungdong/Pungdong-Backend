@@ -78,10 +78,30 @@ class MultiRoundProgressUseCaseTest {
     @Autowired EnrollmentRoundJpaRepo roundRepo;
     @Autowired AvailabilityHoldJpaRepo holdRepo;
     @Autowired EnrollmentExpiryService expiryService;
+    @Autowired com.diving.pungdong.payment.PaymentOrderJpaRepo orderRepo;
+
+    // PG 는 유일한 외부 경계라 mock(결정적). 레지스트리째 mock 하는 이유 = 어댑터 3개가 모두 빈이라
+    // PaymentGateway 타입으로 mock 하면 주입이 모호해진다(PaymentUseCaseTest 와 같은 패턴).
+    @org.springframework.boot.test.mock.mockito.MockBean com.diving.pungdong.payment.PaymentGatewayRegistry gateways;
+    final com.diving.pungdong.payment.PaymentGateway gateway =
+            org.mockito.Mockito.mock(com.diving.pungdong.payment.PaymentGateway.class);
+
+    @org.junit.jupiter.api.BeforeEach
+    void stubGatewayApproved() {
+        org.mockito.BDDMockito.given(gateways.active()).willReturn(gateway);
+        org.mockito.BDDMockito.given(gateways.forOrder(org.mockito.ArgumentMatchers.any())).willReturn(gateway);
+        org.mockito.BDDMockito.given(gateway.provider()).willReturn(com.diving.pungdong.payment.PaymentProvider.STUB);
+        org.mockito.BDDMockito.given(gateway.initParams(org.mockito.ArgumentMatchers.any()))
+                .willReturn(Map.of("customerKey", "cust"));
+        org.mockito.BDDMockito.given(gateway.confirm(org.mockito.ArgumentMatchers.any()))
+                .willReturn(new com.diving.pungdong.payment.PaymentGateway.ConfirmResult(
+                        true, "DONE", "간편결제", OffsetDateTime.now(ZoneOffset.UTC), null, "pk_test_1"));
+    }
 
     @AfterEach
     void clean() {
         holdRepo.deleteAll();
+        orderRepo.deleteAll(); // enrollment_round FK — 회차 삭제 전
         enrollmentRepo.deleteAll();
         sessionRepo.deleteAll();
         coverageRepo.deleteAll();
@@ -287,6 +307,43 @@ class MultiRoundProgressUseCaseTest {
                 .andExpect(jsonPath("$.status").value("PENDING"))
                 .andExpect(jsonPath("$.roundIndex").value(2))
                 .andExpect(jsonPath("$.total").value(15000)); // 2회차는 수강료 없음(부대비용만)
+    }
+
+    @Test
+    @DisplayName("M7 2회차도 신청 즉시 결제 — 결제하면 ACCEPT_PENDING(강사 확인 대기), 강사가 수락하면 CONFIRMED")
+    void secondRoundPrepayThenInstructorAccepts() throws Exception {
+        Account ins = instructor("ins-m7@pd.com", "강사M7", 4);
+        Venue v = venue(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String ticket = v.getTickets().get(0).getRef();
+        Course course = twoRoundCourse(ins, ref, ticket);
+        openCoverage(ins, D1); openCoverage(ins, D2);
+        Account stu = account("stu-m7@pd.com", "학생M7", Role.STUDENT);
+        EnrollmentRound r2 = round2Pending(ins, course, ref, ticket, stu);
+
+        // 권위 금액 = 부대비용만(수강료는 1회차 주문에 전액) = 입장료 15,000
+        String prepared = mockMvc.perform(post("/payments/prepare").header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("enrollmentId", r2.getId()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.amount").value(15000))
+                .andReturn().getResponse().getContentAsString();
+        String orderId = objectMapper.readTree(prepared).path("orderId").asText();
+
+        // 결제 → 1회차와 똑같이 ACCEPT_PENDING(옛 흐름의 "곧장 CONFIRMED" 아님)
+        mockMvc.perform(post("/payments/confirm").header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("pgPayload", Map.of("paymentKey", "pk_test_1"),
+                                "orderId", orderId, "amount", 15000))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enrollmentStatus").value("ACCEPT_PENDING"));
+
+        // 강사 수락 → 확정 (통일 전에는 이 호출이 400 이었다 — 2회차가 PENDING 으로 들어와 accept 게이트에 막혔음)
+        mockMvc.perform(post("/instructor/enrollments/{id}/accept", r2.getId())
+                        .header(HttpHeaders.AUTHORIZATION, token(ins)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CONFIRMED"));
+        assertThat(roundRepo.findById(r2.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.CONFIRMED);
     }
 
     @Test
