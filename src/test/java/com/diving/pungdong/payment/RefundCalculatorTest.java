@@ -105,12 +105,21 @@ class RefundCalculatorTest {
     }
 
     @Test
-    @DisplayName("F4 미결제(PENDING/PAYMENT_PENDING) 배정 회차는 부대 미납이라 수강료 몫만 환불")
+    @DisplayName("F4 미결제(PENDING) 배정 회차는 부대 미납이라 수강료 몫만 환불")
     void unpaidScheduledRefundsTuitionOnly() {
-        // PAYMENT_PENDING, 3일전+ → 수강료 몫 100000*100%만(부대 미납 0)
+        // PENDING(미결제), 3일전+ → 수강료 몫 100000*100%만(부대 미납 0)
         Enrollment e = enrollment(course3Regular(), 300000,
-                round(1, EnrollmentStatus.PAYMENT_PENDING, TODAY.plusDays(5), NOW.minusDays(2), false, 15000, 5000));
+                round(1, EnrollmentStatus.PENDING, TODAY.plusDays(5), NOW.minusDays(2), false, 15000, 5000));
         assertThat(calc.quote(e, TODAY, NOW).getLines().get(0).getAmount()).isEqualTo(100000);
+    }
+
+    @Test
+    @DisplayName("F4-1 결제완료·강사 확인 전(ACCEPT_PENDING) 회차는 선결제라 부대도 이미 낸 것 → 수강료+부대 환불")
+    void acceptPendingRefundsExtrasToo() {
+        // 선결제: 확정(CONFIRMED) 전이라도 결제는 끝났다 → 부대 20,000 도 환불 대상. 3일전+ 100%
+        Enrollment e = enrollment(course3Regular(), 300000,
+                round(1, EnrollmentStatus.ACCEPT_PENDING, TODAY.plusDays(5), NOW.minusDays(2), false, 15000, 5000));
+        assertThat(calc.quote(e, TODAY, NOW).getLines().get(0).getAmount()).isEqualTo(120000);
     }
 
     @Test

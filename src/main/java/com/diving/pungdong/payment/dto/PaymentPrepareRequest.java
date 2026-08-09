@@ -5,7 +5,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 /**
- * 결제 준비 요청 — 결제 대기 <b>회차</b>(선결제 1회차 PENDING / 2회차 PAYMENT_PENDING)에 대해 주문 생성.
+ * 결제 준비 요청 — 미결제 <b>회차</b>(신청 직후 PENDING)에 대해 주문 생성.
  *
  * <p>⚠️ <b>식별자 이름 주의</b>: 결제 단위는 <b>회차(EnrollmentRound)</b> 다. 옛 필드명 {@code enrollmentId} 가
  * 실제로는 회차 id 를 담고 있어, 같은 이름을 <b>수강(Enrollment) id</b> 로 쓰는 환불 경로

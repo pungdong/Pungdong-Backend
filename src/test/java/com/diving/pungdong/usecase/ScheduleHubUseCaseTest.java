@@ -108,8 +108,8 @@ class ScheduleHubUseCaseTest {
         Course b = course(instructor, "PADI 프리다이버 과정");
         Course c = course(instructor, "SSI 베이직 프리다이버");
 
-        // 강의 A: 1회차 결제대기(수강료 90,000 → 1회차에 전액) + 2회차 수락대기 → 강의=결제대기
-        enroll(student, a, 90000, roundOf(1, EnrollmentStatus.PAYMENT_PENDING), roundOf(2, EnrollmentStatus.PENDING));
+        // 강의 A: 1회차 미결제(수강료 90,000 → 1회차에 전액) + 2회차 결제완료·강사 확인 대기 → 강의=결제대기
+        enroll(student, a, 90000, roundOf(1, EnrollmentStatus.PENDING), roundOf(2, EnrollmentStatus.ACCEPT_PENDING));
         // 강의 B: 확정 → 진행중
         enroll(student, b, 350000, roundOf(1, EnrollmentStatus.CONFIRMED));
         // 강의 C: 강사 거절 → 일정 변경

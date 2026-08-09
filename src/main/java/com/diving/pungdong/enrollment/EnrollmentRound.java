@@ -81,7 +81,8 @@ public class EnrollmentRound {
 
     /**
      * 강사 일정변경요청 — 위치 고정, <b>완전한 대안 슬롯(날짜+이용권+블록)</b> 목록(서버 검증). 비어있지 않으면
-     * 학생이 그 중 하나를 골라야(pick) 한다(= 강사 사전 수락 → 고르면 바로 PAYMENT_PENDING). PENDING 에서만 의미.
+     * 학생이 그 중 하나를 골라야(pick) 한다(= 강사가 그 자리를 승인한 것 → 고르면 바로 CONFIRMED).
+     * <b>ACCEPT_PENDING(결제완료·강사 결정 대기) 에서만 의미</b> — 제안은 강사 결정 3지선다의 하나다.
      */
     @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "enrollment_round_proposed_slot", joinColumns = @JoinColumn(name = "round_id"))
@@ -136,8 +137,8 @@ public class EnrollmentRound {
         return status == EnrollmentStatus.CONFIRMED && doneAt != null;
     }
 
-    /** 강사가 일정변경요청(대안 슬롯 제안)을 보냈고 학생이 아직 안 고른 상태. */
+    /** 강사가 일정변경요청(대안 슬롯 제안)을 보냈고 학생이 아직 안 고른 상태. 결제완료(ACCEPT_PENDING) 회차에서만. */
     public boolean hasRescheduleOffer() {
-        return status == EnrollmentStatus.PENDING && proposedSlots != null && !proposedSlots.isEmpty();
+        return status == EnrollmentStatus.ACCEPT_PENDING && proposedSlots != null && !proposedSlots.isEmpty();
     }
 }

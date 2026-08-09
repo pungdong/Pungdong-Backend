@@ -25,9 +25,10 @@ import java.util.stream.Collectors;
  *
  * <ul>
  *   <li><b>PENDING</b>(선결제 미결제·장바구니) — 신청({@code createdAt}) 후 {@code paymentTtlHours}(기본 12h) 미결제면 만료(환불 없음).</li>
- *   <li><b>ACCEPT_PENDING</b>(결제완료·강사 확인 대기) — 결제({@code respondedAt}) 후 {@code pendingTtlHours}(기본 24h) 강사 무응답이면 만료 <b>+ 전액 자동환불</b>({@code EnrollmentRefundRequestedEvent} → payment).</li>
- *   <li><b>PAYMENT_PENDING</b>(2회차+ 결제 대기) — 사전수락({@code respondedAt}) 후 {@code paymentTtlHours}(기본 12h) 미결제면 만료.</li>
+ *   <li><b>ACCEPT_PENDING</b>(결제완료·강사 결정 대기) — 결제({@code respondedAt}) 후 {@code pendingTtlHours}(기본 24h) 강사 무응답이면 만료 <b>+ 전액 자동환불</b>({@code EnrollmentRefundRequestedEvent} → payment).</li>
  * </ul>
+ *
+ * <p>두 상태뿐이다 — 선결제가 전 회차로 통일돼(2026-08-09) "강사 사전수락 후 결제 대기"라는 제3의 상태가 없어졌다.
  *
  * <p>만료 = {@code CANCELLED} 로 전환 + 점유 0 이면 {@link SessionCleaner} 가 빈 일정 삭제(좌석 해제). 결제완료분(ACCEPT_PENDING)은 자동환불. TTL 값은
  * {@link SiteSettings}(Sanity, 런타임 config). 각 건은 자기 트랜잭션 — 한 건 실패가 배치를 막지 않는다.
@@ -63,13 +64,9 @@ public class EnrollmentExpiryService {
             // 선결제: PENDING = 미결제(장바구니) → 결제창 window(paymentTtlHours 12h, createdAt 기준). 환불 없음.
             roundRepo.findByStatusAndCreatedAtBefore(EnrollmentStatus.PENDING, now.minusHours(s.paymentTtlHours()))
                     .forEach(r -> out.add(r.getId()));
-            // ACCEPT_PENDING = 결제완료·강사 수락 대기 → 강사 응답 window(pendingTtlHours 24h, 결제시각 respondedAt 기준). 만료 시 자동환불.
+            // ACCEPT_PENDING = 결제완료·강사 결정 대기 → 강사 응답 window(pendingTtlHours 24h, 결제시각 respondedAt 기준). 만료 시 자동환불.
             roundRepo.findByStatusAndRespondedAtBefore(
                             EnrollmentStatus.ACCEPT_PENDING, now.minusHours(s.pendingTtlHours()))
-                    .forEach(r -> out.add(r.getId()));
-            // PAYMENT_PENDING = 2회차+ 사전수락 후 미결제 → 결제 window(paymentTtlHours 12h, respondedAt 기준). 환불 없음.
-            roundRepo.findByStatusAndRespondedAtBefore(
-                            EnrollmentStatus.PAYMENT_PENDING, now.minusHours(s.paymentTtlHours()))
                     .forEach(r -> out.add(r.getId()));
             return out;
         });
@@ -178,8 +175,7 @@ public class EnrollmentExpiryService {
     private boolean expireOne(Long id, OffsetDateTime now) {
         EnrollmentRound r = roundRepo.findById(id).orElse(null);
         if (r == null || (r.getStatus() != EnrollmentStatus.PENDING
-                && r.getStatus() != EnrollmentStatus.ACCEPT_PENDING
-                && r.getStatus() != EnrollmentStatus.PAYMENT_PENDING)) {
+                && r.getStatus() != EnrollmentStatus.ACCEPT_PENDING)) {
             return false; // 그새 수락/결제/취소됨 — 멱등
         }
         boolean wasPaid = r.getStatus() == EnrollmentStatus.ACCEPT_PENDING; // 결제완료분만 환불 대상

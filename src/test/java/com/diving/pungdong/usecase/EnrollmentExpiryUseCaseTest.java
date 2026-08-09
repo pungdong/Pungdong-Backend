@@ -35,8 +35,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * 좌석 lock 자동 만료 use-case — {@link EnrollmentExpiryService#sweepExpired}. {@code @DisplayName} = 사양.
  *
- * <p>TTL 은 {@code TestSiteSettingsConfig} 고정값 = 신청(PENDING) 24h / 결제대기(PAYMENT_PENDING) 12h. 회차를
- * 과거 타임스탬프로 직접 저장 → sweep → 만료(CANCELLED)·슬롯 해제 검증. 스케줄러는 @Profile("!test") 라 서비스 직접 호출.
+ * <p>TTL 은 {@code TestSiteSettingsConfig} 고정값 = 미결제(PENDING) 12h(createdAt 기준) / 결제완료·강사 결정 대기
+ * (ACCEPT_PENDING) 24h(respondedAt=결제시각 기준). <b>선결제가 전 회차로 통일</b>돼 이 둘뿐이다. 회차를 과거
+ * 타임스탬프로 직접 저장 → sweep → 만료(CANCELLED)·슬롯 해제 검증. 스케줄러는 @Profile("!test") 라 서비스 직접 호출.
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -64,6 +65,12 @@ class EnrollmentExpiryUseCaseTest {
 
     private EnrollmentRound persist(String tag, EnrollmentStatus status, OffsetDateTime createdAt,
                                     OffsetDateTime respondedAt, boolean withSession, LocalDate roundDate) {
+        return persist(tag, status, createdAt, respondedAt, withSession, roundDate, 1);
+    }
+
+    private EnrollmentRound persist(String tag, EnrollmentStatus status, OffsetDateTime createdAt,
+                                    OffsetDateTime respondedAt, boolean withSession, LocalDate roundDate,
+                                    int roundIndex) {
         Account ins = accountRepo.save(Account.builder().email("ins-" + tag + "@pd.com").password("x")
                 .nickName("강사" + tag).roles(new HashSet<>(Set.of(Role.INSTRUCTOR))).build());
         Account stu = accountRepo.save(Account.builder().email("stu-" + tag + "@pd.com").password("x")
@@ -77,7 +84,7 @@ class EnrollmentExpiryUseCaseTest {
                 .venueRefId("CUSTOM:1").createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build()) : null;
         Enrollment e = Enrollment.builder().student(stu).course(c).tuitionSnapshot(100000).createdAt(createdAt).build();
         EnrollmentRound r = EnrollmentRound.builder()
-                .roundIndex(1).roundKind(RoundKind.REGULAR).availabilitySession(sess)
+                .roundIndex(roundIndex).roundKind(RoundKind.REGULAR).availabilitySession(sess)
                 .venueRefId("CUSTOM:1").date(roundDate)
                 .blockStart(LocalTime.of(14, 0)).blockEnd(LocalTime.of(17, 0))
                 .status(status).createdAt(createdAt).respondedAt(respondedAt).build();
@@ -87,10 +94,10 @@ class EnrollmentExpiryUseCaseTest {
     }
 
     @Test
-    @DisplayName("T1 신청(PENDING) 24h 무응답이면 자동 만료(CANCELLED) + 빈 일정 삭제로 좌석 해제")
+    @DisplayName("T1 신청(PENDING) 12h 미결제면 자동 만료(CANCELLED) + 빈 일정 삭제로 좌석 해제")
     void pendingExpiresAndFreesSlot() {
         EnrollmentRound r = persist("t1", EnrollmentStatus.PENDING,
-                OffsetDateTime.now(ZoneOffset.UTC).minusHours(25), null, true);
+                OffsetDateTime.now(ZoneOffset.UTC).minusHours(13), null, true);
 
         int n = expiryService.sweepExpired(OffsetDateTime.now(ZoneOffset.UTC));
 
@@ -100,10 +107,23 @@ class EnrollmentExpiryUseCaseTest {
     }
 
     @Test
-    @DisplayName("T2 결제 대기(PAYMENT_PENDING) 12h 미결제면 자동 만료(CANCELLED)")
-    void paymentPendingExpires() {
-        EnrollmentRound r = persist("t2", EnrollmentStatus.PAYMENT_PENDING,
-                OffsetDateTime.now(ZoneOffset.UTC).minusDays(2), OffsetDateTime.now(ZoneOffset.UTC).minusHours(13), false);
+    @DisplayName("T2 2회차 회차도 같은 규칙으로 만료된다(미결제 PENDING 12h) — 선결제 전 회차 통일")
+    void secondRoundPendingExpiresToo() {
+        EnrollmentRound r = persist("t2", EnrollmentStatus.PENDING,
+                OffsetDateTime.now(ZoneOffset.UTC).minusHours(13), null, false,
+                LocalDate.now().plusWeeks(1), 2);
+
+        int n = expiryService.sweepExpired(OffsetDateTime.now(ZoneOffset.UTC));
+
+        assertThat(n).isEqualTo(1);
+        assertThat(roundRepo.findById(r.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.CANCELLED);
+    }
+
+    @Test
+    @DisplayName("T2-1 결제완료(ACCEPT_PENDING) 24h 강사 무응답이면 자동 만료(CANCELLED)")
+    void acceptPendingExpires() {
+        EnrollmentRound r = persist("t21", EnrollmentStatus.ACCEPT_PENDING,
+                OffsetDateTime.now(ZoneOffset.UTC).minusDays(2), OffsetDateTime.now(ZoneOffset.UTC).minusHours(25), false);
 
         int n = expiryService.sweepExpired(OffsetDateTime.now(ZoneOffset.UTC));
 

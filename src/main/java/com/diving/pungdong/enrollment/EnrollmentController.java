@@ -74,7 +74,7 @@ public class EnrollmentController {
         return ResponseEntity.status(201).body(model(enrollmentService.scheduleNextRound(account, enrollmentId, request)));
     }
 
-    /** 강사 일정변경요청 중 제안 슬롯(날짜+이용권+블록) 선택 — 사전 수락이라 곧장 결제 대기(PAYMENT_PENDING). */
+    /** 강사 일정변경요청 중 제안 슬롯(날짜+이용권+블록) 선택 — 이미 결제됐고 강사가 승인한 자리라 곧장 확정(CONFIRMED). */
     @PostMapping("/rounds/{roundId}/pick-slot")
     public ResponseEntity<?> pickSlot(@CurrentUser Account account, @PathVariable Long roundId,
                                       @Valid @RequestBody PickSlotRequest request, BindingResult result) {

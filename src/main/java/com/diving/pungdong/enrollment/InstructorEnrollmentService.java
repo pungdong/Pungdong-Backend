@@ -278,15 +278,16 @@ public class InstructorEnrollmentService {
         return InstructorEnrollmentResponse.of(r, venueName(r.getVenueRefId()));
     }
 
-    /** 거절 — <b>1회차(진입)만</b>. 진행 중 회차는 거절 대신 일정변경요청. 복구 가능(학생 재신청). */
+    /**
+     * 거절 — <b>전 회차</b>(2026-08-09 통일). 거절은 <b>그 회차만</b> 무효로 만들고(수강 자체는 유지) 그 회차 주문을
+     * 전액 자동환불한다. 복구 가능 — {@code RoundGate} 가 거절된 회차의 자리를 비우므로 학생이 <b>그 회차를 다른
+     * 날짜로 다시 신청</b>할 수 있다(시간 제한 없음). 날짜만 안 맞는 경우엔 거절 대신 일정변경요청(제안)이 낫다.
+     */
     @Transactional
     public InstructorEnrollmentResponse reject(Account instructor, Long roundId, String reason) {
         EnrollmentRound r = requireForInstructor(instructor, roundId);
         if (r.getStatus() != EnrollmentStatus.ACCEPT_PENDING) {
-            throw new BadRequestException(); // 선결제: 결제완료·수락대기 건만 거절
-        }
-        if (!r.isFirstMeeting()) {
-            throw new BadRequestException(); // 거절은 1회차 한정 — 진행 중은 일정변경요청
+            throw new BadRequestException(); // 선결제: 결제완료·강사 결정 대기 건만 거절
         }
         AvailabilitySession session = r.getAvailabilitySession();
         r.setStatus(EnrollmentStatus.REJECTED);
@@ -300,17 +301,22 @@ public class InstructorEnrollmentService {
     }
 
     /**
-     * 일정변경요청 — 위치 고정, 완전한 대안 슬롯(날짜+이용권+블록) 제안(최대 {@value #MAX_PROPOSED_SLOTS}개). 각
-     * 슬롯은 venue 운영블록 존재 + 강사 coverage 에 통째로 ⊆ + <b>좌석 여유</b>여야 채택된다. <b>하드캡 보장</b>:
-     * 채택된 슬롯마다 그 일정에 좌석 hold(회차 귀속, proposalTtlHours 만료)를 잡아 — 학생이 고를 때 반드시 잡히게
-     * 하고(만석으로 막히는 아이러니 제거), 그 동안 다른 학생 신청은 정상적으로 막힌다(heldCount 합산). 만석/불가
-     * 슬롯은 조용히 제외(전부 제외면 400). 학생이 고르면 사전 수락 → 결제 대기.
+     * 일정변경요청 — <b>강사 결정 3지선다(수락/거절/일정조정 제안)의 하나</b>. 위치 고정, 완전한 대안 슬롯
+     * (날짜+이용권+블록) 제안(최대 {@value #MAX_PROPOSED_SLOTS}개). 각 슬롯은 venue 운영블록 존재 + 강사 coverage 에
+     * 통째로 ⊆ + <b>좌석 여유</b> + <b>입장료가 이미 결제된 금액 이하</b>여야 채택된다. <b>하드캡 보장</b>: 채택된
+     * 슬롯마다 그 일정에 좌석 hold(회차 귀속, proposalTtlHours 만료)를 잡아 — 학생이 고를 때 반드시 잡히게 하고
+     * (만석으로 막히는 아이러니 제거), 그 동안 다른 학생 신청은 정상적으로 막힌다(heldCount 합산). 만석/불가/더 비싼
+     * 슬롯은 조용히 제외(전부 제외면 400).
+     *
+     * <p><b>선결제라 학생은 결제가 아니라 ㅇㅋ/ㄴㄴ만 한다</b> — 이미 결제된 회차이고 제안 자리는 강사가 승인한
+     * 자리이므로, 학생이 고르면(pick) 추가 결제·재수락 없이 곧장 확정된다. 더 비싼 슬롯을 제안에서 빼는 이유가
+     * 이것 — 추가 청구가 필요해지면 "고르기만 하면 끝"이 깨진다(더 비싼 자리로 옮기려면 취소 후 재신청).
      */
     @Transactional
     public InstructorEnrollmentResponse proposeSlots(Account instructor, Long roundId, List<SlotProposal> slots) {
         EnrollmentRound r = requireForInstructor(instructor, roundId);
-        if (r.getStatus() != EnrollmentStatus.PENDING) {
-            throw new BadRequestException(); // 대기 건에만 일정변경요청
+        if (r.getStatus() != EnrollmentStatus.ACCEPT_PENDING) {
+            throw new BadRequestException(); // 결제완료·강사 결정 대기 건에만 일정변경요청
         }
         if (slots == null || slots.isEmpty()) {
             throw new BadRequestException();
@@ -329,8 +335,12 @@ public class InstructorEnrollmentService {
         List<ProposedSlot> valid = new ArrayList<>();
         Set<Long> heldSessionIds = new HashSet<>();
         for (SlotProposal s : slots) {
-            if (isCurrentSlot(r, s) || !bookableSlot(instructor, venue, s)) {
+            BookableSlotDeriver.Block block = isCurrentSlot(r, s) ? null : bookableBlock(instructor, venue, s);
+            if (block == null) {
                 continue; // 현재 슬롯과 동일(변경 아님) 또는 기하 불가(운영블록 없음/coverage 밖) — 제외
+            }
+            if (block.getFee() > r.getEntrySnapshot()) {
+                continue; // 입장료가 더 비싼 daypart — 추가 청구 없이는 못 옮김(학생은 ㅇㅋ/ㄴㄴ만) — 제외
             }
             AvailabilitySession session = findOrCreateSession(instructor, s.getDate(),
                     s.getBlockStart(), s.getBlockEnd(), r.getVenueRefId(), s.getTicketRef());
@@ -395,19 +405,22 @@ public class InstructorEnrollmentService {
 
     /* ─── helpers ─── */
 
-    /** 그 슬롯(날짜+이용권+블록)이 가능한가 — venue 운영블록 존재 + 강사 coverage 에 통째로 ⊆. (위치는 회차 고정.) */
-    private boolean bookableSlot(Account instructor, VenueResponse venue, SlotProposal s) {
+    /**
+     * 그 슬롯(날짜+이용권+블록)의 운영블록 — venue 운영블록 존재 + 강사 coverage 에 통째로 ⊆ 이면 그 블록,
+     * 아니면 null(불가). (위치는 회차 고정.) 블록을 돌려주는 이유 = 호출자가 {@code getFee()}(입장료)로 가격도 본다.
+     */
+    private BookableSlotDeriver.Block bookableBlock(Account instructor, VenueResponse venue, SlotProposal s) {
         if (s.getDate() == null || s.getTicketRef() == null || s.getBlockStart() == null || s.getBlockEnd() == null) {
-            return false;
+            return null;
         }
-        boolean blockOk = slotDeriver.blocksFor(venue, s.getTicketRef(), s.getDate()).stream()
-                .anyMatch(b -> b.sameTime(s.getBlockStart(), s.getBlockEnd()));
-        if (!blockOk) {
-            return false;
+        BookableSlotDeriver.Block block = slotDeriver.blocksFor(venue, s.getTicketRef(), s.getDate()).stream()
+                .filter(b -> b.sameTime(s.getBlockStart(), s.getBlockEnd())).findFirst().orElse(null);
+        if (block == null) {
+            return null;
         }
         List<Span> spans = coverageRepo.findByInstructorIdAndDate(instructor.getId(), s.getDate()).stream()
                 .map(c -> new Span(c.getStartTime(), c.getEndTime())).collect(Collectors.toList());
-        return CoverageMerger.containsWhole(spans, new Span(s.getBlockStart(), s.getBlockEnd()));
+        return CoverageMerger.containsWhole(spans, new Span(s.getBlockStart(), s.getBlockEnd())) ? block : null;
     }
 
     /** 제안 슬롯이 회차의 현재 슬롯과 동일한가 — 위치 고정이므로 (날짜,이용권,블록)만 비교. 동일하면 변경이 아님. */
