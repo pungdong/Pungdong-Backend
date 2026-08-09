@@ -76,9 +76,7 @@ locals {
     INICIS_RET_URL            = "https://api-staging.plop.cool/payments/inicis/return"
     INICIS_RETURN_WEB_SUCCESS = "https://staging.plop.cool/payment/success"
     INICIS_RETURN_WEB_FAIL    = "https://staging.plop.cool/payment/fail"
-    # 🧪 QA 편의 — 시드 강의 신청을 스케줄러가 자동수락(강사 수동수락 없이 결제 단계 테스트).
-    # prod 와 동일 토글(prod main.tf 에도 켜져 있음). 결제 플로우 재설계/런칭 시 false 로.
-    DEMO_AUTO_ACCEPT       = "true"
+    # 🧪 시드 강의 가용시간 개방(신청 가능하게). (자동수락 DEMO_AUTO_ACCEPT 은 선결제 전환으로 제거됨.)
     DEMO_SEED_AVAILABILITY = "true"
   }
 }
