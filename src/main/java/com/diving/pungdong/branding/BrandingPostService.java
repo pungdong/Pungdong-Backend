@@ -76,8 +76,31 @@ public class BrandingPostService {
         return toCards(posts, true);
     }
 
-    public BrandingPostDetailResponse publicDetail(Long postId) {
-        return toDetail(postRepo.findPublicById(postId).orElseThrow(ResourceNotFoundException::new));
+    /**
+     * 게시물 상세. <b>오너는 자기 글이면 숨김·미발행이어도 볼 수 있다</b> — 상세 화면에서 바로 "다시 공개"를
+     * 누르는 경로가 그 예외를 전제하기 때문이다(숨긴 순간 상세가 오너에게도 막히면 되돌릴 화면이 없다).
+     *
+     * <p>그 외에는 발행 + 미숨김 + 미탈퇴만 보인다. 안 보이면 403 이 아니라 <b>400(존재 숨김)</b>.
+     *
+     * @param viewer 비로그인이면 {@code null} — 이 엔드포인트는 permitAll 이라 인증이 없을 수 있다.
+     */
+    public BrandingPostDetailResponse detail(Long postId, Account viewer) {
+        BrandingPost post = postRepo.findById(postId).orElseThrow(ResourceNotFoundException::new);
+        if (!isVisibleTo(post, viewer)) {
+            throw new ResourceNotFoundException();
+        }
+        return toDetail(post);
+    }
+
+    private boolean isVisibleTo(BrandingPost post, Account viewer) {
+        AccountBranding branding = post.getBranding();
+        Account owner = branding.getAccount();
+        if (viewer != null && Objects.equals(owner.getId(), viewer.getId())) {
+            return true; // 오너는 자기 글을 항상 본다(숨김·미발행 포함)
+        }
+        return branding.isPublished()
+                && !post.isHidden()
+                && !Boolean.TRUE.equals(owner.getIsDeleted());
     }
 
     /* ─── 오너 CRUD ──────────────────────────────────────── */

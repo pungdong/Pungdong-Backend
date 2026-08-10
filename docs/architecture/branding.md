@@ -131,6 +131,8 @@ erDiagram
 
 `is_hidden` 은 **되돌릴 수 있는** 상태다. 공개 목록·상세·`stats.posts` 에서만 빠지고 **오너 목록에는 남는다** — 안 그러면 숨긴 글을 다시 켤 방법이 없다.
 
+같은 이유로 **상세도 오너 본인에겐 열린다**(숨김·미발행 포함). FE 가 상세 화면에서 바로 "다시 공개"를 누르게 만들어 뒀는데, 숨긴 순간 상세가 오너에게도 막히면 되돌릴 화면이 사라진다. 즉 `GET /branding-posts/{id}` 는 **같은 URL 이 보는 사람에 따라 갈린다** — 비로그인·타인은 400, 오너는 200.
+
 ### `stats.posts` 는 오너 응답에서도 "공개" 개수다
 
 두 숫자가 다르다는 걸 알고 써야 한다 — `stats.posts` 는 **숨김을 뺀 공개 개수**이고(오너 응답에서도 마찬가지), 오너 그리드는 **숨김을 포함**해 보여준다. 오너 헤더에 `stats.posts` 를 쓰면 숫자 12 인데 타일이 14 개인 상황이 된다. 그래서 오너 화면의 개수는 `GET /branding/me/posts` 의 `page.totalElements` 를 쓴다. (FE 가 통합 리뷰에서 잡아낸 지점 — 무심코 갈아끼우면 어긋난다.)
@@ -149,7 +151,7 @@ erDiagram
 |---|---|---|---|
 | `GET /instructors/{nickName}` | **불필요** | — | `is_published=true` + 미탈퇴만. 그 외 **400(존재 숨김)** |
 | `GET /instructors/{nickName}/posts` | **불필요** | — | 위 + `is_hidden=false` 만. 정렬·size 는 서버 고정 |
-| `GET /branding-posts/{postId}` | **불필요** | — | 발행 프로필의 숨기지 않은 글만. 그 외 **400** |
+| `GET /branding-posts/{postId}` | **불필요** | — | 발행 + 미숨김만. **단 오너 본인은 자기 글이면 숨김·미발행이어도 조회 가능**. 그 외 **400** |
 | `GET /branding/me` | 필요 | **인증만** | `@CurrentUser` 기준. 미생성이면 `{exists:false}` |
 | `PATCH /branding/me` | 필요 | 인증만 | 동일. 미생성이면 생성(upsert) |
 | `PATCH /branding/me/publish` | 필요 | 인증만 | 동일. **승인 게이트 없음** |

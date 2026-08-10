@@ -26,7 +26,7 @@
 5. **`boolean isX` 는 Jackson 이 `x` 로 직렬화한다.** `isInstructor`·`isPublished` 에 `@JsonProperty` 를 명시한 이유 — 빼면 계약이 깨진다.
 6. **`RecordEventCode`(CWT/FIM/…)는 `discipline.Discipline`(FREEDIVING/SCUBA/…)과 다른 축이다.** 둘 다 "discipline" 이라 부르면 반드시 사고 난다 — 컬럼도 `event_code`.
 7. **`BrandingRecord.value` 의 컬럼명은 `record_value`** — `value` 는 H2(테스트 DB) 예약어라 그대로 쓰면 스키마 생성이 깨진다. API 필드명은 `value` 유지.
-8. **숨김(`is_hidden`)은 삭제가 아니다.** 공개 목록·상세·게시물 수에서만 빠지고 **오너 목록엔 남는다** — 안 그러면 숨긴 글을 다시 켤 수 없다.
+8. **숨김(`is_hidden`)은 삭제가 아니다.** 공개 목록·상세·게시물 수에서만 빠지고 **오너 목록엔 남는다** — 안 그러면 숨긴 글을 다시 켤 수 없다. 같은 이유로 **상세도 오너 본인에겐 열린다**(숨김·미발행 포함) — `GET /branding-posts/{id}` 는 보는 사람에 따라 갈린다. permitAll 이라 `@CurrentUser` 가 **null 일 수 있다.**
 9. **그리드는 미디어를 일괄 조회해 그룹핑한다.** 카드마다 `post.getMedia()` 를 건드리면 N+1 이다.
 10. **정렬·size 는 서버가 고정한다.** 클라이언트 `sort` 를 `Pageable` 에 태우면 pinned-우선이 깨지고 임의 필드 정렬이 뚫린다. `size` 상한 50.
 11. **`mediaUrls` 는 우리 CDN base 로 시작하는지 검증한다.** 없으면 본문에 임의 외부 이미지를 심을 수 있고, 삭제 로직이 남의 도메인을 지우려 든다.

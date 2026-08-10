@@ -26,12 +26,6 @@ public interface BrandingPostJpaRepo extends JpaRepository<BrandingPost, Long> {
             + "order by p.pinned desc, p.createdAt desc, p.id desc")
     Page<BrandingPost> findOwnerGrid(@Param("brandingId") Long brandingId, Pageable pageable);
 
-    /** 공개 상세 — 발행된 프로필의 숨기지 않은 글만. 소유권 검증은 오너 경로에서 따로 한다. */
-    @Query("select p from BrandingPost p join p.branding b "
-            + "where p.id = :postId and p.isHidden = false and b.isPublished = true "
-            + "and b.account.isDeleted = false")
-    Optional<BrandingPost> findPublicById(@Param("postId") Long postId);
-
     /** 오너 소유 확인용 — 남의 글이면 비어 있고, 호출처가 400(존재 숨김)으로 답한다. */
     @Query("select p from BrandingPost p where p.id = :postId and p.branding.account.id = :accountId")
     Optional<BrandingPost> findMine(@Param("postId") Long postId, @Param("accountId") Long accountId);

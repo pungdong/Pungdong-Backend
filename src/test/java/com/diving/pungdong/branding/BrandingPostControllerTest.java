@@ -109,7 +109,7 @@ class BrandingPostControllerTest {
     @Test
     @DisplayName("게시물 상세 조회")
     void publicDetail() throws Exception {
-        given(postService.publicDetail(any())).willReturn(detail());
+        given(postService.detail(any(), any())).willReturn(detail());
 
         mockMvc.perform(get("/branding-posts/{postId}", 1201L))
                 .andExpect(status().isOk())

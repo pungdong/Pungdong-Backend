@@ -276,6 +276,42 @@ class BrandingPostUseCaseTest {
                 .andExpect(jsonPath("$.stats.posts").value(1));
     }
 
+    @Test
+    @DisplayName("H4: 오너 본인은 숨긴 글의 상세를 볼 수 있다 (상세에서 바로 '다시 공개'를 누를 수 있어야 한다)")
+    void owner_canOpenOwnHiddenPostDetail() throws Exception {
+        Account me = account("h4@test.com", "diverP21", Role.STUDENT);
+        long postId = createPost(me, "숨긴 글", "a");
+        String token = tokenFor(me);
+
+        mockMvc.perform(patch("/branding/me/posts/" + postId + "/visibility")
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"hidden\":true}"))
+                .andExpect(status().isOk());
+
+        // 비로그인은 400, 오너는 200 — 같은 URL 이 보는 사람에 따라 갈린다
+        mockMvc.perform(get("/branding-posts/" + postId)).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/branding-posts/" + postId).header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value((int) postId));
+    }
+
+    @Test
+    @DisplayName("H5: 남의 숨긴 글은 로그인해도 400 (오너 예외는 자기 글에만 적용된다)")
+    void othersHiddenPost_stillHidden() throws Exception {
+        Account owner = account("h5a@test.com", "diverP22", Role.STUDENT);
+        Account stranger = account("h5b@test.com", "diverP23", Role.STUDENT);
+        long postId = createPost(owner, "숨긴 글", "a");
+
+        mockMvc.perform(patch("/branding/me/posts/" + postId + "/visibility")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(owner))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"hidden\":true}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/branding-posts/" + postId)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(stranger)))
+                .andExpect(status().isBadRequest());
+    }
+
     /* ════════════════ L — 강의 연결 ════════════════ */
 
     private Course course(Account instructor, CourseStatus status) {
