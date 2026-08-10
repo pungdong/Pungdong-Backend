@@ -603,6 +603,110 @@ export interface PublicInstructorResponse {
   disciplineCodes: string[];   // 승인 종목들, 예 ['FREEDIVING','SCUBA']
 }
 
+// ── 브랜딩 페이지 / 내 프로필 (branding) — docs/features/account-branding.md ──
+// 강사에겐 "브랜딩 페이지", 일반 유저에겐 "내 프로필". 같은 스키마·같은 엔드포인트를 쓰고 응답 필드만 role 로 갈린다.
+// ⚠️ 공개 URL 식별자는 id 가 아니라 nickName. FE 는 encodeURIComponent 로 인코딩해 보낸다.
+//    한글·공백·'.'·'+' 는 정상 동작하지만, '/'·'\' 가 든 닉네임은 Spring Security 방화벽이 거부해 열리지 않는다.
+
+export type Medal = 'GOLD' | 'SILVER' | 'BRONZE';
+
+/** 프리다이빙 경기 세부종목. ⚠️ 종목(Discipline: FREEDIVING·SCUBA·MERMAID)과 다른 축이다. */
+export type RecordEventCode = 'CWT' | 'FIM' | 'CNF' | 'DYN' | 'DNF' | 'STA';
+
+export interface BrandingRecord {
+  medal: Medal;
+  eventCode: RecordEventCode;
+  /** 단위가 종목마다 달라(깊이 '-75m' / 거리 '180m' / 시간 '6:24') 문자열 원문. 숫자로 파싱하지 말 것. */
+  value: string;
+}
+
+/** 승인된 강사 신청에서 파생된 자격 뱃지. 자유입력 자격은 폐기됨(추후 '자격증 관리' 피처가 대체). */
+export interface BrandingCertBadge {
+  disciplineCode: string;
+  organizationCode: string;
+  organizationOther?: string | null;
+}
+
+/**
+ * GET /instructors/{nickName} (비로그인) — 공개 브랜딩 페이지 / 내 프로필.
+ * 없는 닉네임·미발행·탈퇴는 모두 400(존재 숨김) — 이 레포는 404 를 쓰지 않는다.
+ *
+ * ⚠️ 필드가 "없다"는 두 가지 뜻이다:
+ *   - tagline·bio·locationLabel 은 유저가 지우면 null 이 명시적으로 내려온다
+ *   - disciplineCodes·certs 는 강사가 아니면 키 자체가 빠진다(undefined)
+ */
+export interface BrandingProfileResponse extends HalLinks {
+  nickName: string;
+  avatarUrl?: string | null;
+  tagline: string | null;
+  bio: string | null;
+  locationLabel: string | null;
+  /** 인증마크(공식 강사) 렌더 여부 = 승인된 강사 신청 보유. */
+  isInstructor: boolean;
+  disciplineCodes?: string[];        // 강사만
+  certs?: BrandingCertBadge[];       // 강사만
+  records: BrandingRecord[];         // 없으면 [] → 섹션 숨김
+  stats: BrandingStats;
+  products?: BrandingProducts;       // 강사만
+}
+
+/** 전부 파생값(카운터를 저장하지 않는다). 미구현·비대상 필드는 키가 없다. */
+export interface BrandingStats {
+  /** 게시물 수 — 게시물 도메인 붙는 후속 PR에서 채워진다. 그동안 FE는 오너 목록의 page.totalElements 사용. */
+  posts?: number;
+  /** 누적 수강생 수 — 강사만. 확정(CONFIRMED) 회차를 가진 distinct 학생 수. */
+  students?: number;
+}
+
+/** CTA 뱃지용. 투어(tours)는 CourseKind에 TOUR가 없어 이번 범위 밖(D4). */
+export interface BrandingProducts {
+  /** 공개(OPEN) 강의 수. 데모 시드 취급은 SiteSettings.showSeededCourses를 따른다. */
+  lessons?: number;
+}
+
+/**
+ * GET /branding/me (인증) — 오너 편집용 원본. PATCH /branding/me · PATCH /branding/me/publish 응답도 같은 형태다.
+ * 아직 만들지 않았으면 200 { exists: false } 만 온다 — 조회는 생성하지 않는다(생성은 첫 쓰기가 한다).
+ *
+ * ⚠️ 공개 응답(BrandingProfileResponse)의 필드를 그대로 포함한다 — 오너 뷰가 퍼블릭과 같은 명함이라서.
+ *    그래서 오너 화면을 이 호출 하나로 그릴 수 있고, 쓰기 응답에서 nickName을 얻어 캐시 무효화에 쓸 수 있다.
+ *    특히 stats.students는 공개 응답이 미발행 시 400이라 여기서만 얻을 수 있다.
+ */
+export interface MyBrandingResponse extends HalLinks {
+  exists: boolean;
+  isPublished?: boolean;
+  nickName?: string;
+  avatarUrl?: string | null;
+  tagline?: string | null;
+  bio?: string | null;
+  locationLabel?: string | null;
+  isInstructor?: boolean;
+  disciplineCodes?: string[];        // 강사만
+  certs?: BrandingCertBadge[];       // 강사만
+  stats?: BrandingStats;
+  products?: BrandingProducts;       // 강사만
+  records?: BrandingRecord[];
+  /** 강사 신청 이력이 있을 때만. 없으면 키 자체가 빠지고 FE 는 검수 배너를 렌더하지 않는다. */
+  reviewStatus?: InstructorApplicationStatus;
+  /** APPROVED 일 때만. 웹 검수 배너가 "검수 통과 2026.05.13" 으로 렌더. UTC ISO-8601. */
+  approvedAt?: string;
+}
+
+/**
+ * PATCH /branding/me (인증) — 부분 수정. 미생성이면 이 호출이 생성한다(upsert).
+ * ⚠️ 키 생략 = 변경 없음 / 명시적 null = 그 값 비우기. 둘은 다른 뜻이다.
+ */
+export interface BrandingUpdateRequest {
+  tagline?: string | null;        // 최대 60자
+  bio?: string | null;            // 최대 500자
+  locationLabel?: string | null;  // 최대 60자
+}
+
+/** PATCH /branding/me/publish (인증) — 승인 게이트 없음. 일반 유저도 발행할 수 있다. */
+export interface BrandingPublishRequest {
+  published: boolean;
+}
+
 // ── 위치 (venue) — docs/features/venue.md ──
 // 수영장(딥풀)·해양 포인트 = 강의가 진행되는 장소. 입장료·운영 시간대·이용 옵션·정기휴무가 위치에 종속.
 // ⚠️ 소유 분담:

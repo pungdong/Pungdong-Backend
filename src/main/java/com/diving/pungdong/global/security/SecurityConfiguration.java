@@ -56,6 +56,9 @@ public class SecurityConfiguration {
                         .antMatchers(HttpMethod.GET, "/exception/**").permitAll()
                         .antMatchers(HttpMethod.GET, "/disciplines").permitAll()
                         .antMatchers(HttpMethod.GET, "/instructors/public").permitAll()
+                        // 공개 브랜딩 페이지 — 위 리터럴보다 반드시 뒤에 온다(그래야 /instructors/public 이 목록으로 간다).
+                        // ⚠️ ant 의 '*' 는 '/' 를 넘지 않으므로 하위 경로(.../posts 등)는 매처를 따로 추가해야 한다.
+                        .antMatchers(HttpMethod.GET, "/instructors/*").permitAll()
                         .antMatchers(HttpMethod.GET, "/courses/browse").permitAll()
                         .antMatchers(HttpMethod.GET, "/courses/level-labels").permitAll()
                         .antMatchers(HttpMethod.GET, "/courses/*/detail").permitAll()
@@ -75,6 +78,8 @@ public class SecurityConfiguration {
                         .antMatchers("/instructor/enrollments/**").authenticated()
                         .antMatchers("/enrollments/**").authenticated()
                         .antMatchers("/payments/**").authenticated()
+                        // 브랜딩 오너 편집 — role 이 아니라 인증. 일반 유저도 쓰고(D2), 강사도 승인 전에 편집 화면이 있다.
+                        .antMatchers("/branding/**").authenticated()
                         .antMatchers("/course-images").authenticated()
                         .antMatchers("/courses/**").authenticated()
                         .antMatchers("/address-search", "/geocode").authenticated()

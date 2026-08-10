@@ -384,3 +384,27 @@ operation::review-find-list[]
 [[resource-review-find-my-list]]
 === 나의 리뷰 모아보기
 operation::review-find-my-list[]
+[[resource-branding]]
+== 브랜딩 페이지 / 내 프로필
+
+강사에겐 "브랜딩 페이지", 일반 유저에겐 "내 프로필". 같은 스키마·같은 엔드포인트를 쓰고 응답 필드만 role 로 갈린다.
+강사 한정 필드(`disciplineCodes`·`certs`·`stats.students`·`products`)는 일반 유저 응답에서 **키 자체가 빠진다**.
+
+NOTE: 별도 생성 엔드포인트가 없다 — 첫 쓰기가 곧 생성이다(조회는 생성하지 않는다).
+공개 URL 식별자는 순차 id 가 아니라 `nickName` 이며 percent-encoding 으로 전달한다.
+
+[[resource-branding-public]]
+=== 공개 브랜딩 페이지 조회
+operation::branding-public[]
+
+[[resource-branding-me]]
+=== 내 브랜딩 페이지 조회
+operation::branding-me[]
+
+[[resource-branding-me-update]]
+=== 내 브랜딩 페이지 부분 수정
+operation::branding-me-update[]
+
+[[resource-branding-me-publish]]
+=== 내 브랜딩 페이지 발행 토글
+operation::branding-me-publish[]
