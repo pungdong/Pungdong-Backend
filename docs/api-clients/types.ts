@@ -1348,6 +1348,8 @@ export interface RejectRequest {
 
 /**
  * 2회차+ 일정 신청 — POST /enrollments/{enrollmentId}/rounds → 201 PENDING. 어느 회차인지는 서버가 판정
+ * ★ **미결제 재신청은 그냥 다시 호출하면 된다**(supersede) — 결제 전이면 옛 미결제 건을 갈아끼우므로 회차가
+ *   중복 생기지 않고 옛 좌석도 자동 반납된다. 취소 후 재신청할 필요 없다(1회차는 POST /enrollments 재호출).
  * (다음 schedulable 회차 — 직전 정규 CONFIRMED 게이트, 정규 끝나면 EXTRA). 옵션은 GET /enrollments/{enrollmentId}/next-options.
  */
 export interface RoundScheduleRequest {

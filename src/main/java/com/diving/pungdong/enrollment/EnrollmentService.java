@@ -89,6 +89,12 @@ public class EnrollmentService {
         if (round1 == null) {
             throw new BadRequestException(); // 코스에 정규 회차 정의 없음
         }
+        // ★ supersede — 같은 강의에 <b>미결제 1회차</b>가 이미 있으면 새 수강을 만들지 않고 그 회차의 슬롯을 갈아끼운다.
+        // 안 그러면 결제 화면에서 뒤로 가 다시 신청할 때마다 수강 컨테이너와 좌석 점유가 하나씩 쌓인다(이중 점유).
+        EnrollmentRound resumable = unpaidFirstRound(student, course);
+        if (resumable != null) {
+            return supersede(resumable, req);
+        }
         Enrollment enrollment = Enrollment.builder()
                 .student(student).course(course)
                 .tuitionSnapshot(course.getPrice())
@@ -116,6 +122,12 @@ public class EnrollmentService {
             throw new BadRequestException();
         }
         Account instructor = requireInstructor(course);
+        // ★ supersede — 이 수강에 <b>미결제 회차</b>가 이미 있으면 그것을 갈아끼운다. RoundGate 는 활성 회차가 있으면
+        // 다음 회차를 안 열어주므로(400), 이게 없으면 학생이 취소하기 전엔 다른 날짜로 못 바꾼다(갇힘).
+        EnrollmentRound resumable = unpaidRound(enrollment);
+        if (resumable != null) {
+            return supersede(resumable, req);
+        }
         CourseRound next = RoundGate.nextSchedulable(enrollment);
         if (next == null) {
             throw new BadRequestException(); // 지금 잡을 회차 없음(직전 회차 미확정 / 전부 완료)
@@ -235,13 +247,33 @@ public class EnrollmentService {
         }
         BookableSlotDeriver.Block block = bookableBlock(venue, req.getTicketRef(), req.getDate(),
                 req.getBlockStart(), req.getBlockEnd());
-        requireCoverageAndNoOverlap(instructor, req.getDate(), req.getVenueRefId(),
-                req.getBlockStart(), req.getBlockEnd());
+        return swapSlot(round, instructor, venue, block, req, paid); // coverage·겹침·좌석 검사는 여기서
 
+    }
+
+    /**
+     * 회차의 슬롯을 요청 슬롯으로 <b>제자리 교체</b>한다 — {@code reschedule} 과 <b>미결제 재신청(supersede)</b> 이 공유.
+     *
+     * <p><b>왜 공유하나</b>: 학생이 결제 화면에서 뒤로 가 다른 날짜로 다시 신청하는 것은 사실상 "일정 수정"이다.
+     * 새 신청을 하나 더 만들면 옛 미결제 건이 좌석을 잡은 채 남아 <b>이중 점유</b>가 되므로, 같은 자리(학생×강의×회차)의
+     * 미결제 PENDING 은 새로 만들지 않고 이 경로로 갈아끼운다.
+     *
+     * <p><b>내 유령 점유가 나를 막지 않게</b>: 옮기고 나면 비어서 사라질 <b>자기 옛 일정</b>은 이중부킹 판정에서
+     * 제외하고({@code -1015} 오판 방지), 같은 일정으로 되돌아가는 경우엔 만석 검사를 건너뛴다(이미 그 자리를 쓰고 있다).
+     */
+    private EnrollmentResponse swapSlot(EnrollmentRound round, Account instructor, VenueResponse venue,
+                                        BookableSlotDeriver.Block block, RoundSlotInput req, boolean paid) {
         AvailabilitySession oldSession = round.getAvailabilitySession();
+        // 옛 일정이 이 회차만 붙들고 있다면 옮기는 순간 사라진다 → 겹침 판정에서 제외(내 유령이 나를 막는 것 방지).
+        Long vacating = willVacate(oldSession) ? oldSession.getId() : null;
+        requireCoverageAndNoOverlap(instructor, req.getDate(), req.getVenueRefId(),
+                req.getBlockStart(), req.getBlockEnd(), vacating);
+
         AvailabilitySession newSession = findOrCreateSession(instructor, req.getDate(),
                 req.getBlockStart(), req.getBlockEnd(), req.getVenueRefId(), req.getTicketRef());
-        requireSeat(newSession);
+        if (oldSession == null || !oldSession.getId().equals(newSession.getId())) {
+            requireSeat(newSession); // 같은 일정으로 되돌아가면 이미 내가 점유 중이라 검사 불필요(자기 자신에 막힘)
+        }
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         int paidTotal = round.chargeTotal(); // 결제완료 경로에서 = 이미 결제된 금액
@@ -271,6 +303,57 @@ public class EnrollmentService {
             sessionCleaner.deleteIfEmpty(oldSession);
         }
         return EnrollmentResponse.of(round, venue.getName(), instructor.getNickName());
+    }
+
+    /**
+     * 미결제 재신청(supersede) — 옛 미결제 회차를 새 슬롯으로 갈아끼운다. 새 회차를 만들지 않으므로 옛 좌석이
+     * 자동 반납되고 이중 점유가 생기지 않는다. 상태는 그대로 {@code PENDING}(결제 시계만 재시작).
+     *
+     * <p><b>스코프 엄수</b>: 호출자가 (학생 × 강의 × 미결제 PENDING)로 좁혀 찾은 회차만 넘긴다 —
+     * 결제완료({@code ACCEPT_PENDING})·확정·다른 강의는 절대 건드리지 않는다.
+     */
+    private EnrollmentResponse supersede(EnrollmentRound round, RoundSlotInput req) {
+        Account instructor = round.getEnrollment().getCourse().getInstructor();
+        requireRoundCandidate(round.getCourseRound(), req.getVenueRefId(), req.getTicketRef());
+        VenueResponse venue = venueRefResolver.resolveVenues(List.of(req.getVenueRefId())).get(req.getVenueRefId());
+        if (venue == null) {
+            throw new BadRequestException();
+        }
+        BookableSlotDeriver.Block block = bookableBlock(venue, req.getTicketRef(), req.getDate(),
+                req.getBlockStart(), req.getBlockEnd());
+        return swapSlot(round, instructor, venue, block, req, false);
+    }
+
+    /** 그 학생이 그 강의에 대해 들고 있는 <b>미결제 1회차</b>(없으면 null). supersede 대상. */
+    private EnrollmentRound unpaidFirstRound(Account student, Course course) {
+        return roundRepo.findByEnrollment_Student_IdAndEnrollment_Course_IdAndStatus(
+                        student.getId(), course.getId(), EnrollmentStatus.PENDING).stream()
+                .filter(EnrollmentRound::isFirstMeeting)
+                .max(Comparator.comparing(EnrollmentRound::getId))
+                .orElse(null);
+    }
+
+    /**
+     * 그 수강 안의 <b>미결제 2회차+ 회차</b>(없으면 null). {@code POST /{id}/rounds} 의 supersede 대상.
+     *
+     * <p>⚠️ <b>1회차는 제외</b> — 이 엔드포인트의 의도는 "다음 회차 신청"이다. 1회차가 미결제로 남아 있는 건
+     * "아직 1회차도 확정 안 됨"이므로 순차 게이트가 400 으로 막아야 하고(그게 M1 사양), 여기서 1회차 슬롯을
+     * 갈아끼우면 게이트가 무력화된다. 1회차 재신청은 {@code POST /enrollments}(submit) 소관.
+     */
+    private EnrollmentRound unpaidRound(Enrollment enrollment) {
+        return enrollment.getRounds().stream()
+                .filter(r -> r.getStatus() == EnrollmentStatus.PENDING && !r.isFirstMeeting())
+                .max(Comparator.comparing(EnrollmentRound::getId))
+                .orElse(null);
+    }
+
+    /** 이 일정이 지금 회차 하나만 붙들고 있나 — 그 회차를 옮기면 점유 0 이 되어 정리된다. */
+    private boolean willVacate(AvailabilitySession session) {
+        if (session == null) {
+            return false;
+        }
+        int occupied = roundRepo.countByAvailabilitySessionIdAndStatusIn(session.getId(), EnrollmentStatus.ACTIVE);
+        return occupied <= 1 && session.heldCount() == 0;
     }
 
     /**
@@ -655,10 +738,16 @@ public class EnrollmentService {
     /** 블록이 강사 coverage 에 통째로 ⊆ + 강사 기존 일정과 시간 안 겹침(같은 위치/블록 join 제외). */
     private void requireCoverageAndNoOverlap(Account instructor, LocalDate date, String venueRef,
                                              LocalTime start, LocalTime end) {
+        requireCoverageAndNoOverlap(instructor, date, venueRef, start, end, null);
+    }
+
+    /** {@code ignoreSessionId} = 이 이동으로 비워질 내 옛 일정(겹침 판정에서 제외 — 내 유령이 나를 막지 않게). */
+    private void requireCoverageAndNoOverlap(Account instructor, LocalDate date, String venueRef,
+                                             LocalTime start, LocalTime end, Long ignoreSessionId) {
         if (!coversWhole(instructor, date, start, end)) {
             throw new BadRequestException(); // 예약가능시간 밖
         }
-        overlapGuard.requireNoOverlap(instructor.getId(), date, venueRef, start, end);
+        overlapGuard.requireNoOverlap(instructor.getId(), date, venueRef, start, end, ignoreSessionId);
     }
 
     private boolean coversWhole(Account instructor, LocalDate date, LocalTime start, LocalTime end) {
