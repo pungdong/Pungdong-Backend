@@ -397,6 +397,105 @@ class MultiRoundProgressUseCaseTest {
         assertThat(roundRepo.findById(r2.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.CONFIRMED);
     }
 
+    /* ─── SP* 미결제 재신청(supersede) — 옛 좌석이 남지 않게 ─── */
+
+    @Test
+    @DisplayName("SP1 결제 전 다른 날짜로 다시 신청하면 수강이 하나로 유지되고 옛 좌석은 반납된다(이중 점유 없음)")
+    void reapplyBeforePaymentSupersedes() throws Exception {
+        Account ins = instructor("ins-sp1@pd.com", "강사SP1", 4);
+        Venue v = venue(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String ticket = v.getTickets().get(0).getRef();
+        Course course = twoRoundCourse(ins, ref, ticket);
+        openCoverage(ins, D1); openCoverage(ins, D2);
+        Account stu = account("stu-sp1@pd.com", "학생SP1", Role.STUDENT);
+
+        applyRound1(stu, course, ref, ticket, D1).andExpect(status().isCreated());
+        // 결제 화면에서 뒤로 → 날짜 바꿔 다시 신청
+        applyRound1(stu, course, ref, ticket, D2).andExpect(status().isCreated());
+
+        // 수강도 회차도 하나뿐 — 새로 쌓이지 않는다
+        assertThat(enrollmentRepo.findByStudentIdOrderByIdDesc(stu.getId())).hasSize(1);
+        List<EnrollmentRound> rounds = roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId());
+        assertThat(rounds).hasSize(1);
+        assertThat(rounds.get(0).getDate()).isEqualTo(D2);
+        assertThat(rounds.get(0).getStatus()).isEqualTo(EnrollmentStatus.PENDING);
+        // 옛 슬롯(D1) 일정은 점유 0 이 되어 정리됐다 = 좌석 반납
+        assertThat(sessionRepo.findAll()).hasSize(1);
+        assertThat(sessionRepo.findAll().get(0).getDate()).isEqualTo(D2);
+    }
+
+    @Test
+    @DisplayName("SP2 내 유령 미결제 점유가 나를 막지 않는다 — 겹치는 시간대로 재신청해도 이중부킹(-1015) 안 남")
+    void reapplyToOverlappingSlotIsNotBlockedByOwnGhost() throws Exception {
+        Account ins = instructor("ins-sp2@pd.com", "강사SP2", 4);
+        Venue v = venueWithNightTicket(ins); // 일반권 14~17 / 야간권 18~21
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String dayTicket = v.getTickets().get(0).getRef();
+        Course course = twoTicketCourse(ins, ref, dayTicket, v.getTickets().get(1).getRef());
+        openCoverageIncludingNight(ins, D1);
+        Account stu = account("stu-sp2@pd.com", "학생SP2", Role.STUDENT);
+
+        applyRound1(stu, course, ref, dayTicket, D1).andExpect(status().isCreated());
+        // 같은 날 같은 이용권으로 다시 신청(= 완전히 같은 슬롯) — 내 점유가 만석/겹침으로 나를 막으면 안 된다
+        applyRound1(stu, course, ref, dayTicket, D1).andExpect(status().isCreated());
+
+        assertThat(roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId())).hasSize(1);
+        assertThat(sessionRepo.findAll()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("SP3 2회차도 결제 전이면 다시 신청해 날짜를 바꿀 수 있다(예전엔 400 으로 갇혔다)")
+    void reapplySecondRoundBeforePayment() throws Exception {
+        Account ins = instructor("ins-sp3@pd.com", "강사SP3", 4);
+        Venue v = venue(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String ticket = v.getTickets().get(0).getRef();
+        Course course = twoRoundCourse(ins, ref, ticket);
+        LocalDate d3 = LocalDate.now().plusWeeks(3);
+        openCoverage(ins, D1); openCoverage(ins, D2); openCoverage(ins, d3);
+        Account stu = account("stu-sp3@pd.com", "학생SP3", Role.STUDENT);
+        Long enrollmentId = enrollWithDoneRound1(stu, course, ref, ticket);
+
+        mockMvc.perform(post("/enrollments/{id}/rounds", enrollmentId).header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON).content(roundBody(ref, ticket, D2)))
+                .andExpect(status().isCreated());
+        // 결제 전에 날짜 변경 — 취소하지 않고 바로 다시 신청
+        mockMvc.perform(post("/enrollments/{id}/rounds", enrollmentId).header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON).content(roundBody(ref, ticket, d3)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.roundIndex").value(2))
+                .andExpect(jsonPath("$.date").value(d3.toString()));
+
+        // 2회차는 여전히 하나 — 중복 안 쌓임
+        long round2Count = roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).stream()
+                .filter(r -> Integer.valueOf(2).equals(r.getRoundIndex())).count();
+        assertThat(round2Count).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("SP4 결제완료(ACCEPT_PENDING) 회차는 supersede 대상이 아니다 — 강사 결정 대기 건을 건드리지 않는다")
+    void paidRoundIsNotSuperseded() throws Exception {
+        Account ins = instructor("ins-sp4@pd.com", "강사SP4", 4);
+        Venue v = venue(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String ticket = v.getTickets().get(0).getRef();
+        Course course = twoRoundCourse(ins, ref, ticket);
+        openCoverage(ins, D1); openCoverage(ins, D2);
+        Account stu = account("stu-sp4@pd.com", "학생SP4", Role.STUDENT);
+
+        applyRound1(stu, course, ref, ticket, D1).andExpect(status().isCreated());
+        EnrollmentRound paid = paid(roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).get(0));
+
+        // 결제완료 건이 있는데 또 신청 → supersede 하지 않고 별도 수강으로 간다(강사 결정 대기 건 보호)
+        applyRound1(stu, course, ref, ticket, D2).andExpect(status().isCreated());
+
+        EnrollmentRound after = roundRepo.findById(paid.getId()).orElseThrow();
+        assertThat(after.getStatus()).isEqualTo(EnrollmentStatus.ACCEPT_PENDING); // 그대로
+        assertThat(after.getDate()).isEqualTo(D1);                                // 슬롯도 그대로
+        assertThat(roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId())).hasSize(2);
+    }
+
     @Test
     @DisplayName("M15 더 비싼 시간대로 옮기려면 차액만 결제 — 슬롯이 바뀌고 강사 재수락 대기로 돌아간다")
     void slotChangeDiffPayment() throws Exception {

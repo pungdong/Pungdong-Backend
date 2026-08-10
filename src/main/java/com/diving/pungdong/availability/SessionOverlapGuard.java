@@ -25,7 +25,23 @@ public class SessionOverlapGuard {
 
     /** 새 (위치,시간) 일정이 기존과 겹치면 예외. (정확히 같은 위치·시간 = join 대상이라 제외.) */
     public void requireNoOverlap(Long instructorId, LocalDate date, String venueRef, LocalTime start, LocalTime end) {
-        if (wouldOverlap(sessionRepo.findByInstructorIdAndDate(instructorId, date), venueRef, start, end)) {
+        requireNoOverlap(instructorId, date, venueRef, start, end, null);
+    }
+
+    /**
+     * 같은 판정이되 <b>곧 사라질 내 일정 하나를 제외</b>한다({@code ignoreSessionId}).
+     *
+     * <p><b>왜 필요한가</b>: 회차의 슬롯을 옮길 때, 옮기고 나면 비어서 삭제될 <b>자기 자신의 옛 일정</b>이
+     * 새 슬롯과 시간이 겹치면 "이중부킹"으로 오판돼 <b>내 유령 점유가 나를 막는다</b>(13~16 → 14~17 이동 등).
+     * 옛 일정에 다른 학생/hold 가 남아 실제로 살아남는 경우엔 제외하면 안 되므로, 호출자가 "이 일정은 비워진다"를
+     * 확인했을 때만 넘긴다.
+     */
+    public void requireNoOverlap(Long instructorId, LocalDate date, String venueRef, LocalTime start, LocalTime end,
+                                 Long ignoreSessionId) {
+        List<AvailabilitySession> daySessions = sessionRepo.findByInstructorIdAndDate(instructorId, date).stream()
+                .filter(s -> ignoreSessionId == null || !ignoreSessionId.equals(s.getId()))
+                .collect(java.util.stream.Collectors.toList());
+        if (wouldOverlap(daySessions, venueRef, start, end)) {
             throw new SessionTimeOverlapException();
         }
     }
