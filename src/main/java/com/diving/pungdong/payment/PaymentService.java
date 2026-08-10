@@ -5,6 +5,7 @@ import com.diving.pungdong.enrollment.EnrollmentRound;
 import com.diving.pungdong.enrollment.EnrollmentRoundJpaRepo;
 import com.diving.pungdong.enrollment.EnrollmentService;
 import com.diving.pungdong.enrollment.EnrollmentStatus;
+import com.diving.pungdong.enrollment.PaymentWindow;
 import com.diving.pungdong.global.sitesettings.SiteSettingsProvider;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
@@ -132,8 +133,15 @@ public class PaymentService {
                 order.getOrderId(), order.getOrderName(), order.getAmount(), customerKey(student), mobile));
         log.info("[payment] 결제 준비 order={} amount={} provider={} round={} client={}",
                 order.getOrderId(), order.getAmount(), gateway.provider(), roundId, order.getClient());
+        // 결제창 카운트다운 — 차액 결제는 주문의 window(좌석 hold 와 같은 기한), 일반 결제는 회차의
+        // 미결제 window(신청 시각 기준). 시계가 서로 달라 분기한다.
+        int ttlHours = siteSettings.current().paymentTtlHours();
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        Long expiresInSeconds = target != null
+                ? PaymentWindow.remainingSeconds(PaymentWindow.deadline(order.getCreatedAt(), ttlHours), now)
+                : PaymentWindow.remainingSecondsFor(r, ttlHours, now);
         return PaymentPrepareResponse.of(order, orderNoFormatter.format(order.getId(), order.getCreatedAt()),
-                gateway.provider(), params);
+                gateway.provider(), params, expiresInSeconds);
     }
 
     /**

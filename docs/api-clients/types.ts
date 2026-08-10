@@ -1674,6 +1674,14 @@ export interface EnrollmentResponse extends HalLinks {
   equipmentTotal: number;
   total: number;
   equipment: EnrollmentEquipmentLine[];
+  /**
+   * 결제 기한까지 남은 **초**. 미결제(status='PENDING')일 때만 값이 있고 그 외엔 null.
+   * ★ 카운트다운은 이 값을 앵커로 쓴다 — TTL 은 Sanity 운영값이라 배포 없이 바뀌므로 FE 하드코딩 금지,
+   *   절대시각이 아닌 이유는 기기 시계가 틀어져도 안 밀리게 하려는 것(otpExpiresInSeconds 와 같은 규칙).
+   * ⚠️ 0 이 곧 "결제 불가"는 아니다 — 만료 스윕이 주기 폴링(약 5분)이라 잠깐은 결제가 성사된다.
+   *   0 은 "곧 만료"로 다루면 된다(늦게 결제해도 취소되지 않는다).
+   */
+  paymentExpiresInSeconds: number | null;
   createdAt: string | null;
   respondedAt: string | null;
   slotHistory: SlotHistoryLine[]; // 슬롯 변경 이력(reschedule/pick-slot 시 적재) — CS 추적
@@ -1720,6 +1728,11 @@ export interface ScheduleRound {
   /** 강사 일정변경 제안 슬롯(RESCHEDULING). 학생이 골라 POST /enrollments/rounds/{roundId}/pick-slot. */
   proposedSlots: SlotProposal[];
   rejectionReason: string | null; // REJECTED만
+  /**
+   * 결제 기한까지 남은 **초**. status='PAYMENT_DUE'(미결제)일 때만 값이 있고 그 외엔 null.
+   * "OO분 안에 결제" 안내의 단일 출처 — 주의사항은 EnrollmentResponse.paymentExpiresInSeconds 와 동일.
+   */
+  paymentExpiresInSeconds: number | null;
   createdAt: string | null;
   respondedAt: string | null;
 }
@@ -1902,8 +1915,10 @@ export interface PaymentPrepareRequest {
   // ★ 슬롯 변경 차액 결제(선택) — 넷을 모두 보낼 때만 활성. 하나라도 빠지면 일반 결제로 처리된다.
   targetDate?: string;        // 'YYYY-MM-DD'
   targetTicketRef?: string;
-  targetBlockStart?: string;  // 'HH:mm'
-  targetBlockEnd?: string;    // 'HH:mm'
+  // ★ 'HH:mm' · 'HH:mm:ss' 둘 다 받는다 → EnrollmentSlot.blockStart("14:00:00")를 **그대로 되보내면 된다**(자르지 말 것).
+  //   (예전엔 'HH:mm' 만 받아 "14:00:00" 이 400 이었다. 2026-08-11 수정.)
+  targetBlockStart?: string;
+  targetBlockEnd?: string;
 }
 
 /**
@@ -1924,6 +1939,12 @@ export interface PaymentPrepareResponse {
   orderName: string;    // "코스명 (N회차)"
   provider: PaymentProvider;
   params: Record<string, string>;
+  /**
+   * 이 결제창을 닫아야 하는 기한까지 남은 **초**(계산 불가면 null).
+   * 일반 결제는 회차의 미결제 window(신청 시각 기준), **차액 결제는 주문의 window**(좌석 hold 와 같은 기한) —
+   * 시계가 서로 다르니 이 값을 그대로 쓸 것.
+   */
+  paymentExpiresInSeconds: number | null;
 }
 
 // ★★ confirm 주체가 provider 마다 다르다 (WebView POST 제약):
@@ -1960,6 +1981,13 @@ export interface PaymentConfirmResponse {
   approvedAt: string | null;      // ISO-8601 offset
   enrollmentId: number | null;        // ★ 회차 id (다회차) — 응답 필드명은 호환 유지
   enrollmentStatus: EnrollmentStatus; // 회차 상태 — 결제 성공 후 항상 'ACCEPT_PENDING'(강사 결정 대기). ★ 2회차+ 도 동일(옛 'CONFIRMED' 아님)
+  /**
+   * 이 주문이 **일정 변경 차액** 결제인가 — 완료 화면 문구 분기용
+   * (false: "결제가 완료됐어요" / true: "일정 변경을 요청했어요").
+   * enrollmentStatus 는 두 경우 모두 'ACCEPT_PENDING' 이라 구분이 안 되고, 이니시스는 성공 URL 을 BE 가 만들어
+   * 302 하므로 FE 가 쿼리를 실을 수도 없다 → 서버가 알려준다. **쿠키/sessionStorage 우회 불필요.**
+   */
+  scheduleChange: boolean;
 }
 
 /**
@@ -2015,6 +2043,7 @@ export const ErrorCode = {
   AUTH_ENTRY_POINT: -1002,
   ACCESS_DENIED: -1003,
   SIGN_IN_INPUT: -1004,
+  /** @deprecated BE 가 발행하지 않는다 — 대응하는 예외·i18n 키가 없음. 분기에 쓰지 말 것. */
   EXPIRED_ACCESS_TOKEN: -1005,
   EXPIRED_REFRESH_TOKEN: -1006,
   FORBIDDEN_TOKEN: -1007,
@@ -2024,6 +2053,25 @@ export const ErrorCode = {
   //   · POST /instructor-applications (강사 전환 전 선행) — verificationId 가 가리키는 레코드가 VERIFIED 아님.
   //     (없는/남의 verificationId 는 이 코드가 아니라 -1011(BAD_REQUEST, 400) 유지 — "본인인증하러 가라"가 아님.)
   IDENTITY_VERIFICATION_REQUIRED: -1017,
+
+  // ── 도메인 코드 (아래는 전부 HTTP 400) ──
+  NO_PERMISSIONS: -1008,
+  RESOURCE_NOT_FOUND: -1009, // 없음/비소유 통일(존재 숨김)
+  RESERVATION_FULL: -1010,
+  /** 범용 400. reschedule/prepare 등에서 여러 실패 사유가 이 코드를 공유하니 이걸로 사유를 가리지 말 것. */
+  BAD_REQUEST: -1011,
+  EMAIL_DUPLICATION: -1012,
+  CLOSED_LECTURE: -1013,
+  COVERAGE_HAS_SESSION: -1014,
+  /** 그 시간에 강사의 다른 일정이 있음. 일정 추가/신청/일정변경(reschedule·pick-slot) 공통. */
+  SESSION_TIME_OVERLAP: -1015,
+  /**
+   * 옮기려는 슬롯이 지금보다 **비싸서** 추가 결제 없이는 못 바꿈.
+   * FE 는 이 코드일 때만 "추가 결제하고 변경하기"로 분기한다 —
+   * POST /payments/prepare 에 target* 4필드를 실어 보내면 서버가 차액을 계산해 결제창을 연다.
+   * 나오는 곳: POST /enrollments/rounds/{roundId}/reschedule, POST /enrollments/rounds/{roundId}/pick-slot.
+   */
+  ADDITIONAL_PAYMENT_REQUIRED: -1018,
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];

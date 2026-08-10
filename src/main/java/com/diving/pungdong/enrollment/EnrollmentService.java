@@ -23,6 +23,7 @@ import com.diving.pungdong.enrollment.dto.RoundSlotInput;
 import com.diving.pungdong.enrollment.dto.ScheduleHubResponse;
 import com.diving.pungdong.enrollment.event.EnrollmentPartialRefundRequestedEvent;
 import com.diving.pungdong.enrollment.event.EnrollmentRefundRequestedEvent;
+import com.diving.pungdong.global.advice.exception.AdditionalPaymentRequiredException;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.IdentityVerificationRequiredException;
 import com.diving.pungdong.global.advice.exception.PreLaunchException;
@@ -103,7 +104,7 @@ public class EnrollmentService {
         EnrollmentRound round = buildRound(instructor, round1, req, 0);
         enrollment.addRound(round);
         enrollmentRepo.save(enrollment); // cascade → round + 장비
-        return EnrollmentResponse.of(round, venueName(round.getVenueRefId()), instructor.getNickName());
+        return EnrollmentResponse.of(round, venueName(round.getVenueRefId()), instructor.getNickName(), paymentExpiresInSeconds(round));
     }
 
     /**
@@ -136,7 +137,7 @@ public class EnrollmentService {
         EnrollmentRound round = buildRound(instructor, next, req, extraSnapshot);
         enrollment.addRound(round);
         roundRepo.save(round);
-        return EnrollmentResponse.of(round, venueName(round.getVenueRefId()), instructor.getNickName());
+        return EnrollmentResponse.of(round, venueName(round.getVenueRefId()), instructor.getNickName(), paymentExpiresInSeconds(round));
     }
 
     /**
@@ -197,7 +198,7 @@ public class EnrollmentService {
                 sessionCleaner.deleteIfEmpty(s);
             }
         }
-        return EnrollmentResponse.of(round, venue.getName(), instructor.getNickName());
+        return EnrollmentResponse.of(round, venue.getName(), instructor.getNickName(), paymentExpiresInSeconds(round));
     }
 
     /** 이 회차의 강사 제안 보장 hold 를 모두 해제(orphanRemoval). 영향받은(distinct) 일정 목록 반환 — 호출자가 정리. */
@@ -302,7 +303,7 @@ public class EnrollmentService {
         if (oldSession != null && !oldSession.getId().equals(newSession.getId())) {
             sessionCleaner.deleteIfEmpty(oldSession);
         }
-        return EnrollmentResponse.of(round, venue.getName(), instructor.getNickName());
+        return EnrollmentResponse.of(round, venue.getName(), instructor.getNickName(), paymentExpiresInSeconds(round));
     }
 
     /**
@@ -485,7 +486,9 @@ public class EnrollmentService {
     private void settleSlotChange(EnrollmentRound round, int paidTotal, String reason) {
         int refundable = paidTotal - round.chargeTotal();
         if (refundable < 0) {
-            throw new BadRequestException(); // 금액이 늘어남 — 추가 결제 없이는 못 옮김
+            // 금액이 늘어남 — 추가 결제 없이는 못 옮긴다. 전용 코드(-1018)로 내려 FE 가 나머지 400
+            // (만석·확정 회차·슬롯 무효 …)과 구분해 차액 결제로 유도하게 한다.
+            throw new AdditionalPaymentRequiredException();
         }
         if (refundable > 0) {
             events.publishEvent(new EnrollmentPartialRefundRequestedEvent(round.getId(), refundable, reason));
@@ -518,7 +521,7 @@ public class EnrollmentService {
         if (paid) {
             events.publishEvent(new EnrollmentRefundRequestedEvent(roundId, "학생 취소"));
         }
-        EnrollmentResponse resp = EnrollmentResponse.of(round, venueName(round.getVenueRefId()), instructorName(round));
+        EnrollmentResponse resp = EnrollmentResponse.of(round, venueName(round.getVenueRefId()), instructorName(round), paymentExpiresInSeconds(round));
         sessionCleaner.deleteIfEmpty(session);
         return resp;
     }
@@ -529,7 +532,7 @@ public class EnrollmentService {
                 .flatMap(e -> e.getRounds().stream()).collect(Collectors.toList());
         Map<String, String> names = resolveNames(rounds);
         return rounds.stream()
-                .map(r -> EnrollmentResponse.of(r, names.get(r.getVenueRefId()), instructorName(r)))
+                .map(r -> EnrollmentResponse.of(r, names.get(r.getVenueRefId()), instructorName(r), paymentExpiresInSeconds(r)))
                 .collect(Collectors.toList());
     }
 
@@ -550,7 +553,18 @@ public class EnrollmentService {
         return new ScheduleHubResponse(buildScheduleFilters(courses), courses);
     }
 
+    /**
+     * 미결제 회차의 결제 잔여 초 — 그 상태가 아니면 null. TTL 은 Sanity 런타임값이라 매 응답 시점에 푼다
+     * (60s 캐시라 값싸다). 계산 규칙은 만료 스윕과 {@link PaymentWindow} 로 공유한다.
+     */
+    private Long paymentExpiresInSeconds(EnrollmentRound round) {
+        return PaymentWindow.remainingSecondsFor(round, siteSettings.current().paymentTtlHours(),
+                OffsetDateTime.now(ZoneOffset.UTC));
+    }
+
     private ScheduleHubResponse.ScheduleCourse buildScheduleCourse(Enrollment e, Map<String, String> venueNames) {
+        int paymentTtlHours = siteSettings.current().paymentTtlHours();
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         // 재신청으로 대체된 죽은 회차는 제외 — 안 그러면 옛 REJECTED 때문에 강의가 영원히 RESCHEDULING 으로 굳는다.
         List<ScheduleHubResponse.ScheduleRound> rounds = RoundHistory.current(e.getRounds()).stream()
                 .sorted(Comparator.comparing(r -> r.getRoundIndex() == null ? Integer.MAX_VALUE : r.getRoundIndex()))
@@ -571,6 +585,7 @@ public class EnrollmentService {
                                 .collect(Collectors.toList()))
                         .proposedSlots(new ArrayList<>(r.getProposedSlots()))
                         .rejectionReason(r.getRejectionReason())
+                        .paymentExpiresInSeconds(PaymentWindow.remainingSecondsFor(r, paymentTtlHours, now))
                         .createdAt(r.getCreatedAt())
                         .respondedAt(r.getRespondedAt())
                         .build())

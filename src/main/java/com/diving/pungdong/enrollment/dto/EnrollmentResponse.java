@@ -44,13 +44,25 @@ public class EnrollmentResponse {
     private int total;
     private List<EquipmentLine> equipment;
 
+    /**
+     * 결제 기한까지 남은 <b>초</b> — 미결제({@code PENDING})일 때만 채워지고 그 외엔 null.
+     * 신청 직후 응답에 실려 "OO분 안에 결제" 안내가 곧바로 숫자를 갖게 한다.
+     * 계산·주의사항은 {@link com.diving.pungdong.enrollment.PaymentWindow}.
+     */
+    private Long paymentExpiresInSeconds;
+
     private OffsetDateTime createdAt;
     private OffsetDateTime respondedAt;
 
     /** 슬롯 변경 이력(일정 수정/제안 선택으로 슬롯이 바뀐 기록 — CS 추적). 변경 없으면 빈 배열. */
     private List<SlotHistoryLine> slotHistory;
 
-    public static EnrollmentResponse of(EnrollmentRound r, String venueName, String instructorName) {
+    /**
+     * @param paymentExpiresInSeconds 미결제 잔여 초(그 상태가 아니면 null). 서버 시각이 필요해 호출자가 계산해
+     *                                넘긴다 — DTO 가 시계를 숨겨 들지 않게.
+     */
+    public static EnrollmentResponse of(EnrollmentRound r, String venueName, String instructorName,
+                                        Long paymentExpiresInSeconds) {
         var course = r.getEnrollment() == null ? null : r.getEnrollment().getCourse();
         return EnrollmentResponse.builder()
                 .id(r.getId())
@@ -70,6 +82,7 @@ public class EnrollmentResponse {
                 .equipmentTotal(r.getEquipmentSnapshot())
                 .total(r.chargeTotal())
                 .equipment(r.getEquipment().stream().map(EquipmentLine::from).collect(Collectors.toList()))
+                .paymentExpiresInSeconds(paymentExpiresInSeconds)
                 .createdAt(r.getCreatedAt())
                 .respondedAt(r.getRespondedAt())
                 .slotHistory(r.getSlotHistory().stream().map(SlotHistoryLine::from).collect(Collectors.toList()))

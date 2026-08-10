@@ -77,6 +77,14 @@ public class ScheduleHubResponse {
         /** 강사 일정변경 제안 슬롯(RESCHEDULING 일 때) — 날짜+이용권+블록 완전 슬롯. 학생이 골라 pick-slot. */
         private final List<com.diving.pungdong.enrollment.ProposedSlot> proposedSlots;
         private final String rejectionReason; // REJECTED만
+        /**
+         * 결제 기한까지 남은 <b>초</b> — {@code PAYMENT_DUE}(미결제)일 때만 채워지고 그 외엔 null.
+         * "OO분 안에 결제" 카운트다운의 단일 출처다. TTL 은 Sanity 운영값이라 배포 없이 바뀌므로 FE 가
+         * 하드코딩하면 안 되고, 절대시각이 아니라 잔여 초인 이유는 기기 시계가 틀어져도 안 밀리게 하려는 것
+         * ({@code otpExpiresInSeconds} 와 같은 규칙). ⚠️ 0 이 곧 결제 불가는 아니다 —
+         * {@link com.diving.pungdong.enrollment.PaymentWindow} 주석 참고.
+         */
+        private final Long paymentExpiresInSeconds;
         private final OffsetDateTime createdAt;
         private final OffsetDateTime respondedAt;
     }
