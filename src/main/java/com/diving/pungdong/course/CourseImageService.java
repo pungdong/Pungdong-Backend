@@ -4,6 +4,7 @@ import com.diving.pungdong.account.Account;
 import com.diving.pungdong.course.dto.CourseImageResult;
 import com.diving.pungdong.course.storage.CourseImageStorage;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
+import com.diving.pungdong.global.validation.ImageUploadPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -21,9 +22,7 @@ public class CourseImageService {
     private final CourseImageStorage courseImageStorage;
 
     public CourseImageResult uploadCourseImage(Account account, MultipartFile image) {
-        if (image == null || image.isEmpty()) {
-            throw new BadRequestException();
-        }
+        ImageUploadPolicy.validate(image);
         try {
             String url = courseImageStorage.store(image, account.getEmail());
             return CourseImageResult.builder().fileURL(url).build();

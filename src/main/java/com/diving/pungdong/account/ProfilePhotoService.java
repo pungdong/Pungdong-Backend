@@ -1,6 +1,7 @@
 package com.diving.pungdong.account;
 
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
+import com.diving.pungdong.global.validation.ImageUploadPolicy;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.ProfilePhoto;
 import com.diving.pungdong.dto.profilePhoto.ProfilePhotoInfo;
@@ -38,6 +39,8 @@ public class ProfilePhotoService {
 
     @Transactional
     public ProfilePhotoUpdateInfo updateProfilePhoto(Account account, MultipartFile image) throws IOException {
+        ImageUploadPolicy.validate(image);
+
         ProfilePhoto profilePhoto = findByProfilePhotoId(account.getProfilePhoto().getId());
         String previousUrl = profilePhoto.getImageUrl();
 

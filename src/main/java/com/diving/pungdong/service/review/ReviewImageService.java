@@ -5,6 +5,7 @@ import com.diving.pungdong.domain.reservation.Reservation;
 import com.diving.pungdong.domain.review.Review;
 import com.diving.pungdong.domain.review.ReviewImage;
 import com.diving.pungdong.dto.review.image.create.ReviewImageInfo;
+import com.diving.pungdong.global.validation.ImageUploadPolicy;
 import com.diving.pungdong.repo.ReviewImageJpaRepo;
 import com.diving.pungdong.service.ReviewService;
 import com.diving.pungdong.service.image.S3Uploader;
@@ -34,6 +35,9 @@ public class ReviewImageService {
         Review review = reviewService.findByReviewId(reviewId);
 
         List<ReviewImageInfo> reviewImageInfos = new ArrayList<>();
+
+        // 한 장이라도 규칙에 어긋나면 아무것도 올리지 않는다 — 절반만 저장된 리뷰가 남지 않도록.
+        images.forEach(ImageUploadPolicy::validate);
 
         for (MultipartFile image : images) {
             String fileUrl = s3Uploader.uploadPublic(image, "review-image");
