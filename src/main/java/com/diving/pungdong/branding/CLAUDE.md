@@ -6,11 +6,16 @@
 
 ## 무엇이 들어있나
 
-- **`PublicBrandingController`** — `GET /instructors/{nickName}` (**비로그인 가능**). 공개 프로필.
-- **`BrandingController`** — `/branding/me/**` (인증). 조회·부분수정·발행토글.
-- **`BrandingService`** — 합성 + 오너 편집. 생성은 **첫 쓰기가** 한다.
-- **엔티티** — `AccountBranding`(계정당 1개) · `BrandingRecord`(공식기록) + `Medal`·`RecordEventCode` enum.
-- **`dto/`** — `BrandingProfileResponse`(공개) · `MyBrandingResponse`(오너) · `BrandingUpdateRequest`(PATCH) · `PublishRequest` · `RecordDto`.
+- **`PublicBrandingController`** — `GET /instructors/{nickName}` + `/posts` (**비로그인 가능**).
+- **`PublicBrandingPostController`** — `GET /branding-posts/{id}` (비로그인).
+- **`BrandingController`** — `/branding/me/**` (인증). 조회·부분수정·발행토글·기록 교체.
+- **`BrandingPostController`** — `/branding/me/posts/**` (인증). 게시물 CRUD·고정·숨김.
+- **`BrandingImageController`** — `POST /branding-images` (인증). 2-phase 업로드 1단계.
+- **서비스** — `BrandingService`(프로필 합성·편집) / `BrandingPostService`(목록·상세·CRUD·미디어 lifecycle).
+- **엔티티** — `AccountBranding` · `BrandingRecord` · `BrandingPost` · `BrandingPostMedia` · `BrandingPostTag`
+  + `Medal`·`RecordEventCode`·`BrandingMediaKind` enum.
+- **`storage/`** — `BrandingImageStorage`(S3/Local 게이트). 프로필·리뷰 이미지처럼 `S3Uploader` 를 직접 쓰면
+  **로컬 폴백이 없어진다** — 같은 함정을 새로 만들지 않으려고 인터페이스를 둔다.
 
 ## 이 도메인에서 자주 틀리는 것 (핵심)
 
@@ -21,6 +26,10 @@
 5. **`boolean isX` 는 Jackson 이 `x` 로 직렬화한다.** `isInstructor`·`isPublished` 에 `@JsonProperty` 를 명시한 이유 — 빼면 계약이 깨진다.
 6. **`RecordEventCode`(CWT/FIM/…)는 `discipline.Discipline`(FREEDIVING/SCUBA/…)과 다른 축이다.** 둘 다 "discipline" 이라 부르면 반드시 사고 난다 — 컬럼도 `event_code`.
 7. **`BrandingRecord.value` 의 컬럼명은 `record_value`** — `value` 는 H2(테스트 DB) 예약어라 그대로 쓰면 스키마 생성이 깨진다. API 필드명은 `value` 유지.
+8. **숨김(`is_hidden`)은 삭제가 아니다.** 공개 목록·상세·게시물 수에서만 빠지고 **오너 목록엔 남는다** — 안 그러면 숨긴 글을 다시 켤 수 없다. 같은 이유로 **상세도 오너 본인에겐 열린다**(숨김·미발행 포함) — `GET /branding-posts/{id}` 는 보는 사람에 따라 갈린다. permitAll 이라 `@CurrentUser` 가 **null 일 수 있다.**
+9. **그리드는 미디어를 일괄 조회해 그룹핑한다.** 카드마다 `post.getMedia()` 를 건드리면 N+1 이다.
+10. **정렬·size 는 서버가 고정한다.** 클라이언트 `sort` 를 `Pageable` 에 태우면 pinned-우선이 깨지고 임의 필드 정렬이 뚫린다. `size` 상한 50.
+11. **`mediaUrls` 는 우리 CDN base 로 시작하는지 검증한다.** 없으면 본문에 임의 외부 이미지를 심을 수 있고, 삭제 로직이 남의 도메인을 지우려 든다.
 
 ## 공개 URL = 닉네임 (D3)
 

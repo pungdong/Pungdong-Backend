@@ -1,10 +1,14 @@
 package com.diving.pungdong.branding;
 
+import com.diving.pungdong.branding.dto.BrandingPostCardResponse;
 import com.diving.pungdong.branding.dto.BrandingProfileResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PagedResourcesAssembler;
 import org.springframework.hateoas.EntityModel;
 import org.springframework.hateoas.Link;
 import org.springframework.hateoas.MediaTypes;
+import org.springframework.hateoas.PagedModel;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -30,6 +34,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class PublicBrandingController {
 
     private final BrandingService brandingService;
+    private final BrandingPostService postService;
 
     /**
      * {@code nickName} 은 percent-encoding 으로 전달된다(한글·공백 등). Spring 이 <b>디코딩된 값</b>을
@@ -40,6 +45,20 @@ public class PublicBrandingController {
         EntityModel<BrandingProfileResponse> model =
                 EntityModel.of(brandingService.publicProfile(nickName));
         model.add(Link.of("/docs/api.html#resource-branding-public").withRel("profile"));
+        return ResponseEntity.ok().body(model);
+    }
+
+    /**
+     * 공개 그리드 — 숨긴 글 제외, 고정 먼저 최신순. 정렬은 서버가 고정하고 {@code size} 는 상한을 둔다
+     * (클라이언트가 정렬을 바꾸거나 size 를 키워 전수 스크래핑하지 못하게).
+     */
+    @GetMapping("/{nickName}/posts")
+    public ResponseEntity<?> publicPosts(@PathVariable String nickName,
+                                         Pageable pageable,
+                                         PagedResourcesAssembler<BrandingPostCardResponse> assembler) {
+        PagedModel<EntityModel<BrandingPostCardResponse>> model =
+                assembler.toModel(postService.publicGrid(nickName, pageable));
+        model.add(Link.of("/docs/api.html#resource-branding-posts").withRel("profile"));
         return ResponseEntity.ok().body(model);
     }
 }
