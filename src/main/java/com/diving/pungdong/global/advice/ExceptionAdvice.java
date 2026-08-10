@@ -111,6 +111,16 @@ public class ExceptionAdvice {
         return responseService.getFailResult(Integer.parseInt(getMessage("identityVerificationRequired.code")), getMessage("identityVerificationRequired.msg"));
     }
 
+    /**
+     * 더 비싼 슬롯으로 옮기려 함 — 400 이되 <b>식별 가능한 코드(-1018)</b>. reschedule 의 나머지 실패
+     * (만석·확정 회차·슬롯 무효 …)는 그대로 -1011 이라, FE 가 이 코드로만 "차액 결제" 로 분기한다.
+     */
+    @ExceptionHandler(AdditionalPaymentRequiredException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public CommonResult additionalPaymentRequired(AdditionalPaymentRequiredException e) {
+        return responseService.getFailResult(Integer.parseInt(getMessage("additionalPaymentRequired.code")), getMessage("additionalPaymentRequired.msg"));
+    }
+
     @ExceptionHandler(BadRequestException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public CommonResult badRequest(BadRequestException e) {

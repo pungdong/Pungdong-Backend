@@ -21,6 +21,14 @@ public class PaymentConfirmResponse {
     private Long enrollmentId;
     private EnrollmentStatus enrollmentStatus;
 
+    /**
+     * 이 주문이 <b>일정 변경 차액</b> 결제인가 — 완료 화면 문구가 갈린다("결제가 완료됐어요" ↔ "일정 변경을
+     * 요청했어요"). {@code enrollmentStatus} 는 두 경우 모두 {@code ACCEPT_PENDING} 이라 구분이 안 되고,
+     * 이니시스는 성공 URL 을 BE 가 만들어 302 하므로 FE 가 쿼리로 실어보낼 수도 없다 — 그래서 서버가 알려준다.
+     * 판정은 {@link PaymentOrder#isSlotChange()}(target 슬롯 4필드 유무)로, 새 컬럼 없음.
+     */
+    private boolean scheduleChange;
+
     public static PaymentConfirmResponse of(PaymentOrder order, String orderNo) {
         return PaymentConfirmResponse.builder()
                 .orderId(order.getOrderId())
@@ -30,6 +38,7 @@ public class PaymentConfirmResponse {
                 .approvedAt(order.getApprovedAt())
                 .enrollmentId(order.getEnrollmentRound() == null ? null : order.getEnrollmentRound().getId())
                 .enrollmentStatus(order.getEnrollmentRound() == null ? null : order.getEnrollmentRound().getStatus())
+                .scheduleChange(order.isSlotChange())
                 .build();
     }
 }

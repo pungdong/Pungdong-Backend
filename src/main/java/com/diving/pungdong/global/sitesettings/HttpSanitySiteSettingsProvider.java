@@ -30,7 +30,7 @@ import java.time.Duration;
 public class HttpSanitySiteSettingsProvider implements SiteSettingsProvider {
 
     private static final String QUERY =
-            "*[_type == \"siteSettings\"][0]{launched, showSeededCourses, pendingTtlHours, paymentTtlHours}";
+            "*[_type == \"siteSettings\"][0]{launched, showSeededCourses, pendingTtlHours, paymentTtlHours, proposalTtlHours}";
 
     private final String projectId;
     private final String dataset;

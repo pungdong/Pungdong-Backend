@@ -62,6 +62,8 @@ public class EnrollmentExpiryService {
             SiteSettings s = siteSettings.current();
             List<Long> out = new ArrayList<>();
             // 선결제: PENDING = 미결제(장바구니) → 결제창 window(paymentTtlHours 12h, createdAt 기준). 환불 없음.
+            // ⚠️ 이 컷오프(now - ttl)는 {@link PaymentWindow#deadline}(createdAt + ttl)의 뒤집은 식이다 —
+            // FE 카운트다운이 여기서 실제로 자르는 시점과 어긋나지 않으려면 둘을 같이 고칠 것.
             roundRepo.findByStatusAndCreatedAtBefore(EnrollmentStatus.PENDING, now.minusHours(s.paymentTtlHours()))
                     .forEach(r -> out.add(r.getId()));
             // ACCEPT_PENDING = 결제완료·강사 결정 대기 → 강사 응답 window(pendingTtlHours 24h, 결제시각 respondedAt 기준). 만료 시 자동환불.

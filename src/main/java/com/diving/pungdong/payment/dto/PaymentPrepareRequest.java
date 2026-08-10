@@ -62,12 +62,18 @@ public class PaymentPrepareRequest {
     /** 목표 슬롯 이용권 ref. */
     private String targetTicketRef;
 
-    /** 목표 슬롯 시작 시각(HH:mm). */
-    @com.fasterxml.jackson.annotation.JsonFormat(pattern = "HH:mm")
+    /**
+     * 목표 슬롯 시작 시각 — {@code "14:00"} · {@code "14:00:00"} 둘 다 받는다(ISO_LOCAL_TIME).
+     *
+     * <p>⚠️ 예전엔 {@code @JsonFormat(pattern = "HH:mm")} 이 붙어 있어 <b>{@code "14:00:00"} 이 400</b> 이었다.
+     * 슬롯 목록({@code EnrollmentOptionsResponse.Slot.blockStart})은 {@code "14:00:00"} 으로 나가는데 이 DTO 만
+     * 엄격해서, "슬롯이 준 값을 그대로 되보낸다"는 자연스러운 사용이 깨졌다(다른 슬롯 DTO —
+     * {@code EnrollmentCreateRequest}·{@code PickSlotRequest}·{@code RoundScheduleRequest} — 는 전부 둘 다 받는다).
+     * 포맷을 떼서 맞췄다. 테스트가 {@code "18:00"} 만 보내 못 잡았던 자리다.
+     */
     private java.time.LocalTime targetBlockStart;
 
-    /** 목표 슬롯 종료 시각(HH:mm). */
-    @com.fasterxml.jackson.annotation.JsonFormat(pattern = "HH:mm")
+    /** 목표 슬롯 종료 시각 — {@code "14:00"} · {@code "14:00:00"} 둘 다. ({@link #targetBlockStart} 주석 참고.) */
     private java.time.LocalTime targetBlockEnd;
 
     /** 슬롯 변경 차액 결제 요청인가 — 네 값이 모두 있어야 한다(부분 전달은 일반 결제로 본다). */

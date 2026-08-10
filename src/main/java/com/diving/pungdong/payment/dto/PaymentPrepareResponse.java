@@ -33,8 +33,15 @@ public class PaymentPrepareResponse {
     /** PG별 결제창 구동값. 키 목록은 provider 에 따라 다르다(위 표 참고). */
     private Map<String, String> params;
 
+    /**
+     * 이 결제창을 닫아야 하는 기한까지 남은 <b>초</b>. 일반 결제는 회차의 미결제 window(신청 시각 기준),
+     * 차액 결제는 <b>주문</b>의 window(좌석 hold 와 같은 기한) — 둘의 시계가 다르다. 계산 불가면 null.
+     */
+    private Long paymentExpiresInSeconds;
+
     public static PaymentPrepareResponse of(PaymentOrder order, String orderNo,
-                                            PaymentProvider provider, Map<String, String> params) {
+                                            PaymentProvider provider, Map<String, String> params,
+                                            Long paymentExpiresInSeconds) {
         return PaymentPrepareResponse.builder()
                 .orderId(order.getOrderId())
                 .orderNo(orderNo)
@@ -42,6 +49,7 @@ public class PaymentPrepareResponse {
                 .orderName(order.getOrderName())
                 .provider(provider)
                 .params(params)
+                .paymentExpiresInSeconds(paymentExpiresInSeconds)
                 .build();
     }
 }

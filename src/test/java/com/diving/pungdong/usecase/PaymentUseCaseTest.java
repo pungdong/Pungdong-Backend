@@ -48,6 +48,9 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.allOf;
+import static org.hamcrest.Matchers.greaterThan;
+import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -150,6 +153,72 @@ class PaymentUseCaseTest {
         PaymentOrder order = orderRepo.findByEnrollmentRoundIdAndStatus(e.getId(), PaymentStatus.READY).orElseThrow();
         assertThat(order.getAmount()).isEqualTo(EXPECTED_AMOUNT);
         assertThat(order.getStatus()).isEqualTo(PaymentStatus.READY);
+    }
+
+    @Test
+    @DisplayName("W1 미결제 회차는 결제 잔여 초를 알려준다 — 내 목록·일정 hub·결제 준비 응답 모두(카운트다운 앵커)")
+    void unpaidRoundExposesPaymentCountdown() throws Exception {
+        Object[] s = setup(4);
+        Account stu = (Account) s[3];
+        EnrollmentRound e = submitOk(stu, s);
+
+        // 테스트 설정 TTL = 12h. 방금 신청했으니 0 < 잔여 <= 12h.
+        int ttlSeconds = 12 * 3600;
+        mockMvc.perform(get("/enrollments/mine").header(HttpHeaders.AUTHORIZATION, tokenFor(stu)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.enrollments[0].status").value("PENDING"))
+                .andExpect(jsonPath("$._embedded.enrollments[0].paymentExpiresInSeconds",
+                        allOf(greaterThan(0), lessThanOrEqualTo(ttlSeconds))));
+
+        mockMvc.perform(get("/enrollments/mine/schedule").header(HttpHeaders.AUTHORIZATION, tokenFor(stu)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.courses[0].rounds[0].status").value("PAYMENT_DUE"))
+                .andExpect(jsonPath("$.courses[0].rounds[0].paymentExpiresInSeconds",
+                        allOf(greaterThan(0), lessThanOrEqualTo(ttlSeconds))));
+
+        mockMvc.perform(post("/payments/prepare")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("roundId", e.getId()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paymentExpiresInSeconds", greaterThan(0)));
+    }
+
+    @Test
+    @DisplayName("W2 결제가 끝나면 카운트다운은 사라진다(null) — 더 이상 셀 기한이 없다")
+    void paidRoundHasNoCountdown() throws Exception {
+        Object[] s = setup(4);
+        Account stu = (Account) s[3];
+        EnrollmentRound e = submitOk(stu, s);
+        String orderId = prepareOrderId(stu, e);
+        mockMvc.perform(post("/payments/confirm")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("pgPayload", Map.of("paymentKey", "pk_w2"),
+                                "orderId", orderId, "amount", EXPECTED_AMOUNT))))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/enrollments/mine").header(HttpHeaders.AUTHORIZATION, tokenFor(stu)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.enrollments[0].status").value("ACCEPT_PENDING"))
+                .andExpect(jsonPath("$._embedded.enrollments[0].paymentExpiresInSeconds").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("W3 일반 결제 승인 응답의 scheduleChange 는 false — 일정 변경 차액 결제와 완료 화면 문구를 가른다")
+    void normalPaymentIsNotScheduleChange() throws Exception {
+        Object[] s = setup(4);
+        Account stu = (Account) s[3];
+        EnrollmentRound e = submitOk(stu, s);
+        String orderId = prepareOrderId(stu, e);
+
+        mockMvc.perform(post("/payments/confirm")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("pgPayload", Map.of("paymentKey", "pk_w3"),
+                                "orderId", orderId, "amount", EXPECTED_AMOUNT))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scheduleChange").value(false));
     }
 
     @Test
