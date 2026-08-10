@@ -1372,7 +1372,8 @@ export interface AvailabilityCalendarResponse {
 //   / ㄴㄴ(cancel → 전액환불, 또는 reschedule 로 내 슬롯 재제안)만 한다. 결제는 payment 섹션 참고.
 // 거절·취소된 회차는 그 회차만 무효 → **같은 회차를 다른 날짜로 다시 신청**할 수 있다(POST /rounds 재호출).
 
-// PENDING          = 신청 직후·미결제(좌석 점유). 여기서 바로 결제창을 띄운다. 12h 미결제 시 자동 만료.
+// PENDING          = 신청 직후·미결제(좌석 점유). 여기서 바로 결제창을 띄운다. 미결제 방치 시 자동 만료
+//                    (window 는 운영에서 조정하는 값 — Sanity siteSettings. 짧게는 1h 수준으로 운영).
 // ACCEPT_PENDING   = 결제완료·강사 결정 대기(좌석 점유). 강사가 수락/거절/일정조정 제안. 24h 무응답 시 자동환불.
 // CONFIRMED        = 확정. REJECTED/CANCELLED = 거절·취소(결제분은 자동환불).
 export type EnrollmentStatus = 'PENDING' | 'ACCEPT_PENDING' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED';
@@ -1514,7 +1515,9 @@ export type PickSlotRequest = SlotProposal; // proposedSlots 중 하나
  * 재선택 가능. 두 경로:
  *  - 미결제(PENDING) → status 그대로 **PENDING**(결제 시계 재시작).
  *  - 결제완료(ACCEPT_PENDING) → **결제를 유지한 채 학생 재제안**. status 그대로 **ACCEPT_PENDING**(강사 24h 시계 재시작,
- *    강사 hub 엔 CHANGING). 금액이 줄면 차액 자동환불, **늘면 400**(더 비싼 슬롯은 취소 후 재신청).
+ *    강사 hub 엔 CHANGING). 금액이 줄면 차액 자동환불, **늘면 400**
+ *    → 이때는 **차액 결제 경로**를 쓴다: POST /payments/prepare 에 target* 넷을 실어 차액만 결제(payment 섹션).
+ *    단 차액 경로는 **일정(날짜·이용권·블록)만** 바꾼다 — 위치·장비까지 바꾸며 금액이 오르면 취소 후 재신청.
  * 확정(CONFIRMED)·거절·취소된 회차는 400.
  * 슬롯 후보는 GET /enrollments/rounds/{roundId}/options (1회차 옵션과 동일 EnrollmentOptionsResponse — 슬롯 UI 재사용).
  */
