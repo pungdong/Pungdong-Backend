@@ -3,7 +3,9 @@ package com.diving.pungdong.payment;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.enrollment.EnrollmentRound;
 import com.diving.pungdong.enrollment.EnrollmentRoundJpaRepo;
+import com.diving.pungdong.enrollment.EnrollmentService;
 import com.diving.pungdong.enrollment.EnrollmentStatus;
+import com.diving.pungdong.global.sitesettings.SiteSettingsProvider;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.payment.dto.PaymentConfirmResponse;
@@ -12,8 +14,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -40,13 +45,22 @@ public class PaymentService {
     private final EnrollmentRoundJpaRepo roundRepo;
     private final PaymentGatewayRegistry gateways;
     private final OrderNoFormatter orderNoFormatter;
+    private final EnrollmentService enrollmentService; // 슬롯 변경 검증·좌석 hold·적용(payment→enrollment)
+    private final SiteSettingsProvider siteSettings;   // 차액 결제창 window = paymentTtlHours
 
     public PaymentService(PaymentOrderJpaRepo orderRepo, EnrollmentRoundJpaRepo roundRepo,
-                          PaymentGatewayRegistry gateways, OrderNoFormatter orderNoFormatter) {
+                          PaymentGatewayRegistry gateways, OrderNoFormatter orderNoFormatter,
+                          EnrollmentService enrollmentService, SiteSettingsProvider siteSettings) {
         this.orderRepo = orderRepo;
         this.roundRepo = roundRepo;
         this.gateways = gateways;
         this.orderNoFormatter = orderNoFormatter;
+        this.enrollmentService = enrollmentService;
+        this.siteSettings = siteSettings;
+    }
+
+    /** 차액 결제가 적용할 목표 슬롯 — 위치는 회차 고정, 일정(날짜·이용권·블록)만 바뀐다. */
+    public record SlotChangeTarget(LocalDate date, String ticketRef, LocalTime blockStart, LocalTime blockEnd) {
     }
 
     /**
@@ -55,15 +69,40 @@ public class PaymentService {
      */
     @Transactional
     public PaymentPrepareResponse prepare(Account student, Long roundId, boolean mobile, String client) {
-        EnrollmentRound r = requirePayable(student, roundId);
-        int amount = authoritativeAmount(r);
+        return prepare(student, roundId, mobile, client, null);
+    }
+
+    /**
+     * 결제 준비 — {@code target} 이 있으면 <b>슬롯 변경 차액 결제</b>다. 권위 금액 = (목표 슬롯 회차금액 − 현재 회차 순액)
+     * 이고, 목표 슬롯을 주문에 실어 <b>승인되는 순간 슬롯이 교체 + 강사 재수락 대기</b>가 되게 한다. 결제창이 떠 있는 동안 그 자리는
+     * 주문 귀속 hold 로 잡아둔다(안 잡으면 결제 중에 자리가 나가 돈만 받는 상태가 된다).
+     */
+    @Transactional
+    public PaymentPrepareResponse prepare(Account student, Long roundId, boolean mobile, String client,
+                                          SlotChangeTarget target) {
+        EnrollmentRound r;
+        int amount;
+        int targetEntryFee = 0;
+        if (target == null) {
+            r = requirePayable(student, roundId);
+            amount = authoritativeAmount(r);
+        } else {
+            // 검증·가격 산정은 enrollment 소관(payment→enrollment, 허용 방향). 여기선 금액만 받아 주문을 만든다.
+            EnrollmentService.SlotChangeQuote quote = enrollmentService.quoteSlotChange(
+                    student, roundId, target.date(), target.ticketRef(), target.blockStart(), target.blockEnd());
+            amount = quote.additionalAmount();
+            targetEntryFee = quote.targetEntryFee();
+            r = roundRepo.findById(roundId).orElseThrow(ResourceNotFoundException::new);
+        }
+        final int authoritativeAmount = amount;
+        final EnrollmentRound round = r;
 
         PaymentOrder order = orderRepo.findByEnrollmentRoundIdAndStatus(roundId, PaymentStatus.READY)
                 .orElseGet(() -> orderRepo.save(PaymentOrder.builder()
                         .orderId(newOrderId(roundId))
-                        .enrollmentRound(r)
-                        .amount(amount)
-                        .orderName(orderName(r))
+                        .enrollmentRound(round)
+                        .amount(authoritativeAmount)
+                        .orderName(orderName(round))
                         .status(PaymentStatus.READY)
                         .createdAt(OffsetDateTime.now(ZoneOffset.UTC))
                         .build()));
@@ -71,6 +110,16 @@ public class PaymentService {
             order.setAmount(amount);
             order.setOrderName(orderName(r));
             order.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        }
+        if (target != null) {
+            order.setTargetDate(target.date());
+            order.setTargetTicketRef(target.ticketRef());
+            order.setTargetBlockStart(target.blockStart());
+            order.setTargetBlockEnd(target.blockEnd());
+            // 결제창 window 동안 목표 슬롯 좌석 확보(주문 귀속 hold). 만석이면 여기서 400.
+            enrollmentService.holdSlotForOrder(student, roundId, order.getId(),
+                    target.date(), target.ticketRef(), target.blockStart(), target.blockEnd(),
+                    OffsetDateTime.now(ZoneOffset.UTC).plusHours(siteSettings.current().paymentTtlHours()));
         }
         // 신규 결제는 전역 설정이 정한 PG 로. 결제창을 띄우는 이 시점의 PG 를 주문에 박제한다 —
         // 이후 승인·환불은 전역 설정이 바뀌어도 이 값으로 라우팅된다(PaymentGatewayRegistry 참고).
@@ -125,9 +174,14 @@ public class PaymentService {
             throw new BadRequestException(); // 취소/실패 주문은 승인 불가
         }
         EnrollmentRound r = order.getEnrollmentRound();
-        // 선결제(전 회차): 신청 직후(PENDING)에만 결제한다.
         EnrollmentStatus before = r == null ? null : r.getStatus();
-        if (before != EnrollmentStatus.PENDING) {
+        if (order.isSlotChange()) {
+            // 차액 결제는 결제완료·강사 결정 대기 회차의 일정 변경이다.
+            if (before != EnrollmentStatus.ACCEPT_PENDING) {
+                throw new BadRequestException(); // 그새 수락·취소·거절·만료된 회차
+            }
+        } else if (before != EnrollmentStatus.PENDING) {
+            // 선결제(전 회차): 신청 직후(PENDING)에만 결제한다.
             throw new BadRequestException(); // 결제 가능 상태가 아님(이미 결제/확정/취소/만료 등)
         }
 
@@ -143,6 +197,15 @@ public class PaymentService {
         order.setMethod(result.method());
         order.setApprovedAt(result.approvedAt());
         order.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        // 차액 결제 — 슬롯을 교체하고 강사 결정 대기로 되돌린다(학생이 고른 시간이라 강사 동의가 필요).
+        if (order.isSlotChange()) {
+            enrollmentService.applySlotChange(r.getId(), order.getId(),
+                    order.getTargetDate(), order.getTargetTicketRef(),
+                    order.getTargetBlockStart(), order.getTargetBlockEnd(), targetEntryFee(order, r));
+            log.info("[payment] 슬롯 변경 차액 승인 order={} round={} → {} {}~{}", order.getOrderId(), r.getId(),
+                    order.getTargetDate(), order.getTargetBlockStart(), order.getTargetBlockEnd());
+            return response(order);
+        }
         // 선결제 → 강사 결정 대기(ACCEPT_PENDING). 결제시각을 respondedAt 에 = 강사 24h 무응답 시계 시작.
         EnrollmentStatus after = EnrollmentStatus.ACCEPT_PENDING;
         r.setStatus(after);
@@ -204,6 +267,34 @@ public class PaymentService {
     }
 
     /** 권위 금액(원) = (첫 만남이면 수강료 스냅샷) + 부대비용 스냅샷. 회차 단위. */
+    /**
+     * <b>차액 결제 미결제 만료</b> — 결제창 window({@code paymentTtlHours})가 지난 READY 차액 주문을 접고
+     * 잡아둔 좌석을 반납한다. <b>예약은 손대지 않는다</b>(원래 슬롯 그대로) — 대기를 주문에만 뒀으므로 롤백할 게 없다.
+     * 만료 건수 반환.
+     */
+    @Transactional
+    public int sweepExpiredSlotChangeOrders(OffsetDateTime now) {
+        OffsetDateTime cutoff = now.minusHours(siteSettings.current().paymentTtlHours());
+        List<PaymentOrder> stale = orderRepo.findByStatusAndTargetDateIsNotNullAndCreatedAtBefore(
+                PaymentStatus.READY, cutoff);
+        for (PaymentOrder order : stale) {
+            enrollmentService.releaseOrderHold(order.getId());
+            order.setStatus(PaymentStatus.FAILED); // 결제창을 안 넘긴 주문 — 승인 없이 끝났다
+            order.setUpdatedAt(now);
+            log.info("[payment] 차액 결제 미결제 만료 order={} round={} (좌석 반납, 예약은 원래 슬롯 유지)",
+                    order.getOrderId(), order.getEnrollmentRound() == null ? null : order.getEnrollmentRound().getId());
+        }
+        return stale.size();
+    }
+
+    /**
+     * 목표 슬롯의 입장료 — 별도 컬럼 없이 유도한다. 차액 = (목표 회차금액 − 현재 회차금액) 인데 위치·장비가 그대로라
+     * <b>갈리는 건 입장료뿐</b>이므로 {@code 차액 = 목표입장료 − 현재입장료} → {@code 목표입장료 = 현재입장료 + 차액}.
+     */
+    private int targetEntryFee(PaymentOrder order, EnrollmentRound r) {
+        return r.getEntrySnapshot() + order.getAmount();
+    }
+
     private int authoritativeAmount(EnrollmentRound r) {
         return r.chargeTotal();
     }

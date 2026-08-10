@@ -4,6 +4,8 @@ import com.diving.pungdong.enrollment.EnrollmentRound;
 import lombok.*;
 
 import javax.persistence.*;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
 
 /**
@@ -99,6 +101,31 @@ public class PaymentOrder {
 
     /** PG 승인 시각(승인 전 null). */
     private OffsetDateTime approvedAt;
+
+    /**
+     * <b>차액 결제 주문이 적용할 목표 슬롯</b> — null 이면 일반(신청) 결제 주문이다.
+     *
+     * <p><b>왜 주문이 들고 있나</b>: 더 비싼 슬롯으로 옮길 때 "결제 대기"가 필요한데, 그걸 예약 상태
+     * ({@code EnrollmentStatus})에 두면 방금 없앤 {@code PAYMENT_PENDING} 류가 되살아난다. 대신 <b>대기를 주문에</b>
+     * 두면 회차는 내내 {@code ACCEPT_PENDING}/{@code CONFIRMED} 를 유지하고, 승인되는 순간 슬롯이 교체된다.
+     * 학생이 결제를 포기하면 <b>주문만 만료</b>되고 예약은 원래 슬롯 그대로다 — 롤백할 것이 없다.
+     */
+    private LocalDate targetDate;
+
+    /** 목표 슬롯 이용권 ref. {@link #targetDate} 와 한 벌. */
+    private String targetTicketRef;
+
+    /** 목표 슬롯 시작 시각. */
+    private LocalTime targetBlockStart;
+
+    /** 목표 슬롯 종료 시각. */
+    private LocalTime targetBlockEnd;
+
+    /** 이 주문이 슬롯 변경 차액 결제인가 — 승인 시 슬롯 교체를 수반한다. */
+    public boolean isSlotChange() {
+        return targetDate != null && targetTicketRef != null
+                && targetBlockStart != null && targetBlockEnd != null;
+    }
 
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;

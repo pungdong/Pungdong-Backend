@@ -4,6 +4,21 @@
 
 > **package-by-feature** 도메인. `Account`(student) · `Course` · `AvailabilitySession`/`AvailabilityCoverage`(`CoverageMerger`) · `venue`(VenueRefResolver/equipment) · `InstructorApplication`(강사 게이트) 를 단방향 참조.
 
+## ⛔ 기저 원칙 — 일정 확정에는 강사의 수락이 무조건 필요하다
+
+**어떤 경로로든 일정이 잡히거나 바뀌면 강사가 수락해야 확정된다.** 결제 여부·금액·회차 번호와 무관.
+
+**왜**: 강사의 몸은 하나인데 **강사는 여러 플랫폼을 동시에 운영한다.** `AvailabilityCoverage` 는 강사가 우리에게 알려준 것일 뿐 타 플랫폼 예약·개인 일정을 반영하지 않는다 — **강사의 실제 일정은 우리에게 미지**다. coverage 가 열려 있다는 건 "아마 될 것"이지 "된다"가 아니다.
+
+**유일한 예외**: 강사가 `proposeSlots` 로 **직접 낸 슬롯**을 학생이 `pickSlot` 으로 고르면 곧장 `CONFIRMED`. 강사가 가능한 시간을 제시한 것 자체가 동의이므로. (이 비대칭이 규칙의 핵심 — 나머지는 전부 `ACCEPT_PENDING`.)
+
+⚠️ **실제로 놓친 적 있음**: 차액 결제(#204) 최초 구현이 "돈을 더 냈으니 강사 결정 대상이 아니다"라고 보고 곧장 슬롯을 바꿨다. **돈은 동의의 근거가 아니다.** 일정을 만들거나 바꾸는 코드를 손댈 때마다 이 표를 확인할 것:
+
+| 누가 시작했나 | 결과 |
+|---|---|
+| `submit` · `scheduleNextRound` · `reschedule` · **차액 결제 슬롯 변경** | `ACCEPT_PENDING`(강사 결정 대기) + 24h 시계 |
+| `pickSlot`(강사 제안 선택) | `CONFIRMED` 직행 |
+
 ## 무엇이 들어있나 — V2 booking 흐름
 
 학생이 코스의 **첫 만남(1회차)**을 강사가 연 예약가능시간 안의 슬롯에 신청 → **즉시 결제(선결제)** → 강사 수락/거절(거절·무응답 자동환불). availability 의 풍덩 점유(`PENDING`/`CONFIRMED`/`applicants[]`)를 **실제로 채우고**, venue·availability 메모가 "venue 가 존재하는 궁극적 이유"라 한 **`강사 coverage(예약가능시간) ∩ Venue 운영블록 ∩ 코스 1회차 위치` 교집합**을 구현한다(venue 부가 coverage 에 통째로 ⊆ 일 때만).

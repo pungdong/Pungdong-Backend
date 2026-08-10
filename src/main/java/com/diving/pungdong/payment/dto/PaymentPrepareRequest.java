@@ -46,4 +46,33 @@ public class PaymentPrepareRequest {
      * BE 의 고정 allowlist 중 하나를 고르게 할 뿐이라 클라이언트가 보내도 안전(오픈 리다이렉트 불가).
      */
     private String client;
+
+    /* ─── 슬롯 변경 차액 결제(선택) ─── */
+
+    /**
+     * <b>목표 슬롯 날짜</b> — 넷({@code targetDate}/{@code targetTicketRef}/{@code targetBlockStart}/
+     * {@code targetBlockEnd})이 <b>모두</b> 오면 이 결제는 <b>슬롯 변경 차액</b>이다. 하나라도 빠지면 일반 결제.
+     *
+     * <p>더 비싼 시간대로 옮길 때만 쓴다 — 같거나 싼 슬롯은 결제 없이
+     * {@code pick-slot}/{@code reschedule} 로 즉시 바뀐다(싸지면 차액 자동환불).
+     * <b>위치와 장비는 현재 것을 유지</b>한다(바꾸려면 취소 후 재신청).
+     */
+    private java.time.LocalDate targetDate;
+
+    /** 목표 슬롯 이용권 ref. */
+    private String targetTicketRef;
+
+    /** 목표 슬롯 시작 시각(HH:mm). */
+    @com.fasterxml.jackson.annotation.JsonFormat(pattern = "HH:mm")
+    private java.time.LocalTime targetBlockStart;
+
+    /** 목표 슬롯 종료 시각(HH:mm). */
+    @com.fasterxml.jackson.annotation.JsonFormat(pattern = "HH:mm")
+    private java.time.LocalTime targetBlockEnd;
+
+    /** 슬롯 변경 차액 결제 요청인가 — 네 값이 모두 있어야 한다(부분 전달은 일반 결제로 본다). */
+    public boolean hasSlotChangeTarget() {
+        return targetDate != null && targetTicketRef != null
+                && targetBlockStart != null && targetBlockEnd != null;
+    }
 }

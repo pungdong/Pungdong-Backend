@@ -21,6 +21,7 @@ import java.time.ZoneOffset;
 public class EnrollmentExpiryScheduler {
 
     private final EnrollmentExpiryService expiryService;
+    private final com.diving.pungdong.payment.PaymentService paymentService; // 차액 결제 주문 만료(좌석 반납)
 
     @Scheduled(fixedDelayString = "${pungdong.enrollment.expiry-sweep-ms:300000}")
     public void sweep() {
@@ -39,6 +40,14 @@ public class EnrollmentExpiryScheduler {
             }
         } catch (RuntimeException e) {
             log.warn("[proposal-expiry] sweep 실패", e);
+        }
+        try {
+            int staleOrders = paymentService.sweepExpiredSlotChangeOrders(OffsetDateTime.now(ZoneOffset.UTC));
+            if (staleOrders > 0) {
+                log.info("[slot-change-expiry] {} 건 차액 결제 미결제 만료(좌석 반납)", staleOrders);
+            }
+        } catch (RuntimeException e) {
+            log.warn("[slot-change-expiry] sweep 실패", e);
         }
         try {
             int done = expiryService.sweepAutoDone(LocalDate.now());

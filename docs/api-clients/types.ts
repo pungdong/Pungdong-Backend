@@ -1647,7 +1647,17 @@ export type PaymentStatus = 'READY' | 'DONE' | 'CANCELED' | 'FAILED';
 export type PaymentProvider = 'STUB' | 'TOSS' | 'INICIS';
 
 /** 결제 준비 — POST /payments/prepare (authenticated). 미결제 회차(신청 직후 PENDING)에 대해 주문 생성.
- *  전 회차 동일. 그 외 상태면 400(이미 결제/확정/취소/만료). */
+ *  전 회차 동일. 그 외 상태면 400(이미 결제/확정/취소/만료).
+ *
+ *  ★ **슬롯 변경 차액 결제**: `target*` 넷을 모두 보내면 "더 비싼 시간대로 옮기며 차액만 결제"가 된다.
+ *    - `amount` = 차액(목표 슬롯 회차금액 − 현재 회차금액). 결제창이 떠 있는 동안 목표 슬롯 좌석이 잡힌다.
+ *    - confirm 이 성공하는 **그 순간 슬롯이 교체**되고, 회차는 **강사 결정 대기(ACCEPT_PENDING)로 되돌아간다**
+ *      — 학생이 고른 시간은 강사가 동의한 적이 없으므로 **강사 수락이 필요**하다(거절 시 차액 포함 전액 환불).
+ *      재수락이 없는 건 강사가 낸 제안을 고르는 pick-slot 뿐.
+ *    - 결제를 포기하면 주문만 만료되고 예약은 원래 슬롯 그대로 — 되돌릴 게 없다.
+ *    - 위치·장비는 현재 것을 유지한다(바꾸려면 취소 후 재신청). 같거나 싼 슬롯은 이 경로가 아니라
+ *      pick-slot / reschedule 로 결제 없이 즉시 바뀐다(싸지면 차액 자동환불).
+ */
 export interface PaymentPrepareRequest {
   /**
    * ★ 회차(EnrollmentRound) id. 결제 단위는 회차다.
@@ -1667,6 +1677,12 @@ export interface PaymentPrepareRequest {
    * 앱 → 'app', 웹(데스크탑·모바일 모두) → 'web'. TOSS·STUB 는 무시.
    */
   client?: 'web' | 'app';
+
+  // ★ 슬롯 변경 차액 결제(선택) — 넷을 모두 보낼 때만 활성. 하나라도 빠지면 일반 결제로 처리된다.
+  targetDate?: string;        // 'YYYY-MM-DD'
+  targetTicketRef?: string;
+  targetBlockStart?: string;  // 'HH:mm'
+  targetBlockEnd?: string;    // 'HH:mm'
 }
 
 /**

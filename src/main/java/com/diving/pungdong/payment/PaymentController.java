@@ -35,7 +35,10 @@ public class PaymentController {
 
     private final PaymentService paymentService;
 
-    /** 결제 준비 — 미결제 신청(신청 직후 PENDING)에 대한 주문 생성. 위젯 구동값 반환. */
+    /**
+     * 결제 준비 — 미결제 신청(신청 직후 PENDING)에 대한 주문 생성. 위젯 구동값 반환.
+     * {@code target*} 넷이 다 오면 <b>슬롯 변경 차액</b> 결제(더 비싼 시간대로 이동) — 승인 시 슬롯이 교체된다.
+     */
     @PostMapping("/prepare")
     public ResponseEntity<PaymentPrepareResponse> prepare(@CurrentUser Account account,
                                                           @Valid @RequestBody PaymentPrepareRequest request,
@@ -47,7 +50,12 @@ public class PaymentController {
         if (roundId == null) {
             throw new BadRequestException(); // roundId(또는 하위호환 enrollmentId) 필수
         }
-        return ResponseEntity.ok(paymentService.prepare(account, roundId, request.isMobile(), request.getClient()));
+        PaymentService.SlotChangeTarget target = request.hasSlotChangeTarget()
+                ? new PaymentService.SlotChangeTarget(request.getTargetDate(), request.getTargetTicketRef(),
+                        request.getTargetBlockStart(), request.getTargetBlockEnd())
+                : null;
+        return ResponseEntity.ok(paymentService.prepare(account, roundId, request.isMobile(),
+                request.getClient(), target));
     }
 
     /**

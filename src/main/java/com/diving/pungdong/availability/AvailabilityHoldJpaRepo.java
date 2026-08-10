@@ -15,4 +15,7 @@ public interface AvailabilityHoldJpaRepo extends JpaRepository<AvailabilityHold,
 
     /** 만료된 제안 hold 들 — TTL sweep(학생 미선택). 회차 귀속이고 expiresAt 이 cutoff 이전인 것. */
     List<AvailabilityHold> findByProposalRoundIdIsNotNullAndExpiresAtBefore(OffsetDateTime cutoff);
+
+    /** 차액 결제 대기 hold — 그 주문에 귀속된 것들(승인 시 실점유 전환, 만료/취소 시 해제). */
+    List<AvailabilityHold> findByPaymentOrderId(Long paymentOrderId);
 }
