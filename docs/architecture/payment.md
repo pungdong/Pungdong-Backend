@@ -86,6 +86,18 @@ erDiagram
         String method "승인 후"
         OffsetDateTime approvedAt "승인 후"
     }
+    PAYMENT_ORDER ||--o{ REFUND_ORDER : "환불 시도(원장)"
+    REFUND_ORDER {
+        Long id
+        Long payment_order_id "FK"
+        int amount "요청/취소 금액(원)"
+        String reason
+        RefundStatus status "REQUESTED|DONE|FAILED (V15)"
+        OffsetDateTime createdAt "시도 시각(선기록)"
+        OffsetDateTime completedAt "결과 확정 시각 · REQUESTED 면 null (V15)"
+        String failureCode "PG 거절코드 (V15)"
+        String failureMessage "PG 거절사유 (V15)"
+    }
 ```
 
 설계 의도: `orderId`(=P_OID) 가 unique + 멱등 키(콜백→주문 매핑, amount 조회 키). `amount` 는 prepare 시점에 **코스 라이브 수강료 + 입장료 스냅샷 + 장비 스냅샷** 으로 재계산해 박는다. `provider` 는 prepare 가 박제(V10), 승인·환불은 그 값으로 라우팅. `client` 는 콜백 리다이렉트 타겟(V11). 한 회차에 READY 주문은 하나만 멱등 재사용.
@@ -104,7 +116,29 @@ erDiagram
 
 `refund_order`(이력)가 **원장**이고 `refundedAmount` 는 그 합의 **캐시**다 — 같은 트랜잭션에서 함께 갱신되며, 어긋나면 `refund_order` 가 진실이다. 모든 환불은 `RefundService.applyCancel` 한 곳을 지나며 **취소가능 잔액으로 clamp** 된다(초과 취소·이중 취소 불가, 멱등).
 
-⚠️ 지금은 **성공한 환불만** 기록된다. PG 가 거절하면 어댑터가 예외를 던져 트랜잭션이 롤백돼 이력이 남지 않는다(돈-상태 원자성의 대가). 시도 이력을 별도 트랜잭션으로 남겨 재시도·대사(reconciliation)를 가능하게 하는 건 후속(#202).
+### 환불은 "시도"부터 남긴다 — 대사(reconciliation) 가능한 원장
+
+환불은 **롤백되지 않는 외부 부수효과**(PG 에 돈을 돌려주라고 말하는 것)다. 기록을 발행자(강사 거절·만료 sweep·학생 취소) 트랜잭션에 묶어두면 그 트랜잭션이 롤백될 때 **PG 엔 취소가 나갔는데 우리 DB 엔 흔적이 없는** 상태가 된다 — 재시도가 이중환불이 되고 대사도 불가능하다. 그래서 기록은 `RefundLedger` 가 **별도 트랜잭션**(`REQUIRES_NEW`)으로 맡는다.
+
+```
+applyCancel
+  ├─ 대사 가드: 그 주문에 REQUESTED 잔존? → 건너뜀(사람이 PG 원장과 대사해야 재개)
+  ├─ recordAttempt  → REQUESTED 즉시 커밋      ← 여기서 죽어도 "시도했다"는 남는다
+  ├─ PG cancel
+  │    ├─ 거절(PaymentGatewayException) → markFailed(FAILED + code/msg) 후 rethrow
+  │    └─ 전송 실패(타임아웃·파싱)        → REQUESTED 유지 + rethrow (결과 미확인 = 대사 대상)
+  └─ markDone(DONE + completedAt) + refundedAmount 누적 + 전액이면 CANCELED
+```
+
+| `refund_order.status` | 뜻 |
+|---|---|
+| `REQUESTED` | **결과 미확인** — PG 가 취소했는지 모른다. 그 주문의 자동 환불은 잠기고 **대사 대상**이 된다 |
+| `DONE` | 취소 성공. 잔액(`refundedAmount`)에 반영됨 |
+| `FAILED` | PG 가 거절. `failureCode`/`failureMessage` 에 진단정보(이니시스 `resultCode` / 토스 `code`) |
+
+- **성공 후 발행자가 롤백되면**: 환불 기록·잔액은 커밋된 채 남는다(현실과 일치 — PG 는 취소했다). 다음 재시도는 줄어든 잔액을 보고 no-op → **이중환불 없음**. 상태 전이만 다시 시도된다.
+- **실패하면**: 상태 전이는 롤백(돈-상태 원자성 유지)되지만 **`FAILED` 이력은 남는다**.
+- PG 거절 사유는 `PaymentGatewayException` 이 실어 나르되 **응답엔 일반 400 문구만** 내려간다(PG 내부 코드를 강사 화면에 노출하지 않음). 진단은 DB·로그에만.
 
 ## 5. 보안 / 권한 매트릭스
 

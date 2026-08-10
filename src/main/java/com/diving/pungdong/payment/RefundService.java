@@ -9,6 +9,7 @@ import com.diving.pungdong.enrollment.EnrollmentJpaRepo;
 import com.diving.pungdong.enrollment.EnrollmentRound;
 import com.diving.pungdong.enrollment.EnrollmentStatus;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
+import com.diving.pungdong.global.advice.exception.PaymentGatewayException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.payment.dto.RefundQuote;
 import lombok.RequiredArgsConstructor;
@@ -38,7 +39,7 @@ public class RefundService {
 
     private final EnrollmentJpaRepo enrollmentRepo;
     private final PaymentOrderJpaRepo orderRepo;
-    private final RefundOrderJpaRepo refundRepo;
+    private final RefundLedger ledger; // 시도/결과 기록 — 별도 트랜잭션(REQUIRES_NEW)
     private final RefundCalculator calculator;
     private final PaymentGatewayRegistry gateways;
     private final SessionCleaner sessionCleaner;
@@ -109,6 +110,9 @@ public class RefundService {
      *
      * <p>발행자(reject/expiry)의 <b>같은 트랜잭션</b>에서 동기 실행된다(REQUIRED) — PG 취소가 실패하면 예외가
      * 전파돼 상태변경까지 롤백된다(환불 성공해야 REJECTED/CANCELLED 도 커밋). 이미 환불됐거나 미결제면 no-op.
+     *
+     * <p>단 <b>환불 기록 자체는 별도 트랜잭션</b>({@link RefundLedger})이라 롤백에 휩쓸리지 않는다 — 실패는
+     * {@code FAILED} 로, 성공 후 상태전이가 깨지면 환불은 확정된 채 남아 재시도가 no-op 이 된다(이중환불 방지).
      */
     @Transactional
     public void refundRoundFully(Long roundId, String reason) {
@@ -124,8 +128,8 @@ public class RefundService {
      * 단일 회차 <b>부분</b> 환불 — 선결제 회차의 슬롯이 더 싼 슬롯으로 바뀌었을 때의 차액 반환
      * ({@code EnrollmentPartialRefundListener} 가 이벤트로 호출). 학생 게이트 없음(시스템 트리거).
      *
-     * <p>{@link #refundRoundFully} 와 같은 동기·원자성 계약. 취소가능잔액을 넘지 않게 clamp 하며,
-     * 미결제/잔액 0 이면 no-op(멱등).
+     * <p>{@link #refundRoundFully} 와 같은 동기·원자성 계약(기록은 {@link RefundLedger} 별도 트랜잭션).
+     * 취소가능잔액을 넘지 않게 clamp 하며, 미결제/잔액 0 이면 no-op(멱등).
      */
     @Transactional
     public void refundRoundPartially(Long roundId, int amount, String reason) {
@@ -140,21 +144,24 @@ public class RefundService {
     }
 
     /**
-     * 환불 실행부 — 세 경로(수강 종료·회차 전액·차액)가 공유한다. PG 취소 → 이력({@code RefundOrder}) 기록 →
-     * 주문 잔액 반영을 <b>한 트랜잭션</b>에서 한다.
+     * 환불 실행부 — 세 경로(수강 종료·회차 전액·차액)가 공유한다.
+     * <b>시도 선기록 → PG 취소 → 결과 확정</b> 순으로, 기록은 모두 {@link RefundLedger}(별도 트랜잭션)가 맡는다.
      *
      * <ul>
      *   <li><b>clamp</b> — 취소가능 잔액({@code amount − refundedAmount})을 넘지 않는다. 이미 전액 환불됐으면 no-op(멱등).</li>
+     *   <li><b>대사 가드</b> — 결과를 모르는 시도({@code REQUESTED} 잔존)가 있으면 <b>건너뛴다</b>. PG 엔 이미 취소가
+     *       반영됐을 수 있어 재시도가 이중환불이 되기 때문 — 사람이 PG 원장과 대사해 그 행을 확정해야 다시 흐른다.</li>
      *   <li><b>라우팅</b> — 취소는 <b>그 주문이 결제된 PG</b> 로 간다({@code order.provider}). 전역 설정으로 보내면
      *       PG 를 갈아탄 뒤 과거 주문 환불이 엉뚱한 곳으로 가 실패한다.</li>
-     *   <li><b>잔액 반영</b> — {@code refundedAmount} 누적, 전액이 되면 {@code status = CANCELED}(부분은 {@code DONE} 유지).
-     *       그래야 테이블만 보고 "정상 / 부분환불 / 전액환불"이 구분된다.</li>
      * </ul>
      *
-     * <p>PG 취소가 실패하면 어댑터가 예외를 던져 <b>이 트랜잭션 전체가 롤백</b>된다 — 이력도 잔액도 남지 않는다
-     * (돈-상태 원자성). 시도 이력을 별도 트랜잭션으로 남기는 건 후속(#202).
+     * <p><b>실패 시</b>: 어댑터가 던진 예외를 {@code FAILED}(+PG 코드/사유)로 <b>남기고 다시 던진다</b> — 발행자
+     * (거절·만료·취소) 트랜잭션은 롤백되지만 <b>실패 이력은 남는다</b>. 재시도·대사의 근거.
      *
-     * @return 실제 취소된 금액(0 = 취소할 잔액 없음)
+     * <p><b>성공 후 발행자가 롤백되면</b>: 환불 기록과 잔액은 이미 커밋돼 남는다(현실과 일치 — PG 는 취소했다).
+     * 다음 재시도는 줄어든 잔액을 보고 no-op 하므로 <b>이중환불이 되지 않는다</b>. 상태 전이만 다시 시도된다.
+     *
+     * @return 실제 취소된 금액(0 = 취소할 잔액 없음 / 대사 대기)
      */
     private int applyCancel(PaymentOrder order, int requested, String reason, OffsetDateTime now) {
         int refundable = order.refundableAmount();
@@ -162,19 +169,25 @@ public class RefundService {
         if (amount <= 0) {
             return 0;
         }
-        log.info("[payment] 환불 요청 order={} provider={} 취소액={} 잔액={} tid={} 사유={}",
-                order.getOrderId(), order.getProvider(), amount, refundable, order.getPaymentKey(), reason);
-        gateways.forOrder(order.getProvider()).cancel(order.getPaymentKey(), amount, refundable, reason);
-        refundRepo.save(RefundOrder.builder()
-                .paymentOrder(order).amount(amount).reason(reason)
-                .status(RefundStatus.DONE).createdAt(now).build());
-        order.setRefundedAmount(order.getRefundedAmount() + amount);
-        if (order.refundableAmount() <= 0) {
-            order.setStatus(PaymentStatus.CANCELED); // 전액 환불 = 이 주문은 끝
+        if (ledger.hasUnresolvedAttempt(order.getId())) {
+            return 0; // 결과 미확인 시도 존재 — 이중환불 위험이라 자동 진행 금지(로그는 ledger 가 남김)
         }
-        order.setUpdatedAt(now);
-        log.info("[payment] 환불 완료 order={} 취소액={} 누적환불={} 상태={}",
-                order.getOrderId(), amount, order.getRefundedAmount(), order.getStatus());
+        Long attemptId = ledger.recordAttempt(order.getId(), amount, reason, now); // 별도 tx — 즉시 커밋
+        log.info("[payment] 환불 요청 order={} provider={} 취소액={} 잔액={} tid={} 사유={} attempt={}",
+                order.getOrderId(), order.getProvider(), amount, refundable, order.getPaymentKey(), reason, attemptId);
+        try {
+            gateways.forOrder(order.getProvider()).cancel(order.getPaymentKey(), amount, refundable, reason);
+        } catch (PaymentGatewayException e) {
+            ledger.markFailed(attemptId, e.getCode(), e.getDetail(), OffsetDateTime.now(ZoneOffset.UTC));
+            throw e;
+        } catch (RuntimeException e) {
+            // 전송 실패(타임아웃·파싱 등) — PG 가 취소를 처리했는지 <b>모른다</b>. REQUESTED 로 남겨 대사 대상으로 둔다.
+            log.error("[payment] 환불 전송 실패 order={} attempt={} — 결과 미확인(REQUESTED 유지, 대사 필요)",
+                    order.getOrderId(), attemptId, e);
+            throw e;
+        }
+        ledger.markDone(attemptId, order.getId(), amount, OffsetDateTime.now(ZoneOffset.UTC));
+        log.info("[payment] 환불 완료 order={} 취소액={} attempt={}", order.getOrderId(), amount, attemptId);
         return amount;
     }
 }

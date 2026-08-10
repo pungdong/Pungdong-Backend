@@ -4,6 +4,7 @@ import com.diving.pungdong.global.advice.exception.*;
 import com.diving.pungdong.global.model.CommonResult;
 import com.diving.pungdong.global.ResponseService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.MessageSource;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.http.HttpStatus;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import javax.servlet.http.HttpServletRequest;
 
+@Slf4j
 @RequiredArgsConstructor
 @RestControllerAdvice
 public class ExceptionAdvice {
@@ -115,6 +117,17 @@ public class ExceptionAdvice {
         if (e.getMessage() != null) {
             return responseService.getFailResult(Integer.parseInt(getMessage("badRequest.code")), e.getMessage());
         }
+        return responseService.getFailResult(Integer.parseInt(getMessage("badRequest.code")), getMessage("badRequest.msg"));
+    }
+
+    /**
+     * PG 취소 거절 — 응답은 <b>일반 400 문구로 고정</b>한다. 진단 정보(PG resultCode/resultMsg)는 예외가 실어
+     * 나르지만 그건 환불 이력({@code RefundOrder})과 로그에만 남기고 클라이언트엔 노출하지 않는다.
+     */
+    @ExceptionHandler(PaymentGatewayException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public CommonResult paymentGatewayRejected(PaymentGatewayException e) {
+        log.warn("[payment] PG 취소 거절 code={} detail={}", e.getCode(), e.getDetail());
         return responseService.getFailResult(Integer.parseInt(getMessage("badRequest.code")), getMessage("badRequest.msg"));
     }
 
