@@ -304,14 +304,14 @@ public class InstructorEnrollmentService {
     /**
      * 일정변경요청 — <b>강사 결정 3지선다(수락/거절/일정조정 제안)의 하나</b>. 위치 고정, 완전한 대안 슬롯
      * (날짜+이용권+블록) 제안(최대 {@value #MAX_PROPOSED_SLOTS}개). 각 슬롯은 venue 운영블록 존재 + 강사 coverage 에
-     * 통째로 ⊆ + <b>좌석 여유</b> + <b>입장료가 이미 결제된 금액 이하</b>여야 채택된다. <b>하드캡 보장</b>: 채택된
+     * 통째로 ⊆ + <b>좌석 여유</b>여야 채택된다. <b>하드캡 보장</b>: 채택된
      * 슬롯마다 그 일정에 좌석 hold(회차 귀속, proposalTtlHours 만료)를 잡아 — 학생이 고를 때 반드시 잡히게 하고
-     * (만석으로 막히는 아이러니 제거), 그 동안 다른 학생 신청은 정상적으로 막힌다(heldCount 합산). 만석/불가/더 비싼
+     * (만석으로 막히는 아이러니 제거), 그 동안 다른 학생 신청은 정상적으로 막힌다(heldCount 합산). 만석/불가
      * 슬롯은 조용히 제외(전부 제외면 400).
      *
      * <p><b>선결제라 학생은 결제가 아니라 ㅇㅋ/ㄴㄴ만 한다</b> — 이미 결제된 회차이고 제안 자리는 강사가 승인한
-     * 자리이므로, 학생이 고르면(pick) 추가 결제·재수락 없이 곧장 확정된다. 더 비싼 슬롯을 제안에서 빼는 이유가
-     * 이것 — 추가 청구가 필요해지면 "고르기만 하면 끝"이 깨진다(더 비싼 자리로 옮기려면 취소 후 재신청).
+     * 자리이므로, 학생이 고르면(pick) 추가 결제·재수락 없이 곧장 확정된다. <b>단 더 비싼 시간대</b>는 그만큼
+     * <b>차액만</b> 결제한다({@code POST /payments/prepare} + {@code target*} → 승인 시 슬롯 교체).
      */
     @Transactional
     public InstructorEnrollmentResponse proposeSlots(Account instructor, Long roundId, List<SlotProposal> slots) {
@@ -340,9 +340,9 @@ public class InstructorEnrollmentService {
             if (block == null) {
                 continue; // 현재 슬롯과 동일(변경 아님) 또는 기하 불가(운영블록 없음/coverage 밖) — 제외
             }
-            if (block.getFee() > r.getEntrySnapshot()) {
-                continue; // 입장료가 더 비싼 daypart — 추가 청구 없이는 못 옮김(학생은 ㅇㅋ/ㄴㄴ만) — 제외
-            }
+            // 더 비싼 daypart 도 제안할 수 있다(2026-08-10) — 학생이 고를 때 차액만 결제하면 된다
+            // (POST /payments/prepare + target*). 같거나 싸면 pick-slot 이 결제 없이 즉시 바꾼다.
+
             AvailabilitySession session = findOrCreateSession(instructor, s.getDate(),
                     s.getBlockStart(), s.getBlockEnd(), r.getVenueRefId(), s.getTicketRef());
             if (heldSessionIds.contains(session.getId())) {

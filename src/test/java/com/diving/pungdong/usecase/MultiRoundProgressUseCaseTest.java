@@ -63,6 +63,8 @@ class MultiRoundProgressUseCaseTest {
     private static final LocalDate D2 = LocalDate.now().plusWeeks(2);
     private static final LocalTime START = LocalTime.of(14, 0);
     private static final LocalTime END = LocalTime.of(17, 0);
+    private static final LocalTime NIGHT_START = LocalTime.of(18, 0);
+    private static final LocalTime NIGHT_END = LocalTime.of(21, 0);
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
@@ -79,6 +81,7 @@ class MultiRoundProgressUseCaseTest {
     @Autowired AvailabilityHoldJpaRepo holdRepo;
     @Autowired EnrollmentExpiryService expiryService;
     @Autowired com.diving.pungdong.payment.PaymentOrderJpaRepo orderRepo;
+    @Autowired com.diving.pungdong.payment.PaymentService paymentService;
 
     // PG 는 유일한 외부 경계라 mock(결정적). 레지스트리째 mock 하는 이유 = 어댑터 3개가 모두 빈이라
     // PaymentGateway 타입으로 mock 하면 주입이 모호해진다(PaymentUseCaseTest 와 같은 패턴).
@@ -169,6 +172,46 @@ class MultiRoundProgressUseCaseTest {
         return round;
     }
 
+    /** 같은 venue 안에 <b>가격이 다른 이용권 두 개</b> — 일반권(15,000·14~17) / 야간권(25,000·18~21). 차액 결제 검증용. */
+    private Venue venueWithNightTicket(Account owner) {
+        VenueDaypart dayWeekday = VenueDaypart.builder().kind(DaypartKind.WEEKDAY).sold(true).fee(15000).timeMode(TimeMode.FIXED).build();
+        dayWeekday.addTimeBlock(VenueTimeBlock.builder().startTime(START).endTime(END).sortOrder(0).build());
+        VenueDaypart dayWeekend = VenueDaypart.builder().kind(DaypartKind.WEEKEND).sold(true).fee(15000).timeMode(TimeMode.FIXED).build();
+        dayWeekend.addTimeBlock(VenueTimeBlock.builder().startTime(START).endTime(END).sortOrder(0).build());
+        VenueTicket normal = VenueTicket.builder().name("일반권").sortOrder(0)
+                .disciplineCodes(new java.util.LinkedHashSet<>(Set.of("FREEDIVING"))).build();
+        normal.addDaypart(dayWeekday); normal.addDaypart(dayWeekend);
+
+        VenueDaypart nightWeekday = VenueDaypart.builder().kind(DaypartKind.WEEKDAY).sold(true).fee(25000).timeMode(TimeMode.FIXED).build();
+        nightWeekday.addTimeBlock(VenueTimeBlock.builder().startTime(NIGHT_START).endTime(NIGHT_END).sortOrder(0).build());
+        VenueDaypart nightWeekend = VenueDaypart.builder().kind(DaypartKind.WEEKEND).sold(true).fee(25000).timeMode(TimeMode.FIXED).build();
+        nightWeekend.addTimeBlock(VenueTimeBlock.builder().startTime(NIGHT_START).endTime(NIGHT_END).sortOrder(0).build());
+        VenueTicket night = VenueTicket.builder().name("야간권").sortOrder(1)
+                .disciplineCodes(new java.util.LinkedHashSet<>(Set.of("FREEDIVING"))).build();
+        night.addDaypart(nightWeekday); night.addDaypart(nightWeekend);
+
+        Venue venue = Venue.builder().owner(owner).name("잠실 잠수풀장").type(VenueType.SWIMMING_POOL)
+                .address("서울 송파구").lockedDisciplineCode("FREEDIVING").createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
+        venue.addTicket(normal); venue.addTicket(night);
+        return venueRepo.save(venue);
+    }
+
+    /** 2 정규회차 코스 — 각 회차가 같은 venue 의 <b>두 이용권</b>을 모두 후보로 제공(차액 결제 검증용). */
+    private Course twoTicketCourse(Account ins, String venueRef, String normalTicket, String nightTicket) {
+        Course course = Course.builder().instructor(ins).title("AIDA2 과정")
+                .kind(CourseKind.CERTIFICATION).organizationCode("AIDA").disciplineCode("FREEDIVING")
+                .totalRounds(2).price(300000).status(CourseStatus.OPEN).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
+        for (int idx = 1; idx <= 2; idx++) {
+            CourseRound round = CourseRound.builder().roundKind(RoundKind.REGULAR).roundIndex(idx).build();
+            RoundVenue rv = RoundVenue.builder().venueRefId(venueRef).sortOrder(0).build();
+            rv.addTicket(RoundVenueTicket.builder().ticketRef(normalTicket).daypart(DaypartKind.WEEKDAY).sortOrder(0).build());
+            rv.addTicket(RoundVenueTicket.builder().ticketRef(nightTicket).daypart(DaypartKind.WEEKDAY).sortOrder(1).build());
+            round.addVenue(rv);
+            course.addRound(round);
+        }
+        return courseRepo.save(course);
+    }
+
     /** 두 번째 venue(다른 이용권명 "하프권") — 위치 고정 스코프 검증용. */
     private Venue venue2(Account owner) {
         VenueDaypart weekday = VenueDaypart.builder().kind(DaypartKind.WEEKDAY).sold(true).fee(20000).timeMode(TimeMode.FIXED).build();
@@ -227,6 +270,12 @@ class MultiRoundProgressUseCaseTest {
     private void openCoverage(Account ins, LocalDate date) {
         coverageRepo.save(AvailabilityCoverage.builder().instructor(ins).date(date)
                 .startTime(LocalTime.of(9, 0)).endTime(LocalTime.of(18, 0)).build());
+    }
+
+    /** 야간 블록까지 덮는 예약가능시간(09~22) — 차액 결제(야간권) 검증용. */
+    private void openCoverageIncludingNight(Account ins, LocalDate date) {
+        coverageRepo.save(AvailabilityCoverage.builder().instructor(ins).date(date)
+                .startTime(LocalTime.of(9, 0)).endTime(LocalTime.of(22, 0)).build());
     }
 
     private String json(Object o) {
@@ -344,6 +393,94 @@ class MultiRoundProgressUseCaseTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CONFIRMED"));
         assertThat(roundRepo.findById(r2.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.CONFIRMED);
+    }
+
+    @Test
+    @DisplayName("M15 더 비싼 시간대로 옮기려면 차액만 결제 — 승인되면 슬롯이 교체되고 회차 상태는 그대로다")
+    void slotChangeDiffPayment() throws Exception {
+        Account ins = instructor("ins-m15@pd.com", "강사M15", 4);
+        Venue v = venueWithNightTicket(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String dayTicket = v.getTickets().get(0).getRef();   // 일반권 15,000 (14~17)
+        String nightTicket = v.getTickets().get(1).getRef(); // 야간권 25,000 (18~21)
+        Course course = twoTicketCourse(ins, ref, dayTicket, nightTicket);
+        openCoverageIncludingNight(ins, D1); openCoverageIncludingNight(ins, D2);
+        Account stu = account("stu-m15@pd.com", "학생M15", Role.STUDENT);
+
+        // 1회차를 일반권(입장료 15,000)으로 신청 후 결제완료 상태로
+        mockMvc.perform(post("/enrollments").header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("courseId", course.getId(), "date", D1.toString(),
+                                "venueRefId", ref, "ticketRef", dayTicket,
+                                "blockStart", START.toString(), "blockEnd", END.toString()))))
+                .andExpect(status().isCreated());
+        EnrollmentRound r1 = paid(roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).get(0));
+
+        // 야간권(25,000)으로 옮기기 — 차액 10,000 만 청구된다
+        String prepared = mockMvc.perform(post("/payments/prepare").header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("roundId", r1.getId(),
+                                "targetDate", D1.toString(), "targetTicketRef", nightTicket,
+                                "targetBlockStart", "18:00", "targetBlockEnd", "21:00"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.amount").value(10000)) // 25,000 − 15,000
+                .andReturn().getResponse().getContentAsString();
+        String orderId = objectMapper.readTree(prepared).path("orderId").asText();
+        // 결제창이 떠 있는 동안 목표 슬롯 자리를 잡아둔다(돈만 받고 자리는 못 주는 상태 방지)
+        assertThat(holdRepo.findAll()).hasSize(1);
+
+        mockMvc.perform(post("/payments/confirm").header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("pgPayload", Map.of("paymentKey", "pk_test_1"),
+                                "orderId", orderId, "amount", 10000))))
+                .andExpect(status().isOk());
+
+        EnrollmentRound after = roundRepo.findById(r1.getId()).orElseThrow();
+        assertThat(after.getTicketRef()).isEqualTo(nightTicket);
+        assertThat(after.getBlockStart()).isEqualTo(NIGHT_START);
+        assertThat(after.getEntrySnapshot()).isEqualTo(25000);
+        // 대기를 주문에 뒀으므로 회차 상태는 내내 그대로 — 강사 재수락을 다시 받지 않는다
+        assertThat(after.getStatus()).isEqualTo(EnrollmentStatus.ACCEPT_PENDING);
+        assertThat(holdRepo.findAll()).isEmpty(); // hold 는 실점유로 전환되며 해제
+    }
+
+    @Test
+    @DisplayName("M16 차액을 결제하지 않고 방치하면 주문만 만료되고 좌석은 반납된다 — 예약은 원래 슬롯 그대로")
+    void slotChangeOrderExpiresWithoutTouchingEnrollment() throws Exception {
+        Account ins = instructor("ins-m16@pd.com", "강사M16", 4);
+        Venue v = venueWithNightTicket(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String dayTicket = v.getTickets().get(0).getRef();
+        String nightTicket = v.getTickets().get(1).getRef();
+        Course course = twoTicketCourse(ins, ref, dayTicket, nightTicket);
+        openCoverageIncludingNight(ins, D1);
+        Account stu = account("stu-m16@pd.com", "학생M16", Role.STUDENT);
+
+        mockMvc.perform(post("/enrollments").header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("courseId", course.getId(), "date", D1.toString(),
+                                "venueRefId", ref, "ticketRef", dayTicket,
+                                "blockStart", START.toString(), "blockEnd", END.toString()))))
+                .andExpect(status().isCreated());
+        EnrollmentRound r1 = paid(roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).get(0));
+
+        mockMvc.perform(post("/payments/prepare").header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("roundId", r1.getId(),
+                                "targetDate", D1.toString(), "targetTicketRef", nightTicket,
+                                "targetBlockStart", "18:00", "targetBlockEnd", "21:00"))))
+                .andExpect(status().isOk());
+        assertThat(holdRepo.findAll()).hasSize(1);
+
+        // 결제창 window(paymentTtlHours=12h) 경과 — 스위프
+        int expired = paymentService.sweepExpiredSlotChangeOrders(OffsetDateTime.now(ZoneOffset.UTC).plusHours(13));
+
+        assertThat(expired).isEqualTo(1);
+        assertThat(holdRepo.findAll()).isEmpty(); // 잡아둔 자리 반납
+        EnrollmentRound after = roundRepo.findById(r1.getId()).orElseThrow();
+        assertThat(after.getTicketRef()).isEqualTo(dayTicket);   // 예약은 원래 슬롯 그대로
+        assertThat(after.getBlockStart()).isEqualTo(START);
+        assertThat(after.getStatus()).isEqualTo(EnrollmentStatus.ACCEPT_PENDING); // 롤백할 게 없다
     }
 
     @Test

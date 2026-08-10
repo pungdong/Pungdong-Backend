@@ -2,6 +2,7 @@ package com.diving.pungdong.payment;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -20,4 +21,7 @@ public interface PaymentOrderJpaRepo extends JpaRepository<PaymentOrder, Long> {
 
     /** 그 회차의 해당 상태 주문들 — 결제 순서(id 오름차순). 원결제가 먼저, 차액이 뒤. */
     List<PaymentOrder> findByEnrollmentRoundIdAndStatusOrderByIdAsc(Long roundId, PaymentStatus status);
+
+    /** 차액 결제 만료 스위프 — 목표 슬롯을 단 채 결제창 window 를 넘긴 READY 주문들. */
+    List<PaymentOrder> findByStatusAndTargetDateIsNotNullAndCreatedAtBefore(PaymentStatus status, OffsetDateTime cutoff);
 }

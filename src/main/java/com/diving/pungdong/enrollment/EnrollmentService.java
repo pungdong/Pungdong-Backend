@@ -274,6 +274,114 @@ public class EnrollmentService {
     }
 
     /**
+     * <b>차액 결제 경로 — 견적</b>. 더 비싼 슬롯으로 옮기려는 요청을 검증하고, 옮겼을 때의 회차 금액을 돌려준다.
+     * <b>아무것도 바꾸지 않는다</b>(슬롯 교체는 결제 승인 후 {@link #applySlotChange}).
+     *
+     * <p><b>범위</b>: 바꾸는 건 <b>일정(날짜·이용권·블록)</b> 뿐이고 <b>위치와 장비는 현재 것을 유지</b>한다.
+     * 위치·장비까지 바꾸려면 취소 후 재신청 — 목표 슬롯을 주문에 싣는 구조라 담을 수 있는 건 일정 한 벌이다.
+     *
+     * <p>payment 도메인이 호출한다(payment→enrollment, 허용 방향). 학생 소유·상태·슬롯 유효성을 여기서 다 본다.
+     */
+    @Transactional(readOnly = true)
+    public SlotChangeQuote quoteSlotChange(Account student, Long roundId, LocalDate date, String ticketRef,
+                                           LocalTime start, LocalTime end) {
+        EnrollmentRound round = requireMyRound(student, roundId);
+        if (round.getStatus() != EnrollmentStatus.ACCEPT_PENDING && round.getStatus() != EnrollmentStatus.CONFIRMED) {
+            throw new BadRequestException(); // 결제된 회차만 차액 결제 대상(미결제는 그냥 reschedule)
+        }
+        Course course = round.getEnrollment() == null ? null : round.getEnrollment().getCourse();
+        if (course == null) {
+            throw new BadRequestException();
+        }
+        Account instructor = course.getInstructor();
+        requireRoundCandidate(round.getCourseRound(), round.getVenueRefId(), ticketRef);
+        VenueResponse venue = venueRefResolver.resolveVenues(List.of(round.getVenueRefId())).get(round.getVenueRefId());
+        if (venue == null) {
+            throw new BadRequestException();
+        }
+        BookableSlotDeriver.Block block = bookableBlock(venue, ticketRef, date, start, end);
+        requireCoverageAndNoOverlap(instructor, date, round.getVenueRefId(), start, end);
+
+        int currentTotal = round.chargeTotal();
+        int targetTotal = currentTotal - round.getEntrySnapshot() + block.getFee(); // 입장료만 갈린다(위치·장비 유지)
+        if (targetTotal <= currentTotal) {
+            throw new BadRequestException(); // 안 비싸짐 — 차액 결제가 아니라 그냥 reschedule/pick-slot 경로
+        }
+        return new SlotChangeQuote(targetTotal - currentTotal, block.getFee());
+    }
+
+    /** 차액 결제 견적 — 추가로 받을 금액과 목표 슬롯의 입장료. */
+    public record SlotChangeQuote(int additionalAmount, int targetEntryFee) {
+    }
+
+    /**
+     * <b>차액 결제 경로 — 좌석 확보</b>. 결제창이 떠 있는 동안 목표 슬롯 자리를 주문에 귀속된 hold 로 잡아둔다.
+     * 안 잡으면 결제 중에 자리가 나가 <b>돈은 받고 자리는 못 주는</b> 상태가 된다(강사 제안 hold 와 같은 이유).
+     */
+    @Transactional
+    public void holdSlotForOrder(Account student, Long roundId, Long paymentOrderId, LocalDate date, String ticketRef,
+                                 LocalTime start, LocalTime end, OffsetDateTime expiresAt) {
+        EnrollmentRound round = requireMyRound(student, roundId);
+        Account instructor = round.getEnrollment().getCourse().getInstructor();
+        // ⚠️ 이전 hold 회수를 세션 생성 <b>전</b>에 — 해제는 빈 일정을 정리하므로, 방금 만든 세션을 지워버린다.
+        releaseOrderHold(paymentOrderId); // 재-prepare 멱등
+        AvailabilitySession session = findOrCreateSession(instructor, date, start, end,
+                round.getVenueRefId(), ticketRef);
+        requireSeat(session);
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        session.addHold(AvailabilityHold.builder()
+                .count(1).paymentOrderId(paymentOrderId).expiresAt(expiresAt).createdAt(now).build());
+    }
+
+    /** 그 주문에 귀속된 좌석 hold 를 해제한다(빈 일정 정리 포함). 승인/만료/취소 공용. 멱등. */
+    @Transactional
+    public void releaseOrderHold(Long paymentOrderId) {
+        List<AvailabilityHold> holds = holdRepo.findByPaymentOrderId(paymentOrderId);
+        List<AvailabilitySession> touched = new ArrayList<>();
+        for (AvailabilityHold h : holds) {
+            AvailabilitySession s = h.getSession();
+            if (s != null) {
+                s.getHolds().remove(h);
+                if (touched.stream().noneMatch(t -> t.getId().equals(s.getId()))) {
+                    touched.add(s);
+                }
+            }
+        }
+        touched.forEach(sessionCleaner::deleteIfEmpty);
+    }
+
+    /**
+     * <b>차액 결제 경로 — 적용</b>. 결제 승인 직후 슬롯을 실제로 교체한다(payment 가 호출).
+     *
+     * <p>회차 상태는 <b>건드리지 않는다</b> — 결제 대기를 주문에 뒀기 때문에 회차는 내내
+     * {@code ACCEPT_PENDING}/{@code CONFIRMED} 그대로다. 잡아둔 hold 를 회수해 실점유로 전환하고 옛 슬롯은 이력으로.
+     */
+    @Transactional
+    public void applySlotChange(Long roundId, Long paymentOrderId, LocalDate date, String ticketRef,
+                                LocalTime start, LocalTime end, int targetEntryFee) {
+        EnrollmentRound round = roundRepo.findById(roundId).orElseThrow(ResourceNotFoundException::new);
+        Account instructor = round.getEnrollment().getCourse().getInstructor();
+        AvailabilitySession oldSession = round.getAvailabilitySession();
+        AvailabilitySession newSession = findOrCreateSession(instructor, date, start, end,
+                round.getVenueRefId(), ticketRef);
+
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        round.archiveCurrentSlot(now); // 취소 아님 — 슬롯 이력
+        round.setAvailabilitySession(newSession);
+        round.setDate(date);
+        round.setTicketRef(ticketRef);
+        round.setBlockStart(start);
+        round.setBlockEnd(end);
+        round.setEntrySnapshot(targetEntryFee);
+        round.getProposedSlots().clear();
+        // ⚠️ hold 해제는 <b>회차를 새 세션에 붙인 뒤</b>에 — 먼저 풀면 그 일정이 "점유 0"이 되어 정리돼 버린다.
+        releaseOrderHold(paymentOrderId); // 잡아둔 자리를 실점유로 전환(이중계산 방지)
+        if (oldSession != null && !oldSession.getId().equals(newSession.getId())) {
+            sessionCleaner.deleteIfEmpty(oldSession);
+        }
+    }
+
+    /**
      * 결제된 회차의 슬롯이 바뀌었을 때 금액 정산 — 줄었으면 차액 자동환불, 늘었으면 400.
      *
      * <p><b>불변식</b>: "그 회차에 남아 있는 결제 순액 == {@code chargeTotal()}" — 줄 때마다 즉시 환불하므로

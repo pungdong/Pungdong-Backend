@@ -44,7 +44,19 @@ public class AvailabilityHold {
     /** 강사 일정변경 제안 보장 hold 가 귀속된 회차 id(EnrollmentRound). null 이면 외부/± hold. raw Long(역참조 회피). */
     private Long proposalRoundId;
 
-    /** 제안 hold 자동 만료 시각(proposalTtlHours). proposal hold 일 때만 의미. */
+    /**
+     * <b>차액 결제 대기 hold</b> 가 귀속된 결제주문 id(PaymentOrder). null 이면 제안/외부/± hold. raw Long(역참조 회피).
+     *
+     * <p>더 비싼 슬롯으로 옮기려면 차액을 결제해야 하는데, 그 결제창이 떠 있는 동안 새 슬롯 자리를 다른 학생이
+     * 가져가면 <b>돈은 받고 자리는 못 주는</b> 상태가 된다. 그래서 주문 생성 시점에 새 슬롯을 잡아둔다.
+     * 승인되면 실점유로 전환(hold 해제)되고, 미결제로 주문이 만료되면 hold 도 함께 풀린다.
+     *
+     * <p>{@code proposalRoundId} 와 <b>따로 두는 이유</b>: 제안 hold 는 제안 TTL 스위퍼가 걷어가는데
+     * (그때 {@code proposedSlots} 도 비운다) 결제 hold 는 생명주기가 주문에 묶여 있어 섞이면 안 된다.
+     */
+    private Long paymentOrderId;
+
+    /** hold 자동 만료 시각 — 제안 hold(proposalTtlHours) / 차액 결제 hold(paymentTtlHours). */
     private OffsetDateTime expiresAt;
 
     private OffsetDateTime createdAt;
@@ -54,8 +66,13 @@ public class AvailabilityHold {
         return proposalRoundId != null;
     }
 
+    /** 차액 결제 대기 hold 인가 — 주문 귀속. 승인 시 실점유 전환, 주문 만료 시 해제. */
+    public boolean isPaymentHold() {
+        return paymentOrderId != null;
+    }
+
     /** 외부 출처 점유인가 — 메모 동반 외부예약(±빠른조정·제안 hold 와 구분). 표시/집계용. */
     public boolean isExternal() {
-        return !isProposal() && memo != null && !memo.isBlank();
+        return !isProposal() && !isPaymentHold() && memo != null && !memo.isBlank();
     }
 }

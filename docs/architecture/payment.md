@@ -67,6 +67,27 @@ sequenceDiagram
 
 분기: 인증 실패(`P_STATUS≠00`) → 승인 호출 없이 fail 302. PG 승인 거절 → 주문 READY 유지 + fail 302(에러를 PG 에 안 던짐). 알 수 없는 주문(위조 P_OID) → web fail 302. 이미 DONE 주문 → 200 DONE(멱등). 미결제(PENDING) 아닌 신청 prepare → 400. 비소유 → 400(존재 숨김). **금액은 콜백값(P_AMT)이 아니라 주문 권위값**으로 승인 전문에 실려 위변조를 막는다(승인엔 서명이 없음).
 
+### 슬롯 변경 차액 결제 — 대기를 "예약"이 아니라 "주문"에 둔다
+
+더 비싼 시간대로 옮기려면 차액을 받아야 하는데, 그 "결제 대기"를 예약 상태({`EnrollmentStatus`})에 두면 방금 없앤 `PAYMENT_PENDING` 류가 되살아난다. 대신 **대기를 주문에** 둔다:
+
+```
+POST /payments/prepare {roundId, targetDate, targetTicketRef, targetBlockStart, targetBlockEnd}
+  ├─ enrollment 가 검증·가격 산정(quoteSlotChange) — 위치·장비 고정이라 갈리는 건 입장료뿐
+  ├─ amount = 목표 회차금액 − 현재 회차금액 (차액만)
+  ├─ 주문에 목표 슬롯 박제 + 목표 슬롯 좌석 hold(주문 귀속, paymentTtlHours)
+  └─ 회차 상태는 그대로 (ACCEPT_PENDING / CONFIRMED)
+POST /payments/confirm
+  └─ 승인되는 순간 applySlotChange — 슬롯 교체 + hold→실점유 전환 + 옛 슬롯 이력. 상태는 여전히 그대로
+[미결제 방치 · paymentTtlHours 경과]
+  └─ 주문만 FAILED + 좌석 반납. 예약은 원래 슬롯 그대로 — 롤백할 것이 없다
+```
+
+- **왜 좌석을 잡나**: 결제창이 떠 있는 동안 그 자리를 다른 학생이 가져가면 **돈은 받고 자리는 못 주는** 상태가 된다. 강사 제안 hold 와 같은 이유·같은 부품(`AvailabilityHold`)이되, **주문 귀속**(`paymentOrderId`)이라 제안 TTL 스위퍼가 걷어가지 않는다.
+- **왜 강사 재수락이 없나**: 학생이 자기 돈을 더 내고 같은 위치·같은 코스의 다른 시간대로 옮기는 것이라 강사 결정 대상이 아니다. 회차 상태를 안 건드리므로 24h 시계도 재시작되지 않는다.
+- **범위**: 바뀌는 건 **일정(날짜·이용권·블록)** 뿐. 위치·장비까지 바꾸려면 취소 후 재신청(주문에 실을 수 있는 건 일정 한 벌).
+- 목표 입장료는 별도 컬럼 없이 유도한다 — 위치·장비가 그대로라 `목표입장료 = 현재입장료 + 차액`.
+
 ## 4. 데이터 모델
 
 ```mermaid
@@ -85,6 +106,10 @@ erDiagram
         String paymentKey "PG 거래식별자(이니시스 P_TID) · 승인 후"
         String method "승인 후"
         OffsetDateTime approvedAt "승인 후"
+        LocalDate targetDate "차액결제: 적용할 목표 슬롯 (V16)"
+        String targetTicketRef "차액결제 목표 이용권 (V16)"
+        LocalTime targetBlockStart "차액결제 목표 시작 (V16)"
+        LocalTime targetBlockEnd "차액결제 목표 종료 (V16)"
     }
     PAYMENT_ORDER ||--o{ REFUND_ORDER : "환불 시도(원장)"
     REFUND_ORDER {
