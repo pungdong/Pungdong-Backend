@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -63,11 +64,11 @@ public class RefundService {
         int tuitionRefund = quote.getLines().stream().mapToInt(RefundQuote.Line::getTuitionPart).sum();
         EnrollmentRound firstRound = firstRegular(e);
         if (tuitionRefund > 0 && firstRound != null) {
-            paidOrder(firstRound.getId()).ifPresent(o -> orderRefund.merge(o.getId(), tuitionRefund, Integer::sum));
+            spreadOverOrders(paidOrders(firstRound.getId()), tuitionRefund, orderRefund);
         }
         for (RefundQuote.Line line : quote.getLines()) {
             if (line.getRoundId() != null && line.getExtraPart() > 0) {
-                paidOrder(line.getRoundId()).ifPresent(o -> orderRefund.merge(o.getId(), line.getExtraPart(), Integer::sum));
+                spreadOverOrders(paidOrders(line.getRoundId()), line.getExtraPart(), orderRefund);
             }
         }
 
@@ -92,6 +93,23 @@ public class RefundService {
         return quote;
     }
 
+    /**
+     * 회차 환불액을 그 회차의 주문들에 <b>최신 주문부터</b> 배분한다(차액 결제분을 먼저 되돌림).
+     * 주문별 잔액을 넘지 않으며, 회차 순액보다 큰 요청은 순액까지만 배분된다.
+     */
+    private void spreadOverOrders(List<PaymentOrder> orders, int amount, Map<Long, Integer> out) {
+        int remaining = Math.min(amount, roundRefundable(orders));
+        for (int i = orders.size() - 1; i >= 0 && remaining > 0; i--) {
+            PaymentOrder order = orders.get(i);
+            int take = Math.min(remaining, order.refundableAmount());
+            if (take <= 0) {
+                continue;
+            }
+            out.merge(order.getId(), take, Integer::sum);
+            remaining -= take;
+        }
+    }
+
     /** 수강료가 든 주문의 주인 = 첫 정규회차(활성/완료). */
     private EnrollmentRound firstRegular(Enrollment e) {
         return e.getRounds().stream()
@@ -100,13 +118,25 @@ public class RefundService {
                 .findFirst().orElse(null);
     }
 
-    private java.util.Optional<PaymentOrder> paidOrder(Long roundId) {
-        return orderRepo.findByEnrollmentRoundIdAndStatus(roundId, PaymentStatus.DONE);
+    /**
+     * 그 회차의 <b>승인된 주문들</b>(결제 순서). 회차당 여러 건일 수 있다 — 원결제 + 일정 변경 차액 결제.
+     *
+     * <p>환불 <b>실행</b>은 주문 단위여야 한다(PG 취소 전문에 그 주문의 {@code paymentKey} 를 실어야 하므로).
+     * 회차는 그 위의 <b>집계</b> 단위다: {@code 회차 순액 = Σ(승인액) − Σ(환불액)}.
+     */
+    private List<PaymentOrder> paidOrders(Long roundId) {
+        return orderRepo.findByEnrollmentRoundIdAndStatusOrderByIdAsc(roundId, PaymentStatus.DONE);
+    }
+
+    /** 그 회차에 남아 있는 결제 순액 = Σ(승인액 − 환불액). 취소가능 잔액의 회차 합. */
+    private int roundRefundable(List<PaymentOrder> orders) {
+        return orders.stream().mapToInt(PaymentOrder::refundableAmount).sum();
     }
 
     /**
      * 단일 회차 전액 환불 — <b>선결제 강사 거절/무응답 만료</b>가 이벤트로 호출한다({@code EnrollmentRefundListener}).
-     * 학생 게이트 없음(시스템 트리거). 그 회차의 DONE 주문을 취소가능잔액 전액 취소 + {@code RefundOrder} 기록.
+     * 학생 게이트 없음(시스템 트리거). 그 회차의 <b>승인 주문들을 각각</b> 취소가능잔액 전액 취소 + 이력 기록
+     * (회차당 주문이 여러 건일 수 있다 — 원결제 + 일정 변경 차액 결제).
      *
      * <p>발행자(reject/expiry)의 <b>같은 트랜잭션</b>에서 동기 실행된다(REQUIRED) — PG 취소가 실패하면 예외가
      * 전파돼 상태변경까지 롤백된다(환불 성공해야 REJECTED/CANCELLED 도 커밋). 이미 환불됐거나 미결제면 no-op.
@@ -116,12 +146,14 @@ public class RefundService {
      */
     @Transactional
     public void refundRoundFully(Long roundId, String reason) {
-        PaymentOrder order = paidOrder(roundId).orElse(null);
-        if (order == null || order.getPaymentKey() == null) {
-            return; // 결제 없음 = 환불할 것 없음(선결제 전 미결제 상태에서 만료된 경우 등)
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        // 그 회차의 승인 주문을 모두 각각 잔액 전액 취소 — cancelAmount == 그 주문 잔액이라 어댑터가 전체취소로 처리.
+        for (PaymentOrder order : paidOrders(roundId)) {
+            if (order.getPaymentKey() == null) {
+                continue; // 안전: 미승인 주문은 건너뜀
+            }
+            applyCancel(order, order.refundableAmount(), reason, now);
         }
-        // 취소가능 잔액 전액 — cancelAmount == 잔액 → 어댑터가 전체취소로 처리(이니시스 refund / 토스 cancel).
-        applyCancel(order, order.refundableAmount(), reason, OffsetDateTime.now(ZoneOffset.UTC));
     }
 
     /**
@@ -129,18 +161,25 @@ public class RefundService {
      * ({@code EnrollmentPartialRefundListener} 가 이벤트로 호출). 학생 게이트 없음(시스템 트리거).
      *
      * <p>{@link #refundRoundFully} 와 같은 동기·원자성 계약(기록은 {@link RefundLedger} 별도 트랜잭션).
-     * 취소가능잔액을 넘지 않게 clamp 하며, 미결제/잔액 0 이면 no-op(멱등).
+     * <b>회차 순액</b>(Σ 주문 잔액)을 넘지 않게 clamp 하며, 미결제/잔액 0 이면 no-op(멱등).
+     * 여러 주문에 걸치면 <b>최신 주문부터</b> 뺀다 — 차액 결제분을 먼저 되돌리는 게 직관적이다.
      */
     @Transactional
     public void refundRoundPartially(Long roundId, int amount, String reason) {
         if (amount <= 0) {
             return;
         }
-        PaymentOrder order = paidOrder(roundId).orElse(null);
-        if (order == null || order.getPaymentKey() == null) {
-            return; // 결제 없음 = 환불할 것 없음
+        List<PaymentOrder> orders = paidOrders(roundId);
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        int remaining = Math.min(amount, roundRefundable(orders));
+        // 최신 주문부터 뺀다 — 차액 결제분을 먼저 되돌리는 게 직관적이다(원결제가 부분환불된 것처럼 보이지 않는다).
+        for (int i = orders.size() - 1; i >= 0 && remaining > 0; i--) {
+            PaymentOrder order = orders.get(i);
+            if (order.getPaymentKey() == null) {
+                continue;
+            }
+            remaining -= applyCancel(order, remaining, reason, now);
         }
-        applyCancel(order, amount, reason, OffsetDateTime.now(ZoneOffset.UTC));
     }
 
     /**
