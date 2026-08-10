@@ -409,6 +409,10 @@ operation::branding-me-update[]
 === 내 브랜딩 페이지 발행 토글
 operation::branding-me-publish[]
 
+[[resource-branding-me-records]]
+=== 내 브랜딩 페이지 공식 기록 교체
+operation::branding-me-records[]
+
 [[resource-branding-posts]]
 === 공개 게시물 그리드 조회
 operation::branding-posts[]

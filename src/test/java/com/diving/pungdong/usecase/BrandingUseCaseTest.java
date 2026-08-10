@@ -299,6 +299,117 @@ class BrandingUseCaseTest {
                 .andExpect(jsonPath("$.products").doesNotExist());
     }
 
+    /* ════════════════ K — 공식 기록(스냅샷 교체) ════════════════ */
+
+    @Test
+    @DisplayName("K1: 기록을 보낸 배열 순서 그대로 저장하고 공개 페이지에도 그 순서로 나온다")
+    void records_areStoredInRequestOrder() throws Exception {
+        Account me = account("k1@test.com", "diverK1", Role.STUDENT);
+
+        mockMvc.perform(put("/branding/me/records")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"records\":["
+                                + "{\"medal\":\"GOLD\",\"eventCode\":\"CWT\",\"value\":\"-75m\"},"
+                                + "{\"medal\":\"SILVER\",\"eventCode\":\"STA\",\"value\":\"6:24\"}]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].eventCode").value("CWT"))
+                .andExpect(jsonPath("$.records[1].value").value("6:24"));
+
+        mockMvc.perform(get(publicUrl("diverK1")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].eventCode").value("CWT"))
+                .andExpect(jsonPath("$.records[1].eventCode").value("STA"));
+    }
+
+    @Test
+    @DisplayName("K2: 다시 보내면 통째로 교체된다 — 재정렬·삭제가 한 번의 호출로 끝난다")
+    void records_areReplacedWholesale() throws Exception {
+        Account me = account("k2@test.com", "diverK2", Role.STUDENT);
+        String token = tokenFor(me);
+
+        mockMvc.perform(put("/branding/me/records")
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"records\":["
+                                + "{\"medal\":\"GOLD\",\"eventCode\":\"CWT\",\"value\":\"-75m\"},"
+                                + "{\"medal\":\"BRONZE\",\"eventCode\":\"DYN\",\"value\":\"180m\"}]}"))
+                .andExpect(status().isOk());
+
+        // 순서를 뒤집고 한 건을 뺀다
+        mockMvc.perform(put("/branding/me/records")
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"records\":[{\"medal\":\"BRONZE\",\"eventCode\":\"DYN\",\"value\":\"180m\"}]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.records.length()").value(1))
+                .andExpect(jsonPath("$.records[0].eventCode").value("DYN"));
+    }
+
+    @Test
+    @DisplayName("K3: 빈 배열을 보내면 기록이 전부 지워진다 (스냅샷이므로 의도된 동작)")
+    void records_emptyArrayClearsAll() throws Exception {
+        Account me = account("k3@test.com", "diverK3", Role.STUDENT);
+        String token = tokenFor(me);
+
+        mockMvc.perform(put("/branding/me/records")
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"records\":[{\"medal\":\"GOLD\",\"eventCode\":\"FIM\",\"value\":\"-68m\"}]}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(put("/branding/me/records")
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"records\":[]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.records.length()").value(0));
+    }
+
+    @Test
+    @DisplayName("K4: 프로필이 없는 상태에서 기록만 보내도 프로필이 생성된다 (첫 쓰기 = 생성)")
+    void records_upsertCreatesProfile() throws Exception {
+        Account me = account("k4@test.com", "diverK4", Role.STUDENT);
+
+        mockMvc.perform(put("/branding/me/records")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"records\":[{\"medal\":\"GOLD\",\"eventCode\":\"CNF\",\"value\":\"-52m\"}]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.exists").value(true));
+
+        assertThat(brandingRepo.findByAccountId(me.getId())).isPresent();
+    }
+
+    @Test
+    @DisplayName("K5: 기록이 13개면 400 이고 아무것도 저장되지 않는다")
+    void records_tooMany_returns400() throws Exception {
+        Account me = account("k5@test.com", "diverK5", Role.STUDENT);
+        String item = "{\"medal\":\"GOLD\",\"eventCode\":\"CWT\",\"value\":\"-75m\"}";
+        String body = "{\"records\":[" + String.join(",", java.util.Collections.nCopies(13, item)) + "]}";
+
+        mockMvc.perform(put("/branding/me/records")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("기록은 12개까지 등록할 수 있어요."));
+
+        assertThat(brandingRepo.findByAccountId(me.getId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("K6: 없는 종목 코드를 보내면 400 (enum 6종만 허용)")
+    void records_unknownEventCode_returns400() throws Exception {
+        Account me = account("k6@test.com", "diverK6", Role.STUDENT);
+
+        mockMvc.perform(put("/branding/me/records")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"records\":[{\"medal\":\"GOLD\",\"eventCode\":\"FREEDIVING\",\"value\":\"-75m\"}]}"))
+                .andExpect(status().isBadRequest());
+    }
+
     /* ════════════════ E — 닉네임 URL 인코딩 ════════════════ */
 
     @Test

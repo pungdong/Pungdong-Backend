@@ -9,6 +9,7 @@ import com.diving.pungdong.branding.dto.BrandingStats;
 import com.diving.pungdong.branding.dto.BrandingUpdateRequest;
 import com.diving.pungdong.branding.dto.MyBrandingResponse;
 import com.diving.pungdong.branding.dto.RecordDto;
+import com.diving.pungdong.branding.dto.RecordsUpdateRequest;
 import com.diving.pungdong.course.CourseJpaRepo;
 import com.diving.pungdong.course.CourseStatus;
 import com.diving.pungdong.enrollment.EnrollmentJpaRepo;
@@ -23,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -110,6 +112,34 @@ public class BrandingService {
         if (request.isLocationLabelPresent()) {
             branding.setLocationLabel(request.getLocationLabel());
         }
+        return toMyBranding(branding, owner);
+    }
+
+    /**
+     * 공식 기록 스냅샷 교체 — 보낸 배열이 곧 최종 상태다(빈 배열이면 전부 삭제). 미생성이면 upsert.
+     *
+     * <p>순서는 <b>요청 배열의 인덱스</b>가 곧 {@code sortOrder} 다. 클라이언트가 sortOrder 를 직접
+     * 보내지 않게 한 이유: 중복·구멍 난 값이 들어오면 표시 순서가 비결정적이 된다. 배열 순서라는 자연스러운
+     * 표현 하나만 받는다.
+     */
+    @Transactional
+    public MyBrandingResponse replaceRecords(Account currentUser, RecordsUpdateRequest request) {
+        Account owner = loadAccount(currentUser);
+        AccountBranding branding = getOrCreate(owner);
+
+        List<BrandingRecord> next = new ArrayList<>();
+        List<RecordsUpdateRequest.RecordItem> items = request.getRecords();
+        for (int i = 0; i < items.size(); i++) {
+            RecordsUpdateRequest.RecordItem item = items.get(i);
+            next.add(BrandingRecord.builder()
+                    .medal(item.getMedal())
+                    .eventCode(item.getEventCode())
+                    .value(item.getValue())
+                    .sortOrder(i)
+                    .build());
+        }
+        branding.replaceRecords(next);
+
         return toMyBranding(branding, owner);
     }
 
