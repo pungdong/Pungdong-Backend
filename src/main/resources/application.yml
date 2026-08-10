@@ -95,6 +95,12 @@ cors:
 #   pungdong.storage.s3.enabled=true            (S3 실연동 — Phase 4 버킷 provision 후)
 #   pungdong.identity-verification.mode=disabled (실 본인확인기관 연동 전까지 fail-closed)
 pungdong:
+  # 닉네임 사전 점검 리포트(일회성 진단). 켜면 부팅 시 읽기 전용 조회 결과를 로그로 1회 남긴다 —
+  # account.nick_name 에 UNIQUE 를 걸기 전에 중복·예약어·URL불가 계정이 몇 건인지 알아야 하기 때문.
+  # 기본 OFF. 확인이 끝나면 이 플래그와 account/audit 패키지를 함께 제거한다.
+  audit:
+    nickname:
+      enabled: ${AUDIT_NICKNAME_ENABLED:false}
   # 외부 식별자 난독화 salt(Hashids). 순차 id → 비순차 코드(주문번호 등). 가역이라 salt 가 곧 키 — 노출/변경 금지
   # (바꾸면 기존 코드 decode 불가). 로컬/테스트는 기본값, 운영은 env 로 고정.
   hashids:
