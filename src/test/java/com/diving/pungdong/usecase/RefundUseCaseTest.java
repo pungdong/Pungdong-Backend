@@ -378,6 +378,66 @@ class RefundUseCaseTest {
         assertThat(refundRepo.findAll()).hasSize(1); // 새 시도 행도 안 생김
     }
 
+    @Test
+    @DisplayName("RF11 한 회차에 주문이 여러 건이면(원결제+차액) 전액 환불은 각 주문을 모두 취소한다")
+    void fullRefundCancelsEveryOrderOfRound() {
+        Account stu = accountRepo.save(Account.builder().email("rf11@pd.com").password("x").nickName("학생11")
+                .roles(new HashSet<>(Set.of(Role.STUDENT))).build());
+        Account ins = accountRepo.save(Account.builder().email("rfi11@pd.com").password("x").nickName("강사11")
+                .roles(new HashSet<>(Set.of(Role.INSTRUCTOR))).build());
+        Long roundId = paidSingleRound(stu, ins, EnrollmentStatus.ACCEPT_PENDING, 20000, "pkA"); // 원결제 20,000
+        EnrollmentRound r = roundRepo.findById(roundId).orElseThrow();
+        order(r, 5000, "pkB"); // 더 비싼 슬롯으로 옮기며 낸 차액 5,000
+
+        refundService.refundRoundFully(roundId, "강사 거절");
+
+        // 주문 단위로 각각 취소된다(PG 취소 전문은 그 주문의 tid 를 실어야 하므로)
+        verify(gateway).cancel(eq("pkA"), eq(20000), eq(20000), anyString());
+        verify(gateway).cancel(eq("pkB"), eq(5000), eq(5000), anyString());
+        assertThat(orderRepo.findByOrderId("ord-pkA").orElseThrow().getStatus()).isEqualTo(PaymentStatus.CANCELED);
+        assertThat(orderRepo.findByOrderId("ord-pkB").orElseThrow().getStatus()).isEqualTo(PaymentStatus.CANCELED);
+        assertThat(refundRepo.findAll()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("RF12 차액 환불은 최신 주문부터 뺀다 — 원결제가 부분환불된 것처럼 보이지 않게")
+    void partialRefundTakesFromNewestOrderFirst() {
+        Account stu = accountRepo.save(Account.builder().email("rf12@pd.com").password("x").nickName("학생12")
+                .roles(new HashSet<>(Set.of(Role.STUDENT))).build());
+        Account ins = accountRepo.save(Account.builder().email("rfi12@pd.com").password("x").nickName("강사12")
+                .roles(new HashSet<>(Set.of(Role.INSTRUCTOR))).build());
+        Long roundId = paidSingleRound(stu, ins, EnrollmentStatus.ACCEPT_PENDING, 20000, "pkC"); // 원결제
+        EnrollmentRound r = roundRepo.findById(roundId).orElseThrow();
+        order(r, 5000, "pkD"); // 차액 결제
+
+        refundService.refundRoundPartially(roundId, 3000, "일정 변경 차액");
+
+        verify(gateway).cancel(eq("pkD"), eq(3000), eq(5000), anyString());   // 차액 주문에서만
+        verify(gateway, org.mockito.Mockito.never()).cancel(eq("pkC"), anyInt(), anyInt(), anyString());
+        assertThat(orderRepo.findByOrderId("ord-pkC").orElseThrow().getRefundedAmount()).isZero();
+        assertThat(orderRepo.findByOrderId("ord-pkD").orElseThrow().getRefundedAmount()).isEqualTo(3000);
+    }
+
+    @Test
+    @DisplayName("RF13 차액 환불이 최신 주문 잔액을 넘으면 이전 주문으로 넘어가 채우고, 회차 순액을 넘진 않는다")
+    void partialRefundSpillsOverToOlderOrderAndClampsToRoundNet() {
+        Account stu = accountRepo.save(Account.builder().email("rf13@pd.com").password("x").nickName("학생13")
+                .roles(new HashSet<>(Set.of(Role.STUDENT))).build());
+        Account ins = accountRepo.save(Account.builder().email("rfi13@pd.com").password("x").nickName("강사13")
+                .roles(new HashSet<>(Set.of(Role.INSTRUCTOR))).build());
+        Long roundId = paidSingleRound(stu, ins, EnrollmentStatus.ACCEPT_PENDING, 20000, "pkE2"); // 원결제 20,000
+        EnrollmentRound r = roundRepo.findById(roundId).orElseThrow();
+        order(r, 5000, "pkF2"); // 차액 5,000 — 회차 순액 25,000
+
+        refundService.refundRoundPartially(roundId, 999999, "과다 요청");
+
+        // 최신(5,000) 먼저 → 남은 20,000 을 원결제에서. 회차 순액 25,000 을 넘지 않는다.
+        verify(gateway).cancel(eq("pkF2"), eq(5000), eq(5000), anyString());
+        verify(gateway).cancel(eq("pkE2"), eq(20000), eq(20000), anyString());
+        assertThat(orderRepo.findByOrderId("ord-pkE2").orElseThrow().getRefundedAmount()).isEqualTo(20000);
+        assertThat(orderRepo.findByOrderId("ord-pkF2").orElseThrow().getRefundedAmount()).isEqualTo(5000);
+    }
+
     /** 1회차 선결제 완료 엔롤 + DONE 주문 한 건. roundId 반환(거절/만료 대상). */
     private Long paidSingleRound(Account stu, Account ins, EnrollmentStatus status, int amount, String key) {
         Course course = Course.builder().instructor(ins).title("프리다이빙 1일 레슨")
