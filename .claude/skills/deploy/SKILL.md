@@ -43,6 +43,17 @@ description: Deploy pungdong BE to staging and/or production. Handles the stagin
 aws ecs describe-services --cluster plop-staging-cluster --services plop-staging-svc --region ap-northeast-2 --query 'services[0].{status:status,running:runningCount}'
 ```
 
+> ⚠️ **재시작 전에 태스크 정의가 무엇을 가리키는지 먼저 본다.**
+> ```
+> aws ecs describe-task-definition --task-definition plop-staging --region ap-northeast-2 --query 'taskDefinition.containerDefinitions[0].image'
+> ```
+> `master-latest` 면 정상(재시작으로 최신화됨). **`master-<sha>` 면 재시작으로는 절대 안 바뀐다** — 고정 태그라
+> 같은 이미지를 성실히 다시 받아오고, 배포는 **에러 없이 "성공"으로 뜬다**(2026-08-11 실제로 밟음: staging 이
+> `master-3fcaad3` 에 핀돼 재시작이 헛돌았고 digest 를 대조하기 전까지 최신인 줄 알았다).
+> 그 경우: `staging-up`(terraform) 으로 새 revision 을 만든 뒤 **`update-service --task-definition plop-staging:<new>`**
+> 로 서비스를 옮긴다(force-new-deployment 는 서비스의 *현재* revision 을 다시 띄울 뿐 revision 을 바꾸지 않는다).
+> staging 은 이제 `main.tf` 에 `master-latest` 로 고정돼 있어 이 상황이 재발하면 **누가 수동으로 핀한 것**이다.
+
 - **DOWN(없음/destroyed)** → `gh workflow run deploy.yml -f action=staging-up`
   - staging은 온디맨드라 보통 이 경로. **fresh create 순간 terraform이 task def를 `master-latest`로 세팅 → 이미지 올바로 물림, force 불필요** (`ignore_changes`는 서비스가 *이미 존재할 때만* 발동).
 - **UP(이미 떠 있음)** → **force-new-deployment** (staging-up 아님!):
@@ -51,7 +62,10 @@ aws ecs describe-services --cluster plop-staging-cluster --services plop-staging
   aws ecs wait services-stable --cluster plop-staging-cluster --services plop-staging-svc --region ap-northeast-2
   ```
   - **왜**: 이미 떠 있으면 `staging-up`(terraform apply)은 `ignore_changes=[task_definition]` 때문에 **이미지를 조용히 안 바꾼다**(에러도 없어 "배포됐겠지" 착각). task def가 mutable `master-latest` 참조라 force-new-deployment가 재-pull로 최신 반영. `staging-down`+`up`은 QA 중단이라 부적절.
-- **검증**: 실행 태스크 digest == ECR `master-latest` digest, 헬스 UP.
+- **검증(생략 불가)**: 실행 태스크 digest == ECR `master-latest` digest, 헬스 UP.
+  **`rolloutState: COMPLETED` 는 "최신이 떴다"는 뜻이 아니다** — 고정 태그·이미지 미빌드 등으로 옛 이미지가 떠도
+  COMPLETED 다. digest 대조가 유일한 증거다("헬스 초록 ≠ 최신/복구 가능"). 마이그레이션이 델타에 있으면
+  Flyway 로그(`now at version vN`)까지 봐야 확실하다.
   ```
   T=$(aws ecs list-tasks --cluster plop-staging-cluster --service-name plop-staging-svc --region ap-northeast-2 --query 'taskArns[0]' --output text)
   aws ecs describe-tasks --cluster plop-staging-cluster --tasks "$T" --region ap-northeast-2 --query 'tasks[0].containers[0].imageDigest'

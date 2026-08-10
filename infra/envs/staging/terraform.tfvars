@@ -1,9 +1,7 @@
 # staging 값. 시크릿은 여기 두지 않는다(SSM). DB 비번은 Terraform 이 생성.
 
-# 이미지 태그 — staging 은 최신 master 추종. build.yml 이 master 머지마다 master-latest 를 ECR 에 push.
-# (옛 기본값 "staging-latest" 는 ECR 에 존재하지 않는 promote 라벨이라 직접 apply 시 CannotPull 함정이었음 — master-latest 로 교정.)
-# 워크플로 staging-up 도 -var="image_tag=master-latest" 로 동일하게 띄움.
-image_tag            = "master-latest"
+# 이미지 태그는 여기서 정하지 않는다 — main.tf 에 master-latest 로 <b>고정</b>(변수 자체를 없앴다).
+# 왜: sha 로 핀되면 force-new-deployment 가 조용히 무력화된다(재시작해도 같은 이미지, 배포는 "성공"). 상세는 main.tf.
 cors_allowed_origins = "https://staging.plop.cool,https://admin-staging.plop.cool"
 
 # HTTPS — ACM 인증서(api-staging.plop.cool, DNS 검증 완료 2026-06-24).

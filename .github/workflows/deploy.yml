@@ -1,7 +1,7 @@
 name: Deploy (manual button)
 
 # Actions 탭 "Run workflow" 버튼. action 드롭다운으로 선택:
-#   staging-up        → terraform apply (staging 환경 생성 + 최신 이미지)
+#   staging-up        → terraform apply (staging 환경 생성 + 최신 이미지 — 태그는 master-latest 고정, image_tag 입력 무시)
 #   staging-down      → terraform destroy (staging $0)
 #   production-deploy → prod ECS 이미지 교체 (인프라 그대로, 무중단 롤링)
 on:
@@ -16,7 +16,7 @@ on:
           - staging-down
           - production-deploy
       image_tag:
-        description: "production-deploy 배포 태그 (기본 master-latest. 검증된 master-<sha> 권장)"
+        description: "★ production-deploy 전용 배포 태그 (기본 master-latest. 검증된 master-<sha> 권장). staging 은 무시 — main.tf 에 master-latest 고정"
         required: false
         default: master-latest
 
@@ -52,7 +52,7 @@ jobs:
         working-directory: infra/envs/staging
         run: |
           terraform init -input=false
-          terraform apply -auto-approve -input=false -var="image_tag=master-latest"
+          terraform apply -auto-approve -input=false   # 이미지 태그는 main.tf 에 master-latest 로 고정(변수 없음)
           echo "### staging UP" >> $GITHUB_STEP_SUMMARY
           echo "- ALB: $(terraform output -raw alb_dns_name)" >> $GITHUB_STEP_SUMMARY
 
