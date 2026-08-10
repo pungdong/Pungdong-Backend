@@ -27,7 +27,9 @@
 - **금액은 서버 권위값** — 클라이언트가 보낸 amount 를 신뢰하지 않는다. prepare 가 서버에서 재계산(`코스 라이브 수강료 + 입장료 스냅샷 + 장비 스냅샷`)해 주문에 박고, confirm 은 클라 amount 가 그 값과 같을 때만 PG 승인. **PG 에도 주문에 박힌 금액**을 보내므로 결제창 결제액이 다르면 PG 가 거절.
 - **결제 완료 = 전이** — `ConfirmResult.approved` 만이 enrollment 를 다음 상태로: **전 회차 `PENDING → ACCEPT_PENDING`**(강사 결정 대기). 강사 거절·학생 취소·무응답 만료 시 enrollment 이벤트(`EnrollmentRefundRequestedEvent`)를 `EnrollmentRefundListener` 가 받아 `RefundService.refundRoundFully` 로 **전액 자동환불**(동기·롤백안전, payment→enrollment 방향). 결제 후 슬롯이 더 싼 자리로 바뀌면 `EnrollmentPartialRefundRequestedEvent` → `refundRoundPartially` 로 **차액만** 환불(같은 계약).
 - **주문 잔액은 행에서 읽힌다** — `PaymentOrder.refundedAmount`(누적 환불액, V14)와 `refundableAmount() = amount − refundedAmount`. **돈의 축(`PaymentStatus`)과 예약의 축(`EnrollmentStatus`)은 독립** — `DONE` 은 "승인됨"이지 "예약 확정"이 아니다(선결제라 승인 시점 회차는 `ACCEPT_PENDING`). 읽는 법: `DONE`+환불0=정상 / `DONE`+환불>0=**부분환불** / `CANCELED`=**전액환불**. `refund_order`(이력)가 **원장**, `refundedAmount` 는 같은 트랜잭션에서 갱신되는 **캐시**(어긋나면 이력이 진실).
-- **환불 실행은 `RefundService.applyCancel` 한 곳** — 세 경로(수강 종료·회차 전액·차액)가 공유한다. 취소가능 잔액으로 **clamp**(초과·이중 취소 불가, 잔액 0이면 no-op 멱등) → PG 취소는 **주문에 박힌 provider** 로 → 이력 저장 → 잔액 반영. ⚠️ **성공만 기록된다** — PG 거절 시 예외 전파로 트랜잭션이 롤백돼 이력이 안 남는다(재시도·대사 불가). 시도 이력 별도 트랜잭션 기록은 후속(#202).
+- **환불 실행은 `RefundService.applyCancel` 한 곳** — 세 경로(수강 종료·회차 전액·차액)가 공유한다. 취소가능 잔액으로 **clamp**(초과·이중 취소 불가, 잔액 0이면 no-op 멱등) → PG 취소는 **주문에 박힌 provider** 로.
+- **기록은 `RefundLedger` 가 별도 트랜잭션(`REQUIRES_NEW`)으로** — 환불은 롤백 안 되는 외부 부수효과라, 기록을 발행자 트랜잭션에 묶으면 롤백 시 "PG 엔 나갔는데 DB 엔 없는" 상태가 된다. **PG 호출 직전 `REQUESTED` 선기록 → `DONE`(+잔액 누적) / `FAILED`(+PG code·msg)**. `REQUESTED` 잔존 = **결과 미확인** → 그 주문 자동환불 잠금(이중환불 방지, 사람이 PG 원장 대사 후 확정). ⚠️ 별도 빈인 이유 = self-invocation 이면 프록시를 안 거쳐 `REQUIRES_NEW` 가 무시된다.
+- **PG 거절 사유는 `PaymentGatewayException`** 으로 전달하되 **응답은 일반 400 문구 고정** — PG 내부 코드를 강사 화면에 노출하지 않는다(진단은 DB·로그). 전송 실패(타임아웃)는 이 예외가 아니라 `IllegalStateException` — "거절당함"과 "물어보지 못함"은 대사에서 다르게 취급.
 - **시크릿 키는 BE 밖으로 안 나간다** — 승인 Basic 인증용. FE 엔 `clientKey`(공개)만 prepare 응답으로.
 - **멱등** — confirm 재호출(이미 DONE)도 200 DONE. prepare 는 READY 주문 재사용. 토스엔 `Idempotency-Key=orderId`(이니시스는 콜백 승인이 주문 상태로 멱등 — 이미 DONE 이면 재승인 안 함).
 

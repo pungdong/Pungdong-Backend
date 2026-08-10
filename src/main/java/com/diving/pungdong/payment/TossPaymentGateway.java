@@ -1,6 +1,7 @@
 package com.diving.pungdong.payment;
 
 import com.diving.pungdong.global.advice.exception.BadRequestException;
+import com.diving.pungdong.global.advice.exception.PaymentGatewayException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -125,9 +126,11 @@ public class TossPaymentGateway implements PaymentGateway {
             HttpResponse<String> res = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
             JsonNode json = objectMapper.readTree(res.body());
             if (res.statusCode() / 100 != 2) {
-                log.warn("[payment-toss] cancel 거절 HTTP {} code={} msg={}",
-                        res.statusCode(), json.path("code").asText(""), json.path("message").asText(""));
-                throw new BadRequestException();
+                String code = json.path("code").asText("");
+                String msg = json.path("message").asText("");
+                log.warn("[payment-toss] cancel 거절 HTTP {} code={} msg={}", res.statusCode(), code, msg);
+                // 거절 사유를 예외에 실어 환불 이력(RefundOrder.failureCode/Message)에 박제 — 대사용.
+                throw new PaymentGatewayException(code.isEmpty() ? "HTTP" + res.statusCode() : code, msg);
             }
             // 부분취소면 마지막 cancels[] 의 시각을 쓸 수 있으나, 표시엔 최상위 status + now 로 충분.
             String status = json.path("status").asText(null);

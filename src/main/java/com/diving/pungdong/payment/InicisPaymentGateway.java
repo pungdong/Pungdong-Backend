@@ -1,6 +1,7 @@
 package com.diving.pungdong.payment;
 
 import com.diving.pungdong.global.advice.exception.BadRequestException;
+import com.diving.pungdong.global.advice.exception.PaymentGatewayException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -187,9 +188,10 @@ public class InicisPaymentGateway implements PaymentGateway {
         JsonNode json = postJson(url, refundBody(apiKey, mid, clientIp, timestamp, type, data, objectMapper), "refund");
         String resultCode = json.path("resultCode").asText("");
         if (!OK.equals(resultCode)) {
-            log.warn("[payment-inicis] 환불 거절 resultCode={} resultMsg={}",
-                    resultCode, json.path("resultMsg").asText(""));
-            throw new BadRequestException();
+            String resultMsg = json.path("resultMsg").asText("");
+            log.warn("[payment-inicis] 환불 거절 resultCode={} resultMsg={}", resultCode, resultMsg);
+            // 거절 사유를 예외에 실어 환불 이력(RefundOrder.failureCode/Message)에 박제 — 대사용.
+            throw new PaymentGatewayException(resultCode, resultMsg);
         }
         log.info("[payment-inicis] 환불 완료 tid={} type={} 취소액={} resultCode={}",
                 pgTransactionId, type, cancelAmount, resultCode);

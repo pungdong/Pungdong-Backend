@@ -14,11 +14,13 @@ import com.diving.pungdong.enrollment.EnrollmentJpaRepo;
 import com.diving.pungdong.enrollment.EnrollmentRound;
 import com.diving.pungdong.enrollment.EnrollmentRoundJpaRepo;
 import com.diving.pungdong.enrollment.EnrollmentStatus;
+import com.diving.pungdong.global.advice.exception.PaymentGatewayException;
 import com.diving.pungdong.global.security.JwtTokenProvider;
 import com.diving.pungdong.payment.PaymentOrder;
 import com.diving.pungdong.payment.PaymentOrderJpaRepo;
 import com.diving.pungdong.payment.PaymentStatus;
 import com.diving.pungdong.payment.RefundOrderJpaRepo;
+import com.diving.pungdong.payment.RefundStatus;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -38,6 +40,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -323,6 +326,56 @@ class RefundUseCaseTest {
         refundService.refundRoundPartially(roundId, 1000, "중복 호출");
         verify(gateway, org.mockito.Mockito.times(1)).cancel(eq("pkF"), anyInt(), anyInt(), anyString());
         assertThat(refundRepo.findAll()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("RF9 PG 가 환불을 거절하면 상태전이는 롤백되지만 실패 이력(FAILED + PG 코드/사유)은 남는다")
+    void failedRefundLeavesLedgerRow() {
+        Account stu = accountRepo.save(Account.builder().email("rf9@pd.com").password("x").nickName("학생9")
+                .roles(new HashSet<>(Set.of(Role.STUDENT))).build());
+        Account ins = accountRepo.save(Account.builder().email("rfi9@pd.com").password("x").nickName("강사9")
+                .roles(new HashSet<>(Set.of(Role.INSTRUCTOR))).build());
+        Long roundId = paidSingleRound(stu, ins, EnrollmentStatus.ACCEPT_PENDING, 30000, "pkX");
+        // PG 가 거절 — 어댑터는 진단정보를 실은 PaymentGatewayException 을 던진다.
+        org.mockito.BDDMockito.willThrow(new PaymentGatewayException("9001", "잔액 부족"))
+                .given(gateway).cancel(eq("pkX"), anyInt(), anyInt(), anyString());
+
+        assertThatThrownBy(() -> instructorEnrollmentService.reject(ins, roundId, "일정 안 맞음"))
+                .isInstanceOf(PaymentGatewayException.class);
+
+        // 상태전이는 롤백 — 환불이 안 됐으니 거절도 확정되면 안 된다(돈-상태 원자성)
+        assertThat(roundRepo.findById(roundId).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.ACCEPT_PENDING);
+        // 그러나 시도 이력은 별도 트랜잭션이라 남는다 — 재시도·대사의 근거
+        var ledgerRows = refundRepo.findAll();
+        assertThat(ledgerRows).hasSize(1);
+        assertThat(ledgerRows.get(0).getStatus()).isEqualTo(RefundStatus.FAILED);
+        assertThat(ledgerRows.get(0).getFailureCode()).isEqualTo("9001");
+        assertThat(ledgerRows.get(0).getFailureMessage()).isEqualTo("잔액 부족");
+        assertThat(ledgerRows.get(0).getCompletedAt()).isNotNull();
+        // 실패했으므로 잔액은 그대로(환불 안 됨)
+        assertThat(orderRepo.findByOrderId("ord-pkX").orElseThrow().getRefundedAmount()).isZero();
+    }
+
+    @Test
+    @DisplayName("RF10 결과를 모르는 시도(REQUESTED 잔존)가 있으면 자동 환불을 건너뛴다 — 이중환불 방지, 대사 대상")
+    void unresolvedAttemptBlocksAutoRefund() {
+        Account stu = accountRepo.save(Account.builder().email("rf10@pd.com").password("x").nickName("학생10")
+                .roles(new HashSet<>(Set.of(Role.STUDENT))).build());
+        Account ins = accountRepo.save(Account.builder().email("rfi10@pd.com").password("x").nickName("강사10")
+                .roles(new HashSet<>(Set.of(Role.INSTRUCTOR))).build());
+        Long roundId = paidSingleRound(stu, ins, EnrollmentStatus.ACCEPT_PENDING, 30000, "pkU");
+        PaymentOrder order = orderRepo.findByOrderId("ord-pkU").orElseThrow();
+        // 전송 실패로 결과를 못 받은 시도가 남아 있는 상황(프로세스 급사 등)
+        refundRepo.save(com.diving.pungdong.payment.RefundOrder.builder()
+                .paymentOrder(order).amount(30000).reason("이전 시도")
+                .status(RefundStatus.REQUESTED).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
+
+        refundService.refundRoundFully(roundId, "강사 거절");
+
+        // PG 를 다시 부르지 않는다 — 이미 취소됐을 수 있으므로 사람이 대사해야 한다
+        verify(gateway, org.mockito.Mockito.never()).cancel(eq("pkU"), anyInt(), anyInt(), anyString());
+        assertThat(orderRepo.findByOrderId("ord-pkU").orElseThrow().getRefundedAmount()).isZero();
+        assertThat(refundRepo.findAll()).hasSize(1); // 새 시도 행도 안 생김
     }
 
     /** 1회차 선결제 완료 엔롤 + DONE 주문 한 건. roundId 반환(거절/만료 대상). */
