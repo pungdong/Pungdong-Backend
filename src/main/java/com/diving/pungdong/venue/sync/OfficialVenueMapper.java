@@ -3,6 +3,7 @@ package com.diving.pungdong.venue.sync;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.diving.pungdong.venue.ClosureType;
 import com.diving.pungdong.venue.DaypartKind;
+import com.diving.pungdong.venue.Region;
 import com.diving.pungdong.venue.TimeMode;
 import com.diving.pungdong.venue.VenueScope;
 import com.diving.pungdong.venue.VenueType;
@@ -26,15 +27,17 @@ final class OfficialVenueMapper {
 
     static VenueResponse toResponse(SanityVenueClient.OfficialVenueDoc official) {
         JsonNode v = official.getDoc();
+        String address = text(v, "address");
         return VenueResponse.builder()
                 .id(null)
                 .name(text(v, "name"))
                 .type(VenueType.valueOf(text(v, "type")))
-                .address(text(v, "address"))
+                .address(address)
                 .addressDetail(text(v, "addressDetail"))
                 .latitude(dbl(v, "latitude"))
                 .longitude(dbl(v, "longitude"))
                 .maxDepth(integer(v, "maxDepth"))
+                .region(Region.fromAddress(address))
                 .scope("OFFICIAL")
                 .venueRefId(VenueScope.token(VenueScope.OFFICIAL, official.getId()))
                 .ownerId(null)

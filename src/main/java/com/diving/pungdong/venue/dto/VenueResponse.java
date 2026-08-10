@@ -34,6 +34,12 @@ public class VenueResponse {
     private Double longitude;
     /** 최대수심(m, 선택). */
     private Integer maxDepth;
+    /**
+     * 지역 묶음 — {@code address} 에서 <b>읽을 때 파생</b>({@link Region#fromAddress}). 저장 컬럼이 아니다.
+     * 코스빌더 위치 picker 의 지역칩이 쓰며, 둘러보기({@code GET /courses/browse?region=}) 필터와 <b>같은
+     * 규칙</b>이어야 해서 그 함수를 그대로 재사용한다. 주소가 없어도 {@code ETC} 라 null 이 아니다.
+     */
+    private Region region;
     /** "CUSTOM"(BE) | "OFFICIAL"(Sanity). 코스 빌더 통합 목록에서 출처 구분. */
     private String scope;
     /**
@@ -43,6 +49,12 @@ public class VenueResponse {
     private String venueRefId;
     private Long ownerId;
     private String lockedDisciplineCode;
+    /**
+     * 호출 강사가 이 위치를 즐겨찾기했는가. <b>{@code GET /venues}·{@code GET /venues/builder} 응답에서만
+     * 채워진다</b> — picker 가 초기 상태를 N 콜 없이 알게 하려는 값이라, 그 두 경로 밖(코스 상세 합성 등
+     * {@link com.diving.pungdong.venue.VenueRefResolver} 가 만드는 인스턴스)에서는 null("모름")로 남는다.
+     */
+    private Boolean favorite;
     private List<Closure> closures;
     private List<Ticket> tickets;
     private OffsetDateTime createdAt;
@@ -58,6 +70,7 @@ public class VenueResponse {
                 .latitude(v.getLatitude())
                 .longitude(v.getLongitude())
                 .maxDepth(v.getMaxDepth())
+                .region(Region.fromAddress(v.getAddress()))
                 .scope("CUSTOM")
                 .venueRefId(VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId())))
                 .ownerId(v.getOwner() == null ? null : v.getOwner().getId())

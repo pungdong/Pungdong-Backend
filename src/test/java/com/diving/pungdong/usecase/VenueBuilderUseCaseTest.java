@@ -76,8 +76,13 @@ class VenueBuilderUseCaseTest {
 
     /** 소유자에게 종속된 커스텀 위치 1건 직접 시드(생성 게이트/검증은 VenueUseCaseTest 담당). */
     private Venue seedCustom(Account owner, String name, VenueType type, String disciplineCode) {
+        return seedCustom(owner, name, type, disciplineCode, null);
+    }
+
+    /** 주소까지 지정 — region 파생 확인용. */
+    private Venue seedCustom(Account owner, String name, VenueType type, String disciplineCode, String address) {
         return venueRepo.save(Venue.builder()
-                .owner(owner).name(name).type(type).lockedDisciplineCode(disciplineCode)
+                .owner(owner).name(name).type(type).lockedDisciplineCode(disciplineCode).address(address)
                 .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
     }
 
@@ -144,6 +149,32 @@ class VenueBuilderUseCaseTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$._embedded.venues[?(@.name=='양양 비치 포인트')]").value(hasSize(1)))
                 .andExpect(jsonPath("$._embedded.venues[?(@.name=='딥스테이션')]").value(empty()));
+    }
+
+    @Test
+    @DisplayName("B6 OFFICIAL 항목에 지역(region)이 주소에서 파생되어 온다 — 딥스테이션=서울·경기, 양양=강원")
+    void b6_official_region_derived() throws Exception {
+        Account me = account("b6@pungdong.com");
+
+        mockMvc.perform(get("/venues/builder").header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.venues[?(@.name=='딥스테이션')].region")
+                        .value(hasItem("SEOUL_GYEONGGI")))
+                .andExpect(jsonPath("$._embedded.venues[?(@.name=='양양 비치 포인트')].region")
+                        .value(hasItem("GANGWON")));
+    }
+
+    @Test
+    @DisplayName("B7 내 CUSTOM 항목에도 region 이 오고, 주소가 없으면 ETC 로 떨어진다(누락 아님)")
+    void b7_custom_region_derived() throws Exception {
+        Account me = account("b7@pungdong.com");
+        seedCustom(me, "제주 문섬", VenueType.OCEAN, "FREEDIVING", "제주특별자치도 서귀포시 남성중로 40");
+        seedCustom(me, "주소없는 포인트", VenueType.OCEAN, "FREEDIVING", null);
+
+        mockMvc.perform(get("/venues/builder").header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.venues[?(@.name=='제주 문섬')].region").value(hasItem("JEJU")))
+                .andExpect(jsonPath("$._embedded.venues[?(@.name=='주소없는 포인트')].region").value(hasItem("ETC")));
     }
 
     /* ════════════════ F — 이용권 종목 필터 · ticketRef ════════════════ */
