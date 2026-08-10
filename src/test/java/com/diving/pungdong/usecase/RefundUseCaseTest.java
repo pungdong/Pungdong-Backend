@@ -38,6 +38,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -66,6 +67,7 @@ class RefundUseCaseTest {
     @Autowired RefundOrderJpaRepo refundRepo;
     @Autowired com.diving.pungdong.enrollment.InstructorEnrollmentService instructorEnrollmentService;
     @Autowired com.diving.pungdong.enrollment.EnrollmentExpiryService expiryService;
+    @Autowired com.diving.pungdong.payment.RefundService refundService;
 
     // 레지스트리를 mock — 어댑터 3개가 모두 빈이라 PaymentGateway 타입 mock 은 주입이 모호해진다.
     // cancel 에 넘어가는 인자와 "어느 PG 로 갔는지"를 검증하기 위해(반환값은 서비스가 쓰지 않는다).
@@ -270,6 +272,56 @@ class RefundUseCaseTest {
         assertThat(expired).isEqualTo(1);
         assertThat(roundRepo.findById(roundId).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.CANCELLED);
         verify(gateway).cancel(eq("pkE"), eq(350000), eq(350000), anyString());
+        assertThat(refundRepo.findAll()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("RF7 부분환불이 누적되면 주문 잔액이 줄고(refundedAmount), 잔액을 넘는 환불은 clamp 된다")
+    void partialRefundsAccumulateAndClamp() {
+        Account stu = accountRepo.save(Account.builder().email("rf7@pd.com").password("x").nickName("학생7")
+                .roles(new HashSet<>(Set.of(Role.STUDENT))).build());
+        Account ins = accountRepo.save(Account.builder().email("rfi7@pd.com").password("x").nickName("강사7")
+                .roles(new HashSet<>(Set.of(Role.INSTRUCTOR))).build());
+        Long roundId = paidSingleRound(stu, ins, EnrollmentStatus.ACCEPT_PENDING, 20000, "pkP");
+
+        refundService.refundRoundPartially(roundId, 2000, "일정 변경 차액");
+        PaymentOrder after1 = orderRepo.findByOrderId("ord-pkP").orElseThrow();
+        assertThat(after1.getRefundedAmount()).isEqualTo(2000);
+        assertThat(after1.refundableAmount()).isEqualTo(18000);
+        assertThat(after1.getStatus()).isEqualTo(PaymentStatus.DONE); // 부분환불은 DONE 유지
+
+        refundService.refundRoundPartially(roundId, 3000, "일정 변경 차액");
+        PaymentOrder after2 = orderRepo.findByOrderId("ord-pkP").orElseThrow();
+        assertThat(after2.getRefundedAmount()).isEqualTo(5000); // 누적
+        assertThat(after2.refundableAmount()).isEqualTo(15000);
+
+        // 잔액(15,000)을 넘겨 요청해도 잔액까지만 취소된다
+        refundService.refundRoundPartially(roundId, 999999, "과다 요청");
+        PaymentOrder after3 = orderRepo.findByOrderId("ord-pkP").orElseThrow();
+        assertThat(after3.getRefundedAmount()).isEqualTo(20000);
+        assertThat(after3.refundableAmount()).isZero();
+        verify(gateway).cancel(eq("pkP"), eq(15000), eq(15000), anyString()); // 초과분이 아니라 잔액만
+        assertThat(refundRepo.findAll()).hasSize(3); // 이력은 3행 그대로 남는다(원장)
+    }
+
+    @Test
+    @DisplayName("RF8 전액 환불되면 주문 상태가 CANCELED 로 바뀌고, 이후 환불 호출은 no-op(멱등)")
+    void fullRefundMarksOrderCanceled() {
+        Account stu = accountRepo.save(Account.builder().email("rf8@pd.com").password("x").nickName("학생8")
+                .roles(new HashSet<>(Set.of(Role.STUDENT))).build());
+        Account ins = accountRepo.save(Account.builder().email("rfi8@pd.com").password("x").nickName("강사8")
+                .roles(new HashSet<>(Set.of(Role.INSTRUCTOR))).build());
+        Long roundId = paidSingleRound(stu, ins, EnrollmentStatus.ACCEPT_PENDING, 50000, "pkF");
+
+        refundService.refundRoundFully(roundId, "강사 거절");
+        PaymentOrder after = orderRepo.findByOrderId("ord-pkF").orElseThrow();
+        assertThat(after.getRefundedAmount()).isEqualTo(50000);
+        assertThat(after.getStatus()).isEqualTo(PaymentStatus.CANCELED); // 테이블만 봐도 전액환불이 보인다
+
+        // 다시 호출해도 PG 를 두 번 부르지 않는다(잔액 0 → no-op)
+        refundService.refundRoundFully(roundId, "중복 호출");
+        refundService.refundRoundPartially(roundId, 1000, "중복 호출");
+        verify(gateway, org.mockito.Mockito.times(1)).cancel(eq("pkF"), anyInt(), anyInt(), anyString());
         assertThat(refundRepo.findAll()).hasSize(1);
     }
 
