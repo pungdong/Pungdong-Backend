@@ -13,7 +13,14 @@ locals {
   cdn_base_url  = "https://cdn-staging.plop.cool"
 
   # 공유 ECR(bootstrap) 의 이미지 URI 조립.
-  container_image = "${local.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/${var.ecr_repo_name}:${var.image_tag}"
+  #
+  # ⚠️ staging 은 태그를 <b>master-latest 로 고정</b>한다(변수 없음). staging 의 존재 이유가 "최신 master 를
+  # 굴려보는 곳"이라 특정 sha 를 고를 이유가 없고, 무엇보다 <b>sha 로 핀되면 force-new-deployment 가 조용히
+  # 무력화</b>되기 때문 — 고정 태그는 재시작해도 같은 이미지를 받아오는데 배포는 "성공"으로 뜬다(에러 없음).
+  # 2026-08-11 실제로 밟았다: staging 이 master-3fcaad3 에 핀돼 있어 재시작이 헛돌았고, digest 를 대조하기
+  # 전까지 최신인 줄 알았다. prod 는 반대로 sha 핀이 정책(검증된 것만 나간다) — 그 차이를 코드로 드러낸다.
+  # 특정 sha 로 staging 을 띄워야 하면 이 값을 일시 수정하는 별도 작업으로(기본값을 흔들지 않는다).
+  container_image = "${local.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/${var.ecr_repo_name}:master-latest"
 
   # 앱이 RDS/Redis 에 붙는 URL — 모듈 output 에서 조립.
   # useSSL=false: 트래픽이 VPC 내부 + data SG(app 에서만)라 RDS 인증서 검증 마찰 회피. (prod 는 SSL+RDS CA 검토)

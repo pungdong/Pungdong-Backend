@@ -9,12 +9,6 @@ variable "ecr_repo_name" {
   default     = "plop"
 }
 
-variable "image_tag" {
-  description = "배포할 이미지 태그 (git sha 또는 latest). CI(⑤)가 갱신"
-  type        = string
-  default     = "latest"
-}
-
 variable "cors_allowed_origins" {
   description = "CORS 허용 오리진 (staging 웹)"
   type        = string
