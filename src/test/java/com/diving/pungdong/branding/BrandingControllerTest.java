@@ -38,6 +38,7 @@ import static org.springframework.restdocs.request.RequestDocumentation.paramete
 // pathParameters 스니펫은 URL 템플릿 정보를 요구하므로 MockMvcRequestBuilders 가 아니라 이걸 써야 한다.
 import static org.springframework.restdocs.mockmvc.RestDocumentationRequestBuilders.get;
 import static org.springframework.restdocs.mockmvc.RestDocumentationRequestBuilders.patch;
+import static org.springframework.restdocs.mockmvc.RestDocumentationRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -181,6 +182,27 @@ class BrandingControllerTest {
                 .andDo(document("branding-me-update",
                         requestFields(
                                 fieldWithPath("tagline").description("한 줄 소개 (최대 60자). 키를 빼면 변경 없음, null 이면 비우기").optional()
+                        ),
+                        relaxedResponseFields(profileFields(""))
+                ));
+    }
+
+    @Test
+    @DisplayName("내 브랜딩 페이지 공식 기록 교체")
+    void replaceRecords() throws Exception {
+        Account account = account();
+        given(brandingService.replaceRecords(any(), any())).willReturn(myBranding());
+
+        mockMvc.perform(put("/branding/me/records")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(account))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"records\":[{\"medal\":\"GOLD\",\"eventCode\":\"CWT\",\"value\":\"-75m\"}]}"))
+                .andExpect(status().isOk())
+                .andDo(document("branding-me-records",
+                        requestFields(
+                                fieldWithPath("records[].medal").description("GOLD|SILVER|BRONZE"),
+                                fieldWithPath("records[].eventCode").description("CWT|FIM|CNF|DYN|DNF|STA"),
+                                fieldWithPath("records[].value").description("기록 원문(최대 16자). 단위가 종목마다 달라 문자열")
                         ),
                         relaxedResponseFields(profileFields(""))
                 ));

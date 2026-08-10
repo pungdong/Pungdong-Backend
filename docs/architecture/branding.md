@@ -143,6 +143,10 @@ erDiagram
 
 ⚠️ 업로드했지만 게시물에 안 쓰인 사진(작성 중 이탈)은 **아직 자동 정리되지 않는다** — S3 lifecycle rule 은 별도 작업.
 
+### 기록은 왜 스냅샷 교체인가
+
+디자인이 chip **순서 조정**을 요구한다. 드래그로 재정렬한 뒤 항목마다 요청을 쏘면 중간 상태가 노출되고, 일부만 성공하면 순서가 깨진다. 배열을 통째로 받으면 추가·삭제·재정렬이 **한 번의 원자적 호출**로 끝난다(course·venue 와 같은 관례). **`sortOrder` 는 클라이언트가 보내지 않는다** — 요청 배열의 인덱스가 곧 순서다. 중복·구멍 난 sortOrder 가 들어오면 표시 순서가 비결정적이 되므로, 자연스러운 표현 하나만 받는다.
+
 ## 5. 보안 / 권한 매트릭스
 
 매처는 `global/security/SecurityConfiguration`. **`/instructors/*` 는 기존 리터럴 `/instructors/public` 보다 뒤에** 둔다(그래야 목록 엔드포인트가 가려지지 않는다). ⚠️ ant 의 `*` 는 `/` 를 넘지 않으므로 하위 경로는 매처를 따로 추가해야 한다.
@@ -154,6 +158,7 @@ erDiagram
 | `GET /branding-posts/{postId}` | **불필요** | — | 발행 + 미숨김만. **단 오너 본인은 자기 글이면 숨김·미발행이어도 조회 가능**. 그 외 **400** |
 | `GET /branding/me` | 필요 | **인증만** | `@CurrentUser` 기준. 미생성이면 `{exists:false}` |
 | `PATCH /branding/me` | 필요 | 인증만 | 동일. 미생성이면 생성(upsert) |
+| `PUT /branding/me/records` | 필요 | 인증만 | 동일. **스냅샷 교체**(빈 배열 = 전부 삭제) |
 | `PATCH /branding/me/publish` | 필요 | 인증만 | 동일. **승인 게이트 없음** |
 | `GET /branding/me/posts` | 필요 | 인증만 | 내 것만 — **숨김 포함**. 프로필 미생성이면 빈 페이지 |
 | `POST /branding/me/posts` | 필요 | 인증만 | 미생성이면 생성(upsert). 연결 강의는 **내 코스**만 |

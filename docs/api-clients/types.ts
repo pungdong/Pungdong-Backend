@@ -702,6 +702,16 @@ export interface BrandingUpdateRequest {
   locationLabel?: string | null;  // 최대 60자
 }
 
+/**
+ * PUT /branding/me/records (인증) — 공식 기록 **스냅샷 교체**. 미생성이면 이 호출이 프로필을 만든다(upsert).
+ * ⚠️ 보낸 배열이 곧 최종 상태다 — 빈 배열을 보내면 기록이 전부 지워진다. 부분 추가/삭제 API가 아니다.
+ * ⚠️ sortOrder를 보내지 않는다 — 배열 순서가 곧 표시 순서다.
+ * 응답은 MyBrandingResponse.
+ */
+export interface BrandingRecordsUpdateRequest {
+  records: BrandingRecord[];   // 최대 12개, value는 최대 16자
+}
+
 // ── 브랜딩 게시물 ──
 export type BrandingMediaKind = 'PHOTO' | 'VIDEO';   // VIDEO는 스키마 자리만 예약(업로드 거부)
 

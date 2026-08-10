@@ -4,6 +4,7 @@ import com.diving.pungdong.account.Account;
 import com.diving.pungdong.branding.dto.BrandingUpdateRequest;
 import com.diving.pungdong.branding.dto.MyBrandingResponse;
 import com.diving.pungdong.branding.dto.PublishRequest;
+import com.diving.pungdong.branding.dto.RecordsUpdateRequest;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.security.CurrentUser;
 import lombok.RequiredArgsConstructor;
@@ -49,6 +50,17 @@ public class BrandingController {
             throw new BadRequestException(result.getFieldError().getDefaultMessage());
         }
         return ResponseEntity.ok().body(model(brandingService.updateMyBranding(account, request)));
+    }
+
+    /** 공식 기록 스냅샷 교체 — 보낸 배열이 곧 최종 상태(빈 배열이면 전부 삭제). 미생성이면 생성(upsert). */
+    @PutMapping("/records")
+    public ResponseEntity<?> replaceRecords(@CurrentUser Account account,
+                                            @Valid @RequestBody RecordsUpdateRequest request,
+                                            BindingResult result) {
+        if (result.hasErrors()) {
+            throw new BadRequestException(result.getFieldError().getDefaultMessage());
+        }
+        return ResponseEntity.ok().body(model(brandingService.replaceRecords(account, request)));
     }
 
     /** 발행 토글 — 승인 게이트 없음(D2). 미생성이면 생성(upsert). */
