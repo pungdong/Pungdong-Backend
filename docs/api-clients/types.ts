@@ -788,6 +788,7 @@ export interface BrandingPublishRequest {
 // 시간은 "HH:mm:ss" 문자열. BE 엔드포인트(모두 인증 — 강사 트랙):
 //   POST /venues · GET /venues?disciplineCode=&type= · GET /venues/builder?disciplineCode=&type=
 //   · GET/PUT/DELETE /venues/{id}
+//   · GET /venue-favorites · POST /venue-favorites · DELETE /venue-favorites?venueRefId=
 // VenueResponse 는 custom(scope=CUSTOM)·official(scope=OFFICIAL) 공용 — builder 는 둘이 섞여 온다.
 
 /** 시간블록 1구간 (FIXED 모드의 "부"). 수강생이 이 중 하나를 고른다. */
@@ -890,6 +891,12 @@ export interface VenueResponse extends HalLinks {
   longitude?: number;
   /** 최대수심(m, 선택). */
   maxDepth?: number;
+  /**
+   * 지역 묶음 — BE 가 `address` 에서 읽을 때 파생한다(저장 컬럼 아님). 주소가 없어도 'ETC' 라 항상 존재.
+   * ★ 둘러보기 지역 필터(`CourseBrowseParams.region`)와 **같은 규칙**이므로 picker 지역칩은 이 값을
+   * 그대로 쓴다 — FE 가 주소 문자열에서 따로 파생하지 말 것(규칙이 갈라진다).
+   */
+  region: Region;
   scope: 'CUSTOM' | 'OFFICIAL';
   /** 코스가 저장하는 안정 참조 토큰. "CUSTOM:<pk>" | "OFFICIAL:<sanityId>". */
   venueRefId: string;
@@ -897,10 +904,34 @@ export interface VenueResponse extends HalLinks {
   ownerId: number | null;
   /** CUSTOM 만. OFFICIAL 은 null(이용권이 멀티 종목). */
   lockedDisciplineCode: string | null;
+  /**
+   * 호출 강사가 이 위치를 즐겨찾기했는가 — picker 가 초기 상태를 알려고 따로 호출하지 않아도 된다.
+   * GET /venues · GET /venues/builder 응답에서만 채워진다.
+   */
+  favorite: boolean;
   closures: VenueClosure[];
   tickets: VenueTicket[];
   createdAt?: string;
   updatedAt?: string;
+}
+
+// ── 위치 즐겨찾기 (venue favorite) — docs/architecture/venue.md ──
+// 강사가 "자주 쓰는 위치"로 선언한 표식. picker 의 "내 위치" 묶음을 채운다(기기 로컬 아님 — 서버 영속).
+// 위치는 venueRefId 로 가리키므로 공식·커스텀을 같은 엔드포인트가 다룬다. 모두 인증(강사 트랙).
+// ⚠️ 해제는 **쿼리 파라미터**다(DELETE 본문 아님) — 일부 HTTP 클라이언트/프록시가 DELETE 본문을 흘린다.
+//    venueRefId 의 콜론은 쿼리 문자열에서 그대로 허용되는 문자라 인코딩 없이 보내도 되고, %3A 로 보내도 된다.
+// 마크·해제 모두 **멱등** — 이미 즐겨찾기한 걸 또 마크해도 200, 없는 걸 해제해도 204.
+
+/** POST /venue-favorites — 마크. */
+export interface VenueFavoriteRequest {
+  /** "CUSTOM:<pk>" | "OFFICIAL:<sanityId>" (위치 목록이 준 토큰). 형식 어긋나면 400. */
+  venueRefId: string;
+}
+
+/** 즐겨찾기 1건 — 목록은 `_embedded.venueFavorites`(CollectionModel). */
+export interface VenueFavoriteResponse extends HalLinks {
+  venueRefId: string;
+  createdAt?: string;
 }
 
 // ── 대여 장비 가격표 (equipment extension) — docs/architecture/venue.md ──

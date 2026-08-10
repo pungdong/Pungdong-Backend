@@ -39,6 +39,8 @@ public class VenueService {
     private final DisciplineService disciplineService;
     private final InstructorApplicationJpaRepo applicationRepo;
     private final com.diving.pungdong.venue.sync.OfficialVenueCache officialVenueCache;
+    /** 서비스가 아니라 레포를 주입한다 — {@code VenueFavoriteService → VenueRefValidator → VenueService} 순환 회피. */
+    private final com.diving.pungdong.venue.favorite.VenueFavoriteJpaRepo favoriteRepo;
 
     @Transactional
     public VenueResponse create(Account owner, VenueCreateRequest req) {
@@ -51,11 +53,26 @@ public class VenueService {
 
     /** 내 커스텀 위치만 — 종목/유형으로 좁힘 (관리용 {@code GET /venues}). */
     public List<VenueResponse> listMine(Account me, String disciplineCode, VenueType type) {
+        return markFavorites(listMineRaw(me, disciplineCode, type), me.getId());
+    }
+
+    /** 즐겨찾기 마킹 전 원본 — {@link #listForBuilder} 가 official 과 합친 뒤 <b>한 번만</b> 마킹하도록. */
+    private List<VenueResponse> listMineRaw(Account me, String disciplineCode, VenueType type) {
         return venueRepo.findAllByOwnerIdOrderByIdDesc(me.getId()).stream()
                 .filter(v -> type == null || v.getType() == type)
                 .filter(v -> !StringUtils.hasText(disciplineCode) || offersDiscipline(v, disciplineCode))
                 .map(VenueResponse::from)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 호출 강사 기준 즐겨찾기 여부를 각 항목에 채운다 — picker 가 초기 상태를 알려고 N 콜 하지 않게.
+     * 표식 토큰 집합을 <b>1회</b> 조회해 대조하므로 목록 크기와 무관하게 쿼리 1번.
+     */
+    private List<VenueResponse> markFavorites(List<VenueResponse> venues, Long ownerId) {
+        Set<String> refs = favoriteRepo.findRefsByOwnerId(ownerId);
+        venues.forEach(v -> v.setFavorite(refs.contains(v.getVenueRefId())));
+        return venues;
     }
 
     /**
@@ -68,10 +85,10 @@ public class VenueService {
                 .filter(v -> !StringUtils.hasText(disciplineCode) || offersDiscipline(v, disciplineCode))
                 .map(v -> filterTicketsByDiscipline(v, disciplineCode))
                 .collect(Collectors.toList());
-        listMine(me, disciplineCode, type).stream()
+        listMineRaw(me, disciplineCode, type).stream()
                 .map(v -> filterTicketsByDiscipline(v, disciplineCode))
                 .forEach(merged::add);
-        return merged;
+        return markFavorites(merged, me.getId());
     }
 
     /** OFFICIAL DTO 의 종목 보유 여부 — 이용권 중 하나라도 그 종목을 다루면 true. */
@@ -118,6 +135,8 @@ public class VenueService {
     @Transactional
     public void delete(Account me, Long id) {
         venueRepo.delete(requireOwned(me, id));
+        // 사라진 위치를 가리키는 즐겨찾기 표식은 남기지 않는다(고아 행 방지).
+        favoriteRepo.deleteByVenueRefId(VenueScope.token(VenueScope.CUSTOM, String.valueOf(id)));
     }
 
     /* ─── 적용(스칼라 + 자식 전량 교체) ─────────────────────── */
