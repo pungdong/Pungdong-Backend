@@ -76,6 +76,7 @@ public class SecurityConfiguration {
                         .antMatchers("/consents/**").authenticated()
                         .antMatchers("/venues/**").authenticated()
                         .antMatchers("/venue-equipment/**").authenticated()
+                        .antMatchers("/venue-favorites/**").authenticated()
                         .antMatchers("/instructor/availability/**").authenticated()
                         .antMatchers("/instructor/enrollments/**").authenticated()
                         .antMatchers("/enrollments/**").authenticated()
