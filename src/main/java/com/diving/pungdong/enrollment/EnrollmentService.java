@@ -286,8 +286,10 @@ public class EnrollmentService {
     public SlotChangeQuote quoteSlotChange(Account student, Long roundId, LocalDate date, String ticketRef,
                                            LocalTime start, LocalTime end) {
         EnrollmentRound round = requireMyRound(student, roundId);
-        if (round.getStatus() != EnrollmentStatus.ACCEPT_PENDING && round.getStatus() != EnrollmentStatus.CONFIRMED) {
-            throw new BadRequestException(); // 결제된 회차만 차액 결제 대상(미결제는 그냥 reschedule)
+        if (round.getStatus() != EnrollmentStatus.ACCEPT_PENDING) {
+            // 결제완료·강사 결정 대기 건만 — 미결제는 그냥 reschedule, 확정된 회차는 학생이 직접 못 옮긴다
+            // (reschedule 과 같은 정책. 확정 건은 강사 일정변경요청 경로로.)
+            throw new BadRequestException();
         }
         Course course = round.getEnrollment() == null ? null : round.getEnrollment().getCourse();
         if (course == null) {
@@ -353,8 +355,14 @@ public class EnrollmentService {
     /**
      * <b>차액 결제 경로 — 적용</b>. 결제 승인 직후 슬롯을 실제로 교체한다(payment 가 호출).
      *
-     * <p>회차 상태는 <b>건드리지 않는다</b> — 결제 대기를 주문에 뒀기 때문에 회차는 내내
-     * {@code ACCEPT_PENDING}/{@code CONFIRMED} 그대로다. 잡아둔 hold 를 회수해 실점유로 전환하고 옛 슬롯은 이력으로.
+     * <p><b>강사 수락은 여전히 필요하다</b> — 학생이 임의로 고른 시간은 강사가 동의한 적이 없고, 우리 coverage 가
+     * 강사의 실제 일정(타 플랫폼 예약 등)을 다 반영한다는 보장이 없다. 그래서 슬롯을 바꾸고 <b>강사 결정 대기
+     * ({@code ACCEPT_PENDING})로 되돌리며 24h 시계를 재시작</b>한다(옛 슬롯이 이력에 남아 강사 hub 엔 {@code CHANGING}).
+     * 강사가 수락하면 확정, 거절하면 그 회차 전액(차액 포함) 자동환불 — {@code reschedule} 의 결제완료 경로와 같은 규칙.
+     *
+     * <p>(강사 <b>제안</b>을 고르는 {@code pickSlot} 만 재수락이 없다 — 강사가 낸 자리는 이미 동의한 자리이므로.)
+     *
+     * <p>잡아둔 hold 를 회수해 실점유로 전환하고 옛 슬롯은 이력으로.
      */
     @Transactional
     public void applySlotChange(Long roundId, Long paymentOrderId, LocalDate date, String ticketRef,
@@ -374,6 +382,9 @@ public class EnrollmentService {
         round.setBlockEnd(end);
         round.setEntrySnapshot(targetEntryFee);
         round.getProposedSlots().clear();
+        // 학생이 고른 시간이라 강사 동의가 없다 → 강사 결정 대기로 되돌리고 24h 시계 재시작.
+        round.setStatus(EnrollmentStatus.ACCEPT_PENDING);
+        round.setRespondedAt(now);
         // ⚠️ hold 해제는 <b>회차를 새 세션에 붙인 뒤</b>에 — 먼저 풀면 그 일정이 "점유 0"이 되어 정리돼 버린다.
         releaseOrderHold(paymentOrderId); // 잡아둔 자리를 실점유로 전환(이중계산 방지)
         if (oldSession != null && !oldSession.getId().equals(newSession.getId())) {

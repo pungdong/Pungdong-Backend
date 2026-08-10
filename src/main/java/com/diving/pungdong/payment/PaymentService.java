@@ -74,7 +74,7 @@ public class PaymentService {
 
     /**
      * 결제 준비 — {@code target} 이 있으면 <b>슬롯 변경 차액 결제</b>다. 권위 금액 = (목표 슬롯 회차금액 − 현재 회차 순액)
-     * 이고, 목표 슬롯을 주문에 실어 <b>승인되는 순간 슬롯이 교체</b>되게 한다. 결제창이 떠 있는 동안 그 자리는
+     * 이고, 목표 슬롯을 주문에 실어 <b>승인되는 순간 슬롯이 교체 + 강사 재수락 대기</b>가 되게 한다. 결제창이 떠 있는 동안 그 자리는
      * 주문 귀속 hold 로 잡아둔다(안 잡으면 결제 중에 자리가 나가 돈만 받는 상태가 된다).
      */
     @Transactional
@@ -176,9 +176,9 @@ public class PaymentService {
         EnrollmentRound r = order.getEnrollmentRound();
         EnrollmentStatus before = r == null ? null : r.getStatus();
         if (order.isSlotChange()) {
-            // 차액 결제는 이미 결제된 회차의 일정 변경 — 결제완료/확정 상태에서 온다.
-            if (before != EnrollmentStatus.ACCEPT_PENDING && before != EnrollmentStatus.CONFIRMED) {
-                throw new BadRequestException(); // 그새 취소·거절·만료된 회차
+            // 차액 결제는 결제완료·강사 결정 대기 회차의 일정 변경이다.
+            if (before != EnrollmentStatus.ACCEPT_PENDING) {
+                throw new BadRequestException(); // 그새 수락·취소·거절·만료된 회차
             }
         } else if (before != EnrollmentStatus.PENDING) {
             // 선결제(전 회차): 신청 직후(PENDING)에만 결제한다.
@@ -197,7 +197,7 @@ public class PaymentService {
         order.setMethod(result.method());
         order.setApprovedAt(result.approvedAt());
         order.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
-        // 차액 결제면 상태는 그대로 두고 슬롯만 교체한다 — 대기를 주문에 뒀으므로 회차 상태는 애초에 안 바뀌었다.
+        // 차액 결제 — 슬롯을 교체하고 강사 결정 대기로 되돌린다(학생이 고른 시간이라 강사 동의가 필요).
         if (order.isSlotChange()) {
             enrollmentService.applySlotChange(r.getId(), order.getId(),
                     order.getTargetDate(), order.getTargetTicketRef(),

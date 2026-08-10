@@ -82,6 +82,7 @@ class MultiRoundProgressUseCaseTest {
     @Autowired EnrollmentExpiryService expiryService;
     @Autowired com.diving.pungdong.payment.PaymentOrderJpaRepo orderRepo;
     @Autowired com.diving.pungdong.payment.PaymentService paymentService;
+    @Autowired com.diving.pungdong.payment.RefundOrderJpaRepo refundRepo;
 
     // PG 는 유일한 외부 경계라 mock(결정적). 레지스트리째 mock 하는 이유 = 어댑터 3개가 모두 빈이라
     // PaymentGateway 타입으로 mock 하면 주입이 모호해진다(PaymentUseCaseTest 와 같은 패턴).
@@ -104,6 +105,7 @@ class MultiRoundProgressUseCaseTest {
     @AfterEach
     void clean() {
         holdRepo.deleteAll();
+        refundRepo.deleteAll(); // payment_order FK — 주문 삭제 전
         orderRepo.deleteAll(); // enrollment_round FK — 회차 삭제 전
         enrollmentRepo.deleteAll();
         sessionRepo.deleteAll();
@@ -396,7 +398,7 @@ class MultiRoundProgressUseCaseTest {
     }
 
     @Test
-    @DisplayName("M15 더 비싼 시간대로 옮기려면 차액만 결제 — 승인되면 슬롯이 교체되고 회차 상태는 그대로다")
+    @DisplayName("M15 더 비싼 시간대로 옮기려면 차액만 결제 — 슬롯이 바뀌고 강사 재수락 대기로 돌아간다")
     void slotChangeDiffPayment() throws Exception {
         Account ins = instructor("ins-m15@pd.com", "강사M15", 4);
         Venue v = venueWithNightTicket(ins);
@@ -439,9 +441,74 @@ class MultiRoundProgressUseCaseTest {
         assertThat(after.getTicketRef()).isEqualTo(nightTicket);
         assertThat(after.getBlockStart()).isEqualTo(NIGHT_START);
         assertThat(after.getEntrySnapshot()).isEqualTo(25000);
-        // 대기를 주문에 뒀으므로 회차 상태는 내내 그대로 — 강사 재수락을 다시 받지 않는다
+        // ★ 학생이 임의로 고른 시간이라 강사 동의가 없다 → 강사 결정 대기로 되돌아간다(확정 아님)
         assertThat(after.getStatus()).isEqualTo(EnrollmentStatus.ACCEPT_PENDING);
         assertThat(holdRepo.findAll()).isEmpty(); // hold 는 실점유로 전환되며 해제
+
+        // 강사 hub 엔 "변경 검토(CHANGING)" 로 뜬다 — 옛 슬롯이 이력에 남았으므로
+        mockMvc.perform(get("/instructor/enrollments/hub").header(HttpHeaders.AUTHORIZATION, token(ins)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enrollments[0].rounds[0].status").value("CHANGING"));
+
+        // 강사가 수락해야 비로소 확정
+        mockMvc.perform(post("/instructor/enrollments/{id}/accept", r1.getId())
+                        .header(HttpHeaders.AUTHORIZATION, token(ins)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CONFIRMED"));
+    }
+
+    @Test
+    @DisplayName("M17 차액을 냈어도 강사가 그 시간은 안 된다고 거절하면 그 회차 전액(차액 포함) 환불된다")
+    void instructorCanRejectAfterDiffPayment() throws Exception {
+        Account ins = instructor("ins-m17@pd.com", "강사M17", 4);
+        Venue v = venueWithNightTicket(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String dayTicket = v.getTickets().get(0).getRef();
+        String nightTicket = v.getTickets().get(1).getRef();
+        Course course = twoTicketCourse(ins, ref, dayTicket, nightTicket);
+        openCoverageIncludingNight(ins, D1);
+        Account stu = account("stu-m17@pd.com", "학생M17", Role.STUDENT);
+
+        mockMvc.perform(post("/enrollments").header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("courseId", course.getId(), "date", D1.toString(),
+                                "venueRefId", ref, "ticketRef", dayTicket,
+                                "blockStart", START.toString(), "blockEnd", END.toString()))))
+                .andExpect(status().isCreated());
+        EnrollmentRound r1 = paid(roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).get(0));
+        // 원결제 주문(차액 환불이 이 주문까지 훑는지 보기 위해 실제 승인 주문을 심는다)
+        orderRepo.save(com.diving.pungdong.payment.PaymentOrder.builder()
+                .orderId("ord-m17-base").enrollmentRound(r1).amount(315000).orderName("원결제")
+                .status(com.diving.pungdong.payment.PaymentStatus.DONE).paymentKey("pkBase")
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
+
+        String prepared = mockMvc.perform(post("/payments/prepare").header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("roundId", r1.getId(),
+                                "targetDate", D1.toString(), "targetTicketRef", nightTicket,
+                                "targetBlockStart", "18:00", "targetBlockEnd", "21:00"))))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String orderId = objectMapper.readTree(prepared).path("orderId").asText();
+        mockMvc.perform(post("/payments/confirm").header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("pgPayload", Map.of("paymentKey", "pk_test_1"),
+                                "orderId", orderId, "amount", 10000))))
+                .andExpect(status().isOk());
+
+        // 강사: "그 시간은 다른 데 잡혀 있어요" → 거절
+        mockMvc.perform(post("/instructor/enrollments/{id}/reject", r1.getId())
+                        .header(HttpHeaders.AUTHORIZATION, token(ins))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"그 시간은 어려워요\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REJECTED"));
+
+        // 그 회차의 승인 주문을 모두 환불 — 원결제도 차액도(회차 단위 집계, #203)
+        org.mockito.Mockito.verify(gateway).cancel(org.mockito.ArgumentMatchers.eq("pkBase"),
+                org.mockito.ArgumentMatchers.eq(315000), org.mockito.ArgumentMatchers.eq(315000),
+                org.mockito.ArgumentMatchers.anyString());
+        org.mockito.Mockito.verify(gateway).cancel(org.mockito.ArgumentMatchers.eq("pk_test_1"),
+                org.mockito.ArgumentMatchers.eq(10000), org.mockito.ArgumentMatchers.eq(10000),
+                org.mockito.ArgumentMatchers.anyString());
     }
 
     @Test

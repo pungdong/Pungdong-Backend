@@ -100,6 +100,21 @@ Cross-domain coupling is expected in this monolith — e.g. `Account` is importe
 - `advice/` — `@RestControllerAdvice` exception handling. Custom exceptions live in `advice/exception/`; user-facing messages are looked up via `MessageSource` against `src/main/resources/i18n/exception*.yml` (configured via `yaml-resource-bundle`).
 - `model/` — `CommonResult` / `SingleResult<T>` / `ListResult<T>` / `SuccessResult` envelope types returned to clients. Build them through `ResponseService`.
 
+## 도메인 기저 원칙 — 일정 확정에는 강사의 수락이 무조건 필요하다
+
+**절대 규칙 (2026-08-10 재확인):** 어떤 경로로든 **수강 일정이 잡히거나 바뀌면 강사가 수락해야 확정된다.** 결제 여부·금액·회차 번호와 무관하다.
+
+**왜 (이걸 잊으면 설계가 틀어진다):** 강사의 몸은 하나고, **강사는 여러 플랫폼을 동시에 운영한다.** 우리 DB의 `AvailabilityCoverage`(예약가능시간)는 강사가 우리에게 알려준 것일 뿐, **타 플랫폼 예약·개인 일정을 반영한다는 보장이 없다.** 즉 **강사의 실제 일정은 우리에게 미지(未知)** 이고, 확인 없이 확정하면 강사가 두 곳에 동시에 있어야 하는 상황이 만들어진다. coverage 가 열려 있다는 건 "아마 될 것"이지 "된다"가 아니다.
+
+**유일한 예외 — 강사가 먼저 제안한 자리:** `propose-slots` 로 **강사가 직접 낸 슬롯**을 학생이 고르면(`pick-slot`) 추가 수락 없이 확정된다. 강사가 자기가 가능한 시간을 제시한 것 자체가 **동의**이기 때문. 이 비대칭이 규칙의 핵심이다.
+
+| 누가 시작했나 | 확정되나 |
+|---|---|
+| 학생 신청·일정 변경·**차액 결제 후 변경** | ❌ → `ACCEPT_PENDING`(강사 결정 대기) + 24h 시계 |
+| 강사 제안을 학생이 선택(`pick-slot`) | ✅ 곧장 `CONFIRMED` |
+
+**Claude 는 선제 적용할 것:** 일정을 만들거나 바꾸는 코드를 추가·수정할 때, "결제했으니까" / "금액이 같으니까" / "학생이 원하니까" 같은 이유로 **강사 수락을 건너뛰는 경로를 만들지 말 것.** 실제로 그런 실수가 있었다 — 차액 결제(#204) 최초 구현이 "돈을 더 냈으니 강사 결정 대상이 아니다"라고 판단해 곧장 슬롯을 바꿔버렸고, 사용자가 잡아냈다. 돈은 동의의 근거가 아니다. 상세: [docs/features/booking.md](docs/features/booking.md).
+
 ## Security model
 
 JWT-based, stateless (`SessionCreationPolicy.STATELESS`). `JwtAuthenticationFilter` runs before `UsernamePasswordAuthenticationFilter`. URL → role mapping is centralized in `SecurityConfiguration.configure(HttpSecurity)` — when adding a new endpoint, update the matchers there. Roles: `ADMIN`, `INSTRUCTOR`, `STUDENT` (the default for new sign-ups). Several public endpoints (lecture browsing, sign-up/login, email code, password reset, exception lookup) are explicitly `permitAll`. Inject the current user via `@CurrentUser Account` rather than reading from `SecurityContextHolder` directly.
