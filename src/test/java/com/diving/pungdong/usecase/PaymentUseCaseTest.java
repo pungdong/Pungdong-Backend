@@ -332,6 +332,38 @@ class PaymentUseCaseTest {
                 .andExpect(header().string("Location", org.hamcrest.Matchers.startsWith("https://web.test/payment/fail")));
     }
 
+    @Test
+    @DisplayName("I5 이니시스 콜백 — 결제창/앱 WebView 의 낯선 Origin(전역 allowlist 밖)이 실려도 CORS 로 막히지 않고 승인·302 한다")
+    void inicisCallbackAllowsForeignOrigin() throws Exception {
+        Object[] s = setup(4);
+        Account stu = (Account) s[3];
+        EnrollmentRound e = submitOk(stu, s);
+        String orderId = prepareOrderId(stu, e, "app");
+
+        // paypro.inicis.com / 앱 WebView origin — 전역 CORS allowlist(테스트: http://localhost:3000) 밖.
+        // 콜백을 CORS 에서 제외하지 않았다면 여기서 403 "Invalid CORS request" 로 막혀 302 가 안 나온다.
+        mockMvc.perform(post("/payments/inicis/return")
+                .header(HttpHeaders.ORIGIN, "https://stdpay.inicis.com")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("P_OID", orderId)
+                .param("P_STATUS", "00").param("P_AUTH_TID", "auth-x").param("P_IDCNAME", "fc"))
+                .andExpect(status().isFound())
+                .andExpect(header().string("Location", org.hamcrest.Matchers.startsWith("plop://payment/success")));
+
+        assertThat(orderRepo.findByOrderId(orderId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.DONE);
+    }
+
+    @Test
+    @DisplayName("I6 전역 CORS 는 그대로 — 같은 낯선 Origin 으로 다른 결제 경로(/payments/prepare)는 여전히 CORS 로 거부(403)된다(콜백만 열렸다)")
+    void globalCorsStillRejectsForeignOrigin() throws Exception {
+        // 콜백만 origin 을 열었을 뿐 전역 allowlist 는 유지 — 인증에 도달하기도 전에 CorsFilter 가 먼저 막는다.
+        mockMvc.perform(post("/payments/prepare")
+                .header(HttpHeaders.ORIGIN, "https://stdpay.inicis.com")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+                .andExpect(status().isForbidden());
+    }
+
     /* ─── O* 주문 상세 조회 ─── */
 
     @Test

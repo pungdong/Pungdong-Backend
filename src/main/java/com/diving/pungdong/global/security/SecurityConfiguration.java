@@ -33,6 +33,9 @@ public class SecurityConfiguration {
     @Value("${cors.allowed-origins}")
     private String allowedOrigins;
 
+    // 이니시스 인증결과 콜백(P_NEXT_URL) 경로 — permitAll 매처와 CORS 제외 등록이 같은 값을 쓰도록 단일 출처.
+    private static final String INICIS_CALLBACK_PATH = "/payments/inicis/return";
+
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
@@ -61,7 +64,7 @@ public class SecurityConfiguration {
                         .antMatchers(HttpMethod.POST, "/webhooks/sanity/venue").permitAll()
                         // 이니시스 결제창이 인증결과를 form POST 하는 콜백 — 콜백엔 우리 JWT 가 없어 permitAll.
                         // 인증은 P_AUTH_TID(우리 콜백에만 옴)가 대신하고, 승인 실패 시 fail 로 리다이렉트한다. /payments/** 보다 먼저.
-                        .antMatchers(HttpMethod.POST, "/payments/inicis/return").permitAll()
+                        .antMatchers(HttpMethod.POST, INICIS_CALLBACK_PATH).permitAll()
                         .antMatchers("/admin/instructor-applications/**").hasRole("ADMIN")
                         .antMatchers("/instructor-applications/**").authenticated()
                         .antMatchers("/identity-verifications/**").authenticated()
@@ -101,6 +104,19 @@ public class SecurityConfiguration {
         config.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        // 이니시스 인증결과 콜백(P_NEXT_URL)은 결제창(paypro.inicis.com)·앱 WebView 가 cross-origin form POST 로 들어온다.
+        // 이 form POST(navigation)는 브라우저 JS(fetch/XHR)가 아니라 CORS 의 대상이 아니고, 콜백 진위는 P_AUTH_TID +
+        // 서버사이드 승인(주문 권위 금액)으로 보장한다 — CORS 는 이 경로의 보안 경계가 아니다. 그래서 전역 allowlist 로
+        // 거부하지 않도록 이 경로만 origin 을 연다. credential(JWT/쿠키)은 쓰지 않으므로 allowCredentials=false.
+        // UrlBasedCorsConfigurationSource 는 등록 순서대로 첫 매치를 쓰므로 /** 보다 먼저 등록해야 한다.
+        CorsConfiguration callbackConfig = new CorsConfiguration();
+        callbackConfig.addAllowedOriginPattern("*");
+        callbackConfig.setAllowedMethods(List.of("POST", "OPTIONS"));
+        callbackConfig.setAllowedHeaders(List.of("*"));
+        callbackConfig.setAllowCredentials(false);
+        callbackConfig.setMaxAge(3600L);
+        source.registerCorsConfiguration(INICIS_CALLBACK_PATH, callbackConfig);
+
         source.registerCorsConfiguration("/**", config);
         return source;
     }

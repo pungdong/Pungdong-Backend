@@ -33,7 +33,7 @@
 
 ## 보안 매처
 
-`/payments/**` → authenticated (`global/security/SecurityConfiguration`) — **단 `POST /payments/inicis/return` 은 그 앞에서 permitAll**(콜백엔 우리 JWT 없음; 인증은 `P_AUTH_TID` — 우리 콜백에만 옴). 소유/상태 게이트는 서비스(비소유/없음=400 존재 숨김, 결제대기 아님=400). 이니시스 세션리스 승인은 소유권 대신 P_AUTH_TID + 서버 권위 금액 대조가 방어.
+`/payments/**` → authenticated (`global/security/SecurityConfiguration`) — **단 `POST /payments/inicis/return` 은 그 앞에서 permitAll**(콜백엔 우리 JWT 없음; 인증은 `P_AUTH_TID` — 우리 콜백에만 옴). 소유/상태 게이트는 서비스(비소유/없음=400 존재 숨김, 결제대기 아님=400). 이니시스 세션리스 승인은 소유권 대신 P_AUTH_TID + 서버 권위 금액 대조가 방어. **콜백은 CORS 검사에서도 제외** — 결제창·앱 WebView 의 cross-origin form POST 는 CORS 대상이 아니라(진위는 P_AUTH_TID+서버승인), `corsConfigurationSource()` 가 이 경로만 `allowedOriginPattern("*")`로 `/**` 보다 먼저 등록(전역 allowlist 는 유지). 상세: `docs/architecture/payment.md` §5.
 
 ## 설정
 
@@ -51,7 +51,7 @@
 ## 안전망 테스트
 
 `src/test/.../usecase/PaymentUseCaseTest` — 실 H2 + 시큐리티 체인, `PaymentGateway` 만 `@MockBean`(PG 중립 사양).
-`src/test/.../payment/InicisPaymentTransmissionTest` — 이니시스 전문 사양(외부 호출 0): 승인 전문이 서버 권위 금액을 싣는지(K1), P_CHKFAKE 서명 공식(K2), 환불 hashData `data` 바이트동일성(K3/K4), 부분/전체취소 분기(K5), SSRF idcHost 방어(V2). `PaymentUseCaseTest`: P1(prepare)·P2(confirm→확정)·P3(금액불일치)·P4(멱등)·P5(결제대기 아님)·P6(비소유)·P7(점유→둘째 수락 차단) + **I1~I4 이니시스 콜백**(승인·거절·인증실패·위조) + O1~O2. ⚠️ Authorization raw JWT.
+`src/test/.../payment/InicisPaymentTransmissionTest` — 이니시스 전문 사양(외부 호출 0): 승인 전문이 서버 권위 금액을 싣는지(K1), P_CHKFAKE 서명 공식(K2), 환불 hashData `data` 바이트동일성(K3/K4), 부분/전체취소 분기(K5), SSRF idcHost 방어(V2). `PaymentUseCaseTest`: P1(prepare)·P2(confirm→확정)·P3(금액불일치)·P4(멱등)·P5(결제대기 아님)·P6(비소유)·P7(점유→둘째 수락 차단) + **I1~I6 이니시스 콜백**(승인·거절·인증실패·위조 + I5 낯선 Origin 도 CORS 통과 + I6 전역 CORS 유지) + O1~O2. ⚠️ Authorization raw JWT.
 
 ## 아직 안 한 것 (후속 PR)
 
