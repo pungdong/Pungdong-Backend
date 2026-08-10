@@ -128,9 +128,16 @@ erDiagram
 | 엔드포인트 | 인증 | 역할 | 소유권 |
 |---|---|---|---|
 | `GET /instructors/{nickName}` | **불필요** | — | `is_published=true` + 미탈퇴만. 그 외 **400(존재 숨김)** |
+| `GET /instructors/{nickName}/posts` | **불필요** | — | 위 + `is_hidden=false` 만. 정렬·size 는 서버 고정 |
+| `GET /branding-posts/{postId}` | **불필요** | — | 발행 프로필의 숨기지 않은 글만. 그 외 **400** |
 | `GET /branding/me` | 필요 | **인증만** | `@CurrentUser` 기준. 미생성이면 `{exists:false}` |
 | `PATCH /branding/me` | 필요 | 인증만 | 동일. 미생성이면 생성(upsert) |
 | `PATCH /branding/me/publish` | 필요 | 인증만 | 동일. **승인 게이트 없음** |
+| `GET /branding/me/posts` | 필요 | 인증만 | 내 것만 — **숨김 포함**. 프로필 미생성이면 빈 페이지 |
+| `POST /branding/me/posts` | 필요 | 인증만 | 미생성이면 생성(upsert). 연결 강의는 **내 코스**만 |
+| `PUT · DELETE /branding/me/posts/{id}` | 필요 | 인증만 | `post.branding.account.id == me.id` 아니면 **400** |
+| `PATCH /branding/me/posts/{id}/pin · /visibility` | 필요 | 인증만 | 동일 |
+| `POST /branding-images` | 필요 | 인증만 | multipart → `{fileURL}` |
 
 **왜 `hasRole("INSTRUCTOR")` 가 아닌가** — (a) 일반 유저도 쓰고, (b) 강사도 **승인 전(pending/rejected)에 편집 화면이 존재**한다. 승인 전에는 `ROLE_INSTRUCTOR` 가 없어 role 로 막으면 그 화면이 403 이 된다. 레포도 같은 이유로 `/courses/**` 를 `authenticated()` 로 둔다.
 

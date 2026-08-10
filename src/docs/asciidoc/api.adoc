@@ -408,3 +408,19 @@ operation::branding-me-update[]
 [[resource-branding-me-publish]]
 === 내 브랜딩 페이지 발행 토글
 operation::branding-me-publish[]
+
+[[resource-branding-posts]]
+=== 공개 게시물 그리드 조회
+operation::branding-posts[]
+
+[[resource-branding-post-public]]
+=== 게시물 상세 조회
+operation::branding-post-public[]
+
+[[resource-branding-post]]
+=== 게시물 작성
+operation::branding-post-create[]
+
+[[resource-branding-post-visibility]]
+=== 게시물 숨기기 토글
+operation::branding-post-visibility[]

@@ -702,6 +702,65 @@ export interface BrandingUpdateRequest {
   locationLabel?: string | null;  // 최대 60자
 }
 
+// ── 브랜딩 게시물 ──
+export type BrandingMediaKind = 'PHOTO' | 'VIDEO';   // VIDEO는 스키마 자리만 예약(업로드 거부)
+
+/**
+ * GET /instructors/{nickName}/posts (비로그인) · GET /branding/me/posts (인증)
+ * PagedModel — 배열은 `_embedded.posts`, 메타는 `page`. 정렬은 서버 고정(고정 먼저 → 최신순), size 상한 50.
+ * ⚠️ 공개 목록은 숨긴 글을 빼고, 오너 목록은 포함하며 `hidden`이 실린다.
+ */
+export interface BrandingPostCard {
+  id: number;
+  thumbnailUrl?: string | null;   // 첫 장
+  mediaCount: number;             // 2 이상이면 캐로셀 뱃지
+  pinned: boolean;
+  hidden?: boolean;               // 오너 목록에만
+}
+
+/** GET /branding-posts/{postId} (비로그인) — 미발행 프로필의 글·숨긴 글은 400(존재 숨김). */
+export interface BrandingPostDetail extends HalLinks {
+  id: number;
+  author: { nickName: string; avatarUrl?: string | null };
+  media: { kind: BrandingMediaKind; url: string; sortOrder: number }[];
+  caption?: string | null;
+  tags: string[];
+  locationLabel?: string | null;
+  /** UTC ISO-8601. "하루 전" 같은 상대시간은 FE가 만든다 — BE는 문자열을 만들지 않는다. */
+  createdAt: string;
+  pinned: boolean;
+  /** 강사가 연결했을 때만. DRAFT(미공개)·삭제된 코스면 키 자체가 없다. */
+  linkedCourse?: {
+    id: number;
+    title: string;
+    thumbnailUrl?: string | null;
+    price: number;
+    status: 'OPEN' | 'CLOSED';
+  };
+}
+
+/**
+ * POST /branding/me/posts · PUT /branding/me/posts/{id} (인증)
+ * ⚠️ 수정도 **스냅샷 교체**다 — 보낸 mediaUrls/tags가 최종 상태가 된다.
+ * ⚠️ mediaUrls는 업로드(POST /branding-images)로 받은 우리 CDN URL만 허용. 배열 순서 = 표시 순서, 0번이 썸네일.
+ */
+export interface BrandingPostRequest {
+  mediaUrls: string[];      // 1~10장
+  caption?: string;         // 최대 2000자
+  tags?: string[];          // 최대 10개, 각 30자
+  locationLabel?: string;   // 최대 60자
+  linkedCourseId?: number;  // 내 강의만. 남의 강의면 400
+}
+
+/** PATCH /branding/me/posts/{id}/pin */
+export interface BrandingPostPinRequest { pinned: boolean }
+
+/** PATCH /branding/me/posts/{id}/visibility — 삭제와 다르다(되돌릴 수 있고 공개 경로에서만 빠진다). */
+export interface BrandingPostVisibilityRequest { hidden: boolean }
+
+/** POST /branding-images (인증, multipart 파트명 `image`) — course-images와 동일 패턴. */
+export interface BrandingImageUploadResponse extends HalLinks { fileURL: string }
+
 /** PATCH /branding/me/publish (인증) — 승인 게이트 없음. 일반 유저도 발행할 수 있다. */
 export interface BrandingPublishRequest {
   published: boolean;

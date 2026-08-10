@@ -46,6 +46,7 @@ public class BrandingService {
     private final AccountBrandingJpaRepo brandingRepo;
     private final AccountJpaRepo accountRepo;
     private final InstructorApplicationJpaRepo applicationRepo;
+    private final BrandingPostJpaRepo postRepo;
     private final EnrollmentJpaRepo enrollmentRepo;
     private final CourseJpaRepo courseRepo;
     private final SiteSettingsProvider siteSettings;
@@ -76,7 +77,7 @@ public class BrandingService {
                 .disciplineCodes(isInstructor ? disciplineCodesOf(approved) : null)
                 .certs(isInstructor ? certBadgesOf(approved) : null)
                 .records(recordDtosOf(branding))
-                .stats(statsOf(owner, isInstructor))
+                .stats(statsOf(branding, owner, isInstructor))
                 .products(isInstructor ? productsOf(owner) : null)
                 .build();
     }
@@ -162,16 +163,17 @@ public class BrandingService {
                 .disciplineCodes(isInstructor ? disciplineCodesOf(approved) : null)
                 .certs(isInstructor ? certBadgesOf(approved) : null)
                 .records(recordDtosOf(branding))
-                .stats(statsOf(owner, isInstructor))
+                .stats(statsOf(branding, owner, isInstructor))
                 .products(isInstructor ? productsOf(owner) : null)
                 .reviewStatus(latest.map(InstructorApplication::getStatus).orElse(null))
                 .approvedAt(approvedAtOf(approved))
                 .build();
     }
 
-    /** 게시물 수는 게시물 도메인이 붙는 후속 PR 에서 채운다 — 그때까지 키를 생략한다. */
-    private BrandingStats statsOf(Account owner, boolean isInstructor) {
+    /** 게시물 수는 공개분만 센다(숨긴 글은 남에게도 나에게도 "올린 글" 로 안 보이는 게 일관적이다). */
+    private BrandingStats statsOf(AccountBranding branding, Account owner, boolean isInstructor) {
         return BrandingStats.builder()
+                .posts((int) postRepo.countByBranding_IdAndIsHiddenFalse(branding.getId()))
                 .students(isInstructor ? studentCountOf(owner.getId()) : null)
                 .build();
     }
