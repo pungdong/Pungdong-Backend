@@ -46,6 +46,27 @@ public class MyBrandingResponse {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private List<RecordDto> records;
 
+    /** 인증마크·워딩 분기용. 미생성이면 키 생략. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonProperty("isInstructor")
+    private Boolean isInstructor;
+
+    /** 강사만. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private List<String> disciplineCodes;
+
+    /** 강사만 — 승인된 강사 신청에서 파생. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private List<BrandingProfileResponse.CertBadge> certs;
+
+    /** 파생 통계. 오너 뷰의 수강생 수는 공개 응답이 미발행 시 400 이라 여기서만 얻을 수 있다. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private BrandingStats stats;
+
+    /** 강사만. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private BrandingProducts products;
+
     /** 강사 신청 이력이 있을 때만. 없으면 키 생략. */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private InstructorApplicationStatus reviewStatus;

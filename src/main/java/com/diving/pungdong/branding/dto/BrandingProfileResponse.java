@@ -53,6 +53,13 @@ public class BrandingProfileResponse {
     /** 없으면 빈 배열 → FE 가 섹션 자체를 숨긴다. 일반 유저도 사용(D2). */
     private List<RecordDto> records;
 
+    /** 파생 통계. 강사가 아니면 내부 필드가 비어 빈 객체가 된다. */
+    private BrandingStats stats;
+
+    /** CTA 상품 개수 — 강사만. 일반 유저는 null → 키 자체가 빠진다. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private BrandingProducts products;
+
     /**
      * 자격 뱃지 — 승인된 강사 신청의 자격증에서 파생. {@code profile} 도메인의 동명 DTO 와 형태가 같지만
      * 패키지 간 단방향 의존을 지키려고 복제한다(branding → profile 의존을 만들지 않는다).

@@ -3,11 +3,18 @@ package com.diving.pungdong.branding;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.account.ProfilePhoto;
+import com.diving.pungdong.branding.dto.BrandingProducts;
 import com.diving.pungdong.branding.dto.BrandingProfileResponse;
+import com.diving.pungdong.branding.dto.BrandingStats;
 import com.diving.pungdong.branding.dto.BrandingUpdateRequest;
 import com.diving.pungdong.branding.dto.MyBrandingResponse;
 import com.diving.pungdong.branding.dto.RecordDto;
+import com.diving.pungdong.course.CourseJpaRepo;
+import com.diving.pungdong.course.CourseStatus;
+import com.diving.pungdong.enrollment.EnrollmentJpaRepo;
+import com.diving.pungdong.enrollment.EnrollmentStatus;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
+import com.diving.pungdong.global.sitesettings.SiteSettingsProvider;
 import com.diving.pungdong.instructorapplication.InstructorApplication;
 import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
 import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
@@ -39,6 +46,9 @@ public class BrandingService {
     private final AccountBrandingJpaRepo brandingRepo;
     private final AccountJpaRepo accountRepo;
     private final InstructorApplicationJpaRepo applicationRepo;
+    private final EnrollmentJpaRepo enrollmentRepo;
+    private final CourseJpaRepo courseRepo;
+    private final SiteSettingsProvider siteSettings;
 
     /* ─── 공개 조회 ───────────────────────────────────────── */
 
@@ -66,6 +76,8 @@ public class BrandingService {
                 .disciplineCodes(isInstructor ? disciplineCodesOf(approved) : null)
                 .certs(isInstructor ? certBadgesOf(approved) : null)
                 .records(recordDtosOf(branding))
+                .stats(statsOf(owner, isInstructor))
+                .products(isInstructor ? productsOf(owner) : null)
                 .build();
     }
 
@@ -123,8 +135,18 @@ public class BrandingService {
 
     /* ─── 합성 헬퍼 ───────────────────────────────────────── */
 
+    /**
+     * 오너 응답은 <b>공개 응답의 필드를 전부 포함</b>하고 거기에 검수 상태만 더한다. 디자인상 오너 뷰가
+     * 퍼블릭 뷰와 같은 명함이고 편집 연필만 붙은 형태라 필요한 데이터 집합이 애초에 같기 때문이다.
+     *
+     * <p>이렇게 두면 FE 가 오너 화면을 <b>호출 한 번</b>으로 그린다. 안 그러면 닉네임·아바타·자격은
+     * {@code GET /account/profile} 을 따로 부르고, <b>수강생 수는 아예 못 그린다</b> — 그 값이 공개
+     * 응답에만 있는데 공개 엔드포인트는 미발행이면 400 이고, 오너 뷰는 바로 그 미발행 상태에서 편집하려
+     * 들어오는 화면이라서다. 쓰기 응답도 같은 형태라 FE 가 캐시 무효화에 쓸 닉네임을 바로 얻는다.
+     */
     private MyBrandingResponse toMyBranding(AccountBranding branding, Account owner) {
         List<InstructorApplication> approved = approvedApplicationsOf(owner.getId());
+        boolean isInstructor = !approved.isEmpty();
         // 검수 배너는 '신청 이력이 있는' 오너에게만. 이력이 없으면 두 키를 모두 생략한다.
         Optional<InstructorApplication> latest = latestApplicationOf(owner.getId());
 
@@ -136,10 +158,34 @@ public class BrandingService {
                 .tagline(branding.getTagline())
                 .bio(branding.getBio())
                 .locationLabel(branding.getLocationLabel())
+                .isInstructor(isInstructor)
+                .disciplineCodes(isInstructor ? disciplineCodesOf(approved) : null)
+                .certs(isInstructor ? certBadgesOf(approved) : null)
                 .records(recordDtosOf(branding))
+                .stats(statsOf(owner, isInstructor))
+                .products(isInstructor ? productsOf(owner) : null)
                 .reviewStatus(latest.map(InstructorApplication::getStatus).orElse(null))
                 .approvedAt(approvedAtOf(approved))
                 .build();
+    }
+
+    /** 게시물 수는 게시물 도메인이 붙는 후속 PR 에서 채운다 — 그때까지 키를 생략한다. */
+    private BrandingStats statsOf(Account owner, boolean isInstructor) {
+        return BrandingStats.builder()
+                .students(isInstructor ? studentCountOf(owner.getId()) : null)
+                .build();
+    }
+
+    private Integer studentCountOf(Long instructorId) {
+        return (int) enrollmentRepo.countDistinctStudentsOfInstructor(instructorId, EnrollmentStatus.CONFIRMED);
+    }
+
+    private BrandingProducts productsOf(Account owner) {
+        // 런칭 후 둘러보기가 데모 시드를 가리면 이 숫자도 같이 가려야 "강의 8개"인데 목록엔 3개인 상황이 안 생긴다.
+        long lessons = siteSettings.current().showSeededCourses()
+                ? courseRepo.countByInstructorIdAndStatus(owner.getId(), CourseStatus.OPEN)
+                : courseRepo.countByInstructorIdAndStatusAndSeededFalse(owner.getId(), CourseStatus.OPEN);
+        return BrandingProducts.builder().lessons((int) lessons).build();
     }
 
     private Account loadAccount(Account currentUser) {

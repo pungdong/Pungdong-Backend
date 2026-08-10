@@ -646,11 +646,31 @@ export interface BrandingProfileResponse extends HalLinks {
   disciplineCodes?: string[];        // 강사만
   certs?: BrandingCertBadge[];       // 강사만
   records: BrandingRecord[];         // 없으면 [] → 섹션 숨김
+  stats: BrandingStats;
+  products?: BrandingProducts;       // 강사만
+}
+
+/** 전부 파생값(카운터를 저장하지 않는다). 미구현·비대상 필드는 키가 없다. */
+export interface BrandingStats {
+  /** 게시물 수 — 게시물 도메인 붙는 후속 PR에서 채워진다. 그동안 FE는 오너 목록의 page.totalElements 사용. */
+  posts?: number;
+  /** 누적 수강생 수 — 강사만. 확정(CONFIRMED) 회차를 가진 distinct 학생 수. */
+  students?: number;
+}
+
+/** CTA 뱃지용. 투어(tours)는 CourseKind에 TOUR가 없어 이번 범위 밖(D4). */
+export interface BrandingProducts {
+  /** 공개(OPEN) 강의 수. 데모 시드 취급은 SiteSettings.showSeededCourses를 따른다. */
+  lessons?: number;
 }
 
 /**
- * GET /branding/me (인증) — 오너 편집용 원본.
+ * GET /branding/me (인증) — 오너 편집용 원본. PATCH /branding/me · PATCH /branding/me/publish 응답도 같은 형태다.
  * 아직 만들지 않았으면 200 { exists: false } 만 온다 — 조회는 생성하지 않는다(생성은 첫 쓰기가 한다).
+ *
+ * ⚠️ 공개 응답(BrandingProfileResponse)의 필드를 그대로 포함한다 — 오너 뷰가 퍼블릭과 같은 명함이라서.
+ *    그래서 오너 화면을 이 호출 하나로 그릴 수 있고, 쓰기 응답에서 nickName을 얻어 캐시 무효화에 쓸 수 있다.
+ *    특히 stats.students는 공개 응답이 미발행 시 400이라 여기서만 얻을 수 있다.
  */
 export interface MyBrandingResponse extends HalLinks {
   exists: boolean;
@@ -660,6 +680,11 @@ export interface MyBrandingResponse extends HalLinks {
   tagline?: string | null;
   bio?: string | null;
   locationLabel?: string | null;
+  isInstructor?: boolean;
+  disciplineCodes?: string[];        // 강사만
+  certs?: BrandingCertBadge[];       // 강사만
+  stats?: BrandingStats;
+  products?: BrandingProducts;       // 강사만
   records?: BrandingRecord[];
   /** 강사 신청 이력이 있을 때만. 없으면 키 자체가 빠지고 FE 는 검수 배너를 렌더하지 않는다. */
   reviewStatus?: InstructorApplicationStatus;

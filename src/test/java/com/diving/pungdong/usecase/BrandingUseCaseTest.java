@@ -246,6 +246,59 @@ class BrandingUseCaseTest {
                 .andExpect(jsonPath("$.approvedAt").exists());
     }
 
+    @Test
+    @DisplayName("I5: 오너 응답이 공개 응답 필드를 그대로 포함한다 — 오너 뷰를 호출 한 번으로 그릴 수 있어야 한다")
+    void myBranding_includesPublicFields() throws Exception {
+        Account me = account("i5@test.com", "diverI5", Role.INSTRUCTOR);
+        approveAsInstructor(me, "FREEDIVING", "AIDA");
+        createPublishedBranding(me, "강사 오너");
+
+        mockMvc.perform(get("/branding/me").header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nickName").value("diverI5"))
+                .andExpect(jsonPath("$.isInstructor").value(true))
+                .andExpect(jsonPath("$.disciplineCodes[0]").value("FREEDIVING"))
+                .andExpect(jsonPath("$.certs[0].organizationCode").value("AIDA"))
+                // 수강생 수는 공개 응답이 미발행 시 400 이라 오너 뷰가 여기서만 얻을 수 있다.
+                .andExpect(jsonPath("$.stats.students").value(0))
+                .andExpect(jsonPath("$.products.lessons").value(0));
+    }
+
+    @Test
+    @DisplayName("I6: 미발행 상태에서도 오너 응답은 200 이고 통계가 온다 (편집 화면의 주 진입 상태)")
+    void unpublishedOwner_stillGetsStats() throws Exception {
+        Account me = account("i6@test.com", "diverI6", Role.INSTRUCTOR);
+        approveAsInstructor(me, "SCUBA", "PADI");
+        createPublishedBranding(me, "미발행 예정");
+
+        mockMvc.perform(patch("/branding/me/publish")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"published\":false}"))
+                .andExpect(status().isOk());
+
+        // 공개 조회는 막히지만
+        mockMvc.perform(get(publicUrl("diverI6"))).andExpect(status().isBadRequest());
+        // 오너 조회는 열려 있고 통계도 그대로 온다
+        mockMvc.perform(get("/branding/me").header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isPublished").value(false))
+                .andExpect(jsonPath("$.stats.students").value(0));
+    }
+
+    @Test
+    @DisplayName("I7: 일반 유저 오너 응답에는 통계의 수강생 수도, 상품 개수도 없다")
+    void normalUserOwner_omitsInstructorStats() throws Exception {
+        Account me = account("i7@test.com", "diverI7", Role.STUDENT);
+        createPublishedBranding(me, "일반 유저");
+
+        mockMvc.perform(get("/branding/me").header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isInstructor").value(false))
+                .andExpect(jsonPath("$.stats.students").doesNotExist())
+                .andExpect(jsonPath("$.products").doesNotExist());
+    }
+
     /* ════════════════ E — 닉네임 URL 인코딩 ════════════════ */
 
     @Test
