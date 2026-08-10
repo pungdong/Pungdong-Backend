@@ -119,6 +119,19 @@ class CourseImageUploadUseCaseTest {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    @DisplayName("V2: 이미지가 아닌 파일(pdf)을 .png 로 위장해 올리면 400 (저장하지 않는다)")
+    void nonImageFile_returns400() throws Exception {
+        Account student = createAccount("c3@test.com", "diverC3", Role.STUDENT);
+        MockMultipartFile disguised = new MockMultipartFile(
+                "image", "pool.png", MediaType.APPLICATION_PDF_VALUE, "%PDF-1.4".getBytes());
+
+        mockMvc.perform(multipart("/course-images")
+                        .file(disguised)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(student)))
+                .andExpect(status().isBadRequest());
+    }
+
     /* ════════════════ R — 권한 ════════════════ */
 
     @Test

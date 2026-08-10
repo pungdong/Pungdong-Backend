@@ -62,7 +62,7 @@ public class AccountAnonymizationService {
         if (photo != null) {
             if (photo.getImageUrl() != null && !ProfilePhoto.DEFAULT_IMAGE_URL.equals(photo.getImageUrl())) {
                 try {
-                    s3Uploader.deleteFileFromS3(photo.getImageUrl());
+                    s3Uploader.deletePublicObject(photo.getImageUrl());
                 } catch (RuntimeException e) {
                     log.warn("[anonymize] account {} 프로필사진 S3 삭제 실패(계속 진행)", accountId, e);
                 }

@@ -16,6 +16,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.time.Duration;
 import java.util.Date;
 import java.util.UUID;
@@ -119,8 +120,79 @@ public class S3Uploader {
         return UUID.randomUUID() + (ext != null ? "." + ext.toLowerCase() : ".png");
     }
 
-    /** 저장된 값(호출처가 넘긴 key/URL)으로 객체 삭제. 호출처가 저장한 식별자 의미를 따른다. */
-    public void deleteFileFromS3(String fileURL) {
-        amazonS3Client.deleteObject(new DeleteObjectRequest(bucket, fileURL));
+    /**
+     * 공개 이미지 삭제 — 저장값을 <b>(버킷, key)</b> 로 환원해 지운다. 저장값 포맷이 시대별로 세 가지라
+     * 그대로 key 로 쓸 수 없다:
+     *
+     * <ol>
+     *   <li><b>완성 CDN URL</b> {@code https://cdn.plop.cool/profile-photo/{uuid}.png} — 현재 형식
+     *       ({@link #uploadPublic} 이 {@code publicBaseUrl} 을 붙여 저장)</li>
+     *   <li><b>S3 객체 URL</b> {@code https://{bucket}.s3.{region}.amazonaws.com/{key}} —
+     *       {@code publicBaseUrl} 미설정 환경의 폴백</li>
+     *   <li><b>맨 파일명</b> — 레거시. 저장값이 곧 key</li>
+     * </ol>
+     *
+     * <p>예전 구현은 어떤 값이든 <b>비공개 버킷의 key</b> 로 취급해서, 공개 버킷 전환(#140) 이후로는
+     * 실제로 아무것도 지우지 못했다. S3 {@code deleteObject} 는 없는 key 에도 204 를 주므로 조용히
+     * 성공한 것처럼 보였고, 그래서 탈퇴 익명화가 얼굴 사진(PII)을 그대로 남겼다.
+     *
+     * <p><b>공유 기본 이미지({@code ProfilePhoto.DEFAULT_IMAGE_URL})는 호출처가 걸러야 한다</b> —
+     * 여기서는 값의 의미를 모른다.
+     */
+    public void deletePublicObject(String storedValue) {
+        if (!StringUtils.hasText(storedValue)) {
+            return;
+        }
+        String fallbackBucket = StringUtils.hasText(publicBucket) ? publicBucket : bucket;
+
+        if (StringUtils.hasText(publicBaseUrl) && storedValue.startsWith(publicBaseUrl + "/")) {
+            deleteObject(fallbackBucket, storedValue.substring(publicBaseUrl.length() + 1));
+            return;
+        }
+        if (storedValue.startsWith("http://") || storedValue.startsWith("https://")) {
+            deleteByUrl(storedValue, fallbackBucket);
+            return;
+        }
+        deleteObject(fallbackBucket, storedValue); // 레거시 — 저장값이 곧 key
+    }
+
+    private void deleteByUrl(String url, String fallbackBucket) {
+        String host;
+        String key;
+        try {
+            URI uri = URI.create(url);
+            host = uri.getHost() == null ? "" : uri.getHost();
+            key = uri.getPath() == null ? "" : uri.getPath();
+        } catch (IllegalArgumentException e) {
+            deleteObject(fallbackBucket, url); // 파싱 불가 — 통째로 key 취급
+            return;
+        }
+        if (key.startsWith("/")) {
+            key = key.substring(1);
+        }
+
+        // virtual-hosted style: {bucket}.s3.{region}.amazonaws.com/{key}
+        int s3At = host.indexOf(".s3.");
+        if (s3At > 0) {
+            deleteObject(host.substring(0, s3At), key);
+            return;
+        }
+        // path style: s3.{region}.amazonaws.com/{bucket}/{key}
+        if (host.startsWith("s3.") || host.startsWith("s3-")) {
+            int slash = key.indexOf('/');
+            if (slash > 0) {
+                deleteObject(key.substring(0, slash), key.substring(slash + 1));
+                return;
+            }
+        }
+        deleteObject(fallbackBucket, key); // 커스텀 CDN 도메인
+    }
+
+    private void deleteObject(String targetBucket, String key) {
+        if (!StringUtils.hasText(key)) {
+            return;
+        }
+        amazonS3Client.deleteObject(new DeleteObjectRequest(targetBucket, key));
+        log.info("[s3] 공개 객체 삭제 bucket={} key={}", targetBucket, key);
     }
 }
