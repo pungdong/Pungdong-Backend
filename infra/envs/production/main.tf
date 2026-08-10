@@ -20,7 +20,7 @@ locals {
 
   # 운영 시크릿은 /plop/production/<NAME> (staging 과 분리). 사용자가 SSM 에 미리 생성.
   # TOSS_*: 토스페이먼츠 결제위젯 키(테스트). 토스는 휴면(PAYMENT_MODE=inicis) 이지만 과거 주문 환불 라우팅용으로 유지.
-  # INICIS_*: 이니시스 서명 키(현재 테스트 MID INIpayTest 값). client-key 는 공개값이지만 SSM 에 같이 넣어 일괄 참조.
+  # INICIS_*: 이니시스 서명 키(운영 MID plopol1192 값 — 2026-08-10 _LIVE 로 스왑). client-key 는 공개값이지만 SSM 에 같이 넣어 일괄 참조.
   # SANITY_TOKEN: legal 프록시(GET /legal/{slug})가 Sanity legalDocument 를 읽는 Viewer read 토큰
   #   (legalDocument 가 익명 거부라 토큰 필요 — legal/CLAUDE.md). ⚠️ SSM 에 미리 넣어야 task 기동.
   user_secret_names = ["JWT_SECRET", "ADMIN_MAIL_ID", "ADMIN_MAIL_PASSWORD", "JUSO_SEARCH_KEY", "JUSO_COORD_KEY", "TOSS_SECRET_KEY", "TOSS_CLIENT_KEY", "INICIS_HASH_KEY", "INICIS_API_KEY", "SANITY_TOKEN"]
@@ -55,14 +55,15 @@ locals {
     # 결제: 토스 → 이니시스 스왑. 토스 테스트 키의 결제위젯이 prod 에서 variantKey 오류로 아예 안 떠
     # (심사자가 결제창을 못 봄), 스테이징에서 실 왕복 검증된(#192) 이니시스로 맞춘다.
     # ⚠️ MID 와 키는 **짝**이다 — 섞으면 결제창이 인증 전에 거절(콜백 P_OID=null P_STATUS=01).
-    # ⚠️ 지금은 **테스트 MID(INIpayTest)** — 운영 MID(plopol1192)는 카드사 심사 통과 전이라 결제창 자체가 안 열린다
-    #    (2026-08-07 운영 MID+운영 키로 배포해 확인: 준비는 되나 결제창이 즉시 거절).
-    #    그래서 /plop/production/INICIS_{HASH,API}_KEY 에도 **테스트 MID 용 키**가 들어있다.
-    #    운영 키는 같은 이름 + _LIVE 파라미터에 백업 — 카드사 심사 통과 시 **MID 와 키 두 값을 함께** 되돌린다.
+    # ✅ 2026-08-10 운영 MID(plopol1192)로 flip — 사이트 심사 통과로 결제창이 열리고 카드 인증(콜백
+    #    P_STATUS=00)까지 성공 확인. 최종 서버승인만 서브몰 카드사 심사 미완료로 00HH("서브가맹점 정보
+    #    미확인", 8-10 요청·7~10영업일) — 심사 완료 후 제3자 카드로 실결제 왕복 재검증 예정.
+    #    운영 키는 SSM /plop/production/INICIS_{HASH,API}_KEY 에 이미 반영(_LIVE 값으로 스왑) → MID 와 짝.
+    #    _LIVE 파라미터는 백업으로 유지. 테스트 MID 로 원복 시 키 소스 = /plop/staging/INICIS_*(동일 테스트키).
     # ⚠️ 이 flip 은 이니시스 어댑터(PaymentProvider.INICIS)가 든 이미지와 **같은 task def revision** 으로만 나가야 한다
     #    (옛 이미지 + inicis mode = valueOf 실패로 앱 전체 부팅 실패). 순서는 deployment.md "PG 스왑" 런북.
     PAYMENT_MODE              = "inicis"
-    INICIS_MID                = "INIpayTest" # 심사 통과 후 → plopol1192 (SSM 키 _LIVE 복원과 동시에)
+    INICIS_MID                = "plopol1192" # 운영 MID (2026-08-10 flip, SSM 운영키 _LIVE 와 짝)
     INICIS_RET_URL            = "https://api.plop.cool/payments/inicis/return"
     INICIS_RETURN_WEB_SUCCESS = "https://plop.cool/payment/success"
     INICIS_RETURN_WEB_FAIL    = "https://plop.cool/payment/fail"
