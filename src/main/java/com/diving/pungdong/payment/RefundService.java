@@ -70,28 +70,13 @@ public class RefundService {
             }
         }
 
-        // 토스 (부분)취소 실행 + RefundOrder 기록
+        // (부분)취소 실행 + RefundOrder 기록 + 잔액 반영
         for (Map.Entry<Long, Integer> entry : orderRefund.entrySet()) {
             PaymentOrder order = orderRepo.findById(entry.getKey()).orElse(null);
             if (order == null || order.getPaymentKey() == null) {
                 continue; // 안전: 주문 없거나 미승인이면 건너뜀
             }
-            // 취소가능잔액 = 승인액 − 기취소액. 이미 부분환불된 주문을 다시 환불해도 초과 취소되지 않는다.
-            int alreadyRefunded = refundRepo.findByPaymentOrderIdAndStatus(order.getId(), RefundStatus.DONE)
-                    .stream().mapToInt(RefundOrder::getAmount).sum();
-            int remaining = order.getAmount() - alreadyRefunded;
-            int amount = Math.min(entry.getValue(), remaining);
-            if (amount <= 0) {
-                continue;
-            }
-            // 취소는 <b>그 주문이 결제된 PG</b> 로. 전역 설정으로 보내면 PG 를 갈아탄 뒤 과거 주문 환불이 실패한다.
-            log.info("[payment] 환불 요청 enrollment={} order={} provider={} 취소액={} 잔액={} tid={}",
-                    enrollmentId, order.getOrderId(), order.getProvider(), amount, remaining, order.getPaymentKey());
-            gateways.forOrder(order.getProvider()).cancel(order.getPaymentKey(), amount, remaining, "수강 환불");
-            refundRepo.save(RefundOrder.builder()
-                    .paymentOrder(order).amount(amount).reason("수강 환불")
-                    .status(RefundStatus.DONE).createdAt(now).build());
-            log.info("[payment] 환불 완료 enrollment={} order={} 취소액={}", enrollmentId, order.getOrderId(), amount);
+            applyCancel(order, entry.getValue(), "수강 환불", now);
         }
 
         // 활성·미완료 회차 모두 CANCELLED + 빈 일정 해제(완료/이미취소는 유지)
@@ -131,20 +116,8 @@ public class RefundService {
         if (order == null || order.getPaymentKey() == null) {
             return; // 결제 없음 = 환불할 것 없음(선결제 전 미결제 상태에서 만료된 경우 등)
         }
-        int alreadyRefunded = refundRepo.findByPaymentOrderIdAndStatus(order.getId(), RefundStatus.DONE)
-                .stream().mapToInt(RefundOrder::getAmount).sum();
-        int remaining = order.getAmount() - alreadyRefunded;
-        if (remaining <= 0) {
-            return; // 이미 전액 환불됨(멱등)
-        }
-        log.info("[payment] 회차 환불 요청 round={} order={} provider={} 취소액={} tid={} 사유={}",
-                roundId, order.getOrderId(), order.getProvider(), remaining, order.getPaymentKey(), reason);
-        // 전액 취소 — cancelAmount == remaining → 어댑터가 전체취소로 처리(이니시스 refund / 토스 cancel).
-        gateways.forOrder(order.getProvider()).cancel(order.getPaymentKey(), remaining, remaining, reason);
-        refundRepo.save(RefundOrder.builder()
-                .paymentOrder(order).amount(remaining).reason(reason)
-                .status(RefundStatus.DONE).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
-        log.info("[payment] 회차 환불 완료 round={} 취소액={}", roundId, remaining);
+        // 취소가능 잔액 전액 — cancelAmount == 잔액 → 어댑터가 전체취소로 처리(이니시스 refund / 토스 cancel).
+        applyCancel(order, order.refundableAmount(), reason, OffsetDateTime.now(ZoneOffset.UTC));
     }
 
     /**
@@ -163,19 +136,45 @@ public class RefundService {
         if (order == null || order.getPaymentKey() == null) {
             return; // 결제 없음 = 환불할 것 없음
         }
-        int alreadyRefunded = refundRepo.findByPaymentOrderIdAndStatus(order.getId(), RefundStatus.DONE)
-                .stream().mapToInt(RefundOrder::getAmount).sum();
-        int remaining = order.getAmount() - alreadyRefunded;
-        int cancelAmount = Math.min(amount, remaining);
-        if (cancelAmount <= 0) {
-            return; // 이미 전액 환불됨
+        applyCancel(order, amount, reason, OffsetDateTime.now(ZoneOffset.UTC));
+    }
+
+    /**
+     * 환불 실행부 — 세 경로(수강 종료·회차 전액·차액)가 공유한다. PG 취소 → 이력({@code RefundOrder}) 기록 →
+     * 주문 잔액 반영을 <b>한 트랜잭션</b>에서 한다.
+     *
+     * <ul>
+     *   <li><b>clamp</b> — 취소가능 잔액({@code amount − refundedAmount})을 넘지 않는다. 이미 전액 환불됐으면 no-op(멱등).</li>
+     *   <li><b>라우팅</b> — 취소는 <b>그 주문이 결제된 PG</b> 로 간다({@code order.provider}). 전역 설정으로 보내면
+     *       PG 를 갈아탄 뒤 과거 주문 환불이 엉뚱한 곳으로 가 실패한다.</li>
+     *   <li><b>잔액 반영</b> — {@code refundedAmount} 누적, 전액이 되면 {@code status = CANCELED}(부분은 {@code DONE} 유지).
+     *       그래야 테이블만 보고 "정상 / 부분환불 / 전액환불"이 구분된다.</li>
+     * </ul>
+     *
+     * <p>PG 취소가 실패하면 어댑터가 예외를 던져 <b>이 트랜잭션 전체가 롤백</b>된다 — 이력도 잔액도 남지 않는다
+     * (돈-상태 원자성). 시도 이력을 별도 트랜잭션으로 남기는 건 후속(#202).
+     *
+     * @return 실제 취소된 금액(0 = 취소할 잔액 없음)
+     */
+    private int applyCancel(PaymentOrder order, int requested, String reason, OffsetDateTime now) {
+        int refundable = order.refundableAmount();
+        int amount = Math.min(requested, refundable);
+        if (amount <= 0) {
+            return 0;
         }
-        log.info("[payment] 회차 차액 환불 요청 round={} order={} provider={} 취소액={} 잔액={} tid={} 사유={}",
-                roundId, order.getOrderId(), order.getProvider(), cancelAmount, remaining, order.getPaymentKey(), reason);
-        gateways.forOrder(order.getProvider()).cancel(order.getPaymentKey(), cancelAmount, remaining, reason);
+        log.info("[payment] 환불 요청 order={} provider={} 취소액={} 잔액={} tid={} 사유={}",
+                order.getOrderId(), order.getProvider(), amount, refundable, order.getPaymentKey(), reason);
+        gateways.forOrder(order.getProvider()).cancel(order.getPaymentKey(), amount, refundable, reason);
         refundRepo.save(RefundOrder.builder()
-                .paymentOrder(order).amount(cancelAmount).reason(reason)
-                .status(RefundStatus.DONE).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
-        log.info("[payment] 회차 차액 환불 완료 round={} 취소액={}", roundId, cancelAmount);
+                .paymentOrder(order).amount(amount).reason(reason)
+                .status(RefundStatus.DONE).createdAt(now).build());
+        order.setRefundedAmount(order.getRefundedAmount() + amount);
+        if (order.refundableAmount() <= 0) {
+            order.setStatus(PaymentStatus.CANCELED); // 전액 환불 = 이 주문은 끝
+        }
+        order.setUpdatedAt(now);
+        log.info("[payment] 환불 완료 order={} 취소액={} 누적환불={} 상태={}",
+                order.getOrderId(), amount, order.getRefundedAmount(), order.getStatus());
+        return amount;
     }
 }

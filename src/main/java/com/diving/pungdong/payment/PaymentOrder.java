@@ -41,6 +41,27 @@ public class PaymentOrder {
     /** 서버가 정한 권위 금액(원). 클라이언트 입력 신뢰 금지 — confirm 시 일치 검증. */
     private int amount;
 
+    /**
+     * 이 주문에서 <b>지금까지 환불된 총액</b>(원). {@code amount - refundedAmount} = <b>취소가능 잔액</b>.
+     *
+     * <p><b>왜 비정규화하나</b>: 승인 사실인 {@link #status} 는 환불해도 {@code DONE} 이라, 이 컬럼이 없으면
+     * "이 주문 환불됐나 / 얼마 남았나"를 매번 {@code refund_order} 집계로만 알 수 있다 — CS·회계에서 테이블을
+     * 눈으로 읽지 못한다. 회차당 주문이 여러 개가 되면(차액 결제) 더 안 보인다. 그래서 잔액을 행에 들고 있는다.
+     *
+     * <p>{@code refund_order}(이력)가 <b>원장</b>이고 이 값은 그 합의 <b>캐시</b> 다 — 둘은 같은 트랜잭션에서
+     * 함께 갱신되며, 어긋나면 {@code refund_order} 가 진실이다.
+     *
+     * <p>읽는 법: {@code DONE + refunded=0} 정상 · {@code DONE + refunded>0} 부분환불 · {@code CANCELED} 전액환불.
+     */
+    @Column(nullable = false)
+    @Builder.Default
+    private int refundedAmount = 0;
+
+    /** 취소가능 잔액 = 승인액 − 기환불액. 환불은 이 값을 넘을 수 없다. */
+    public int refundableAmount() {
+        return amount - refundedAmount;
+    }
+
     /** 토스 위젯/영수증 표시용 주문명(예: "프리다이빙 입문 (1회차)"). */
     private String orderName;
 

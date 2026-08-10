@@ -77,6 +77,7 @@ erDiagram
         String orderId "unique · PG 주문번호(=P_OID)"
         Long enrollment_round_id "FK"
         int amount "서버 권위 금액(원)"
+        int refundedAmount "누적 환불액 · 잔액=amount-refundedAmount (V14)"
         String orderName "코스명 (N회차)"
         PaymentStatus status "READY|DONE|CANCELED|FAILED"
         PaymentProvider provider "결제 당시 PG(박제) · TOSS|INICIS|STUB"
@@ -88,6 +89,22 @@ erDiagram
 ```
 
 설계 의도: `orderId`(=P_OID) 가 unique + 멱등 키(콜백→주문 매핑, amount 조회 키). `amount` 는 prepare 시점에 **코스 라이브 수강료 + 입장료 스냅샷 + 장비 스냅샷** 으로 재계산해 박는다. `provider` 는 prepare 가 박제(V10), 승인·환불은 그 값으로 라우팅. `client` 는 콜백 리다이렉트 타겟(V11). 한 회차에 READY 주문은 하나만 멱등 재사용.
+
+### 돈의 축 vs 예약의 축 — 그리고 주문을 어떻게 읽나
+
+`PaymentStatus`(주문)와 `EnrollmentStatus`(회차)는 **독립**이다. `DONE` 은 "PG 승인됨"이지 "예약 확정"이 아니다 — 선결제라 승인 시점의 회차는 `ACCEPT_PENDING`(강사 결정 대기)이고 확정은 강사 수락 뒤다.
+
+환불은 **주문 단위로 실행**(PG 취소 전문에 그 주문의 `paymentKey` 를 실어야 함)되고, `refund_order` 에 이력이 쌓인다. 승인 사실인 `status` 는 부분환불로 바뀌지 않으므로, **잔액을 행에서 바로 읽히게** `refundedAmount` 를 함께 들고 있는다(V14).
+
+| 주문이 이렇게 보이면 | 뜻 |
+|---|---|
+| `DONE` + `refundedAmount = 0` | 정상 결제 |
+| `DONE` + `0 < refundedAmount < amount` | **부분환불**(일정 변경 차액 등) |
+| `CANCELED` (`refundedAmount = amount`) | **전액환불** |
+
+`refund_order`(이력)가 **원장**이고 `refundedAmount` 는 그 합의 **캐시**다 — 같은 트랜잭션에서 함께 갱신되며, 어긋나면 `refund_order` 가 진실이다. 모든 환불은 `RefundService.applyCancel` 한 곳을 지나며 **취소가능 잔액으로 clamp** 된다(초과 취소·이중 취소 불가, 멱등).
+
+⚠️ 지금은 **성공한 환불만** 기록된다. PG 가 거절하면 어댑터가 예외를 던져 트랜잭션이 롤백돼 이력이 남지 않는다(돈-상태 원자성의 대가). 시도 이력을 별도 트랜잭션으로 남겨 재시도·대사(reconciliation)를 가능하게 하는 건 후속(#202).
 
 ## 5. 보안 / 권한 매트릭스
 
