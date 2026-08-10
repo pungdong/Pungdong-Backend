@@ -16,7 +16,7 @@
 - **`venueRefId` 3인방**: `VenueScope`(토큰 생성/파싱) · `VenueRefValidator`(**검증** 단일 출처 — CUSTOM=내 소유, OFFICIAL=캐시 존재) · `VenueRefResolver`(**읽기용 메타** 해석). 새 기능이 venueRefId 를 받으면 검증은 반드시 `VenueRefValidator` 로.
 - **하위 패키지**: `sync/`(공식 카탈로그 읽기·캐시·reconcile·웹훅) · `equipment/`(강사×위치 대여 장비 가격표) · `favorite/`(강사별 즐겨찾기).
 
-`Region` 은 이 패키지 소유 — **주소에서 읽을 때 파생**(`Region.fromAddress`), 저장 컬럼이 아니다. `VenueResponse.region` 과 둘러보기의 `Course.regions` 스냅샷이 **같은 함수**를 쓴다. 지역 파생 규칙을 다른 데서 복제하지 말 것.
+`Region` 은 이 패키지 소유 — **주소에서 읽을 때 파생**(`Region.fromAddress`), 저장 컬럼이 아니다. `VenueResponse.region` 과 둘러보기의 `Course.regions` 스냅샷이 **같은 함수**를 쓴다. 지역 파생 규칙을 다른 데서 복제하지 말 것. ⚠️ **행정구역이 아니라 권역 묶음**(인천→서울·경기, 울산→부산·경남)이고 **묶음 변경은 `Course.regions` 백필을 동반**한다 — 근거·분포는 [docs/features/course-discovery.md](../../../../../../../docs/features/course-discovery.md) "지역 필터".
 
 보안 매처(`/venues/**` · `/venue-equipment/**` · `/venue-favorites/**` → authenticated)는 **`global/security/SecurityConfiguration`**. 역할이 아니라 인증인 이유: 리뷰 대기(SUBMITTED) 강사신청자는 아직 STUDENT 라서.
 
