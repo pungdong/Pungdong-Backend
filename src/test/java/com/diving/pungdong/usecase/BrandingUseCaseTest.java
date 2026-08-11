@@ -12,7 +12,6 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.security.web.firewall.RequestRejectedException;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -26,7 +25,6 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -435,15 +433,18 @@ class BrandingUseCaseTest {
     }
 
     @Test
-    @DisplayName("E3: 닉네임에 '/' 가 있으면 공개 프로필을 열 수 없다 — Spring Security 방화벽이 %2F 를 거부한다")
+    @DisplayName("E3: 닉네임에 '/' 가 있으면 공개 프로필을 열 수 없다 — 방화벽이 %2F 를 거부하고 400 으로 답한다")
     void nickNameWithSlash_isRejectedByFirewall() throws Exception {
         Account owner = account("e3@test.com", "diver/pro", Role.STUDENT);
         createPublishedBranding(owner, "슬래시 닉네임");
 
-        // StrictHttpFirewall 이 인코딩된 슬래시를 담은 요청을 아예 거부한다(path traversal 방어).
-        // 컨트롤러까지 도달하지 못하므로 상태코드가 아니라 예외로 관측된다.
-        assertThatThrownBy(() -> mockMvc.perform(get(publicUrl("diver/pro"))))
-                .isInstanceOf(RequestRejectedException.class);
+        // StrictHttpFirewall 이 인코딩된 슬래시를 담은 요청을 아예 거부한다(path traversal 방어) —
+        // 컨트롤러까지 도달하지 못한다. 예전엔 그 거부가 예외로 새어 500 이 됐지만, 지금은
+        // CustomRequestRejectedHandler 가 400 JSON 으로 답한다(잘못된 URL 은 클라이언트 잘못이지
+        // 서버 장애가 아니다). "열 수 없다" 는 결론은 그대로다.
+        mockMvc.perform(get(publicUrl("diver/pro")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false));
     }
 
     /* ════════════════ V — 검증 ════════════════ */

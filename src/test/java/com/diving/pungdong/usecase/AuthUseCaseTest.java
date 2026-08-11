@@ -170,6 +170,16 @@ class AuthUseCaseTest {
     }
 
     @Test
+    @DisplayName("W1: 방화벽이 거부하는 경로(이중 인코딩)는 500 이 아니라 400 — 클라이언트 실수가 서버 장애로 잡히면 안 된다")
+    void requestRejectedByFirewall_isBadRequest() throws Exception {
+        // "%25" = 인코딩된 '%'. 클라이언트가 이미 인코딩된 값을 한 번 더 인코딩하면 이 모양이 된다
+        // (실제로 웹에서 한글 닉네임 프로필이 이렇게 깨졌다). StrictHttpFirewall 이 거부하는 건 맞지만,
+        // 거부 결과가 5xx 면 클라이언트 입력 실수가 서버 장애 알람으로 집계된다.
+        mockMvc.perform(get("/instructors/%25EB%25B0%2594"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("R1: STUDENT 토큰으로 ADMIN 전용 API 호출 시 403 + JSON 응답")
     void studentAccessingAdminEndpoint_isForbidden() throws Exception {
         Account student = stubAccount(1L, Role.STUDENT);

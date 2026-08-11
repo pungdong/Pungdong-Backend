@@ -41,6 +41,23 @@
 | 객체 인가 | ✅ id 받는 행위는 소유/권한 대조 후 처리(`requireMy*`, owner 대조 → 404 존재숨김). |
 | 비순차 식별자 | 🟡 주문번호 ✅(Hashids). account id 는 응답에 일부 노출(공개 course 의 `instructorId` 등) — 받는 엔드포인트가 없어 현재 악용 불가. |
 
+## 방화벽 거부는 400 이다 (2026-08-11)
+
+`StrictHttpFirewall` 은 이중 인코딩(`%25`)·인코딩된 슬래시(`%2F`) 같은 **잘못된 형식의 URL** 을 컨트롤러
+이전에 거부한다(path traversal 방어). 이 방어는 **그대로 둔다.**
+
+바뀐 건 **거부를 어떤 상태 코드로 표현하느냐**다. 기본 동작은 `RequestRejectedException` 이 필터 밖으로
+전파돼 **500** 이 되는 것인데, 그러면 두 가지가 어긋난다:
+
+- 레포 규약(`400` = malformed input / `5xx` = server fault)과 반대다 — 잘못된 URL 은 클라이언트 잘못이다.
+- **클라이언트 입력 실수가 서버 장애 알람을 울린다.** 실제로 웹이 route param 을 이중 인코딩하던 버그가
+  BE 5xx 로 집계됐고, FE 가 원인을 짚어주기 전까지는 "BE 가 가끔 500 난다" 로 보였다. 관측 노이즈가
+  진짜 장애를 가린다.
+
+→ `CustomRequestRejectedHandler`(`global/security/`)가 **400 + 표준 `{success,code,msg}` 봉투**로 답한다.
+무엇이 왜 거부됐는지는 **응답에 싣지 않고 로그에만** 남긴다 — 공격자에게 방화벽 규칙을 알려줄 이유가 없다.
+회귀 방지: `AuthUseCaseTest` `W1`, `BrandingUseCaseTest` `E3`.
+
 ## 워치리스트 (회귀 방지)
 
 - 새 엔드포인트 추가 시 **신원은 `@CurrentUser` 로, 자원 id 는 소유 검증** — 둘 다 기본 체크.
