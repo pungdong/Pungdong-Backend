@@ -776,6 +776,271 @@ export interface BrandingPublishRequest {
   published: boolean;
 }
 
+// ── 커뮤니티 (community) — docs/features/community.md ──
+// 글·사진·댓글·좋아요. 카테고리 4종. 강사 작성자를 시각적으로 구분해 프로필 → 강의 전환을 유도한다.
+//
+// ⚠️ 게시물 테이블은 브랜딩과 **공유**한다. 노출은 **브랜딩 → 커뮤니티 단방향**:
+//    - 브랜딩(POST /branding/me/posts)에 올린 글 → 프로필 그리드 + 커뮤니티 피드 **둘 다**
+//    - 커뮤니티(POST /community/posts)에 올린 글 → 피드에만. 프로필 그리드엔 안 나온다
+//    브랜딩은 "남기고 싶은 하이라이트", 커뮤니티는 "오늘의 흐름" 이라 방향이 한쪽이다.
+
+export type CommunityCategory = 'TOUR' | 'TRAINING' | 'MATCH' | 'QNA';
+// 라벨은 클라이언트 소유(투어 자랑/트레이닝/같이가요/궁금해요). BE 는 코드만 준다.
+
+/**
+ * 게시물에 연결된 강의 미니카드. BrandingPostDetail.linkedCourse 와 **같은 형태**다(BE 도 같은 DTO).
+ * ⚠️ 투어는 없다 — CourseKind 에 TOUR 가 없어서 강의만 연결된다.
+ */
+export interface LinkedCourse {
+  id: number;
+  title: string;
+  thumbnailUrl?: string | null;
+  price: number;
+  status: 'OPEN' | 'CLOSED';
+}
+
+/** 피드·상세·댓글에 공통으로 실리는 작성자. 강사 강조 UI(링+✓+"강사 · 강의 N")의 유일한 소스. */
+export interface CommunityAuthor {
+  /** 공개 프로필 진입 키 — GET /instructors/{nickName} 에 그대로 쓴다. */
+  nickName: string;
+  avatarUrl?: string | null;
+  /** 항상 온다(생략 아님) — 카드마다 분기하는 값이라 없으면 "안 온 것"과 구분이 안 된다. */
+  isInstructor: boolean;
+  /** 강사만. 일반 유저는 **키 자체가 없다** — 0 을 주면 "강의 0개인 강사" 로 읽힌다. */
+  lessonCount?: number;
+}
+
+/**
+ * 같이가요 모집 정보 — MATCH 카테고리 글에만.
+ * ⚠️ 일정은 civil time(오프셋 없음) — 다이브 포인트의 벽시계라 뷰어 TZ 로 변환 금지.
+ * ⚠️ 참여자 수가 없다. "참여 신청" 은 만들지 않기로 확정(신청류는 기존 수강신청 플로우).
+ *    모집 칸은 capacity 만으로 "N명 모집" 렌더.
+ */
+export interface CommunityMatch {
+  meetDate: string;            // "2026-05-24"
+  meetTime?: string | null;    // "09:00:00"
+  capacity: number;
+  levelLabel?: string | null;  // "AOWD 이상 · 보트다이빙 경험"
+  /** meetDate >= today. 뱃지용이 아니라 **지난 모집글을 흐리게** 처리하는 용도. */
+  open: boolean;
+}
+
+/**
+ * GET /community/posts (비로그인 가능) — 피드.
+ * PagedModel — 배열은 `_embedded.posts`(빈 결과면 키 없음), 메타는 `page`.
+ * 쿼리: `?category=&sort=&authorType=&bookmarkedByMe=&page=&size=` · size 상한 50.
+ * `sort` 는 **`CommunityFeedSort`(LATEST 기본 · POPULAR) 둘뿐** — 그 외 값은 400. 메인 피드의 최신/인기 pill 이 이걸 쓴다.
+ * `authorType='INSTRUCTOR'` 는 "강사 글" pill — **승인된 강사**가 쓴 글만(작성자 칩 `isInstructor` 와 같은 축).
+ *   생략 = 전체. 인기순·같이가요 피드에도 함께 걸린다.
+ * ⚠️ `category=MATCH` 면 `sort` 와 무관하게 **일정 임박순**으로 자동 전환된다(정렬 pill 을 노출하지 않는 화면이라 서버 기본 동작으로 처리).
+ * ⚠️ `bookmarkedByMe=true` 는 인증 필요 — 비로그인이면 에러가 아니라 **빈 페이지**.
+ */
+export interface CommunityPostCard {
+  id: number;
+  /** 브랜딩에서 올라온 글은 카테고리가 없을 수 있다 → 그런 글은 "전체" 피드에만 뜬다. */
+  category?: CommunityCategory;
+  /** 브랜딩발 글은 제목이 없을 수 있다. 카드가 제목을 조건부 렌더하므로 없어도 깨지지 않는다. */
+  title?: string;
+  bodyExcerpt?: string | null;   // 앞 200자 — FE 가 CSS 3줄 클램프
+  author: CommunityAuthor;
+  thumbnailUrls: string[];       // 앞 3장만 (카드가 3장 + "+N" 구조)
+  mediaCount: number;
+  locationLabel?: string;
+  createdAt: string;             // UTC ISO-8601. "15분 전" 은 FE 가 만든다
+  likeCount: number; commentCount: number; bookmarkCount: number;
+  likedByMe: boolean; bookmarkedByMe: boolean;
+  /** 공개 피드에선 항상 false. **오너가 자기 글을 볼 때만** true — 숨김 배지·토글 상태용. */
+  hidden: boolean;
+  linkedCourse?: LinkedCourse;   // 강사 글만. DRAFT·삭제 코스면 키 없음
+  match?: CommunityMatch;        // MATCH 만
+}
+
+/** GET /community/posts/{postId} (비로그인 가능). 숨김·미노출은 400(존재 숨김) — 단 오너 본인은 열린다. */
+export interface CommunityPostDetail extends HalLinks {
+  id: number;
+  category?: CommunityCategory;
+  title?: string;
+  body?: string | null;
+  author: CommunityAuthor;
+  media: { url: string; sortOrder: number }[];
+  /** 카드·상세 어디에도 렌더되지 않는다 — **수정 폼 프리필용**. */
+  tags: string[];
+  locationLabel?: string;
+  createdAt: string;
+  updatedAt: string;
+  likeCount: number; commentCount: number; bookmarkCount: number;
+  likedByMe: boolean; bookmarkedByMe: boolean;
+  hidden: boolean;
+  /** 내 글이면 "더보기" 에 수정·삭제 노출. 카드엔 메뉴가 없어 불필요. */
+  mine: boolean;
+  linkedCourse?: LinkedCourse;
+  match?: CommunityMatch;
+}
+
+/**
+ * POST /community/posts · PUT /community/posts/{postId} (인증)
+ * ⚠️ 수정도 **스냅샷 교체** — 보낸 mediaUrls/tags 가 최종 상태다.
+ * ⚠️ mediaUrls 는 업로드(POST /branding-images)로 받은 우리 CDN URL 만. 배열 순서 = 표시 순서.
+ */
+export interface CommunityPostRequest {
+  category: CommunityCategory;   // 필수
+  title: string;                 // 필수 2~100자
+  body?: string;                 // 최대 5000자
+  mediaUrls?: string[];          // 최대 10장. 사진 없는 글 허용(궁금해요·같이가요)
+  tags?: string[];               // 최대 5개, 각 30자
+  locationLabel?: string;        // 최대 60자
+  /**
+   * 내 코스만 — 남의 코스는 400(존재 숨김). ⚠️ category==='MATCH' 면 **연결 불가**(영리활동 금지 가드) → 400
+   *
+   * DRAFT 코스도 **요청은 통과**하고 공개 응답에서 linkedCourse 키만 생략된다(OPEN 으로 바꾸면 그때 나타남).
+   * "준비 중인 강의를 미리 걸어두고 공개되면 뜨게" 가 유효한 사용이라 서버는 막지 않는다 —
+   * 대신 **FE 가 선택 시점과 선택 후 두 번 고지**한다(시트/드롭다운은 닫히면 안 읽히므로 폼에도 남긴다).
+   * `CLOSED` 는 거르지도 고지하지도 않는다 — 응답에 그대로 오고 미니카드가 마감으로 그린다.
+   */
+  linkedCourseId?: number;
+  /** category==='MATCH' 일 때 필수. */
+  match?: {
+    meetDate: string;            // 오늘 이후
+    meetTime?: string;
+    capacity: number;            // 2~20
+    levelLabel: string;          // 필수, 최대 60자
+  };
+}
+
+/** PATCH /community/posts/{postId}/visibility — 삭제와 다르다(되돌릴 수 있고 공개 경로에서만 빠진다). */
+export interface CommunityPostVisibilityRequest { hidden: boolean }
+
+// 사진 업로드는 **기존 POST /branding-images 를 그대로 쓴다**(같은 공개 버킷·같은 검증). 신규 엔드포인트 없음.
+
+/** 피드 정렬. `MATCH` 진입 시엔 이 값과 무관하게 서버가 **일정 임박순**으로 자동 전환한다. */
+export type CommunityFeedSort = 'LATEST' | 'POPULAR';
+
+/**
+ * 작성자 유형 필터 — 웹 피드의 "강사 글" pill. 값이 하나뿐인 건 필터가 하나뿐이기 때문이다
+ * ("일반 유저 글만" 은 화면에 없어서 만들지 않았다 — 죽은 값을 남기지 않는다).
+ */
+export type CommunityAuthorType = 'INSTRUCTOR';
+// POPULAR = **최근 7일 안에서** 좋아요 많은 순. 기간을 자르지 않으면 오래된 인기글이 상단을 영구 점유한다.
+
+/**
+ * POST·DELETE /community/posts/{postId}/like · /bookmark (인증)
+ * ⚠️ **멱등**이다 — 같은 요청을 두 번 보내도 결과가 같다. 낙관적 업데이트 후 이 값으로 덮어쓰면 항상 수렴한다.
+ * ⚠️ 숨김·없는 글에는 반응할 수 없다 → 400(존재 숨김).
+ */
+export interface ReactionResponse {
+  count: number;    // 갱신된 총 개수
+  active: boolean;  // 내 상태. POST 뒤 true, DELETE 뒤 false
+}
+
+/** GET /community/categories (비로그인 가능) — 4-up 그리드. 배열은 `_embedded.categories`. */
+export interface CommunityCategoryCount {
+  category: CommunityCategory;
+  /** 최근 7일 글 수. **4종이 항상 전부 온다** — 0개인 카테고리도 칸은 그려져야 하므로 0 으로 채워 준다. */
+  weeklyPostCount: number;
+}
+// HOT 뱃지 임계값(>50)은 클라이언트 상수다 — 서버는 숫자만 준다.
+
+/** GET /community/tags/popular?limit=8 (비로그인 가능) — 배열은 `_embedded.tags`. 건수 내림차순. */
+export interface PopularTag {
+  tag: string;   // '#' 없는 순수 문자열. 표시용 '#' 은 클라이언트가 붙인다
+  count: number;
+}
+
+// GET /community/posts/{postId}/related?limit=3 (비로그인 가능) — 배열은 `_embedded.posts`(CommunityPostCard).
+// 같은 카테고리·자기 제외·최신순. ⚠️ 카테고리가 없는 글(브랜딩발)은 **빈 배열** — 묶을 축이 없어서다.
+
+/**
+ * GET /community/posts/{postId}/comments (비로그인 가능) — 배열은 `_embedded.comments`.
+ * ⚠️ **페이지네이션이 없다** — CollectionModel 이라 `page` 키가 없고 스레드 전체가 한 번에 온다.
+ *    (1-depth 트리를 나눠 조회하면 그 사이에 달린 댓글이 유실된다. 켜게 되면 최상위만 페이징하고
+ *     대댓글은 계속 인라인이며, 그때 응답이 PagedModel 로 바뀐다.)
+ * ⚠️ 정렬 파라미터가 **없다**. 서버가 `createdAt ASC` 로 고정한다(스레드는 위→아래로 흐른다).
+ *    디자인의 "최신순 ▾" 은 다른 옵션이 정의된 곳이 없어 정적 라벨로 처리한다.
+ * ⚠️ **1-depth 고정** — `replies` 안의 항목은 항상 빈 `replies` 를 갖는다.
+ */
+export interface CommunityComment {
+  id: number;
+  author: CommunityAuthor;
+  /** 삭제된 댓글이면 원문 대신 "삭제된 댓글입니다." 가 온다 — `deleted` 로 구분한다. */
+  body: string;
+  /**
+   * 삭제 표식. **대댓글이 달린 댓글만 자리가 남는다**(스레드가 끊기면 안 되므로).
+   * 대댓글이 없는 댓글은 완전히 사라져 목록에 아예 없다.
+   */
+  deleted: boolean;
+  createdAt: string;
+  likeCount: number;
+  likedByMe: boolean;
+  mine: boolean;
+  replies: CommunityComment[];
+  /** 지금은 `replies.length` 와 같다. 나중에 인라인을 잘라도 계약이 안 바뀌도록 따로 준다. */
+  replyCount: number;
+}
+
+/**
+ * POST /community/posts/{postId}/comments · PUT /community/comments/{commentId} (인증)
+ * ⚠️ `parentCommentId` 는 **최상위 댓글만** 가리킬 수 있다 — 대댓글에 달면 400.
+ * ⚠️ 수정 시 `parentCommentId` 는 무시된다(부모 변경은 스레드 재배치라 본문 수정과 다른 동작).
+ */
+export interface CommunityCommentRequest {
+  body: string;              // 필수, 최대 1000자
+  parentCommentId?: number;
+}
+
+// DELETE /community/comments/{commentId} (인증) — 204.
+//   대댓글이 있으면 soft(자리 유지), 없으면 hard(완전 삭제). 서버가 판단한다.
+// POST|DELETE /community/comments/{commentId}/like (인증) — ReactionResponse.
+//   ⚠️ 삭제된 댓글에는 누를 수 없다 → 400.
+// ⚠️ 게시물의 `commentCount` 는 **삭제된 댓글을 뺀 수**다("댓글 3" 인데 2개 보이면 안 되므로).
+
+/**
+ * POST /community/reports (인증) — 신고 접수.
+ * ⚠️ 중복 신고는 **200 멱등**(기존 건 반환). 자기 글·댓글은 400. 없는 대상도 400.
+ * ⚠️ `reason === 'OTHER'` 면 `detail` 필수 — 없으면 400.
+ */
+export type ReportTargetType = 'POST' | 'COMMENT';
+
+/** 신고 사유 6종. `OTHER` 면 `detail` 필수. */
+export type ReportReason = 'SPAM' | 'ABUSE' | 'SEXUAL' | 'COMMERCIAL' | 'FALSE_INFO' | 'OTHER';
+
+/** 어드민 처리 상태. `ACTIONED` 는 대상이 실제로 숨겨졌다는 뜻이다(상태만 바뀌는 게 아니다). */
+export type ReportStatus = 'PENDING' | 'ACTIONED' | 'DISMISSED';
+
+export interface ContentReportRequest {
+  targetType: ReportTargetType;
+  targetId: number;
+  reason: ReportReason;
+  detail?: string;   // 최대 500자
+}
+
+export interface ContentReport {
+  id: number;
+  targetType: ReportTargetType;
+  targetId: number;
+  reason: ReportReason;
+  detail?: string;
+  status: ReportStatus;
+  createdAt: string;
+  handledAt?: string;
+  /** 어드민 목록에만. 접수 응답에는 키가 없다. */
+  reporterNickName?: string;
+  /** 어드민 목록에만. 대상이 이미 지워졌으면 키가 없다. */
+  targetPreview?: string;
+}
+
+// 어드민(ROLE_ADMIN) — 신고 처리 큐. 어드민 FE 용이라 모바일/웹 클라이언트는 쓰지 않는다.
+//   GET   /admin/community/reports?status=&page=&size=   배열은 `_embedded.reports`
+//   GET   /admin/community/reports/counts                {pending, actioned, dismissed}
+//   PATCH /admin/community/reports/{reportId}            {status: 'ACTIONED' | 'DISMISSED'}
+//   ⚠️ ACTIONED 는 **대상 콘텐츠를 실제로 숨긴다**(게시물 hidden / 댓글 soft delete).
+
+// ── 알림 (커뮤니티分) ──
+// 댓글·답글이 달리면 수신자에게 푸시 1건. data.type = 'COMMUNITY_COMMENT', data.postId·data.commentId 동봉.
+//   딥링크는 BE 가 URL 을 만들지 않는다 — 클라이언트가 그 id 들로 조립한다(기존 알림과 동일).
+// ⚠️ Android 채널은 기존 `notice` 를 재사용한다(앱이 채널을 만들므로 새 채널은 릴리스에 묶인다).
+// ⚠️ 좋아요 알림은 없다(소음). 자기 글에 자기가 단 댓글도 알림이 없다.
+// ⚠️ 답글은 **부모 댓글 작성자에게만** 간다 — 글 작성자까지 보내면 스레드가 길수록 소음이 된다.
+
 // ── 위치 (venue) — docs/features/venue.md ──
 // 수영장(딥풀)·해양 포인트 = 강의가 진행되는 장소. 입장료·운영 시간대·이용 옵션·정기휴무가 위치에 종속.
 // ⚠️ 소유 분담:

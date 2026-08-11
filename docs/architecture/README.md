@@ -32,6 +32,7 @@
 | 코스 (course) | [course.md](course.md) | ✅ (강사 작성 · 회차/추가세션 · 위치 venueRefId 참조 · 장비 합성 · 공개조회 후속) |
 | 주소·위치정보 (address) | [address.md](address.md) | ✅ (juso 검색+좌표변환 BE 경유 · 로컬 stub · 좌표계 검증 후속) |
 | 브랜딩 페이지 (branding) | [branding.md](branding.md) | ✅ (계정당 1개 공개 프로필 · 공개 URL=닉네임 · 조회는 생성 안 함 · 자격/검수는 읽기 시점 합성 · 게시물은 후속) |
+| 커뮤니티 (community) | [community.md](community.md) | ✅ (게시물 테이블을 branding 과 **공유** · 노출은 브랜딩→커뮤니티 단방향 · 카운터 비저장 일괄집계 · 1-depth 댓글 · 신고 어드민 큐) |
 | 강사 가용시간 (availability) | [availability.md](availability.md) | ✅ (가용시간 window + 외부/수동 점유 hold · 5상태 파생 · enrollment 연동됨) |
 | 수강신청 (enrollment) | [enrollment.md](enrollment.md) | ✅ (booking — availability ∩ venue 교집합 · exact-match join · 강사 수락 → 결제대기 → 확정) |
 | 결제 (payment) | [payment.md](payment.md) | ✅ (토스페이먼츠 결제위젯 v2 · 수락→결제→확정 · 서버 권위 금액 · stub/toss · webhook 후속) |

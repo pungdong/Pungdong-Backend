@@ -35,12 +35,15 @@ public class BrandingProfileResponse {
     /**
      * 인증마크(공식 강사) 렌더 여부 = 승인(APPROVED)된 강사 신청 보유.
      *
-     * <p>{@code @JsonProperty} 를 명시하는 이유: Jackson 은 {@code boolean isX} 의 getter
-     * {@code isX()} 를 프로퍼티 {@code "x"} 로 본다. 안 붙이면 계약이 약속한 {@code isInstructor} 가
-     * {@code instructor} 로 나간다.
+     * <p><b>필드명에 {@code is} 를 붙이지 않는다.</b> Lombok 이 원시 {@code boolean isInstructor} 에
+     * 만드는 게터는 {@code isInstructor()} 이고 Jackson 은 이걸 프로퍼티 {@code "instructor"} 로 본다 —
+     * 필드의 {@code @JsonProperty("isInstructor")} 와 <b>서로 다른 두 프로퍼티</b>가 되어
+     * {@code {"instructor":true,"isInstructor":true}} 가 나갔다(실측으로 확인, FE 는 계약대로
+     * {@code isInstructor} 만 읽고 있어 값이 틀리진 않았다). 필드명을 {@code instructor} 로 두면
+     * 게터가 만드는 이름과 일치해 {@code @JsonProperty} 가 그 하나를 개명한다.
      */
     @JsonProperty("isInstructor")
-    private boolean isInstructor;
+    private boolean instructor;
 
     /** 강사만. 일반 유저는 null → 키 자체가 빠진다. */
     @JsonInclude(JsonInclude.Include.NON_NULL)

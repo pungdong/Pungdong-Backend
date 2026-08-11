@@ -9,6 +9,7 @@ import com.diving.pungdong.course.CourseJpaRepo;
 import com.diving.pungdong.course.CourseStatus;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
+import com.diving.pungdong.global.validation.PublicMediaUrlPolicy;
 import com.diving.pungdong.service.image.S3Uploader;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -47,12 +48,8 @@ public class BrandingPostService {
     private final CourseJpaRepo courseRepo;
     private final S3Uploader s3Uploader;
 
-    /** 저장 허용 URL 의 base — 임의 외부 URL 을 본문에 심지 못하게 막는 기준. */
-    @Value("${pungdong.storage.public-base-url:}")
-    private String publicBaseUrl;
-
-    @Value("${pungdong.storage.local.base-url:}")
-    private String localBaseUrl;
+    /** 본문에 실린 이미지 URL 이 우리가 발급한 것인지 검사한다. 커뮤니티 글과 같은 규칙을 공유한다. */
+    private final PublicMediaUrlPolicy mediaUrlPolicy;
 
     /* ─── 공개 ───────────────────────────────────────────── */
 
@@ -92,11 +89,20 @@ public class BrandingPostService {
         return toDetail(post);
     }
 
+    /**
+     * <b>프로필 글이 아니면 이 경로로는 아무에게도 안 보인다</b> — 오너에게도. 커뮤니티에만 올린 글은
+     * 브랜딩 상세({@code GET /branding-posts/{id}})의 대상이 아니다. 커뮤니티 글은
+     * {@code GET /community/posts/{id}} 로 본다. 안 걸면 프로필에 없는 글이 프로필 URL 로 열려
+     * "브랜딩 → 커뮤니티 단방향" 이 조회 쪽에서 뚫린다.
+     */
     private boolean isVisibleTo(BrandingPost post, Account viewer) {
+        if (!post.isShowOnProfile()) {
+            return false;
+        }
         AccountBranding branding = post.getBranding();
         Account owner = branding.getAccount();
         if (viewer != null && Objects.equals(owner.getId(), viewer.getId())) {
-            return true; // 오너는 자기 글을 항상 본다(숨김·미발행 포함)
+            return true; // 오너는 자기 프로필 글을 항상 본다(숨김·미발행 포함)
         }
         return branding.isPublished()
                 && !post.isHidden()
@@ -113,7 +119,14 @@ public class BrandingPostService {
                 .orElseGet(() -> brandingRepo.save(AccountBranding.builder()
                         .account(owner).isPublished(true).build()));
 
-        BrandingPost post = BrandingPost.builder().branding(branding).build();
+        // 노출은 브랜딩 → 커뮤니티 단방향이다. 브랜딩에 올린 글은 하이라이트인 동시에
+        // 커뮤니티 피드에도 새 글로 나간다(사용자 결정). 두 플래그를 여기서 명시 설정한다 —
+        // DB DEFAULT 는 기존 행 backfill 용이지 신규 쓰기용이 아니다.
+        BrandingPost post = BrandingPost.builder()
+                .branding(branding)
+                .showOnProfile(true)
+                .showInFeed(true)
+                .build();
         apply(post, request, owner);
         return toDetail(postRepo.save(post));
     }
@@ -169,6 +182,8 @@ public class BrandingPostService {
     private void apply(BrandingPost post, BrandingPostRequest request, Account owner) {
         request.getMediaUrls().forEach(this::requireOurCdnUrl);
 
+        post.setCategory(request.getCategory());
+        post.setTitle(request.getTitle());
         post.setCaption(request.getCaption());
         post.setLocationLabel(request.getLocationLabel());
 
@@ -203,15 +218,13 @@ public class BrandingPostService {
     }
 
     /**
-     * 우리 CDN(또는 로컬 stub) 이 발급한 URL 인지 확인한다. 이 검사가 없으면 임의 외부 이미지를 본문에
-     * 심을 수 있고(호스트 추적·콘텐츠 변조), 삭제 로직도 남의 도메인을 지우려 들게 된다.
+     * 우리 CDN(또는 로컬 stub) 이 발급한 URL 인지 확인한다.
+     *
+     * <p>규칙 자체는 {@link PublicMediaUrlPolicy} 로 옮겼다 — 커뮤니티 글도 같은 공개 버킷·같은 업로드
+     * 엔드포인트를 쓰므로 검사가 두 벌이면 한쪽만 고쳐지는 순간 갈라진다.
      */
     private void requireOurCdnUrl(String url) {
-        boolean allowed = (StringUtils.hasText(publicBaseUrl) && url.startsWith(publicBaseUrl + "/"))
-                || (StringUtils.hasText(localBaseUrl) && url.startsWith(localBaseUrl + "/"));
-        if (!allowed) {
-            throw new BadRequestException("업로드로 받은 이미지 주소만 사용할 수 있어요.");
-        }
+        mediaUrlPolicy.requireOurs(url);
     }
 
     private List<String> urlsOf(BrandingPost post) {
