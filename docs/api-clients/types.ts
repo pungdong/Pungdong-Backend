@@ -886,7 +886,12 @@ export interface CommunityPostRequest {
   mediaUrls?: string[];          // 최대 10장. 사진 없는 글 허용(궁금해요·같이가요)
   tags?: string[];               // 최대 5개, 각 30자
   locationLabel?: string;        // 최대 60자
-  /** 강사 + 내 코스만. ⚠️ category==='MATCH' 면 **연결 불가**(영리활동 금지 가드) → 400 */
+  /**
+   * 내 코스만 — 남의 코스는 400(존재 숨김). ⚠️ category==='MATCH' 면 **연결 불가**(영리활동 금지 가드) → 400
+   *
+   * DRAFT 코스도 **요청은 통과**하지만 공개 응답에서 linkedCourse 키가 생략된다(OPEN 으로 바꾸면 그때 나타남).
+   * 작성자에게 아무 신호가 없으므로 picker 에서 DRAFT 를 숨기거나 "비공개" 뱃지를 달 것.
+   */
   linkedCourseId?: number;
   /** category==='MATCH' 일 때 필수. */
   match?: {
@@ -935,6 +940,9 @@ export interface PopularTag {
 
 /**
  * GET /community/posts/{postId}/comments (비로그인 가능) — 배열은 `_embedded.comments`.
+ * ⚠️ **페이지네이션이 없다** — CollectionModel 이라 `page` 키가 없고 스레드 전체가 한 번에 온다.
+ *    (1-depth 트리를 나눠 조회하면 그 사이에 달린 댓글이 유실된다. 켜게 되면 최상위만 페이징하고
+ *     대댓글은 계속 인라인이며, 그때 응답이 PagedModel 로 바뀐다.)
  * ⚠️ 정렬 파라미터가 **없다**. 서버가 `createdAt ASC` 로 고정한다(스레드는 위→아래로 흐른다).
  *    디자인의 "최신순 ▾" 은 다른 옵션이 정의된 곳이 없어 정적 라벨로 처리한다.
  * ⚠️ **1-depth 고정** — `replies` 안의 항목은 항상 빈 `replies` 를 갖는다.
