@@ -9,6 +9,7 @@ import com.diving.pungdong.course.CourseJpaRepo;
 import com.diving.pungdong.course.CourseStatus;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
+import com.diving.pungdong.global.validation.PublicMediaUrlPolicy;
 import com.diving.pungdong.service.image.S3Uploader;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -47,12 +48,8 @@ public class BrandingPostService {
     private final CourseJpaRepo courseRepo;
     private final S3Uploader s3Uploader;
 
-    /** 저장 허용 URL 의 base — 임의 외부 URL 을 본문에 심지 못하게 막는 기준. */
-    @Value("${pungdong.storage.public-base-url:}")
-    private String publicBaseUrl;
-
-    @Value("${pungdong.storage.local.base-url:}")
-    private String localBaseUrl;
+    /** 본문에 실린 이미지 URL 이 우리가 발급한 것인지 검사한다. 커뮤니티 글과 같은 규칙을 공유한다. */
+    private final PublicMediaUrlPolicy mediaUrlPolicy;
 
     /* ─── 공개 ───────────────────────────────────────────── */
 
@@ -212,15 +209,13 @@ public class BrandingPostService {
     }
 
     /**
-     * 우리 CDN(또는 로컬 stub) 이 발급한 URL 인지 확인한다. 이 검사가 없으면 임의 외부 이미지를 본문에
-     * 심을 수 있고(호스트 추적·콘텐츠 변조), 삭제 로직도 남의 도메인을 지우려 들게 된다.
+     * 우리 CDN(또는 로컬 stub) 이 발급한 URL 인지 확인한다.
+     *
+     * <p>규칙 자체는 {@link PublicMediaUrlPolicy} 로 옮겼다 — 커뮤니티 글도 같은 공개 버킷·같은 업로드
+     * 엔드포인트를 쓰므로 검사가 두 벌이면 한쪽만 고쳐지는 순간 갈라진다.
      */
     private void requireOurCdnUrl(String url) {
-        boolean allowed = (StringUtils.hasText(publicBaseUrl) && url.startsWith(publicBaseUrl + "/"))
-                || (StringUtils.hasText(localBaseUrl) && url.startsWith(localBaseUrl + "/"));
-        if (!allowed) {
-            throw new BadRequestException("업로드로 받은 이미지 주소만 사용할 수 있어요.");
-        }
+        mediaUrlPolicy.requireOurs(url);
     }
 
     private List<String> urlsOf(BrandingPost post) {
