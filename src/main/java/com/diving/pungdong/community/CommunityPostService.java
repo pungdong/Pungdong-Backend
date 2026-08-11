@@ -81,13 +81,19 @@ public class CommunityPostService {
                                                 Pageable pageable) {
         Pageable page = fixedPage(pageable);
 
+        // "저장한 글" 은 로그인해야 의미가 있다. 비로그인은 에러가 아니라 빈 페이지가 맞는 답이다 —
+        // 로그인 안 한 사람에게 저장한 글이 없는 건 정상 상태지 실패가 아니다(레포 규칙).
+        if (bookmarkedByMe && viewer == null) {
+            return Page.empty(page);
+        }
+
         Page<BrandingPost> posts;
         if (category == CommunityCategory.MATCH && !bookmarkedByMe) {
             posts = postRepo.findMatchFeed(page);
         } else {
             Specification<BrandingPost> spec = Specification.where(CommunityPostSpecifications.feedVisible())
                     .and(CommunityPostSpecifications.category(category))
-                    .and(bookmarkedByMe ? CommunityPostSpecifications.bookmarkedBy(requireViewer(viewer).getId()) : null);
+                    .and(bookmarkedByMe ? CommunityPostSpecifications.bookmarkedBy(viewer.getId()) : null);
             posts = postRepo.findAll(spec, withLatestSort(page));
         }
 
@@ -440,13 +446,6 @@ public class CommunityPostService {
 
     private BrandingPost requireMine(Long postId, Long accountId) {
         return postRepo.findMine(postId, accountId).orElseThrow(ResourceNotFoundException::new);
-    }
-
-    private Account requireViewer(Account viewer) {
-        if (viewer == null) {
-            throw new ResourceNotFoundException();
-        }
-        return viewer;
     }
 
     private Account loadAccount(Account currentUser) {

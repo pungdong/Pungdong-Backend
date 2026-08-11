@@ -203,7 +203,7 @@ public class BrandingService {
     /** 게시물 수는 공개분만 센다(숨긴 글은 남에게도 나에게도 "올린 글" 로 안 보이는 게 일관적이다). */
     private BrandingStats statsOf(AccountBranding branding, Account owner, boolean isInstructor) {
         return BrandingStats.builder()
-                .posts((int) postRepo.countByBranding_IdAndIsHiddenFalse(branding.getId()))
+                .posts((int) postRepo.countByBranding_IdAndIsHiddenFalseAndShowOnProfileTrue(branding.getId()))
                 .students(isInstructor ? studentCountOf(owner.getId()) : null)
                 .build();
     }

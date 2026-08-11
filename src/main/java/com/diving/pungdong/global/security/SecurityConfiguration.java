@@ -61,6 +61,10 @@ public class SecurityConfiguration {
                         .antMatchers(HttpMethod.GET, "/instructors/*").permitAll()
                         .antMatchers(HttpMethod.GET, "/instructors/*/posts").permitAll()
                         .antMatchers(HttpMethod.GET, "/branding-posts/*").permitAll()
+                        // 커뮤니티 읽기는 비로그인 허용. ant 의 `*` 는 `/` 를 넘지 않아 목록·상세를 따로 적는다.
+                        // 쓰기(POST/PUT/DELETE/PATCH)는 아래 authenticated 매처가 잡는다.
+                        .antMatchers(HttpMethod.GET, "/community/posts").permitAll()
+                        .antMatchers(HttpMethod.GET, "/community/posts/*").permitAll()
                         .antMatchers(HttpMethod.GET, "/courses/browse").permitAll()
                         .antMatchers(HttpMethod.GET, "/courses/level-labels").permitAll()
                         .antMatchers(HttpMethod.GET, "/courses/*/detail").permitAll()
@@ -83,6 +87,8 @@ public class SecurityConfiguration {
                         .antMatchers("/payments/**").authenticated()
                         // 브랜딩 오너 편집 — role 이 아니라 인증. 일반 유저도 쓰고(D2), 강사도 승인 전에 편집 화면이 있다.
                         .antMatchers("/branding/**").authenticated()
+                        // 강사 전용이 아니다 — 일반 유저도 커뮤니티에 쓴다. hasRole 로 막으면 안 된다.
+                        .antMatchers("/community/**").authenticated()
                         .antMatchers("/branding-images").authenticated()
                         .antMatchers("/course-images").authenticated()
                         .antMatchers("/courses/**").authenticated()
