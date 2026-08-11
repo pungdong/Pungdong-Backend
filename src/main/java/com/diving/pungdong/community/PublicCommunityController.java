@@ -31,6 +31,7 @@ import org.springframework.web.bind.annotation.*;
 public class PublicCommunityController {
 
     private final CommunityPostService postService;
+    private final CommunityCommentService commentService;
 
     /**
      * 피드. {@code category} 생략이면 전체(카테고리 없는 브랜딩발 글도 포함)다.
@@ -50,6 +51,17 @@ public class PublicCommunityController {
                                   PagedResourcesAssembler<CommunityPostCardResponse> assembler) {
         return ResponseEntity.ok()
                 .body(assembler.toModel(postService.feed(category, sort, bookmarkedByMe, account, pageable)));
+    }
+
+    /**
+     * 댓글 스레드 — 대댓글이 부모 아래 중첩돼 온다.
+     *
+     * <p>정렬 파라미터가 없다. 서버가 {@code createdAt ASC} 로 고정한다 — 스레드는 위에서 아래로
+     * 대화가 흐르는 게 자연스럽고, 디자인의 "최신순 ▾" 은 다른 옵션이 정의된 곳이 없다.
+     */
+    @GetMapping("/{postId}/comments")
+    public ResponseEntity<?> comments(@PathVariable Long postId, @CurrentUser Account account) {
+        return ResponseEntity.ok().body(CollectionModel.of(commentService.thread(postId, account)));
     }
 
     /** 관련 글 — 웹 상세 우측 rail. 같은 카테고리·자기 제외·최신순. */

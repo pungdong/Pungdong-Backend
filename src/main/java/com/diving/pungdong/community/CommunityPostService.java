@@ -70,8 +70,8 @@ public class CommunityPostService {
     private final AccountBrandingJpaRepo brandingRepo;
     private final AccountJpaRepo accountRepo;
     private final CourseJpaRepo courseRepo;
-    private final InstructorApplicationJpaRepo applicationRepo;
-    private final SiteSettingsProvider siteSettings;
+    /** 강사 여부·강의 수 합성. 댓글 서비스와 같은 컴포넌트를 써야 같은 사람이 두 화면에서 같게 보인다. */
+    private final CommunityAuthorComposer authorComposer;
     private final PublicMediaUrlPolicy mediaUrlPolicy;
     private final S3Uploader s3Uploader;
 
@@ -400,37 +400,11 @@ public class CommunityPostService {
     private Map<Long, CommunityAuthorResponse> authorsFor(List<BrandingPost> posts) {
         Map<Long, Account> authorByPost = posts.stream()
                 .collect(Collectors.toMap(BrandingPost::getId, p -> p.getBranding().getAccount(), (a, b) -> a));
-        Set<Long> accountIds = authorByPost.values().stream()
-                .map(Account::getId).collect(Collectors.toSet());
-        if (accountIds.isEmpty()) {
-            return Map.of();
-        }
+        Map<Long, CommunityAuthorResponse> byAccount = authorComposer.compose(authorByPost.values());
 
-        Set<Long> instructorIds = applicationRepo
-                .findByAccountIdInAndStatus(accountIds, InstructorApplicationStatus.APPROVED).stream()
-                .map(application -> application.getAccount().getId())
-                .collect(Collectors.toSet());
-
-        Map<Long, Long> lessonCounts = instructorIds.isEmpty()
-                ? Map.of()
-                : countMap(siteSettings.current().showSeededCourses()
-                        ? courseRepo.countByInstructorIdsAndStatus(instructorIds, CourseStatus.OPEN)
-                        : courseRepo.countByInstructorIdsAndStatusExcludingSeeded(instructorIds, CourseStatus.OPEN));
-
-        Map<Long, CommunityAuthorResponse> result = new HashMap<>();
-        authorByPost.forEach((postId, account) -> {
-            boolean isInstructor = instructorIds.contains(account.getId());
-            result.put(postId, CommunityAuthorResponse.builder()
-                    .nickName(account.getNickName())
-                    .avatarUrl(avatarUrlOf(account))
-                    .instructor(isInstructor)
-                    // 강사가 아니면 키 자체를 생략한다 — 0 을 내려주면 "강의 0개인 강사" 로 읽힌다.
-                    .lessonCount(isInstructor
-                            ? (int) (long) lessonCounts.getOrDefault(account.getId(), 0L)
-                            : null)
-                    .build());
-        });
-        return result;
+        Map<Long, CommunityAuthorResponse> byPost = new HashMap<>();
+        authorByPost.forEach((postId, account) -> byPost.put(postId, byAccount.get(account.getId())));
+        return byPost;
     }
 
     private Map<Long, List<BrandingPostMedia>> mediaByPost(List<Long> postIds) {

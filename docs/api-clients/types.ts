@@ -933,7 +933,48 @@ export interface PopularTag {
 // GET /community/posts/{postId}/related?limit=3 (비로그인 가능) — 배열은 `_embedded.posts`(CommunityPostCard).
 // 같은 카테고리·자기 제외·최신순. ⚠️ 카테고리가 없는 글(브랜딩발)은 **빈 배열** — 묶을 축이 없어서다.
 
-// 댓글·신고는 후속 커밋 그룹.
+/**
+ * GET /community/posts/{postId}/comments (비로그인 가능) — 배열은 `_embedded.comments`.
+ * ⚠️ 정렬 파라미터가 **없다**. 서버가 `createdAt ASC` 로 고정한다(스레드는 위→아래로 흐른다).
+ *    디자인의 "최신순 ▾" 은 다른 옵션이 정의된 곳이 없어 정적 라벨로 처리한다.
+ * ⚠️ **1-depth 고정** — `replies` 안의 항목은 항상 빈 `replies` 를 갖는다.
+ */
+export interface CommunityComment {
+  id: number;
+  author: CommunityAuthor;
+  /** 삭제된 댓글이면 원문 대신 "삭제된 댓글입니다." 가 온다 — `deleted` 로 구분한다. */
+  body: string;
+  /**
+   * 삭제 표식. **대댓글이 달린 댓글만 자리가 남는다**(스레드가 끊기면 안 되므로).
+   * 대댓글이 없는 댓글은 완전히 사라져 목록에 아예 없다.
+   */
+  deleted: boolean;
+  createdAt: string;
+  likeCount: number;
+  likedByMe: boolean;
+  mine: boolean;
+  replies: CommunityComment[];
+  /** 지금은 `replies.length` 와 같다. 나중에 인라인을 잘라도 계약이 안 바뀌도록 따로 준다. */
+  replyCount: number;
+}
+
+/**
+ * POST /community/posts/{postId}/comments · PUT /community/comments/{commentId} (인증)
+ * ⚠️ `parentCommentId` 는 **최상위 댓글만** 가리킬 수 있다 — 대댓글에 달면 400.
+ * ⚠️ 수정 시 `parentCommentId` 는 무시된다(부모 변경은 스레드 재배치라 본문 수정과 다른 동작).
+ */
+export interface CommunityCommentRequest {
+  body: string;              // 필수, 최대 1000자
+  parentCommentId?: number;
+}
+
+// DELETE /community/comments/{commentId} (인증) — 204.
+//   대댓글이 있으면 soft(자리 유지), 없으면 hard(완전 삭제). 서버가 판단한다.
+// POST|DELETE /community/comments/{commentId}/like (인증) — ReactionResponse.
+//   ⚠️ 삭제된 댓글에는 누를 수 없다 → 400.
+// ⚠️ 게시물의 `commentCount` 는 **삭제된 댓글을 뺀 수**다("댓글 3" 인데 2개 보이면 안 되므로).
+
+// 신고는 후속 커밋 그룹.
 
 // ── 위치 (venue) — docs/features/venue.md ──
 // 수영장(딥풀)·해양 포인트 = 강의가 진행되는 장소. 입장료·운영 시간대·이용 옵션·정기휴무가 위치에 종속.

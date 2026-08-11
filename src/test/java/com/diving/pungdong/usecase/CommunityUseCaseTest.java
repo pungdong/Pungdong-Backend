@@ -55,6 +55,7 @@ class CommunityUseCaseTest {
     @Autowired com.diving.pungdong.community.CommunityPostLikeJpaRepo likeRepo;
     @Autowired com.diving.pungdong.community.CommunityPostBookmarkJpaRepo bookmarkRepo;
     @Autowired com.diving.pungdong.community.CommunityCommentJpaRepo commentRepo;
+    @Autowired com.diving.pungdong.community.CommunityCommentLikeJpaRepo commentLikeRepo;
 
     @Value("${pungdong.storage.local.base-url:http://localhost:8080}")
     String localBaseUrl;
@@ -68,6 +69,12 @@ class CommunityUseCaseTest {
         matchRepo.deleteAll();
         likeRepo.deleteAll();
         bookmarkRepo.deleteAll();
+        commentLikeRepo.deleteAll();
+        // 댓글은 자기 자신을 참조한다(대댓글 → 부모). deleteAll 은 삭제 순서를 보장하지 않아
+        // 부모가 먼저 지워지면 FK 위반이 난다 — 대댓글을 먼저 걷어낸 뒤 나머지를 지운다.
+        commentRepo.findAll().stream()
+                .filter(comment -> !comment.isTopLevel())
+                .forEach(commentRepo::delete);
         commentRepo.deleteAll();
         postRepo.deleteAll();
         brandingRepo.deleteAll();
@@ -481,6 +488,157 @@ class CommunityUseCaseTest {
         mockMvc.perform(get("/community/posts").param("sort", "POPULAR"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$._embedded.posts[0].title").value("인기 있는 글"));
+    }
+
+    /* ════════════════ C — 댓글 ════════════════ */
+
+    /** 댓글 작성 → 생성된 id. {@code parentId} 가 있으면 대댓글. */
+    private long comment(Account author, long postId, String body, Long parentId) throws Exception {
+        String payload = parentId == null
+                ? "{\"body\":\"" + body + "\"}"
+                : "{\"body\":\"" + body + "\",\"parentCommentId\":" + parentId + "}";
+        MvcResult result = mockMvc.perform(post("/community/posts/" + postId + "/comments")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(author))
+                        .contentType(MediaType.APPLICATION_JSON).content(payload))
+                .andExpect(status().isOk())
+                .andReturn();
+        return ((Number) com.jayway.jsonpath.JsonPath.read(
+                result.getResponse().getContentAsString(), "$.id")).longValue();
+    }
+
+    @Test
+    @DisplayName("C1: 댓글과 대댓글이 부모 아래 중첩돼 오고 글의 댓글 수에 함께 잡힌다")
+    void commentThread_nestsReplies() throws Exception {
+        Account me = account("c1@c.com", "diverC27", Role.STUDENT);
+        long postId = createPost(me, "QNA", "질문", "본문");
+        long parent = comment(me, postId, "답변드려요", null);
+        comment(me, postId, "감사합니다", parent);
+
+        mockMvc.perform(get("/community/posts/" + postId + "/comments"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.comments.length()").value(1))
+                .andExpect(jsonPath("$._embedded.comments[0].replyCount").value(1))
+                .andExpect(jsonPath("$._embedded.comments[0].replies[0].body").value("감사합니다"));
+
+        mockMvc.perform(get("/community/posts/" + postId))
+                .andExpect(jsonPath("$.commentCount").value(2));
+    }
+
+    @Test
+    @DisplayName("C2: 대댓글에 또 답글을 달 수 없다 (1-depth 고정 — 안 막으면 들여쓰기가 화면을 벗어난다)")
+    void replyToReply_rejected() throws Exception {
+        Account me = account("c2@c.com", "diverC28", Role.STUDENT);
+        long postId = createPost(me, "QNA", "질문", "본문");
+        long parent = comment(me, postId, "댓글", null);
+        long reply = comment(me, postId, "대댓글", parent);
+
+        mockMvc.perform(post("/community/posts/" + postId + "/comments")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"body\":\"대대댓글\",\"parentCommentId\":" + reply + "}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("C3: 대댓글이 달린 댓글을 지우면 자리는 남고 본문만 가려진다 (스레드가 끊기면 안 된다)")
+    void deleteWithReplies_isSoft() throws Exception {
+        Account me = account("c3@c.com", "diverC29", Role.STUDENT);
+        long postId = createPost(me, "QNA", "질문", "본문");
+        long parent = comment(me, postId, "지울 댓글", null);
+        comment(me, postId, "남아야 하는 답글", parent);
+
+        mockMvc.perform(delete("/community/comments/" + parent)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/community/posts/" + postId + "/comments"))
+                .andExpect(jsonPath("$._embedded.comments[0].deleted").value(true))
+                .andExpect(jsonPath("$._embedded.comments[0].body").value("삭제된 댓글입니다."))
+                .andExpect(jsonPath("$._embedded.comments[0].replies[0].body").value("남아야 하는 답글"));
+    }
+
+    @Test
+    @DisplayName("C4: 대댓글이 없는 댓글은 완전히 지워진다 (껍데기를 남길 이유가 없다)")
+    void deleteWithoutReplies_isHard() throws Exception {
+        Account me = account("c4@c.com", "diverC30", Role.STUDENT);
+        long postId = createPost(me, "QNA", "질문", "본문");
+        long only = comment(me, postId, "혼자 있는 댓글", null);
+
+        mockMvc.perform(delete("/community/comments/" + only)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/community/posts/" + postId + "/comments"))
+                .andExpect(jsonPath("$._embedded").doesNotExist());
+        assertThat(commentRepo.findById(only)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("C5: 삭제된 댓글은 글의 댓글 수에서 빠진다 ('댓글 3' 인데 2개만 보이면 버그다)")
+    void deletedComment_excludedFromCount() throws Exception {
+        Account me = account("c5@c.com", "diverC31", Role.STUDENT);
+        long postId = createPost(me, "QNA", "질문", "본문");
+        long parent = comment(me, postId, "지울 댓글", null);
+        comment(me, postId, "답글", parent);
+
+        mockMvc.perform(delete("/community/comments/" + parent)
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(me)));
+
+        mockMvc.perform(get("/community/posts/" + postId))
+                .andExpect(jsonPath("$.commentCount").value(1));
+    }
+
+    @Test
+    @DisplayName("C6: 댓글 좋아요도 멱등이고 삭제된 댓글에는 누를 수 없다")
+    void commentLike_isIdempotentAndBlockedOnDeleted() throws Exception {
+        Account me = account("c6@c.com", "diverC32", Role.STUDENT);
+        long postId = createPost(me, "QNA", "질문", "본문");
+        long parent = comment(me, postId, "좋아요 대상", null);
+        comment(me, postId, "답글", parent);
+
+        mockMvc.perform(post("/community/comments/" + parent + "/like")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(jsonPath("$.count").value(1));
+        mockMvc.perform(post("/community/comments/" + parent + "/like")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(jsonPath("$.count").value(1));
+
+        mockMvc.perform(delete("/community/comments/" + parent)
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(me)));
+
+        mockMvc.perform(post("/community/comments/" + parent + "/like")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("C7: 남의 댓글은 수정·삭제할 수 없다 (400 — 존재 숨김)")
+    void othersComment_cannotBeEdited() throws Exception {
+        Account owner = account("c7a@c.com", "diverC33", Role.STUDENT);
+        Account stranger = account("c7b@c.com", "diverC34", Role.STUDENT);
+        long postId = createPost(owner, "QNA", "질문", "본문");
+        long id = comment(owner, postId, "내 댓글", null);
+
+        mockMvc.perform(delete("/community/comments/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(stranger)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("C8: 비로그인은 댓글을 읽을 수 있지만 쓰지는 못한다")
+    void anonymous_canReadCommentsButNotWrite() throws Exception {
+        Account me = account("c8@c.com", "diverC35", Role.STUDENT);
+        long postId = createPost(me, "QNA", "질문", "본문");
+        comment(me, postId, "공개 댓글", null);
+
+        mockMvc.perform(get("/community/posts/" + postId + "/comments"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.comments[0].likedByMe").value(false))
+                .andExpect(jsonPath("$._embedded.comments[0].mine").value(false));
+
+        mockMvc.perform(post("/community/posts/" + postId + "/comments")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"body\":\"비로그인\"}"))
+                .andExpect(status().isUnauthorized());
     }
 
     /* ════════════════ R — 권한 ════════════════ */
