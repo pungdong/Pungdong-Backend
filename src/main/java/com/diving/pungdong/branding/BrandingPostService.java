@@ -113,7 +113,14 @@ public class BrandingPostService {
                 .orElseGet(() -> brandingRepo.save(AccountBranding.builder()
                         .account(owner).isPublished(true).build()));
 
-        BrandingPost post = BrandingPost.builder().branding(branding).build();
+        // 노출은 브랜딩 → 커뮤니티 단방향이다. 브랜딩에 올린 글은 하이라이트인 동시에
+        // 커뮤니티 피드에도 새 글로 나간다(사용자 결정). 두 플래그를 여기서 명시 설정한다 —
+        // DB DEFAULT 는 기존 행 backfill 용이지 신규 쓰기용이 아니다.
+        BrandingPost post = BrandingPost.builder()
+                .branding(branding)
+                .showOnProfile(true)
+                .showInFeed(true)
+                .build();
         apply(post, request, owner);
         return toDetail(postRepo.save(post));
     }
@@ -169,6 +176,8 @@ public class BrandingPostService {
     private void apply(BrandingPost post, BrandingPostRequest request, Account owner) {
         request.getMediaUrls().forEach(this::requireOurCdnUrl);
 
+        post.setCategory(request.getCategory());
+        post.setTitle(request.getTitle());
         post.setCaption(request.getCaption());
         post.setLocationLabel(request.getLocationLabel());
 
