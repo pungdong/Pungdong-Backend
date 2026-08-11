@@ -91,8 +91,15 @@ public class EnrollmentExpiryService {
 
     /**
      * 강사 일정변경 제안 보장 hold 만료 — 학생이 {@code proposalTtlHours}(기본 6h) 내 안 고르면 그 회차의 제안
-     * hold 를 풀어(다른 학생을 막던 좌석 반납) 빈 일정 정리 + {@code proposedSlots} 비움. <b>회차는 PENDING 유지</b>
-     * (취소 아님 — 제안만 lapse, 강사 재제안 가능). 회차 자체의 PENDING TTL 은 별개(sweepExpired). 각 건 자기 트랜잭션.
+     * hold 를 풀어(다른 학생을 막던 좌석 반납) 빈 일정 정리 + {@code proposedSlots} 비움.
+     *
+     * <p><b>회차 상태는 건드리지 않는다</b>(취소 아님 — 제안만 lapse, 강사 재제안 가능). 선결제 통일 이후 그
+     * 상태는 {@code ACCEPT_PENDING}(결제완료·강사 결정 대기)이며, 제안이 비워지므로 파생 뷰
+     * {@link RoundScheduleStatus} 는 {@code RESCHEDULING} → {@code WAITING} 으로 돌아간다.
+     * (옛 주석은 "PENDING 유지" 라고 적혀 있었는데 선결제 전 표현이라 stale 이었다.)
+     *
+     * <p>회차 자체의 무응답 TTL({@code pendingTtlHours}, {@code respondedAt} 기준)은 별개로 계속 돈다
+     * ({@link #sweepExpired}) — 만료되면 그때 CANCELLED + 전액 자동환불. 각 건 자기 트랜잭션.
      */
     public int sweepExpiredProposals(OffsetDateTime now) {
         List<Long> roundIds = tx.execute(st ->
