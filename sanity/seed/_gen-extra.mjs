@@ -143,8 +143,8 @@ push({
 push({
   _id: 'venue-alps-daejeon', name: '대전 알프스 다이빙센터', type: 'DEEP_POOL', maxDepth: 15,
   address: '대전광역시 중구 대둔산로 253', addressDetail: '안영동 · 계단식 1.3/6/15m (10m×20m)',
-  latitude: 36.2738416, longitude: 127.376925, sortOrder: 16,
-  equipInfo: '2024.2 개장 · 중부권 최대 규모(15m) · 수온 약 30도 · 요금은 3시간 기준(초과 15분당 5,000원)\n기본 장비(마스크·스노클·웨이트)+공기통 1통 무료 · 슈트 대여 미공개(현장 문의)\n체험다이빙 80,000원(2시간, 입장료 별도)\n문의 042-585-3440\n※ 좌표 재지오코딩 권장(도로 중심 대비 ~1km 오차 의심)',
+  latitude: 36.2925063, longitude: 127.3820141, sortOrder: 16,
+  equipInfo: '2024.2 개장 · 중부권 최대 규모(15m) · 수온 약 30도 · 요금은 3시간 기준(초과 15분당 5,000원)\n기본 장비(마스크·스노클·웨이트)+공기통 1통 무료 · 슈트 대여 미공개(현장 문의)\n체험다이빙 80,000원(2시간, 입장료 별도)\n문의 042-585-3440',
   defaultEquipment: [
     equip('al-e1', '마스크', 0, 'NONE'),
     equip('al-e2', '스노클', 0, 'NONE'),
@@ -205,8 +205,8 @@ push({
 push({
   _id: 'venue-yeomju-gwangju', name: '염주체육관 다이빙풀', type: 'DIVING_POOL', maxDepth: 5,
   address: '광주광역시 서구 금화로 278', addressDetail: '염주종합체육관 실내 다이빙풀 (25m×25m, 3~5m)',
-  latitude: 35.135278, longitude: 126.878889, sortOrder: 19,
-  equipInfo: '스쿠버·프리다이빙·생존수영·인명구조\n토요일은 13시 개장 · 장비 대여 미공개(카카오채널·현장 문의)\n문의 062-269-8484\n※ 좌표 재지오코딩 권장(미검증 — 도로명주소는 확정)',
+  latitude: 35.1365407, longitude: 126.8781549, sortOrder: 19,
+  equipInfo: '스쿠버·프리다이빙·생존수영·인명구조\n토요일은 13시 개장 · 장비 대여 미공개(카카오채널·현장 문의)\n문의 062-269-8484',
   closures: [],
   tickets: [
     ticket('yj-t1', '일반권', [FD, SC], open(12000, '09:00', '20:30'), open(12000, '09:00', '18:00')),
@@ -287,13 +287,13 @@ push({
 })
 
 // ───────────────────────── 신규 8곳 (2026-08-11 Track B 발굴 — 신뢰도 확실만) ─────────────────────────
-// 좌표: 근사값(소수 2자리 수준)이거나 미확인 — 공개 전 도로명주소 기반 재지오코딩 필수(README caveat).
+// 좌표: 2026-08-11 juso 좌표제공 API(EPSG:5179→WGS84, BE JusoAddressApiClient 미러)로 도로명주소 기반 재지오코딩 완료.
 
 // 16. 강릉 국민체육센터 잠수풀 — 공영. 요금은 수영장 일반 기준(잠수풀 별도 요금 확인 필요).
 push({
   _id: 'venue-gangneung-sports', name: '강릉 국민체육센터 잠수풀', type: 'DIVING_POOL', maxDepth: 5,
   address: '강원특별자치도 강릉시 수리골길 76', addressDetail: '국민체육센터 잠수풀 (11m×3.5m×5m)',
-  sortOrder: 25,
+  latitude: 37.7770481, longitude: 128.8969497, sortOrder: 25,
   equipInfo: '강릉관광개발공사 운영 · 2009년 건립(경영풀 8레인+유아풀+잠수풀 복합)\n입장료 3,500원은 수영장 일반 요금 기준 — 잠수풀 별도 요금·강습 대관 가능 여부 확인 필요\n장비 대여 미확인 · 지원 종목 명시 없음(일반 잠수풀)\n※ 월요일 휴무는 운영표(화~토·일)에서 파생 — 공식 재확인 권장',
   closures: [{_key: 'gn-c1', _type: 'venueClosure', type: 'WEEKLY', weekdays: ['MONDAY']}],
   tickets: [
@@ -305,7 +305,7 @@ push({
 push({
   _id: 'venue-yongun-daejeon', name: '용운국제수영장 다이빙풀', type: 'DIVING_POOL', maxDepth: 5,
   address: '대전광역시 동구 동부로 138', addressDetail: '용운스포츠센터 다이빙풀 (33m×25m×3~5m)',
-  latitude: 36.34, longitude: 127.45, sortOrder: 26,
+  latitude: 36.3251825, longitude: 127.4665487, sortOrder: 26,
   equipInfo: '대전광역시시설관리공단 운영\n다이빙풀 전용 시간대는 강좌·대관과 혼재 — 사전 확인 필요\n평일/주말 요금 구분 미확인(12,000원 단일 표기) · 장비 대여 미확인 · 정기휴무 미확인\n문의 042-280-1015',
   closures: [],
   tickets: [
@@ -317,7 +317,7 @@ push({
 push({
   _id: 'venue-chungbuk-cheongju', name: '충북학생수영장 다이빙장', type: 'DIVING_POOL', maxDepth: 5,
   address: '충청북도 청주시 청원구 공항로59번길 33', addressDetail: '충북학생수영장 다이빙장',
-  latitude: 36.65, longitude: 127.44, sortOrder: 27,
+  latitude: 36.6624069, longitude: 127.4851221, sortOrder: 27,
   equipInfo: '충청북도교육청 운영\n⚠️ 강사(지도자급 이상) 동반 입장만 가능 — 인솔자 1명당 최대 5명, 유자격자도 단독 입장 불가\n다이빙풀 운영 시간대: 오전 09~12시 / 오후 13~15시(월~토)\n장비 대여 미확인\n문의 043-254-7251',
   closures: [{_key: 'cb-c1', _type: 'venueClosure', type: 'WEEKLY', weekdays: ['SUNDAY']}],
   tickets: [
@@ -329,7 +329,7 @@ push({
 push({
   _id: 'venue-busan-songdo', name: '송도해양레포츠센터 다이빙풀', type: 'DIVING_POOL', maxDepth: 7,
   address: '부산광역시 서구 송도해변로 50', addressDetail: '송도해양레포츠센터 (구역별 2/5/7m · 7m 구간 24m)',
-  latitude: 35.076, longitude: 129.017, sortOrder: 28,
+  latitude: 35.0738076, longitude: 129.0164197, sortOrder: 28,
   equipInfo: '부산광역시 공영시설 · 서바이벌수영·프리다이빙·스킨스쿠버\n3부제 상시입장(오전 09:30~12:30 / 오후 14:00~17:00 / 야간 18:30~21:30)\n장비 대여 가능(공기통 등) — 품목·가격 미공개(현장 문의) · 정기휴무 미확인\n문의 051-717-2883',
   closures: [],
   tickets: [
@@ -342,7 +342,7 @@ push({
 push({
   _id: 'venue-munsu-ulsan', name: '문수실내수영장 다이빙풀', type: 'DIVING_POOL', maxDepth: 5,
   address: '울산광역시 남구 문수로 44', addressDetail: '문수실내수영장 다이빙풀 (25m×35m×5m)',
-  latitude: 35.53, longitude: 129.29, sortOrder: 29,
+  latitude: 35.5358571, longitude: 129.2591271, sortOrder: 29,
   equipInfo: '울산광역시체육시설관리공단 운영\n프리다이빙 강습 활발 — 스쿠버 이용 가능 여부 확인 필요\n요금은 수영장 전체 기준일 가능성(다이빙풀 별도 요금표 미확인) · 장비 대여 미확인 · 정기휴무 미확인\n문의 052-220-2214',
   closures: [],
   tickets: [
@@ -354,7 +354,7 @@ push({
 push({
   _id: 'venue-gunsan-oceanpalette', name: '군산 오션팔레트 잠수풀', type: 'DIVING_POOL', maxDepth: 5,
   address: '전북특별자치도 군산시 옥도면 무녀도3길 45-64', addressDetail: '오션팔레트 잠수풀 (20m×10m×5m)',
-  latitude: 35.96, longitude: 126.4, sortOrder: 30,
+  latitude: 35.7997301, longitude: 126.4235697, sortOrder: 30,
   equipInfo: '서해안권 해양레저 복합단지 오션팔레트 내 · 2026-07-10 개장\n17:00 입장 마감 · 스쿠버 체험 1시간 150,000원(풀장비·기본강습·사진 포함)\n자유이용 장비 렌탈 별도 — 품목·가격 미공개\n프리다이빙 지원 여부 미확인 · 정기휴무 미확인',
   closures: [],
   tickets: [
@@ -367,7 +367,7 @@ push({
 push({
   _id: 'venue-uljin-marine', name: '울진해양레포츠센터 잠수풀', type: 'DIVING_POOL', maxDepth: 5,
   address: '경상북도 울진군 매화면 오산항길 59', addressDetail: '울진해양레포츠센터 잠수풀 (동시 약 80명)',
-  sortOrder: 31,
+  latitude: 36.8902248, longitude: 129.4128627, sortOrder: 31,
   equipInfo: '한국프리다이빙협회 안내 시설 · 사전예약\n입장료 미공개 — 전화·스마트스토어 문의 · 휴게 12:00~13:00\n장비 대여 미확인 · 정기휴무 미확인\n문의 054-783-6161 / 010-6540-7003\n※ 운영시간은 문화관광 소개 페이지 기준 — 잠수풀 전용 시간 재확인 권장',
   closures: [],
   tickets: [
@@ -381,7 +381,7 @@ push({
 push({
   _id: 'venue-ina-yongin', name: '인어다이브 용인다이빙풀', type: 'DIVING_POOL', maxDepth: 3,
   address: '경기도 용인시 처인구 포곡읍 둔전로47번길 21', addressDetail: '지하1층 · 3m×20m 레인',
-  sortOrder: 32,
+  latitude: 37.2682705, longitude: 127.2191246, sortOrder: 32,
   equipInfo: '프리다이빙·머메이드·생존수영·입영·인명구조 교육 전문(스쿠버 지원 미확인)\n입장료 20,000원(3시간)에 마스크·스노클·오리발·슈트 포함 · 네이버 예약 필수\n정기휴무 미확인\n문의 031-321-0250\n※ 주소·전화·요금·운영시간 나무위키 상세와 교차 확인(2026-08-11)',
   defaultEquipment: [
     equip('ia-e1', '마스크·스노클', 0, 'NONE'),
@@ -400,11 +400,10 @@ push({
 
 // 24. 올림픽수영장 잠수풀(올팍, 송파) — 유명 풀인데 카탈로그·발굴 스윕 모두 누락 → Chrome 2차에서 발견·등재.
 //     국민체육진흥공단(KSPO) 운영, 인스타 @odp_divingpool 활발(2026-02 일정 공지 — 운영 중 확정).
-//     좌표 미기입 — 도로명주소 기반 재지오코딩 필요(README caveat).
 push({
   _id: 'venue-olympicpool-songpa', name: '올림픽수영장 잠수풀', type: 'DIVING_POOL', maxDepth: 5,
   address: '서울특별시 송파구 올림픽로 424', addressDetail: '올림픽공원 내 올림픽수영장 잠수풀 (25m×25m, 5m) · 통칭 올팍',
-  sortOrder: 33,
+  latitude: 37.5205272, longitude: 127.1149958, sortOrder: 33,
   equipInfo: '국민체육진흥공단(KSPO) 운영 · 인스타 @odp_divingpool 일정 공지 활발\n라이센스 확인 후 입장 — 프리·스쿠버 라이센스 혼용 입장 불가\n공기탱크 평일 18,000원 / 주말 20,000원(주말 차등 — 기본 장비가는 평일 기준)\n※ 이용시간 14~21시는 나무위키(2022-04 주말 재개장) 기준 — 최신 시간 재확인 권장, 입장료는 2026-03~04 최신값 우선',
   defaultEquipment: [equip('op-e1', '공기통', 18000, 'NONE')],
   closures: [{_key: 'op-c1', _type: 'venueClosure', type: 'MONTHLY', nth: 2, monthlyWeekday: 'SUNDAY'}],
