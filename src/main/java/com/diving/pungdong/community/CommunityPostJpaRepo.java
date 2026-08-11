@@ -1,6 +1,7 @@
 package com.diving.pungdong.community;
 
 import com.diving.pungdong.branding.BrandingPost;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
@@ -37,6 +38,22 @@ public interface CommunityPostJpaRepo extends JpaRepository<BrandingPost, Long>,
     @Query("select p from BrandingPost p "
             + "where p.id = :postId and p.branding.account.id = :accountId")
     Optional<BrandingPost> findMine(@Param("postId") Long postId, @Param("accountId") Long accountId);
+
+    /**
+     * 같이가요 피드 — <b>일정 임박순</b>이 기본 정렬이다.
+     *
+     * <p>정렬 키가 게시물이 아니라 조인 테이블({@code community_post_match.meet_date})에 있어서
+     * Specification 으로 조립하지 않고 전용 쿼리로 뺐다. Specification 에 조인 정렬을 끼워 넣으면
+     * "카테고리에 따라 정렬 축이 바뀐다"는 사실이 조립 코드 속에 숨어 읽히지 않는다.
+     *
+     * <p>클라이언트가 이 정렬을 고를 수단은 없다 — 디자인의 "일정 임박순" pill 이 있는 화면이
+     * Phase 1 범위 밖이라, {@code sort} enum 에 죽은 값을 남기는 대신 카테고리 기본값으로만 살렸다.
+     */
+    @Query("select p from BrandingPost p join CommunityPostMatch m on m.postId = p.id "
+            + "where p.showInFeed = true and p.isHidden = false "
+            + "and p.category = com.diving.pungdong.branding.CommunityCategory.MATCH "
+            + "order by m.meetDate asc, p.id desc")
+    Page<BrandingPost> findMatchFeed(Pageable pageable);
 
     /**
      * 카테고리별 최근 7일 글 수 — 피드 상단 4-up 그리드와 HOT 뱃지(&gt;50).
