@@ -11,7 +11,7 @@
 | 도메인 | 구현 문서 | 역할 |
 |---|---|---|
 | payment | [payment.md](../architecture/payment.md) | 주문(PaymentOrder)·PG 승인·금액 권위·enrollment 확정 (이 피처) |
-| enrollment | [enrollment.md](../architecture/enrollment.md) | (선결제 1회차) 신청 PENDING → 결제 후 ACCEPT_PENDING → 강사 수락 CONFIRMED / 거절·만료 자동환불 |
+| enrollment | [enrollment.md](../architecture/enrollment.md) | (선결제 — **전 회차**) 신청 PENDING → 결제 후 ACCEPT_PENDING → 강사 수락 CONFIRMED / 거절·만료 자동환불 |
 | course | [course.md](../architecture/course.md) | 라이브 수강료(권위 금액 재계산 입력) |
 | venue | [venue.md](../architecture/venue.md) | 입장료(daypart fee) — 신청 스냅샷으로 금액에 포함 |
 
@@ -19,7 +19,7 @@
 
 ### 선결제 (신청 → 즉시 결제 → 강사 수락/거절) — 2026-08-07
 
-**1회차는 신청과 동시에 결제한다.** 신청 = `PENDING`(미결제·**좌석 점유**) → 학생이 곧바로 결제 → `ACCEPT_PENDING`(결제완료·강사 확인 대기) → 강사 수락 `CONFIRMED` / 강사 거절·무응답 24h `REJECTED`·`CANCELLED` + **전액 자동환불**. 미결제로 방치하면 12h 뒤 좌석 해제(환불 없음).
+**전 회차 신청과 동시에 결제한다**(2026-08-09 통일 — 옛 "1회차만 선결제" 폐기). 신청 = `PENDING`(미결제·**좌석 점유**) → 학생이 곧바로 결제 → `ACCEPT_PENDING`(결제완료·강사 확인 대기) → 강사 수락 `CONFIRMED` / 강사 거절·무응답 24h `REJECTED`·`CANCELLED` + **전액 자동환불**. 미결제로 방치하면 12h 뒤 좌석 해제(환불 없음).
 
 **왜 신청 시점으로 앞당겼나**: ① 제품상 어차피 붙일 방향. ② **카드사 심사 리스크↓** — "신청 따로 / 결제 따로"는 카드사에 결제 흐름을 별도로 설명해야 하는 비표준 구조. "주문 즉시 결제"가 카드사가 익숙한 표준이라 심사가 깔끔. 어차피 할 거면 심사 전에 표준 흐름으로 바꿔 받는 게 유리. 결제·환불 인프라는 이미 있고 실카드 왕복 검증 완료(2026-08-07)라 거절→자동환불은 검증된 코드 재사용.
 
@@ -87,6 +87,23 @@
 - **실행**: **수강료는 1회차 결제주문에 전액** 있으므로 수강료 몫 합 = 1회차 주문 **부분취소**, 부대 몫 = 각 회차 주문 부분취소. PG 부분취소(토스 `cancelAmount` / 이니시스 `partialRefund` + `price`·`confirmPrice`[취소 후 잔액]). `RefundOrder` 주문별 기록. stub/실연동은 결제와 동일.
 - 응답 `RefundQuote{total, lines[]}` — 미리보기와 실행이 같은 값.
 
+### 결제 계약 정비 (2026-08-11, #230·#232·#233 — FE 핸드오프)
+
+FE 가 계약을 반영하다 막힌 6건 + 그 과정에서 드러난 우리 쪽 결함을 함께 정리했다.
+
+- **결제 잔여 초 노출**(`paymentExpiresInSeconds`) — TTL 이 Sanity 운영값이라 FE 가 하드코딩할 수 없었다. 저장 컬럼 없이 `신청시각 + paymentTtlHours` 로 파생하고, **만료 스윕과 같은 식**을 공유해 화면과 실제 만료가 안 어긋나게 했다. 절대시각이 아니라 잔여 초인 이유는 기기 시계 오차.
+- **전용 에러코드 3종** — `-1018`(더 비쌈 → 차액 결제) · `-1019`(위치까지 바뀜 → 차액 경로 불가) · `-1020`(제안 만료 → 직접 선택). 그 전엔 실패 사유 10가지가 `-1011` 을 공유해 FE 가 문구 매칭 말고는 가릴 방법이 없었다.
+- **`scheduleChange`** — 일반 결제와 차액 결제의 완료 화면 문구가 갈려야 하는데 `enrollmentStatus` 가 둘 다 `ACCEPT_PENDING` 이라 구분 불가였고, 이니시스는 성공 URL 을 BE 가 만들어 302 하므로 FE 가 쿼리로 실을 수도 없었다(쿠키 우회 중이었다).
+- **필드 개명**(FE 역제안 수용) — `enrollmentStatus` → **`currentEnrollmentStatus`**, `enrollmentId` → **`roundId`**. 결정적 근거는 *"결제는 멱등인데 응답은 아니다"* — `confirm` 재호출이 `200 DONE` 계약인데 그 필드만 값이 달라졌다. **live 읽기는 유지**하고 이름에 그 사실을 박았다(스냅샷 필드를 나란히 두면 "둘 중 뭘 쓰나" 가 새 함정).
+- **`"14:00:00"` 을 거부하던 버그** — `target*` 시각에만 `@JsonFormat("HH:mm")` 이 붙어, 슬롯이 주는 표기를 그대로 되보내면 400 이었다.
+
+### 좌석 hold 누수·데드엔드 (2026-08-11, #234·#235)
+
+FE 질문에 답하다 발견 — **우리가 안내한 경로가 실제로는 막혀 있었다.**
+
+- 제안 hold 는 "학생이 고르면 만석으로 안 막히게" 자리를 맡는 것인데, **비싼 제안은 차액 결제로 우회**하므로 그 결제 준비가 **자기 몫 hold 를 만석으로 세어** 400 이 났다(정원 1이면 확정적). → `requireSeat(session, ignoreProposalRoundId)`.
+- `proposedSlots.clear()` 하는 경로 중 **`applySlotChange`·`swapSlot` 이 hold 를 안 풀어** 고아 hold 가 `proposalTtlHours` 동안 남의 신청을 막았다. → 세 경로 모두 회수하도록 통일.
+
 ## 미해결 / 확장
 
 - 🟢 **webhook** — **MVP 보류**(2026-06-28 결정, 위 히스토리). 가상계좌 안 받으면 confirm·환불 다 동기라 불필요. 거래량↑/가상계좌 재검토 시 별도 PR(비동기 입금·out-of-band 취소·reconciliation + 서명 검증). **가상계좌 받기로 하면 그때 필수.**
@@ -117,6 +134,13 @@
   - `INICIS` → **FE 는 confirm 안 함.** `INIPayPro_v2.js`(`https://paypro.inicis.com/std/payment/js/INIPayPro_v2.js`)를 로드하고 `INIPayPro.requestPayment(params)` 로 결제창 구동(`params` = prepare 응답의 P_ 파라미터, ⚠️ **구버전 `stdpay.inicis.com` 아님**). 결제창이 BE 콜백(`P_NEXT_URL`)으로 form POST → BE 승인 후 **성공/실패 URL 로 GET 리다이렉트**(web `{origin}/payment/success` · app `plop://payment/success`, 쿼리 `orderId&orderNo&status`).
 - 이니시스 성공화면: 리다이렉트 도착 → **`GET /payments/orders/{orderId}` 조회**로 금액·상태 렌더(새로고침·딥링크 재진입도 이걸로 복구).
 - 계약 상세: [docs/api-clients/types.ts](../api-clients/types.ts) 의 payment 섹션. **BE 직접 처리분**: `INICIS_RET_URL`(BE 콜백 URL) + `INICIS_RETURN_WEB_SUCCESS/FAIL`(환경별 web) 주입; app 스킴은 기본값(`plop://payment/...`).
+
+**2026-08-11 계약 변경(FE 조치 필요)**
+- ⚠️ **깨지는 개명** — `PaymentConfirmResponse.enrollmentStatus` → `currentEnrollmentStatus`, `enrollmentId` → `roundId`.
+- 완료 화면 문구는 **`status` + `scheduleChange`**(둘 다 멱등)로 가를 것. `currentEnrollmentStatus` 는 "지금 상태 표시" 전용 — `GET /payments/orders/{orderId}` 는 회차를 live 로 읽어 `CONFIRMED`/`REJECTED`/`CANCELLED` 도 올 수 있다.
+- 카운트다운은 `paymentExpiresInSeconds`. **`0` 은 "곧 만료"** (스윕이 5분 폴링이라 즉시 차단 아님).
+- 차액 결제 유도 버튼은 **`-1018` 일 때만**. `-1019` 에는 띄우지 말 것("위치까지 바꾸려면 취소 후 재신청").
+- `prepare` 에 **`targetVenueRefId` 항상 전송**(가드가 켜진다). `target*` 시각은 슬롯 값 그대로(자르지 말 것).
 
 ## 관련 메모리
 
