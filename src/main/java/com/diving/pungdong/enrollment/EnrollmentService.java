@@ -27,6 +27,7 @@ import com.diving.pungdong.global.advice.exception.AdditionalPaymentRequiredExce
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.IdentityVerificationRequiredException;
 import com.diving.pungdong.global.advice.exception.PreLaunchException;
+import com.diving.pungdong.global.advice.exception.ProposalExpiredException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.global.advice.exception.VenueChangeRequiresReapplyException;
 import com.diving.pungdong.identityverification.IdentityVerificationJpaRepo;
@@ -160,7 +161,9 @@ public class EnrollmentService {
     public EnrollmentResponse pickSlot(Account student, Long roundId, PickSlotRequest req) {
         EnrollmentRound round = requireMyRound(student, roundId);
         if (!round.hasRescheduleOffer()) {
-            throw new BadRequestException(); // 강사 제안 받은 회차만(만료로 제안 사라지면 여기서 막힘)
+            // 제안이 없다 — TTL 만료로 사라진 경우가 대부분이다. 사용자 잘못이 아니고 회복 동선이
+            // 명확해(일정 직접 선택) 범용 -1011 이 아니라 전용 코드로 안내한다.
+            throw new ProposalExpiredException();
         }
         LocalDate date = req.getDate();
         String ticketRef = req.getTicketRef();

@@ -387,7 +387,7 @@ class MultiRoundProgressUseCaseTest {
                         .content(json(Map.of("pgPayload", Map.of("paymentKey", "pk_test_1"),
                                 "orderId", orderId, "amount", 15000))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.enrollmentStatus").value("ACCEPT_PENDING"));
+                .andExpect(jsonPath("$.currentEnrollmentStatus").value("ACCEPT_PENDING"));
 
         // 강사 수락 → 확정 (통일 전에는 이 호출이 400 이었다 — 2회차가 PENDING 으로 들어와 accept 게이트에 막혔음)
         mockMvc.perform(post("/instructor/enrollments/{id}/accept", r2.getId())
@@ -1285,6 +1285,14 @@ class MultiRoundProgressUseCaseTest {
         // 제안만 lapse — hub 에서 RESCHEDULING 이 아니라 WAITING(제안 없는 강사 확인 중)으로 보인다(proposedSlots 비움 확인)
         mockMvc.perform(get("/enrollments/mine/schedule").header(HttpHeaders.AUTHORIZATION, token(stu)))
                 .andExpect(jsonPath("$.courses[0].rounds[1].status").value("WAITING"));
+
+        // 만료된 제안을 뒤늦게 고르면 전용 코드(-1020) — 사용자 잘못이 아니라 "직접 고르세요" 로 안내해야 하므로
+        // 범용 -1011("보내신 요청 정보가 옳지 않습니다.")과 가른다.
+        mockMvc.perform(post("/enrollments/rounds/{id}/pick-slot", r2.getId())
+                        .header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON).content(json(slot(d3, ticket))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(-1020));
 
         // hold 풀려 다른 학생이 d3 신청 가능
         Account other = account("stu-ph5b@pd.com", "학생PH5B", Role.STUDENT);
