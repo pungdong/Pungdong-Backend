@@ -227,6 +227,7 @@ applyCancel
 - `C4` **위치까지 바꾸면서 비싸지면 `-1018` 이 아니라 `-1019`** — 차액 경로로 못 가는 조합
 - `C5` prepare 에 다른 `targetVenueRefId` 를 실으면 `-1019` (주문·좌석 hold 생성 전에 차단), 같은 위치면 통과
 - `PH5` 만료된 제안을 뒤늦게 고르면 `-1020`(`PROPOSAL_EXPIRED`) — 범용 -1011 과 가름
+- `C1-3` **정원 1**에서 제안받은 자리로 (pick-slot 대신) reschedule 해도 내 제안 hold 에 안 막히고, hold 는 회수된다
 - `C1-2` **정원 1**에서도 제안 → `-1018` → 차액 결제가 이어진다 — 자기 제안 hold 에 자기가 막히지 않고, 승인 후 그 hold 도 회수된다
 - `I1` 이니시스 콜백 승인 → 서버 승인·확정 + app 성공 스킴 302 / `I2` PG 거절 → 주문 READY 유지, web fail 302 / `I3` 인증실패(P_STATUS≠00) → 승인 호출 없이 fail 302 / `I4` 알 수 없는 P_OID(위조) → web fail 302
 - `O1` GET /payments/orders/{id} 소유자 조회(DONE·확정) / `O2` 남의 주문 조회 400

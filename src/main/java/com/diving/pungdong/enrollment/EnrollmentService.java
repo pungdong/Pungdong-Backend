@@ -282,7 +282,8 @@ public class EnrollmentService {
         AvailabilitySession newSession = findOrCreateSession(instructor, req.getDate(),
                 req.getBlockStart(), req.getBlockEnd(), req.getVenueRefId(), req.getTicketRef());
         if (oldSession == null || !oldSession.getId().equals(newSession.getId())) {
-            requireSeat(newSession); // 같은 일정으로 되돌아가면 이미 내가 점유 중이라 검사 불필요(자기 자신에 막힘)
+            // 내 제안 hold 는 제외 — 제안받은 자리로 (pick-slot 대신) reschedule 해도 "나를 위한 자리"에 막히면 안 된다.
+            requireSeat(newSession, round.getId()); // 같은 일정으로 되돌아가면 이미 내가 점유 중이라 검사 불필요(자기 자신에 막힘)
         }
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
@@ -311,8 +312,17 @@ public class EnrollmentService {
             round.setCreatedAt(now);     // 새 요청 = 결제 클럭 재시작
             round.setRespondedAt(null);  // 아직 강사 응답 전
         }
+        // 제안을 비웠으면 그 자리를 붙들던 보장 hold 도 함께 회수한다 — 안 풀면 아무도 못 쓰는 고아 hold 가
+        // 남아 proposalTtlHours(6h) 동안 남의 신청을 막는다(정원 1이면 그 시간대가 통째로 잠긴다).
+        // ⚠️ 회차를 새 세션에 붙인 뒤에 푼다 — 먼저 풀면 그 일정이 "점유 0"이 되어 정리돼 버린다.
+        List<AvailabilitySession> heldSessions = releaseProposalHolds(round);
         if (oldSession != null && !oldSession.getId().equals(newSession.getId())) {
             sessionCleaner.deleteIfEmpty(oldSession);
+        }
+        for (AvailabilitySession heldSession : heldSessions) {
+            if (!heldSession.getId().equals(newSession.getId())) {
+                sessionCleaner.deleteIfEmpty(heldSession); // 안 고른 제안 자리 정리
+            }
         }
         return EnrollmentResponse.of(round, venue.getName(), instructor.getNickName(), paymentExpiresInSeconds(round));
     }
