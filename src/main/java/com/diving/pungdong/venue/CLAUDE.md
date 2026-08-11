@@ -35,6 +35,7 @@
 - **종목 잠금** — CUSTOM 은 `lockedDisciplineCode` 1개로 모든 티켓 강제(불일치 입력 400). 종목 코드는 `discipline.code` soft-ref.
 - **없음/비소유 = 400 통일**(`ResourceNotFoundException`) — 레포에 404/409 인프라 없음. 남의 커스텀 존재를 숨김.
 - **즐겨찾기는 별도 테이블**(`venue_favorite`), `venue_equipment_extension` 에 컬럼 추가 아님 (2026-08-11) — 장비 가격표는 코스 읽기에서 금액을 합성하는 *사업 데이터*, 즐겨찾기는 *UI 선호*다. 섞으면 `GET /venue-equipment` 가 items 0개짜리 껍데기 행을 뱉고 두 기능의 수명주기가 엉킨다. **마크/해제 둘 다 멱등**(있으면 200 / 없어도 204) — 표식이라 "이미 함"은 에러가 아니다. **해제만 쿼리 파라미터**(DELETE 본문은 클라이언트·프록시가 흘림; venueRefId 는 PII 아님).
+- **venue 기본 장비 = Sanity `defaultEquipment` + `GET /venue-equipment` prefill 합성** (2026-08-11, "장비료는 Sanity에 안 둔다" **번복**) — 저장 행 없는 OFFICIAL 조회만 `source=VENUE_DEFAULT`(id null·sizeOptions **null**=자동 — `[]` 금지, FE "0개 선택" 오렌더)로 합성. price 누락/비숫자 행은 skip. 저장 행 있으면(빈 items 포함) MINE — 부활 금지. booking(`findMine`)·PUT 무변경(학생은 강사 저장분만, prefill 전용 — 사용자 확정). `sizeFormat` 은 lenient(`SizeFormat.lenientOrNull`). 캐시엔 `SCHEMA_VERSION` 마커 — projection 확장 배포 후 구형 캐시 lazy reload.
 - **(미래) BE 가 OFFICIAL 을 읽을 때 동기화** — availability/부킹이 OFFICIAL 운영 데이터를 쓸 때 `HttpSanityVenueClient`+Redis 캐시+**read-side `_rev` 대조 reconcile**(정합성 바닥)+선택 webhook. **reconcile 잡 liveness alert 필수.** 상세 [[venue-sanity-sync-design]].
 
 ## 안전망 테스트
