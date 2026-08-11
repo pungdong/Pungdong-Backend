@@ -31,7 +31,4 @@ public interface CommunityPostLikeJpaRepo extends JpaRepository<CommunityPostLik
             + "where l.account.id = :accountId and l.post.id in :postIds")
     List<Long> findLikedPostIds(@Param("accountId") Long accountId,
                                 @Param("postIds") Collection<Long> postIds);
-
-    /** 게시물 삭제 시 딸린 좋아요 정리 — FK 때문에 먼저 지워야 한다. */
-    void deleteByPostId(Long postId);
 }

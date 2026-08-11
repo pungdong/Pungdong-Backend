@@ -828,8 +828,10 @@ export interface CommunityMatch {
 /**
  * GET /community/posts (비로그인 가능) — 피드.
  * PagedModel — 배열은 `_embedded.posts`(빈 결과면 키 없음), 메타는 `page`.
- * 쿼리: `?category=&sort=&bookmarkedByMe=&page=&size=` · size 상한 50.
+ * 쿼리: `?category=&sort=&authorType=&bookmarkedByMe=&page=&size=` · size 상한 50.
  * `sort` 는 **`CommunityFeedSort`(LATEST 기본 · POPULAR) 둘뿐** — 그 외 값은 400. 메인 피드의 최신/인기 pill 이 이걸 쓴다.
+ * `authorType='INSTRUCTOR'` 는 "강사 글" pill — **승인된 강사**가 쓴 글만(작성자 칩 `isInstructor` 와 같은 축).
+ *   생략 = 전체. 인기순·같이가요 피드에도 함께 걸린다.
  * ⚠️ `category=MATCH` 면 `sort` 와 무관하게 **일정 임박순**으로 자동 전환된다(정렬 pill 을 노출하지 않는 화면이라 서버 기본 동작으로 처리).
  * ⚠️ `bookmarkedByMe=true` 는 인증 필요 — 비로그인이면 에러가 아니라 **빈 페이지**.
  */
@@ -890,8 +892,10 @@ export interface CommunityPostRequest {
   /**
    * 내 코스만 — 남의 코스는 400(존재 숨김). ⚠️ category==='MATCH' 면 **연결 불가**(영리활동 금지 가드) → 400
    *
-   * DRAFT 코스도 **요청은 통과**하지만 공개 응답에서 linkedCourse 키가 생략된다(OPEN 으로 바꾸면 그때 나타남).
-   * 작성자에게 아무 신호가 없으므로 picker 에서 DRAFT 를 숨기거나 "비공개" 뱃지를 달 것.
+   * DRAFT 코스도 **요청은 통과**하고 공개 응답에서 linkedCourse 키만 생략된다(OPEN 으로 바꾸면 그때 나타남).
+   * "준비 중인 강의를 미리 걸어두고 공개되면 뜨게" 가 유효한 사용이라 서버는 막지 않는다 —
+   * 대신 **FE 가 선택 시점과 선택 후 두 번 고지**한다(시트/드롭다운은 닫히면 안 읽히므로 폼에도 남긴다).
+   * `CLOSED` 는 거르지도 고지하지도 않는다 — 응답에 그대로 오고 미니카드가 마감으로 그린다.
    */
   linkedCourseId?: number;
   /** category==='MATCH' 일 때 필수. */
@@ -910,6 +914,12 @@ export interface CommunityPostVisibilityRequest { hidden: boolean }
 
 /** 피드 정렬. `MATCH` 진입 시엔 이 값과 무관하게 서버가 **일정 임박순**으로 자동 전환한다. */
 export type CommunityFeedSort = 'LATEST' | 'POPULAR';
+
+/**
+ * 작성자 유형 필터 — 웹 피드의 "강사 글" pill. 값이 하나뿐인 건 필터가 하나뿐이기 때문이다
+ * ("일반 유저 글만" 은 화면에 없어서 만들지 않았다 — 죽은 값을 남기지 않는다).
+ */
+export type CommunityAuthorType = 'INSTRUCTOR';
 // POPULAR = **최근 7일 안에서** 좋아요 많은 순. 기간을 자르지 않으면 오래된 인기글이 상단을 영구 점유한다.
 
 /**

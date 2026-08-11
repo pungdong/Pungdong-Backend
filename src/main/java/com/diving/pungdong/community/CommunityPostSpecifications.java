@@ -2,6 +2,8 @@ package com.diving.pungdong.community;
 
 import com.diving.pungdong.branding.BrandingPost;
 import com.diving.pungdong.branding.CommunityCategory;
+import com.diving.pungdong.instructorapplication.InstructorApplication;
+import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
 import org.springframework.data.jpa.domain.Specification;
 
 /**
@@ -20,7 +22,14 @@ public final class CommunityPostSpecifications {
     /**
      * 피드에 보일 자격 — 노출 켜짐 + 숨김 아님.
      *
-     * <p>작성자 탈퇴 여부는 여기서 거르지 않는다. 탈퇴는 {@code account.isDeleted} 소프트 삭제 +
+     * <p><b>브랜딩 페이지 발행 여부({@code accountBranding.isPublished})는 보지 않는다 — 의도된 결정이다.</b>
+     * 프로필을 비공개로 돌리는 건 "내 포트폴리오를 감춘다" 는 뜻이지 "내가 커뮤니티에 남긴 대화를
+     * 지운다" 는 뜻이 아니다(포럼 글이 포트폴리오 비공개와 함께 사라지면 스레드가 끊긴다).
+     * 글을 내리고 싶으면 글 단위 숨김을 쓴다.
+     * ⚠️ 그 상태에서 카드의 작성자를 누르면 프로필 진입이 400 이 된다 — 클라이언트가 graceful 하게
+     * 처리해야 하는 지점이고, 이건 알려진 조합이다.
+     *
+     * <p>작성자 탈퇴 여부도 여기서 거르지 않는다. 탈퇴는 {@code account.isDeleted} 소프트 삭제 +
      * 30일 유예 후 익명화라 별도 축이고, 게시물 필터에 섞으면 조인이 하나 더 붙는다.
      * 탈퇴 계정 글 처리는 익명화 정책(account-deletion)이 정할 문제다.
      */
@@ -41,6 +50,29 @@ public final class CommunityPostSpecifications {
             return null;
         }
         return (root, query, cb) -> cb.equal(root.get("category"), category);
+    }
+
+    /**
+     * 작성자 유형 필터 — 지금은 "강사 글" 하나다. {@code null} 이면 전체.
+     *
+     * <p><b>판정 축은 승인된 강사 신청</b>이다. 작성자 칩의 {@code isInstructor} 를 만드는
+     * {@link CommunityAuthorComposer} 와 같은 근거를 써야 "강사 글" 필터 결과와 화면에 칩이 붙는 글이
+     * 일치한다. 코스 소유 같은 다른 축을 쓰면 칩 없는 글이 필터에 걸리거나 그 반대가 된다.
+     */
+    public static Specification<BrandingPost> authoredBy(AuthorType authorType) {
+        if (authorType != AuthorType.INSTRUCTOR) {
+            return null;
+        }
+        return (root, query, cb) -> {
+            var sub = query.subquery(Long.class);
+            var application = sub.from(InstructorApplication.class);
+            sub.select(application.get("id"))
+                    .where(cb.and(
+                            cb.equal(application.get("account").get("id"),
+                                    root.get("branding").get("account").get("id")),
+                            cb.equal(application.get("status"), InstructorApplicationStatus.APPROVED)));
+            return cb.exists(sub);
+        };
     }
 
     /** 특정 계정이 북마크한 글만 — "저장한 글" 목록. */

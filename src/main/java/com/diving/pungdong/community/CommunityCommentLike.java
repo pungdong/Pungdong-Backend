@@ -3,6 +3,9 @@ package com.diving.pungdong.community;
 import com.diving.pungdong.account.Account;
 import lombok.*;
 
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
+
 import javax.persistence.*;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -26,6 +29,7 @@ public class CommunityCommentLike {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "comment_id", nullable = false)
+    @OnDelete(action = OnDeleteAction.CASCADE)
     private CommunityComment comment;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)

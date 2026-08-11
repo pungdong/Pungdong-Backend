@@ -59,8 +59,32 @@
 11. **참여 신청 기능은 없고, 앞으로도 만들지 않는다.** 사용자 의도가 "신청류 = 기존 수강신청(예약)
     플로우" 라, 향후 버디 참여도 커스텀 참여 테이블이 아니라 **예약 플로우 통합**으로 설계한다.
     그래서 `capacity` 는 있지만 참여자 테이블도 `joinedCount` 도 없다 — 클라이언트는 "N명 모집" 으로 렌더한다.
-12. **`boolean isX` 는 Jackson 이 `x` 로 직렬화한다.** 응답 DTO 의 `isInstructor` 같은 필드에
-    `@JsonProperty` 를 명시하지 않으면 계약이 조용히 깨진다(브랜딩에서 이미 겪은 함정).
+12. **`boolean isX` 는 Jackson 이 `x` 로 직렬화한다.** 그런데 `@JsonProperty` 만 붙이는 건 해결이
+    아니다 — 원시 `boolean isInstructor` 는 Lombok 게터가 `isInstructor()` 라 Jackson 이 이걸
+    프로퍼티 `instructor` 로 보고, 필드의 `@JsonProperty("isInstructor")` 와 **키가 둘로 늘어난다.**
+    **필드명에서 `is` 를 뗀다**(`private boolean instructor` + `@JsonProperty("isInstructor")`).
+    `CommunityAuthorResponse` 가 그 형태다. (브랜딩 공개 프로필이 실제로 두 키를 내보내고 있었다.)
+13. **게시물의 자식 행은 서비스가 지우지 않는다 — FK 가 `ON DELETE CASCADE` 다.** 글을 지우는 문이
+    **둘**(커뮤니티·브랜딩)인데 브랜딩은 커뮤니티를 import 할 수 없어서, 서비스에서 순서대로 지우면
+    한쪽 문만 고쳐진다. 엔티티에도 `@OnDelete(action = CASCADE)` 를 같이 달아야 한다 —
+    **테스트는 H2 + hbm2ddl 이라 V19 를 읽지 않는다.**
+14. **삭제·수정 관문 쿼리에는 `showOnProfile` 을 건다(브랜딩 쪽).** 안 걸면 커뮤니티 전용 글을
+    브랜딩 엔드포인트로 편집할 수 있고, 브랜딩 수정은 카테고리 규칙을 몰라 **같이가요 글에 강의를
+    연결하는 우회로**가 된다.
+15. **어드민이 조치(ACTIONED)한 글은 작성자가 숨김을 되돌릴 수 없다.** 숨김의 주인이 둘인데 컬럼이
+    하나라, 막지 않으면 토글 한 번으로 조치가 무효가 된다.
+16. **UNIQUE 로 멱등을 만들 때 제약 위반을 같은 트랜잭션에서 잡으면 안 된다.** 잡아도 트랜잭션이
+    rollback-only 라 뒤이은 조회·커밋이 터진다 — 삽입만 `IdempotentInsert`(REQUIRES_NEW + flush)로
+    격리하고 바깥에서 잡는다.
+
+## `validate` 가 잡아주지 않는 것 (스키마 작업 시 주의)
+
+- **`hbm2ddl=validate` 는 테이블·컬럼의 *존재*와 타입 정도만 본다.** 컬럼 **길이**(varchar(60) vs (100)),
+  **nullable**, **인덱스**, **FK 의 ON DELETE 규칙**은 검증하지 않는다. 즉 V19 와 엔티티가 이 축에서
+  어긋나도 부팅은 성공하고, 런타임에 데이터가 잘리거나(길이) FK 위반(삭제)으로 드러난다.
+  → 마이그레이션을 고칠 때 **엔티티와 SQL 을 나란히 놓고 눈으로 대조**할 것.
+- **N+1 없음은 `hibernate.default_batch_fetch_size: 100` 에 기대고 있는 부분이 있다.** 이 값을 낮추거나
+  지우면 일괄 조회로 짠 곳들이 조용히 느려진다(에러가 아니라 쿼리 수만 는다).
 
 ## 작업 전
 

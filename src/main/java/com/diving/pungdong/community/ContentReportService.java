@@ -8,6 +8,7 @@ import com.diving.pungdong.community.dto.ContentReportResponse;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -40,7 +41,11 @@ public class ContentReportService {
     private final ContentReportJpaRepo reportRepo;
     private final CommunityPostJpaRepo postRepo;
     private final CommunityCommentJpaRepo commentRepo;
+    /** 조치 시 댓글 삭제 규칙을 재사용한다 — 같은 규칙을 두 곳에 쓰지 않기 위해. */
+    private final CommunityCommentService commentService;
     private final AccountJpaRepo accountRepo;
+    /** 동시 중복 신고 — 제약 위반을 별도 트랜잭션에 가둔다. */
+    private final IdempotentInsert idempotentInsert;
 
     /* ─── 접수 ───────────────────────────────────────────── */
 
@@ -65,24 +70,37 @@ public class ContentReportService {
             return toResponse(existing.get(), false);
         }
 
-        ContentReport saved = reportRepo.save(ContentReport.builder()
+        ContentReport report = ContentReport.builder()
                 .targetType(request.getTargetType())
                 .targetId(request.getTargetId())
                 .reporter(me)
                 .reason(request.getReason())
                 .detail(request.getDetail())
                 .status(ReportStatus.PENDING)
-                .build());
-        return toResponse(saved, false);
+                .build();
+        try {
+            // 삽입을 별도 트랜잭션에 격리한다 — 위 조회와 이 삽입 사이에 같은 사람의 두 번째 요청이
+            // 끼면 UNIQUE 가 걸리는데, 격리 없이 잡으면 이 트랜잭션이 오염돼 결국 500 이 난다.
+            idempotentInsert.insert(reportRepo, report);
+        } catch (DataIntegrityViolationException alreadyReported) {
+            return reportRepo.findByTargetTypeAndTargetIdAndReporterId(
+                            request.getTargetType(), request.getTargetId(), me.getId())
+                    .map(existingReport -> toResponse(existingReport, false))
+                    .orElseThrow(ResourceNotFoundException::new);
+        }
+        return toResponse(report, false);
     }
 
     /* ─── 어드민 ─────────────────────────────────────────── */
 
     /** 큐 목록. {@code status} 생략이면 전체 탭. 최신 접수순. */
     public Page<ContentReportResponse> queue(ReportStatus status, Pageable pageable) {
+        // 피드와 같은 규칙 — 클라이언트 정렬을 버리고 크기 상한을 건다. 어드민이라고 열어두면
+        // ?size=100000 한 방에 신고 전량이 미리보기까지 붙어 나온다.
+        Pageable fixed = CommunityPaging.fixed(pageable);
         Page<ContentReport> page = status == null
-                ? reportRepo.findAllByOrderByCreatedAtDesc(pageable)
-                : reportRepo.findByStatusOrderByCreatedAtDesc(status, pageable);
+                ? reportRepo.findAllByOrderByCreatedAtDesc(fixed)
+                : reportRepo.findByStatusOrderByCreatedAtDesc(status, fixed);
         return page.map(report -> toResponse(report, true));
     }
 
@@ -135,15 +153,20 @@ public class ContentReportService {
                 .orElseThrow(ResourceNotFoundException::new);
     }
 
+    /**
+     * 조치 = 대상을 실제로 안 보이게 만든다. 상태만 바꾸고 콘텐츠가 남아 있으면 조치가 아니다.
+     *
+     * <p>댓글은 <b>유저 삭제와 같은 규칙</b>을 타야 한다(대댓글 있으면 자리 남김, 없으면 완전 삭제) —
+     * 그래서 문구를 여기서 다시 쓰지 않고 {@link CommunityCommentService#deleteByModerator} 에 맡긴다.
+     * 예전에는 여기서 무조건 soft delete + 문자열 리터럴을 직접 박아, 대댓글 없는 댓글이 어드민 조치
+     * 뒤에만 껍데기로 남고 문구도 두 곳에서 갈릴 수 있었다.
+     */
     private void hideTarget(ContentReport report) {
         if (report.getTargetType() == ReportTargetType.POST) {
             postRepo.findById(report.getTargetId()).ifPresent(post -> post.setHidden(true));
             return;
         }
-        commentRepo.findById(report.getTargetId()).ifPresent(comment -> {
-            comment.setDeleted(true);
-            comment.setBody("삭제된 댓글입니다.");
-        });
+        commentService.deleteByModerator(report.getTargetId());
     }
 
     private ContentReportResponse toResponse(ContentReport report, boolean forAdmin) {

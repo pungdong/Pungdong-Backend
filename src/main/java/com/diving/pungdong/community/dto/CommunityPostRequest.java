@@ -41,10 +41,12 @@ public class CommunityPostRequest {
      * <p>사진 없는 글을 허용한다 — 궁금해요·같이가요는 텍스트만으로 성립한다. 카테고리별로 사진을
      * 강제하지 않는 이유는 규칙만 복잡해지고 실익이 없기 때문.
      */
+    @NotNull(message = "사진 목록은 비워 보내더라도 배열이어야 해요.")
     @Size(max = 10, message = "사진은 10장까지 올릴 수 있어요.")
     private List<String> mediaUrls = new ArrayList<>();
 
     /** 상한은 디자인 명시값(5개). */
+    @NotNull(message = "태그 목록은 비워 보내더라도 배열이어야 해요.")
     @Size(max = 5, message = "태그는 5개까지 달 수 있어요.")
     private List<@Size(min = 1, max = 30, message = "태그는 30자까지 쓸 수 있어요.") String> tags = new ArrayList<>();
 

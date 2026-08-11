@@ -18,8 +18,9 @@
 -- ECS 롤링 배포 중에는 구버전 태스크와 신버전 태스크가 동시에 살아 있다. 신버전이 부팅하며 Flyway 로
 -- RENAME 을 실행하는 순간, 아직 트래픽을 받는 구버전 태스크가 존재하지 않는 테이블을 조회해
 -- **브랜딩 페이지 전체가 500** 이 된다(드레인될 때까지). 이름은 내부 구현이고 API 경로가 계약이므로
--- 바꿔서 얻는 게 없다. 엔티티는 CommunityPost 로 쓰되 @Table(name = "branding_post") 를 명시한다.
--- 이름 정리가 필요하면 트래픽 없는 시점에 별도 마이그레이션으로 분리한다.
+-- 바꿔서 얻는 게 없다. 같은 이유로 **엔티티 클래스명도 BrandingPost 를 유지**한다 — 클래스를 나누면
+-- 같은 행을 두 타입으로 다루게 되고, 이름만 바꾸면 diff 만 커지고 얻는 게 없다.
+-- 이름 정리가 필요하면 트래픽 없는 시점에 테이블·클래스를 함께 바꾸는 별도 마이그레이션으로 분리한다.
 --
 -- ## 핵심 결정 3 — 노출은 브랜딩 → 커뮤니티 단방향
 --
@@ -36,6 +37,23 @@
 -- 같이가요 "참여 신청" 은 별도 기능으로 만들지 않기로 확정됐다(DECISIONS.md §3).
 -- 사용자 의도가 "신청류 = 기존 수강신청(예약) 플로우" 이므로, 향후 버디 참여도 커스텀 신청 테이블이
 -- 아니라 예약 플로우 통합으로 설계한다. 그래서 community_match_participant 가 여기 없다.
+--
+-- ## 자식 행은 ON DELETE CASCADE 로 지운다 (서비스가 순서대로 지우지 않는다)
+--
+-- 게시물을 지우는 경로가 **둘**이다 — 커뮤니티(`DELETE /community/posts/{id}`)와
+-- 브랜딩(`DELETE /branding/me/posts/{id}`). 같은 테이블을 공유하므로 어느 쪽으로 지우든 커뮤니티
+-- 자식 행(좋아요·북마크·모집정보·댓글·댓글좋아요)이 남아 FK 위반이 난다.
+--
+-- 서비스에서 순서대로 지우는 방식은 두 경로 모두에 같은 코드를 넣어야 하는데, **브랜딩 서비스가
+-- 커뮤니티 레포를 import 하면 단방향 의존(community → branding)이 깨진다.** 그래서 정리 책임을
+-- DB 에 둔다 — 한 곳만 고치면 두 경로가 같이 낫는다.
+--
+-- 댓글의 자기참조(parent_comment_id)도 CASCADE 다: 부모 댓글이 사라지면 대댓글도 함께 사라진다.
+-- (대댓글이 달린 부모를 유저가 지우는 건 soft delete 라 이 경로를 타지 않는다. 여기 CASCADE 는
+--  글 자체가 사라질 때 스레드가 통째로 정리되게 하는 용도다.)
+--
+-- 엔티티에도 @OnDelete(action = CASCADE) 를 같이 단다. **테스트는 H2 + hbm2ddl 이라 이 파일을 읽지
+-- 않기 때문**에, 애노테이션이 없으면 생성 DDL 에 CASCADE 가 빠져 테스트에서만 FK 위반이 재현된다.
 --
 -- ## 멱등성
 --
@@ -92,13 +110,19 @@ CALL pd_add_col('branding_post', 'show_on_profile', "bit(1) NOT NULL DEFAULT b'1
 CALL pd_add_index('branding_post', 'ix_community_feed',
                   '`show_in_feed`, `is_hidden`, `category`, `created_at`');
 
+-- 카테고리 없는 기본 피드(가장 많이 열리는 화면)는 위 인덱스로 정렬을 못 탄다 — 가운데 category 를
+-- 건너뛰면 created_at 이 인덱스 순서가 아니라서 filesort 가 붙는다. 정렬 컬럼을 앞당긴 짝을 하나 둔다.
+CALL pd_add_index('branding_post', 'ix_community_feed_latest',
+                  '`show_in_feed`, `is_hidden`, `created_at`');
+
 -- 브랜딩 그리드용 인덱스는 새로 만들지 않는다. 기존 ix_branding_post_grid
 -- (branding_id, is_hidden, pinned, created_at) 가 이미 branding_id 로 좁히므로,
 -- 그 위에 show_on_profile 을 필터로 얹는 비용은 무시할 수 있다(계정당 게시물 수는 작다).
 -- 거의 같은 인덱스를 하나 더 두면 쓰기 비용만 늘어난다.
 
 -- 인기 태그 집계(GROUP BY tag)용. 기존엔 post_id 인덱스만 있었다.
-CALL pd_add_index('branding_post_tag', 'ix_branding_post_tag_tag', '`tag`');
+-- (tag, post_id) 로 두면 인기 태그 집계가 커버링 인덱스만으로 끝난다 — 테이블 행을 안 읽는다.
+CALL pd_add_index('branding_post_tag', 'ix_branding_post_tag_tag', '`tag`, `post_id`');
 
 -- ────────────────────────────────────────────────────────────────
 -- 2. 같이가요 정형 필드 (1:1 사이드 테이블)
@@ -114,7 +138,7 @@ CREATE TABLE IF NOT EXISTS `community_post_match` (
   `level_label` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`post_id`),
   KEY `ix_community_match_date` (`meet_date`),
-  CONSTRAINT `fk_community_match_post` FOREIGN KEY (`post_id`) REFERENCES `branding_post` (`id`)
+  CONSTRAINT `fk_community_match_post` FOREIGN KEY (`post_id`) REFERENCES `branding_post` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ────────────────────────────────────────────────────────────────
@@ -131,7 +155,7 @@ CREATE TABLE IF NOT EXISTS `community_post_like` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_community_post_like` (`post_id`, `account_id`),
   KEY `ix_community_post_like_account` (`account_id`),
-  CONSTRAINT `fk_community_post_like_post`    FOREIGN KEY (`post_id`)    REFERENCES `branding_post` (`id`),
+  CONSTRAINT `fk_community_post_like_post`    FOREIGN KEY (`post_id`)    REFERENCES `branding_post` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_community_post_like_account` FOREIGN KEY (`account_id`) REFERENCES `account` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -144,7 +168,7 @@ CREATE TABLE IF NOT EXISTS `community_post_bookmark` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_community_post_bookmark` (`post_id`, `account_id`),
   KEY `ix_community_post_bookmark_account` (`account_id`, `created_at`),
-  CONSTRAINT `fk_community_post_bookmark_post`    FOREIGN KEY (`post_id`)    REFERENCES `branding_post` (`id`),
+  CONSTRAINT `fk_community_post_bookmark_post`    FOREIGN KEY (`post_id`)    REFERENCES `branding_post` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_community_post_bookmark_account` FOREIGN KEY (`account_id`) REFERENCES `account` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -166,10 +190,12 @@ CREATE TABLE IF NOT EXISTS `community_comment` (
   `created_at`        datetime      DEFAULT NULL,
   `updated_at`        datetime      DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `ix_community_comment_thread` (`post_id`, `parent_comment_id`, `created_at`),
+  -- 스레드 조회는 post_id 로 좁혀 created_at 으로 정렬한다(부모/자식은 메모리에서 나눈다).
+  -- parent_comment_id 를 가운데 두면 정렬에 인덱스를 못 써서 filesort 가 붙는다.
+  KEY `ix_community_comment_thread` (`post_id`, `created_at`),
   KEY `ix_community_comment_account` (`account_id`),
-  CONSTRAINT `fk_community_comment_post`    FOREIGN KEY (`post_id`)           REFERENCES `branding_post` (`id`),
-  CONSTRAINT `fk_community_comment_parent`  FOREIGN KEY (`parent_comment_id`) REFERENCES `community_comment` (`id`),
+  CONSTRAINT `fk_community_comment_post`    FOREIGN KEY (`post_id`)           REFERENCES `branding_post` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_community_comment_parent`  FOREIGN KEY (`parent_comment_id`) REFERENCES `community_comment` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_community_comment_account` FOREIGN KEY (`account_id`)        REFERENCES `account` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -180,7 +206,7 @@ CREATE TABLE IF NOT EXISTS `community_comment_like` (
   `created_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_community_comment_like` (`comment_id`, `account_id`),
-  CONSTRAINT `fk_community_comment_like_comment` FOREIGN KEY (`comment_id`) REFERENCES `community_comment` (`id`),
+  CONSTRAINT `fk_community_comment_like_comment` FOREIGN KEY (`comment_id`) REFERENCES `community_comment` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_community_comment_like_account` FOREIGN KEY (`account_id`) REFERENCES `account` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

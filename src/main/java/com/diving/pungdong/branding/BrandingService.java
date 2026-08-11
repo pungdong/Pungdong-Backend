@@ -74,7 +74,7 @@ public class BrandingService {
                 .tagline(branding.getTagline())
                 .bio(branding.getBio())
                 .locationLabel(branding.getLocationLabel())
-                .isInstructor(isInstructor)
+                .instructor(isInstructor)
                 // 강사가 아니면 null → 키 자체가 빠진다(D2).
                 .disciplineCodes(isInstructor ? disciplineCodesOf(approved) : null)
                 .certs(isInstructor ? certBadgesOf(approved) : null)

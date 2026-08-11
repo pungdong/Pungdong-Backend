@@ -46,8 +46,7 @@ import java.util.stream.Collectors;
 public class CommunityPostService {
 
     /** 클라이언트가 size 를 키워 전수 스크래핑하는 걸 막는다(브랜딩 그리드와 같은 상한). */
-    private static final int MAX_PAGE_SIZE = 50;
-    private static final int DEFAULT_PAGE_SIZE = 20;
+    private static final int MAX_PAGE_SIZE = CommunityPaging.MAX_PAGE_SIZE;
 
     /** 카드 그리드가 3장 + "+N" 오버레이 구조라 앞 3장만 싣는다. */
     private static final int CARD_THUMBNAIL_COUNT = 3;
@@ -66,6 +65,8 @@ public class CommunityPostService {
     private final CommunityPostLikeJpaRepo likeRepo;
     private final CommunityPostBookmarkJpaRepo bookmarkRepo;
     private final CommunityCommentJpaRepo commentRepo;
+    /** 숨김 해제 시 "어드민이 조치한 글인가" 를 본다 — 조치를 작성자가 무효화하지 못하게. */
+    private final ContentReportJpaRepo reportRepo;
     private final BrandingPostMediaJpaRepo mediaRepo;
     private final AccountBrandingJpaRepo brandingRepo;
     private final AccountJpaRepo accountRepo;
@@ -85,10 +86,11 @@ public class CommunityPostService {
      */
     public Page<CommunityPostCardResponse> feed(CommunityCategory category,
                                                 FeedSort sort,
+                                                AuthorType authorType,
                                                 boolean bookmarkedByMe,
                                                 Account viewer,
                                                 Pageable pageable) {
-        Pageable page = fixedPage(pageable);
+        Pageable page = CommunityPaging.fixed(pageable);
 
         // "저장한 글" 은 로그인해야 의미가 있다. 비로그인은 에러가 아니라 빈 페이지가 맞는 답이다 —
         // 로그인 안 한 사람에게 저장한 글이 없는 건 정상 상태지 실패가 아니다(레포 규칙).
@@ -96,17 +98,21 @@ public class CommunityPostService {
             return Page.empty(page);
         }
 
+        // 전용 쿼리(인기순·같이가요)는 Specification 을 못 태워서 같은 조건을 파라미터로 넘긴다.
+        boolean instructorOnly = authorType == AuthorType.INSTRUCTOR;
+
         Page<BrandingPost> posts;
         if (sort == FeedSort.POPULAR && !bookmarkedByMe) {
             OffsetDateTime since = OffsetDateTime.now(ZoneOffset.UTC).minusDays(POPULAR_WINDOW_DAYS);
             posts = category == null
-                    ? postRepo.findPopularFeed(since, page)
-                    : postRepo.findPopularFeedByCategory(since, category, page);
+                    ? postRepo.findPopularFeed(since, instructorOnly, page)
+                    : postRepo.findPopularFeedByCategory(since, category, instructorOnly, page);
         } else if (category == CommunityCategory.MATCH && !bookmarkedByMe) {
-            posts = postRepo.findMatchFeed(page);
+            posts = postRepo.findMatchFeed(instructorOnly, page);
         } else {
             Specification<BrandingPost> spec = Specification.where(CommunityPostSpecifications.feedVisible())
                     .and(CommunityPostSpecifications.category(category))
+                    .and(CommunityPostSpecifications.authoredBy(authorType))
                     .and(bookmarkedByMe ? CommunityPostSpecifications.bookmarkedBy(viewer.getId()) : null);
             posts = postRepo.findAll(spec, withLatestSort(page));
         }
@@ -220,25 +226,37 @@ public class CommunityPostService {
     }
 
     /**
-     * 삭제 — 게시물은 hard delete 다(댓글만 soft delete). 딸린 반응·댓글·모집정보를 FK 순서대로 먼저 지운다.
+     * 삭제 — 게시물은 hard delete 다(댓글만 soft delete).
+     *
+     * <p><b>딸린 자식 행(좋아요·북마크·모집정보·댓글·댓글좋아요)은 여기서 지우지 않는다</b> —
+     * FK 가 {@code ON DELETE CASCADE} 라 DB 가 정리한다. 서비스에서 순서대로 지우면 <b>브랜딩 삭제
+     * 경로가 같은 정리를 못 해</b> 같은 글이 어느 문으로 들어오느냐에 따라 500 이 난다
+     * (브랜딩은 커뮤니티를 import 할 수 없다 — 단방향 의존). 정리 책임은 한 곳(DB)에 둔다.
      */
     @Transactional
     public void delete(Account currentUser, Long postId) {
         BrandingPost post = requireMine(postId, currentUser.getId());
         List<String> urls = urlsOf(post);
 
-        likeRepo.deleteByPostId(postId);
-        bookmarkRepo.deleteByPostId(postId);
-        matchRepo.deleteByPostId(postId);
         postRepo.delete(post);
 
         deleteObjectsQuietly(urls);
     }
 
-    /** 숨김 토글 — 삭제가 아니라 <b>되돌릴 수 있는</b> 상태다. */
+    /**
+     * 숨김 토글 — 삭제가 아니라 <b>되돌릴 수 있는</b> 상태다.
+     *
+     * <p><b>단, 어드민이 조치한 글은 작성자가 다시 공개할 수 없다.</b> 숨김의 주인이 둘(작성자·어드민)인데
+     * 상태 컬럼이 하나뿐이라, 막지 않으면 신고로 내린 글을 작성자가 토글 한 번으로 되살려 조치가
+     * 무효가 된다. 되돌리는 건 어드민이 신고를 기각(DISMISSED)하는 경로다.
+     */
     @Transactional
     public CommunityPostDetailResponse updateHidden(Account currentUser, Long postId, boolean hidden) {
         BrandingPost post = requireMine(postId, currentUser.getId());
+        if (!hidden && reportRepo.existsByTargetTypeAndTargetIdAndStatus(
+                ReportTargetType.POST, postId, ReportStatus.ACTIONED)) {
+            throw new BadRequestException("신고로 비공개 처리된 글이라 다시 공개할 수 없어요.");
+        }
         post.setHidden(hidden);
         return toDetail(post, currentUser);
     }
@@ -461,16 +479,6 @@ public class CommunityPostService {
     }
 
     /* ─── 내부: 공통 ─────────────────────────────────────── */
-
-    /**
-     * 클라이언트 정렬을 <b>버리고</b> 페이지 번호·크기만 취한다. 임의 필드 정렬을 태우면 내부 컬럼을
-     * 탐색하거나 인덱스 없는 정렬로 풀스캔을 유발할 수 있다.
-     */
-    private Pageable fixedPage(Pageable pageable) {
-        int size = pageable.isPaged() ? Math.min(pageable.getPageSize(), MAX_PAGE_SIZE) : DEFAULT_PAGE_SIZE;
-        int page = pageable.isPaged() ? pageable.getPageNumber() : 0;
-        return PageRequest.of(page, size);
-    }
 
     /** 최신순 + id tie-break — 같은 초에 만들어진 글이 페이지 경계에서 중복·누락되지 않게. */
     private Pageable withLatestSort(Pageable pageable) {

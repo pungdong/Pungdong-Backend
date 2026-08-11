@@ -3,6 +3,9 @@ package com.diving.pungdong.community;
 import com.diving.pungdong.branding.BrandingPost;
 import lombok.*;
 
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
+
 import javax.persistence.*;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -44,6 +47,7 @@ public class CommunityPostMatch {
     @MapsId
     @OneToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "post_id")
+    @OnDelete(action = OnDeleteAction.CASCADE)
     private BrandingPost post;
 
     @Column(name = "meet_date", nullable = false)

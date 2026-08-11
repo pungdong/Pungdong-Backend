@@ -52,8 +52,9 @@ public interface CommunityPostJpaRepo extends JpaRepository<BrandingPost, Long>,
     @Query("select p from BrandingPost p join CommunityPostMatch m on m.postId = p.id "
             + "where p.showInFeed = true and p.isHidden = false "
             + "and p.category = com.diving.pungdong.branding.CommunityCategory.MATCH "
+            + "and (:instructorOnly = false or exists (select 1 from InstructorApplication ia where ia.account = p.branding.account and ia.status = com.diving.pungdong.instructorapplication.InstructorApplicationStatus.APPROVED)) "
             + "order by m.meetDate asc, p.id desc")
-    Page<BrandingPost> findMatchFeed(Pageable pageable);
+    Page<BrandingPost> findMatchFeed(@Param("instructorOnly") boolean instructorOnly, Pageable pageable);
 
     /**
      * 인기순 피드 — 최근 {@code since} 이후 글을 좋아요 많은 순으로.
@@ -70,21 +71,28 @@ public interface CommunityPostJpaRepo extends JpaRepository<BrandingPost, Long>,
      */
     @Query(value = "select p from BrandingPost p left join CommunityPostLike l on l.post.id = p.id "
             + "where p.showInFeed = true and p.isHidden = false and p.createdAt >= :since "
+            + "and (:instructorOnly = false or exists (select 1 from InstructorApplication ia where ia.account = p.branding.account and ia.status = com.diving.pungdong.instructorapplication.InstructorApplicationStatus.APPROVED)) "
             + "group by p order by count(l) desc, p.id desc",
             countQuery = "select count(p) from BrandingPost p "
-                    + "where p.showInFeed = true and p.isHidden = false and p.createdAt >= :since")
-    Page<BrandingPost> findPopularFeed(@Param("since") OffsetDateTime since, Pageable pageable);
+                    + "where p.showInFeed = true and p.isHidden = false and p.createdAt >= :since "
+                    + "and (:instructorOnly = false or exists (select 1 from InstructorApplication ia where ia.account = p.branding.account and ia.status = com.diving.pungdong.instructorapplication.InstructorApplicationStatus.APPROVED)) ")
+    Page<BrandingPost> findPopularFeed(@Param("since") OffsetDateTime since,
+                                       @Param("instructorOnly") boolean instructorOnly,
+                                       Pageable pageable);
 
     /** 위와 같되 카테고리로 좁힌다. */
     @Query(value = "select p from BrandingPost p left join CommunityPostLike l on l.post.id = p.id "
             + "where p.showInFeed = true and p.isHidden = false and p.createdAt >= :since "
             + "and p.category = :category "
+            + "and (:instructorOnly = false or exists (select 1 from InstructorApplication ia where ia.account = p.branding.account and ia.status = com.diving.pungdong.instructorapplication.InstructorApplicationStatus.APPROVED)) "
             + "group by p order by count(l) desc, p.id desc",
             countQuery = "select count(p) from BrandingPost p "
                     + "where p.showInFeed = true and p.isHidden = false and p.createdAt >= :since "
-                    + "and p.category = :category")
+                    + "and p.category = :category "
+                    + "and (:instructorOnly = false or exists (select 1 from InstructorApplication ia where ia.account = p.branding.account and ia.status = com.diving.pungdong.instructorapplication.InstructorApplicationStatus.APPROVED)) ")
     Page<BrandingPost> findPopularFeedByCategory(@Param("since") OffsetDateTime since,
                                                  @Param("category") com.diving.pungdong.branding.CommunityCategory category,
+                                                 @Param("instructorOnly") boolean instructorOnly,
                                                  Pageable pageable);
 
     /**

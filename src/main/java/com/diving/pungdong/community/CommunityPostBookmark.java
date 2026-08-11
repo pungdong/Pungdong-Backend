@@ -4,6 +4,9 @@ import com.diving.pungdong.account.Account;
 import com.diving.pungdong.branding.BrandingPost;
 import lombok.*;
 
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
+
 import javax.persistence.*;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -33,6 +36,7 @@ public class CommunityPostBookmark {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "post_id", nullable = false)
+    @OnDelete(action = OnDeleteAction.CASCADE)
     private BrandingPost post;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)

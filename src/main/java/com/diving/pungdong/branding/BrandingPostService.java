@@ -89,11 +89,20 @@ public class BrandingPostService {
         return toDetail(post);
     }
 
+    /**
+     * <b>프로필 글이 아니면 이 경로로는 아무에게도 안 보인다</b> — 오너에게도. 커뮤니티에만 올린 글은
+     * 브랜딩 상세({@code GET /branding-posts/{id}})의 대상이 아니다. 커뮤니티 글은
+     * {@code GET /community/posts/{id}} 로 본다. 안 걸면 프로필에 없는 글이 프로필 URL 로 열려
+     * "브랜딩 → 커뮤니티 단방향" 이 조회 쪽에서 뚫린다.
+     */
     private boolean isVisibleTo(BrandingPost post, Account viewer) {
+        if (!post.isShowOnProfile()) {
+            return false;
+        }
         AccountBranding branding = post.getBranding();
         Account owner = branding.getAccount();
         if (viewer != null && Objects.equals(owner.getId(), viewer.getId())) {
-            return true; // 오너는 자기 글을 항상 본다(숨김·미발행 포함)
+            return true; // 오너는 자기 프로필 글을 항상 본다(숨김·미발행 포함)
         }
         return branding.isPublished()
                 && !post.isHidden()

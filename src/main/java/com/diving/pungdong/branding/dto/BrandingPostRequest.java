@@ -58,6 +58,7 @@ public class BrandingPostRequest {
     @Size(max = 2000, message = "본문은 2000자까지 쓸 수 있어요.")
     private String caption;
 
+    @NotNull(message = "태그 목록은 비워 보내더라도 배열이어야 해요.")
     @Size(max = 10, message = "태그는 10개까지 달 수 있어요.")
     private List<@Size(min = 1, max = 30, message = "태그는 30자까지 쓸 수 있어요.") String> tags = new ArrayList<>();
 

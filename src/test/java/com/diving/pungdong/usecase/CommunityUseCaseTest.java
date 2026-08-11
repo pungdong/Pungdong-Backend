@@ -60,6 +60,7 @@ class CommunityUseCaseTest {
     @Autowired com.diving.pungdong.community.CommunityCommentLikeJpaRepo commentLikeRepo;
     @Autowired com.diving.pungdong.community.ContentReportJpaRepo reportRepo;
     @Autowired com.diving.pungdong.notification.NotificationOutboxJpaRepo outboxRepo;
+    @Autowired com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo applicationRepo;
 
     @Value("${pungdong.storage.local.base-url:http://localhost:8080}")
     String localBaseUrl;
@@ -70,6 +71,7 @@ class CommunityUseCaseTest {
      */
     @AfterEach
     void cleanUp() {
+        applicationRepo.deleteAll();
         matchRepo.deleteAll();
         likeRepo.deleteAll();
         bookmarkRepo.deleteAll();
@@ -103,6 +105,34 @@ class CommunityUseCaseTest {
 
     private String img(String name) {
         return localBaseUrl + "/local-uploads/branding/" + name + ".jpg";
+    }
+
+    /**
+     * 승인된 강사로 만든다 — 작성자 칩({@code isInstructor})과 "강사 글" 필터가 <b>같은 축</b>을 보므로
+     * 이 한 줄이 둘 다를 켠다.
+     */
+    private void approveAsInstructor(Account account) {
+        applicationRepo.save(com.diving.pungdong.instructorapplication.InstructorApplication.builder()
+                .account(account)
+                .disciplineCode("FREEDIVING")
+                .status(com.diving.pungdong.instructorapplication.InstructorApplicationStatus.APPROVED)
+                .reviewedAt(java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC))
+                .build());
+    }
+
+    /** 댓글 작성 → id. */
+    private long comment(Account author, long postId, Long parentId) throws Exception {
+        String body = parentId == null
+                ? "{\"body\":\"댓글\"}"
+                : "{\"body\":\"대댓글\",\"parentCommentId\":" + parentId + "}";
+        MvcResult result = mockMvc.perform(post("/community/posts/" + postId + "/comments")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(author))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andReturn();
+        return ((Number) com.jayway.jsonpath.JsonPath.read(
+                result.getResponse().getContentAsString(), "$.id")).longValue();
     }
 
     private Course course(Account instructor, CourseStatus status) {
@@ -923,5 +953,201 @@ class CommunityUseCaseTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"category\":\"TOUR\",\"title\":\"비로그인\"}"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    /* ════════════════ G — Phase 5 리뷰에서 잡힌 것 ════════════════ */
+
+    @Test
+    @DisplayName("G1: 댓글·대댓글·댓글 좋아요가 달린 글도 삭제된다 (자식 행 때문에 500 이 나면 안 된다)")
+    void deletingPostWithComments_succeeds() throws Exception {
+        Account owner = account("g1a@c.com", "diverG1", Role.STUDENT);
+        Account other = account("g1b@c.com", "diverG2", Role.STUDENT);
+        long postId = createPost(owner, "QNA", "댓글 달린 글", "본문");
+        long parentId = comment(other, postId, null);
+        comment(owner, postId, parentId);
+        mockMvc.perform(post("/community/comments/" + parentId + "/like")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(owner))).andExpect(status().isOk());
+        mockMvc.perform(post("/community/posts/" + postId + "/like")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(other))).andExpect(status().isOk());
+
+        mockMvc.perform(delete("/community/posts/" + postId)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(owner)))
+                .andExpect(status().isNoContent());
+
+        assertThat(postRepo.findById(postId)).isEmpty();
+        assertThat(commentRepo.findAll()).isEmpty();
+        assertThat(commentLikeRepo.findAll()).isEmpty();
+        assertThat(likeRepo.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("G2: 브랜딩 삭제 경로로 지워도 마찬가지다 (같은 글을 어느 문으로 지우든 결과가 같아야 한다)")
+    void deletingViaBrandingPath_alsoCleansCommunityRows() throws Exception {
+        Account owner = account("g2a@c.com", "diverG3", Role.STUDENT);
+        Account other = account("g2b@c.com", "diverG4", Role.STUDENT);
+        long postId = brandingPost(owner, "TOUR", "브랜딩에 올린 글");
+        comment(other, postId, null);
+        mockMvc.perform(post("/community/posts/" + postId + "/bookmark")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(other))).andExpect(status().isOk());
+
+        mockMvc.perform(delete("/branding/me/posts/" + postId)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(owner)))
+                .andExpect(status().isNoContent());
+
+        assertThat(postRepo.findById(postId)).isEmpty();
+        assertThat(commentRepo.findAll()).isEmpty();
+        assertThat(bookmarkRepo.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("G3: 강사 글 필터는 승인된 강사의 글만 준다 (칩이 붙는 글과 정확히 같은 집합)")
+    void authorTypeFilter_returnsInstructorPostsOnly() throws Exception {
+        Account instructor = account("g3a@c.com", "diverG5", Role.STUDENT);
+        Account normal = account("g3b@c.com", "diverG6", Role.STUDENT);
+        approveAsInstructor(instructor);
+        long instructorPost = createPost(instructor, "TOUR", "강사가 쓴 글", "본문");
+        createPost(normal, "TOUR", "일반 유저가 쓴 글", "본문");
+
+        mockMvc.perform(get("/community/posts?authorType=INSTRUCTOR"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(1))
+                .andExpect(jsonPath("$._embedded.posts[0].id").value(instructorPost))
+                .andExpect(jsonPath("$._embedded.posts[0].author.isInstructor").value(true));
+
+        // 생략하면 전체다.
+        mockMvc.perform(get("/community/posts"))
+                .andExpect(jsonPath("$.page.totalElements").value(2));
+    }
+
+    @Test
+    @DisplayName("G4: 강사 글 필터는 인기순·같이가요 피드에서도 걸린다 (전용 쿼리만 필터가 빠지면 안 된다)")
+    void authorTypeFilter_appliesToDedicatedQueries() throws Exception {
+        Account instructor = account("g4a@c.com", "diverG7", Role.STUDENT);
+        Account normal = account("g4b@c.com", "diverG8", Role.STUDENT);
+        approveAsInstructor(instructor);
+        createPost(instructor, "QNA", "강사 글", "본문");
+        createPost(normal, "QNA", "일반 글", "본문");
+        matchPost(instructor, "강사 모집", LocalDate.now().plusDays(3));
+        matchPost(normal, "일반 모집", LocalDate.now().plusDays(4));
+
+        mockMvc.perform(get("/community/posts?sort=POPULAR&authorType=INSTRUCTOR"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(2)); // 강사의 QNA + 같이가요
+
+        mockMvc.perform(get("/community/posts?category=MATCH&authorType=INSTRUCTOR"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(1))
+                .andExpect(jsonPath("$._embedded.posts[0].title").value("강사 모집"));
+    }
+
+    @Test
+    @DisplayName("G5: 신고로 내려간 글은 작성자가 다시 공개할 수 없다 (조치를 토글 한 번으로 무효화하면 안 된다)")
+    void authorCannotUnhideModeratedPost() throws Exception {
+        Account owner = account("g5a@c.com", "diverG9", Role.STUDENT);
+        Account reporter = account("g5b@c.com", "diverG10", Role.STUDENT);
+        Account admin = account("g5c@c.com", "diverG11", Role.ADMIN);
+        long postId = createPost(owner, "TOUR", "신고당할 글", "본문");
+        report(reporter, "POST", postId, "SPAM");
+        long reportId = reportRepo.findAll().get(0).getId();
+        mockMvc.perform(patch("/admin/community/reports/" + reportId)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"ACTIONED\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(patch("/community/posts/" + postId + "/visibility")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"hidden\":false}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("신고로 비공개 처리된 글이라 다시 공개할 수 없어요."));
+
+        assertThat(postRepo.findById(postId).orElseThrow().isHidden()).isTrue();
+    }
+
+    @Test
+    @DisplayName("G6: 커뮤니티 전용 글은 브랜딩 수정 경로로 건드릴 수 없다 (같이가요에 강의를 붙이는 우회로였다)")
+    void communityOnlyPost_isNotEditableThroughBrandingPath() throws Exception {
+        Account instructor = account("g6@c.com", "diverG12", Role.STUDENT);
+        approveAsInstructor(instructor);
+        Course openCourse = course(instructor, CourseStatus.OPEN);
+        long matchId = matchPost(instructor, "같이 가요", LocalDate.now().plusDays(5));
+
+        // 커뮤니티 경로에서는 애초에 막혀 있다.
+        mockMvc.perform(put("/community/posts/" + matchId)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(instructor))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"MATCH\",\"title\":\"같이 가요\",\"linkedCourseId\":"
+                                + openCourse.getId() + ",\"match\":{\"meetDate\":\""
+                                + LocalDate.now().plusDays(5) + "\",\"capacity\":4,\"levelLabel\":\"L2\"}}"))
+                .andExpect(status().isBadRequest());
+
+        // 브랜딩 경로도 이 글에 닿지 못한다(400 — 프로필 글이 아니다).
+        mockMvc.perform(put("/branding/me/posts/" + matchId)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(instructor))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mediaUrls\":[\"" + img("a") + "\"],\"caption\":\"우회\",\"linkedCourseId\":"
+                                + openCourse.getId() + "}"))
+                .andExpect(status().isBadRequest());
+
+        assertThat(postRepo.findById(matchId).orElseThrow().getLinkedCourse()).isNull();
+    }
+
+    @Test
+    @DisplayName("G7: 커뮤니티 전용 글은 브랜딩 상세 URL 로도 열리지 않는다 (오너에게도)")
+    void communityOnlyPost_isNotVisibleOnBrandingDetail() throws Exception {
+        Account owner = account("g7@c.com", "diverG13", Role.STUDENT);
+        long postId = createPost(owner, "TOUR", "커뮤니티 글", "본문");
+
+        mockMvc.perform(get("/branding-posts/" + postId))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/branding-posts/" + postId)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(owner)))
+                .andExpect(status().isBadRequest());
+
+        // 커뮤니티 상세로는 정상이다.
+        mockMvc.perform(get("/community/posts/" + postId)).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("G8: 숨겨진 글의 댓글에는 좋아요를 걸 수 없다 (글 좋아요만 막고 댓글로 새면 우회로다)")
+    void commentLike_onHiddenPost_isRejected() throws Exception {
+        Account owner = account("g8a@c.com", "diverG14", Role.STUDENT);
+        Account other = account("g8b@c.com", "diverG15", Role.STUDENT);
+        long postId = createPost(owner, "QNA", "곧 숨길 글", "본문");
+        long commentId = comment(other, postId, null);
+        mockMvc.perform(patch("/community/posts/" + postId + "/visibility")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"hidden\":true}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/community/comments/" + commentId + "/like")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(other)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("G9: mediaUrls 를 null 로 보내면 500 이 아니라 400 + 한국어 문구다")
+    void nullMediaUrls_isRejectedWithMessage() throws Exception {
+        Account me = account("g9@c.com", "diverG16", Role.STUDENT);
+
+        mockMvc.perform(post("/community/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"QNA\",\"title\":\"제목\",\"mediaUrls\":null}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("사진 목록은 비워 보내더라도 배열이어야 해요."));
+    }
+
+    @Test
+    @DisplayName("G10: 어드민 큐도 페이지 크기 상한(50)을 넘길 수 없다")
+    void adminQueue_capsPageSize() throws Exception {
+        Account admin = account("g10@c.com", "diverG17", Role.ADMIN);
+
+        mockMvc.perform(get("/admin/community/reports?size=100000")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(admin)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.size").value(50));
     }
 }

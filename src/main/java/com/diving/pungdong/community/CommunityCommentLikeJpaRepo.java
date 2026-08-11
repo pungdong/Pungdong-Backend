@@ -23,6 +23,4 @@ public interface CommunityCommentLikeJpaRepo extends JpaRepository<CommunityComm
             + "where l.account.id = :accountId and l.comment.id in :commentIds")
     List<Long> findLikedCommentIds(@Param("accountId") Long accountId,
                                    @Param("commentIds") Collection<Long> commentIds);
-
-    void deleteByCommentId(Long commentId);
 }

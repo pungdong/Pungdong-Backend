@@ -32,8 +32,17 @@ public interface BrandingPostJpaRepo extends JpaRepository<BrandingPost, Long> {
             + "order by p.pinned desc, p.createdAt desc, p.id desc")
     Page<BrandingPost> findOwnerGrid(@Param("brandingId") Long brandingId, Pageable pageable);
 
-    /** 오너 소유 확인용 — 남의 글이면 비어 있고, 호출처가 400(존재 숨김)으로 답한다. */
-    @Query("select p from BrandingPost p where p.id = :postId and p.branding.account.id = :accountId")
+    /**
+     * 오너 소유 확인용 — 남의 글이면 비어 있고, 호출처가 400(존재 숨김)으로 답한다.
+     *
+     * <p><b>{@code showOnProfile} 을 반드시 건다.</b> 이 쿼리는 브랜딩 쓰기 경로(수정·고정·숨김)의
+     * 관문인데, 안 걸면 <b>커뮤니티에만 올린 글을 브랜딩 엔드포인트로 편집</b>할 수 있다. 브랜딩 수정은
+     * 카테고리 규칙을 모르기 때문에 그 경로로 <b>같이가요 글에 강의를 연결</b>할 수 있고(커뮤니티에서는
+     * 400 으로 막는 영리활동 가드), 신고로 내려간 글의 숨김도 되돌릴 수 있다. 프로필에 없는 글은
+     * 프로필 문으로 들어오지 못하게 한다.
+     */
+    @Query("select p from BrandingPost p "
+            + "where p.id = :postId and p.branding.account.id = :accountId and p.showOnProfile = true")
     Optional<BrandingPost> findMine(@Param("postId") Long postId, @Param("accountId") Long accountId);
 
     /**

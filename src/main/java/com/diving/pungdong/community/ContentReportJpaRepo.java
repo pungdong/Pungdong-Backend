@@ -21,4 +21,12 @@ public interface ContentReportJpaRepo extends JpaRepository<ContentReport, Long>
 
     /** 어드민 탭 뱃지용 상태별 건수. */
     long countByStatus(ReportStatus status);
+
+    /**
+     * 어드민이 조치한 이력이 있는 대상인가 — <b>작성자가 숨김을 되돌려 조치를 무효화하지 못하게</b>
+     * 막는 데 쓴다. 조치된 글은 작성자가 다시 공개할 수 없다.
+     */
+    boolean existsByTargetTypeAndTargetIdAndStatus(ReportTargetType targetType,
+                                                   Long targetId,
+                                                   ReportStatus status);
 }

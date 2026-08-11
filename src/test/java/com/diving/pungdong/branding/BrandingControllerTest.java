@@ -79,7 +79,7 @@ class BrandingControllerTest {
                 .tagline("12년차 프리·스쿠버 강사")
                 .bio("제주·부산에서 정기 투어를 열어요.")
                 .locationLabel("서울 · 부산")
-                .isInstructor(true)
+                .instructor(true)
                 .disciplineCodes(List.of("FREEDIVING"))
                 .certs(List.of(BrandingProfileResponse.CertBadge.builder()
                         .disciplineCode("FREEDIVING").organizationCode("AIDA").build()))

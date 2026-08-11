@@ -4,6 +4,9 @@ import com.diving.pungdong.account.Account;
 import com.diving.pungdong.branding.BrandingPost;
 import lombok.*;
 
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
+
 import javax.persistence.*;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -31,11 +34,13 @@ public class CommunityComment {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "post_id", nullable = false)
+    @OnDelete(action = OnDeleteAction.CASCADE)
     private BrandingPost post;
 
     /** null 이면 최상위 댓글. 값이 있으면 대댓글이고, 그 부모는 반드시 최상위여야 한다. */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "parent_comment_id")
+    @OnDelete(action = OnDeleteAction.CASCADE)
     private CommunityComment parent;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)

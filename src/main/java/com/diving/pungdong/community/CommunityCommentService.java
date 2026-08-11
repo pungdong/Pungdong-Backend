@@ -45,6 +45,8 @@ public class CommunityCommentService {
     private final CommunityPostJpaRepo postRepo;
     private final AccountJpaRepo accountRepo;
     private final CommunityAuthorComposer authorComposer;
+    /** 댓글 좋아요 동시 요청 — 제약 위반을 별도 트랜잭션에 가둔다. */
+    private final IdempotentInsert idempotentInsert;
 
     /**
      * 댓글 알림 발행. 이 트랜잭션 안에서 발행해야 한다 — outbox 리스너가 {@code MANDATORY} 라
@@ -132,14 +134,31 @@ public class CommunityCommentService {
      */
     @Transactional
     public void delete(Account currentUser, Long commentId) {
-        CommunityComment comment = requireMine(commentId, currentUser.getId());
+        removeOrRedact(requireMine(commentId, currentUser.getId()));
+    }
 
-        if (commentRepo.existsByParentId(commentId)) {
+    /**
+     * 어드민 조치(신고 ACTIONED)로 지운다 — <b>작성자 확인을 하지 않는다</b>는 점만 다르고
+     * 규칙은 유저 삭제와 같다. 같은 메서드를 쓰지 않으면 한쪽만 고쳐져서, 같은 댓글이 어떤 경로로
+     * 지워졌느냐에 따라 화면에 다르게 남는다.
+     */
+    @Transactional
+    public void deleteByModerator(Long commentId) {
+        commentRepo.findById(commentId).ifPresent(this::removeOrRedact);
+    }
+
+    /**
+     * 대댓글이 달려 있으면 <b>자리를 남기고 본문만 가린다</b> — 물리 삭제하면 스레드가 끊긴다.
+     * 아무도 참조하지 않으면 완전히 지운다(껍데기를 남길 이유가 없다).
+     *
+     * <p>딸린 댓글 좋아요는 FK 가 {@code ON DELETE CASCADE} 라 DB 가 정리한다.
+     */
+    private void removeOrRedact(CommunityComment comment) {
+        if (commentRepo.existsByParentId(comment.getId())) {
             comment.setDeleted(true);
             comment.setBody(DELETED_BODY);
             return;
         }
-        commentLikeRepo.deleteByCommentId(commentId);
         commentRepo.delete(comment);
     }
 
@@ -147,14 +166,16 @@ public class CommunityCommentService {
 
     @Transactional
     public ReactionResponse like(Account currentUser, Long commentId) {
-        CommunityComment comment = requireLikable(commentId);
+        CommunityComment comment = requireLikable(commentId, currentUser);
         Account me = loadAccount(currentUser);
 
         if (commentLikeRepo.findByCommentIdAndAccountId(commentId, me.getId()).isEmpty()) {
             try {
-                commentLikeRepo.save(CommunityCommentLike.builder().comment(comment).account(me).build());
+                idempotentInsert.insert(commentLikeRepo,
+                        CommunityCommentLike.builder().comment(comment).account(me).build());
             } catch (DataIntegrityViolationException alreadyLiked) {
                 // 경쟁 요청이 먼저 넣었다 — 결과가 같으니 에러가 아니다.
+                // (삽입을 별도 트랜잭션에 격리했기 때문에 여기서 잡아도 이 트랜잭션은 멀쩡하다.)
             }
         }
         return ReactionResponse.builder()
@@ -163,7 +184,7 @@ public class CommunityCommentService {
 
     @Transactional
     public ReactionResponse unlike(Account currentUser, Long commentId) {
-        requireLikable(commentId);
+        requireLikable(commentId, currentUser);
         commentLikeRepo.findByCommentIdAndAccountId(commentId, currentUser.getId())
                 .ifPresent(commentLikeRepo::delete);
         return ReactionResponse.builder()
@@ -238,10 +259,17 @@ public class CommunityCommentService {
                 .orElseThrow(ResourceNotFoundException::new);
     }
 
-    /** 삭제된 댓글에는 좋아요를 걸 수 없다 — 자리만 남은 껍데기다. */
-    private CommunityComment requireLikable(Long commentId) {
+    /**
+     * 삭제된 댓글에는 좋아요를 걸 수 없다 — 자리만 남은 껍데기다.
+     *
+     * <p><b>글의 노출 여부도 함께 본다.</b> 댓글 id 만 알면 되는 경로라, 안 보면 숨겨진 남의 글에 달린
+     * 댓글에 좋아요를 눌러 그 글의 존재와 댓글 내용을 확인할 수 있다(글 좋아요는 이미 막고 있는데
+     * 댓글 좋아요만 뚫려 있으면 우회로가 된다).
+     */
+    private CommunityComment requireLikable(Long commentId, Account viewer) {
         CommunityComment comment = commentRepo.findById(commentId)
                 .orElseThrow(ResourceNotFoundException::new);
+        requireVisiblePost(comment.getPost().getId(), viewer);
         if (comment.isDeleted()) {
             throw new BadRequestException("삭제된 댓글에는 좋아요를 누를 수 없어요.");
         }

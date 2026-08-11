@@ -23,6 +23,4 @@ public interface CommunityPostBookmarkJpaRepo extends JpaRepository<CommunityPos
             + "where b.account.id = :accountId and b.post.id in :postIds")
     List<Long> findBookmarkedPostIds(@Param("accountId") Long accountId,
                                      @Param("postIds") Collection<Long> postIds);
-
-    void deleteByPostId(Long postId);
 }
