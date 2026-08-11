@@ -235,7 +235,7 @@ class PaymentUseCaseTest {
                 .content(json(Map.of("pgPayload", Map.of("paymentKey", "pk_test_1"), "orderId", orderId, "amount", EXPECTED_AMOUNT))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("DONE"))
-                .andExpect(jsonPath("$.enrollmentStatus").value("ACCEPT_PENDING"));
+                .andExpect(jsonPath("$.currentEnrollmentStatus").value("ACCEPT_PENDING"));
 
         assertThat(orderRepo.findByOrderId(orderId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.DONE);
         assertThat(roundRepo.findById(e.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.ACCEPT_PENDING);
@@ -275,7 +275,7 @@ class PaymentUseCaseTest {
                 .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("DONE"))
-                .andExpect(jsonPath("$.enrollmentStatus").value("ACCEPT_PENDING"));
+                .andExpect(jsonPath("$.currentEnrollmentStatus").value("ACCEPT_PENDING"));
     }
 
     @Test
@@ -450,7 +450,7 @@ class PaymentUseCaseTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("DONE"))
                 .andExpect(jsonPath("$.amount").value(EXPECTED_AMOUNT))
-                .andExpect(jsonPath("$.enrollmentStatus").value("ACCEPT_PENDING"));
+                .andExpect(jsonPath("$.currentEnrollmentStatus").value("ACCEPT_PENDING"));
     }
 
     @Test

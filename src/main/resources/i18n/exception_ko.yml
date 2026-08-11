@@ -77,3 +77,7 @@ userNotFound:
 venueChangeRequiresReapply:
   code: "-1019"
   msg: "위치까지 바꾸려면 지금 예약을 취소하고 다시 신청해주세요."
+
+proposalExpired:
+  code: "-1020"
+  msg: "강사님이 제안한 일정이 만료됐어요. 원하는 일정을 직접 골라주세요."

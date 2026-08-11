@@ -1987,8 +1987,20 @@ export interface PaymentConfirmResponse {
   status: PaymentStatus;          // 성공 = 'DONE'
   amount: number;
   approvedAt: string | null;      // ISO-8601 offset
-  enrollmentId: number | null;        // ★ 회차 id (다회차) — 응답 필드명은 호환 유지
-  enrollmentStatus: EnrollmentStatus; // 회차 상태 — 결제 성공 후 항상 'ACCEPT_PENDING'(강사 결정 대기). ★ 2회차+ 도 동일(옛 'CONFIRMED' 아님)
+  /** ★ 회차(EnrollmentRound) id. 옛 이름 `enrollmentId` 에서 개명(2026-08-11) — 담는 값이 회차 id 인데
+   *  환불 경로 `POST /enrollments/{enrollmentId}/refund` 의 것은 **수강 id** 라 헷갈렸고 둘 다 number 라
+   *  타입으로도 안 잡혔다. */
+  roundId: number | null;
+  /**
+   * ★ **이 응답을 만든 시점의** 회차 상태 — **결제의 결과가 아니다**. 옛 이름 `enrollmentStatus` 에서 개명(2026-08-11).
+   * 결제의 결과는 언제나 'ACCEPT_PENDING' 이지만, 이 필드는 회차를 **live 로** 읽으므로 결제와 조회 사이에
+   * 강사가 수락하면 'CONFIRMED', 거절/취소/만료면 'REJECTED'/'CANCELLED' 가 온다.
+   * 특히 GET /payments/orders/{orderId}(이니시스 성공화면)와 **멱등 재-confirm** 에서 그렇다 —
+   * **결제는 멱등인데 이 필드는 아니다.**
+   * → 완료 화면 문구는 이 필드가 아니라 `status` + `scheduleChange`(둘 다 멱등)로 가를 것.
+   *   이 필드는 "지금 상태 표시" 용으로만 쓰고, **모르는 값은 '확정 단정 안 함' 으로 떨어뜨릴 것**.
+   */
+  currentEnrollmentStatus: EnrollmentStatus;
   /**
    * 이 주문이 **일정 변경 차액** 결제인가 — 완료 화면 문구 분기용
    * (false: "결제가 완료됐어요" / true: "일정 변경을 요청했어요").
@@ -2090,6 +2102,13 @@ export const ErrorCode = {
    * 참고: 위치 변경이라도 **같거나 싸면** reschedule 로 그대로 된다(차액 자동환불).
    */
   VENUE_CHANGE_REQUIRES_REAPPLY: -1019,
+  /**
+   * 강사가 낸 일정 제안이 만료돼 고를 수 없음 (proposalTtlHours, 기본 6h 경과).
+   * ★ 사용자 잘못이 아니다 — "제안이 만료됐어요 · 일정을 직접 골라보세요" 로 안내하고 reschedule 로 유도할 것.
+   * 회차는 그대로 살아 있다(ACCEPT_PENDING, hub 에서 WAITING). 나오는 곳: POST /enrollments/rounds/{roundId}/pick-slot.
+   * 참고: 제안은 살아 있는데 **목록 밖 슬롯**을 고른 경우는 성격이 달라 -1011 유지.
+   */
+  PROPOSAL_EXPIRED: -1020,
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
