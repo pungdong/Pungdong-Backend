@@ -714,6 +714,87 @@ class MultiRoundProgressUseCaseTest {
     }
 
     @Test
+    @DisplayName("C4 위치까지 바꾸면서 비싸지면 -1018(차액 결제 유도)이 아니라 -1019 — 차액 경로로는 못 가는 조합이다")
+    void venueChangeWithPriceIncreaseIsRejectedSeparately() throws Exception {
+        Account ins = instructor("ins-c4@pd.com", "강사C4", 4);
+        Venue cheap = venue(ins);                                   // 일반 위치(입장료 15,000)
+        Venue pricey = venueWithNightTicket(ins);                   // 야간권 25,000 보유 위치
+        String cheapRef = VenueScope.token(VenueScope.CUSTOM, String.valueOf(cheap.getId()));
+        String priceyRef = VenueScope.token(VenueScope.CUSTOM, String.valueOf(pricey.getId()));
+        String cheapTicket = cheap.getTickets().get(0).getRef();
+        String nightTicket = pricey.getTickets().get(1).getRef();   // 25,000
+        Course course = twoVenueCourse(ins, cheapRef, cheapTicket, priceyRef, nightTicket);
+        openCoverageIncludingNight(ins, D1);
+        Account stu = account("stu-c4@pd.com", "학생C4", Role.STUDENT);
+
+        mockMvc.perform(post("/enrollments").header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("courseId", course.getId(), "date", D1.toString(),
+                                "venueRefId", cheapRef, "ticketRef", cheapTicket,
+                                "blockStart", START.toString(), "blockEnd", END.toString()))))
+                .andExpect(status().isCreated());
+        EnrollmentRound r1 = paid(roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).get(0));
+
+        // 위치 B + 더 비싼 야간 슬롯으로 변경 시도 → -1018 이면 FE 가 차액 결제로 유도하고,
+        // 그 경로는 위치를 못 바꿔 학생이 고른 적 없는 위치 A 로 옮겨진다. 그래서 -1019 로 갈라 거부한다.
+        mockMvc.perform(post("/enrollments/rounds/{id}/reschedule", r1.getId())
+                        .header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("date", D1.toString(), "venueRefId", priceyRef,
+                                "ticketRef", nightTicket,
+                                "blockStart", NIGHT_START.toString(), "blockEnd", NIGHT_END.toString()))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(-1019));
+
+        EnrollmentRound after = roundRepo.findById(r1.getId()).orElseThrow();
+        assertThat(after.getVenueRefId()).isEqualTo(cheapRef); // 롤백 — 위치 그대로
+        assertThat(after.getTicketRef()).isEqualTo(cheapTicket);
+    }
+
+    @Test
+    @DisplayName("C5 차액 결제 준비에 다른 위치를 실어 보내면 -1019 — 결제창이 열리기 전에 막는다(2차 방어)")
+    void prepareRejectsMismatchedTargetVenue() throws Exception {
+        Account ins = instructor("ins-c5@pd.com", "강사C5", 4);
+        Venue v = venueWithNightTicket(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String dayTicket = v.getTickets().get(0).getRef();
+        String nightTicket = v.getTickets().get(1).getRef();
+        Course course = twoTicketCourse(ins, ref, dayTicket, nightTicket);
+        openCoverageIncludingNight(ins, D1);
+        Account stu = account("stu-c5@pd.com", "학생C5", Role.STUDENT);
+
+        mockMvc.perform(post("/enrollments").header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("courseId", course.getId(), "date", D1.toString(),
+                                "venueRefId", ref, "ticketRef", dayTicket,
+                                "blockStart", START.toString(), "blockEnd", END.toString()))))
+                .andExpect(status().isCreated());
+        EnrollmentRound r1 = paid(roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).get(0));
+
+        // 회차의 현재 위치가 아닌 값을 실어 보냄 → 주문도 hold 도 만들기 전에 거부
+        mockMvc.perform(post("/payments/prepare").header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("roundId", r1.getId(),
+                                "targetDate", D1.toString(), "targetTicketRef", nightTicket,
+                                "targetBlockStart", "18:00", "targetBlockEnd", "21:00",
+                                "targetVenueRefId", "CUSTOM:999999"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(-1019));
+
+        assertThat(holdRepo.findAll()).isEmpty(); // 좌석 hold 가 잡히지 않았다
+
+        // 같은 위치를 실어 보내면 정상 통과 — 가드지 차단이 아니다
+        mockMvc.perform(post("/payments/prepare").header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("roundId", r1.getId(),
+                                "targetDate", D1.toString(), "targetTicketRef", nightTicket,
+                                "targetBlockStart", "18:00", "targetBlockEnd", "21:00",
+                                "targetVenueRefId", ref))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.amount").value(10000));
+    }
+
+    @Test
     @DisplayName("M17 차액을 냈어도 강사가 그 시간은 안 된다고 거절하면 그 회차 전액(차액 포함) 환불된다")
     void instructorCanRejectAfterDiffPayment() throws Exception {
         Account ins = instructor("ins-m17@pd.com", "강사M17", 4);

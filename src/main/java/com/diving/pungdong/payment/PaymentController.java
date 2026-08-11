@@ -52,7 +52,7 @@ public class PaymentController {
         }
         PaymentService.SlotChangeTarget target = request.hasSlotChangeTarget()
                 ? new PaymentService.SlotChangeTarget(request.getTargetDate(), request.getTargetTicketRef(),
-                        request.getTargetBlockStart(), request.getTargetBlockEnd())
+                        request.getTargetBlockStart(), request.getTargetBlockEnd(), request.getTargetVenueRefId())
                 : null;
         return ResponseEntity.ok(paymentService.prepare(account, roundId, request.isMobile(),
                 request.getClient(), target));

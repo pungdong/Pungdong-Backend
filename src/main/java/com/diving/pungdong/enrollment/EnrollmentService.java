@@ -28,6 +28,7 @@ import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.IdentityVerificationRequiredException;
 import com.diving.pungdong.global.advice.exception.PreLaunchException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
+import com.diving.pungdong.global.advice.exception.VenueChangeRequiresReapplyException;
 import com.diving.pungdong.identityverification.IdentityVerificationJpaRepo;
 import com.diving.pungdong.identityverification.IdentityVerificationStatus;
 import com.diving.pungdong.venue.VenueRefResolver;
@@ -144,7 +145,12 @@ public class EnrollmentService {
      * 강사 일정변경요청 중 학생이 슬롯 선택("ㅇㅋ") — 위치 고정, 날짜/이용권/블록을 그 제안 슬롯으로 바꿔 재검증 후
      * reschedule. <b>선결제라 이미 결제된 회차</b>이고 강사가 이용권·블록까지 정해 제안한 = 강사가 승인한 자리이므로,
      * 추가 결제도 재수락도 없이 <b>곧장 {@code CONFIRMED}</b>. 입장료는 그 daypart 로 재산정되며, 싸졌으면 차액을
-     * 자동 환불한다(비싼 슬롯은 애초에 제안 단계에서 걸러진다 — {@code InstructorEnrollmentService.proposeSlots}).
+     * 자동 환불한다.
+     *
+     * <p>⚠️ <b>더 비싼 제안은 예외다</b> — 강사는 더 비싼 daypart 도 제안할 수 있고(2026-08-10), 그걸 고르면
+     * 여기서 {@code -1018}({@link AdditionalPaymentRequiredException})로 거부되어 차액 결제를 거쳐야 한다.
+     * (옛 주석은 "비싼 슬롯은 제안 단계에서 걸러진다" 였는데 그 필터가 없어진 뒤 stale 이었다 — 실제 동작은
+     * use-case 테스트 {@code C1-1} 이 고정한다.)
      *
      * <p><b>좌석 보장</b>: 좌석은 제안 시점에 그 일정에 hold 로 잡아뒀으므로 pick 은 만석으로 막히지 않는다(하드캡
      * 우회가 아니라 — 미리 잡아둔 자리를 쓰는 것). 고른 슬롯의 hold 를 회수해 실점유로 전환하고, 안 고른 나머지
@@ -188,7 +194,7 @@ public class EnrollmentService {
         round.getProposedSlots().clear();
         round.setStatus(EnrollmentStatus.CONFIRMED); // 이미 결제 + 강사가 승인한 자리 → 곧장 확정
         round.setRespondedAt(OffsetDateTime.now(ZoneOffset.UTC));
-        settleSlotChange(round, paidTotal, "일정 변경 차액");
+        settleSlotChange(round, paidTotal, "일정 변경 차액", false); // 제안은 위치 고정이라 위치가 바뀔 수 없다
         // 옛 슬롯 + 안 고른 제안 슬롯 일정 정리(점유 0이면 삭제). 고른 newSession 은 실점유라 보존.
         if (oldSession != null && !oldSession.getId().equals(newSession.getId())) {
             sessionCleaner.deleteIfEmpty(oldSession);
@@ -278,6 +284,8 @@ public class EnrollmentService {
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         int paidTotal = round.chargeTotal(); // 결제완료 경로에서 = 이미 결제된 금액
+        // 위치가 바뀌는 변경인가 — 금액까지 오르면 차액 결제로는 못 가는 조합이라 아래에서 갈라 거부한다.
+        boolean venueChanged = !Objects.equals(round.getVenueRefId(), req.getVenueRefId());
         round.archiveCurrentSlot(now); // 옛 슬롯 이력 (취소 아님)
         round.setAvailabilitySession(newSession);
         round.setVenueRefId(req.getVenueRefId());
@@ -294,7 +302,7 @@ public class EnrollmentService {
             // 학생 재제안 — 결제는 유지, 강사 결정 대기로 되돌리고 24h 시계 재시작. 금액 줄면 차액 환불.
             round.setStatus(EnrollmentStatus.ACCEPT_PENDING);
             round.setRespondedAt(now);
-            settleSlotChange(round, paidTotal, "일정 변경 차액");
+            settleSlotChange(round, paidTotal, "일정 변경 차액", venueChanged);
         } else {
             round.setStatus(EnrollmentStatus.PENDING); // 미결제 — 그대로 결제 대기
             round.setCreatedAt(now);     // 새 요청 = 결제 클럭 재시작
@@ -483,9 +491,14 @@ public class EnrollmentService {
      * 변경 <i>전</i> {@code chargeTotal()} 이 곧 결제액이다(payment 도메인 조회 불필요 = 역참조 없음).
      * 더 비싼 슬롯으로 옮기려면 취소(전액환불) 후 재신청 — 추가 청구 상태를 되살리지 않으려는 의도적 제약.
      */
-    private void settleSlotChange(EnrollmentRound round, int paidTotal, String reason) {
+    private void settleSlotChange(EnrollmentRound round, int paidTotal, String reason, boolean venueChanged) {
         int refundable = paidTotal - round.chargeTotal();
         if (refundable < 0) {
+            if (venueChanged) {
+                // 위치까지 바뀌는데 금액도 오름 — 차액 결제 경로는 위치를 못 바꾸므로(-1018 로 내보내면
+                // FE 가 결제로 유도하고, 결제 후 학생은 고른 적 없는 원래 위치로 옮겨진다) 아예 갈라 거부한다.
+                throw new VenueChangeRequiresReapplyException();
+            }
             // 금액이 늘어남 — 추가 결제 없이는 못 옮긴다. 전용 코드(-1018)로 내려 FE 가 나머지 400
             // (만석·확정 회차·슬롯 무효 …)과 구분해 차액 결제로 유도하게 한다.
             throw new AdditionalPaymentRequiredException();

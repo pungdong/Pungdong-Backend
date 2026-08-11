@@ -73,3 +73,7 @@ additionalPaymentRequired:
 userNotFound:
   code: "-1009"
   msg: "해당 자원을 조회할 수 없습니다"
+
+venueChangeRequiresReapply:
+  code: "-1019"
+  msg: "위치까지 바꾸려면 지금 예약을 취소하고 다시 신청해주세요."

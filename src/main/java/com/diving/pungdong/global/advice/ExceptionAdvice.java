@@ -121,6 +121,16 @@ public class ExceptionAdvice {
         return responseService.getFailResult(Integer.parseInt(getMessage("additionalPaymentRequired.code")), getMessage("additionalPaymentRequired.msg"));
     }
 
+    /**
+     * 위치까지 바꾸면서 금액이 오르는 변경 — 차액 결제로 <b>갈 수 없는</b> 조합이라 -1018 과 갈라 내보낸다.
+     * FE 가 이 코드에는 차액 결제 버튼을 띄우면 안 된다(띄우면 결제 후 엉뚱한 위치로 옮겨진다).
+     */
+    @ExceptionHandler(VenueChangeRequiresReapplyException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public CommonResult venueChangeRequiresReapply(VenueChangeRequiresReapplyException e) {
+        return responseService.getFailResult(Integer.parseInt(getMessage("venueChangeRequiresReapply.code")), getMessage("venueChangeRequiresReapply.msg"));
+    }
+
     @ExceptionHandler(BadRequestException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public CommonResult badRequest(BadRequestException e) {
