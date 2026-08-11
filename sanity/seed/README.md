@@ -7,6 +7,11 @@ Studio 에서 하나씩 손으로 넣기 불편한 카탈로그를 ndjson 으로
 > 장비 가격 수집(`defaultEquipment`) + 신규 8곳 등재. 원 자료는 팀 스크래치 `venueequip/research/`.
 > **장비가 방침**: 출처로 확인된 가격만 `defaultEquipment` 에 넣고, 미공개는 필드 자체를 생략 + `equipInfo`
 > 비고에 "현장 문의" 기록(추정값 금지). 상세 caveat 는 아래 각 섹션.
+>
+> **2026-08-11 Chrome 2차 확인 패스(round-2) 반영** — 봇 차단 미확인분 수동 확인 + 나무위키 다이빙풀
+> 목록 전수 대조(`research/chrome-pass.md`): K26 26m 정정, 뉴서울(공식 공지 확정)·다이브라이프·파라다이브
+> 요금/장비 정정, 메르 비고, 인어다이브 교차 확인, **올림픽수영장 잠수풀(올팍) 신규 등재**(전수 대조 결과
+> 그 외 추가 누락 없음).
 
 ## venues.ndjson — 공식(OFFICIAL) 위치 카탈로그
 
@@ -20,7 +25,7 @@ ssiduckdive.com 공개 정보 기반 잠수풀/딥풀 4곳(`venue`) — 2026-08-
 | venue-jamsil | 잠실 다이빙풀장 | DIVING_POOL | 스쿠버 16,000 / 프리 16,000·주말 20,000 (종목별 티켓 분리) | 없음 | 공기통 16,000 (풀세트가는 비고) |
 | venue-seongnam | 성남 아쿠아라인 | DIVING_POOL | 15,000 / 20,000 | 매월 2·4째 일 | 미공개(현장 문의) |
 | venue-suwon | 수원 스포츠 아일랜드 | DIVING_POOL | 15,000 / 15,000 (스쿠버 탱크 15,000 별도) | 매월 2째 수 | 6품목+탱크 전표(공식) |
-| venue-k26 | 가평 K26 (24m) | DEEP_POOL | 33,000 / 55,000 + 평일 종일권 53,000 | 매주 일 | 기본 장비·공기통 1통 무료 |
+| venue-k26 | 가평 K26 (26m) | DEEP_POOL | 33,000 / 55,000 + 평일 종일권 53,000 | 매주 일 | 기본 장비·공기통 1통 무료 |
 
 > 용인 딥스테이션은 어드민이 Studio 에서 직접 등록한 상세본(`_id` auto, 4 tickets)이 이미 있어 seed 에서 제외.
 > ⚠️ **딥스테이션 defaultEquipment 도 Studio 에서 직접 입력해야 함**(seed 밖) — 조사 확보분: 스쿠버 풀세트·
@@ -41,10 +46,10 @@ cd sanity
 npx sanity dataset import seed/venues.ndjson production --replace
 ```
 
-## venues-extra.ndjson — 전국 공식 다이빙풀 23곳 (자료조사 기반, 2026-08-11 전면 재검증)
+## venues-extra.ndjson — 전국 공식 다이빙풀 24곳 (자료조사 기반, 2026-08-11 전면 재검증 + Chrome 2차)
 
-`venues.ndjson`(수도권 4곳)에 더해 **전국 실존 3m+ 다이빙풀 15곳 + 신규 발굴 8곳**을 자료조사(다중 소스
-교차검증 + 2026-08-11 Track B 재검증)로 적재. 존재성·도로명주소는 정부/공공기관·운영사 1차 출처 기준,
+`venues.ndjson`(수도권 4곳)에 더해 **전국 실존 3m+ 다이빙풀 15곳 + 신규 발굴 9곳**을 자료조사(다중 소스
+교차검증 + 2026-08-11 Track B 재검증 + Chrome 2차 확인 패스)로 적재. 존재성·도로명주소는 정부/공공기관·운영사 1차 출처 기준,
 입장료·운영시간·장비가는 공개 확인분만(미공개는 `equipInfo` 에 "미공개/현장 문의" 명기 — plausible 추정값
 표기는 폐기). 안정 `_id`(대시) 라 `--replace` 재실행 멱등.
 
@@ -55,16 +60,16 @@ npx sanity dataset import seed/venues.ndjson production --replace
 | venue-changwon | 창원실내수영장 다이빙풀 | DIVING_POOL | 5m | 창원 성산구 | exact | 3 | **`active:false` — 2026-04~12 전 시설 휴장(공식)** |
 | venue-songdo | 인천 송도스포츠파크 잠수풀 | DIVING_POOL | 5m | 인천 연수구 | exact | 3 | 운영중 (3부제·월 휴무로 정정) |
 | venue-sujak-goyang | 고양 수작코리아 다이빙풀 | DIVING_POOL | 7m | 고양 덕양구 | approx | 3 | 운영중 (기본 10~17시·화수 야간) |
-| venue-paradive35 | 시흥 파라다이브35 | DEEP_POOL | 35m | 시흥 | exact | 3 | 운영중 (기본 장비 무료 확인) |
+| venue-paradive35 | 시흥 파라다이브35 | DEEP_POOL | 35m | 시흥 | exact | 3 | 운영중 (기본 무료 + 유료 장비 전표 확정 · 08~23시 5부제) |
 | venue-alps-daejeon | 대전 알프스 다이빙센터 | DEEP_POOL | 15m | 대전 중구 | approx | 3 | 운영중 (주말 45,000 정정·렌탈 전표) |
 | venue-duryu-daegu | 두류수영장 다이빙풀 | DIVING_POOL | 5m | 대구 달서구 | approx | 1 | **`active:false` — 2025-12~ 천장 안전 휴장, 재개 미확인** |
 | venue-nambu-gwangju | 남부대 시립국제수영장 다이빙풀 | DIVING_POOL | 5m | 광주 광산구 | exact | 3 | 운영중 (렌탈 전표·1·3째 일 휴무) |
 | venue-yeomju-gwangju | 염주체육관 다이빙풀 | DIVING_POOL | 5m | 광주 서구 | approx | — | 운영중 (연락처 269-8484 확정) |
 | venue-wansan-jeonju | 완산수영장 다이빙풀 | DIVING_POOL | 5m | 전주 완산구 | exact | — | 운영중 (운영시간 정정) |
 | venue-tsn-osan | 테마 다이빙풀 (TSN 오산) | DEEP_POOL | 11m | 오산 | exact | 3 | 운영중 (풀세트 입장료 포함) |
-| venue-newseoul-gwangmyeong | 뉴서울다이빙풀 | DIVING_POOL | 5m | 광명 | exact | 3 | 운영 추정 (최근 활동 근거 약함) |
-| venue-divelife-seoul | 다이브라이프 다이빙풀 | DIVING_POOL | 3m | 서울 서초 | approx | 3 | 운영중 (입장료 25,000 근거없음 → 미공개 처리) |
-| venue-mer-goyang | 메르 프리다이빙 센터 | DIVING_POOL | 5m | 고양 일산동구 | exact | 3 | 운영중 (주말 단축 운영 정정) |
+| venue-newseoul-gwangmyeong | 뉴서울다이빙풀 | DIVING_POOL | 5m | 광명 | exact | 3 | 운영중 (공식 공지 2026-05 확정 — 종목별 요금·렌탈 반영) |
+| venue-divelife-seoul | 다이브라이프 다이빙풀 | DIVING_POOL | 3m | 서울 서초 | approx | 3 | 운영중 (입장 20,000/2h · 풀세트 11,000 — 후기 다수 기반) |
+| venue-mer-goyang | 메르 프리다이빙 센터 | DIVING_POOL | 5m | 고양 일산동구 | exact | 3 | 운영중 (렌탈 공식 미공개 — 현장 문의 비고) |
 | venue-gangneung-sports | 강릉 국민체육센터 잠수풀 | DIVING_POOL | 5m | 강릉 | **미확인** | — | 신규 (요금은 수영장 일반 기준) |
 | venue-yongun-daejeon | 용운국제수영장 다이빙풀 | DIVING_POOL | 5m | 대전 동구 | approx | — | 신규 |
 | venue-chungbuk-cheongju | 충북학생수영장 다이빙장 | DIVING_POOL | 5m | 청주 청원구 | approx | — | 신규 (강사 동반 입장만) |
@@ -72,7 +77,8 @@ npx sanity dataset import seed/venues.ndjson production --replace
 | venue-munsu-ulsan | 문수실내수영장 다이빙풀 | DIVING_POOL | 5m | 울산 남구 | approx | — | 신규 (FREEDIVING 만 — 스쿠버 미확인) |
 | venue-gunsan-oceanpalette | 군산 오션팔레트 잠수풀 | DIVING_POOL | 5m | 군산 옥도면 | approx | — | 신규 (2026-07-10 개장) |
 | venue-uljin-marine | 울진해양레포츠센터 잠수풀 | DIVING_POOL | 5m | 울진 매화면 | **미확인** | — | 신규 (입장료 미공개) |
-| venue-ina-yongin | 인어다이브 용인다이빙풀 | DIVING_POOL | 3m | 용인 처인구 | **미확인** | — | 신규 (입장료에 스킨 장비 포함) |
+| venue-ina-yongin | 인어다이브 용인다이빙풀 | DIVING_POOL | 3m | 용인 처인구 | **미확인** | — | 신규 (입장료에 스킨 장비 포함 · 나무위키 교차 확인) |
+| venue-olympicpool-songpa | 올림픽수영장 잠수풀 (올팍) | DIVING_POOL | 5m | 서울 송파구 | **미확인** | — | 신규 (Chrome 2차 발견 — 라이센스 확인 입장 · 둘째 일 휴관) |
 
 생성/사진 파이프라인:
 - `_gen-extra.mjs` — 조사 데이터를 `schema/venue.ts` 모양으로 직렬화하는 생성기(`cd sanity/seed && node _gen-extra.mjs`).
@@ -81,21 +87,23 @@ npx sanity dataset import seed/venues.ndjson production --replace
 - `download-images.sh` — 공개 사진을 `images/<id>/` 로 받아 content-type 검증. (대용량은 2048px 로 다운스케일.)
 
 > ⚠️ **사진 저작권**: `images/` 는 공식 사이트·공공기관·관광공사 CDN·뉴스에서 받은 **seed/placeholder 성격**.
-> 실서비스 공개 전 권리 확보된 이미지로 교체 권장. (사용자 결정 2026-06-19.) 신규 8곳 사진은 이번엔 미수집
+> 실서비스 공개 전 권리 확보된 이미지로 교체 권장. (사용자 결정 2026-06-19.) 신규 9곳 사진은 이번엔 미수집
 > (필수 아님 — 확보 쉬운 공식 출처 위주로 후속).
 >
 > **좌표 재지오코딩 필요 목록** (import 전 BE `/geocode`(juso) 또는 카카오/네이버 플레이스로): ① `venue-suwon`
 > (주소가 월드컵로 310 으로 정정됨 — 기존 좌표는 구 주소 기준) ② `venue-alps-daejeon`(도로 중심 대비 ~1km 오차
-> 의심) ③ `venue-yeomju-gwangju`(미검증) ④ **신규 8곳 전부**(소수 2자리 근사 또는 좌표 자체 미기재 —
-> 강릉·울진·인어다이브는 필드 없음).
+> 의심) ③ `venue-yeomju-gwangju`(미검증) ④ **신규 9곳 전부**(소수 2자리 근사 또는 좌표 자체 미기재 —
+> 강릉·울진·인어다이브·**올림픽수영장(올팍)** 은 필드 없음).
 >
 > **`active:false` 3곳(창원·두류·독도)은 권고 기본값** — 휴장/허가제 사유는 각 `equipInfo` 최상단 ⚠️ 라인.
 > 유지/제거는 **사용자 최종 확인 대상**(decisions.md). **보류(등재 안 함)**: 씨네블루 파주(최신 활동 근거
 > 2021 이후 없음)·MS다이빙풀 부천(2025-07 이용 중단·법적 분쟁 지속)·경일대(개장 미확인)·창원바다여행(요금
 > 미확인)·패스나인·고성·대부동·전북잠수전문학교·여수해양교육원(특수목적) — research/ 참조.
 >
-> **미해결 공백(봇차단 — 수동 확인 필요)**: 수작·뉴서울·파라다이브 공식 가격표 원문, 메르 렌탈가(페이지 404),
-> 다이브라이프 입장료. 해당 venue 는 `equipInfo` 에 재확인 필요 명기됨.
+> **미해결 공백(Chrome 2차 후 잔여)**: 수작 공식 가격표 원문(공식 인스타로 기존값 재확인만), 뉴서울 개별
+> 렌탈가(hwp 첨부 미확인), 메르 렌탈가(공식 미공개 — 현장 문의), 올림픽수영장(올팍) 운영시간(나무위키
+> 14~21시 기준 — 최신 재확인 여지). ~~뉴서울 요금(공식 공지 확정)·파라다이브 장비 전표(복수 소스 일치)·
+> 다이브라이프 입장료(후기 다수 기반 반영)~~ 는 round-2 에서 해소. 해당 venue 는 `equipInfo` 에 명기됨.
 
 ### 적재
 
