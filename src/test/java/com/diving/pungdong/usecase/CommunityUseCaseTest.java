@@ -3,6 +3,7 @@ package com.diving.pungdong.usecase;
 import com.diving.pungdong.account.*;
 import com.diving.pungdong.branding.AccountBrandingJpaRepo;
 import com.diving.pungdong.branding.BrandingPostJpaRepo;
+import com.diving.pungdong.community.CommunityPostMatch;
 import com.diving.pungdong.course.*;
 import com.diving.pungdong.global.security.JwtTokenProvider;
 import org.junit.jupiter.api.AfterEach;
@@ -266,6 +267,79 @@ class CommunityUseCaseTest {
                                 + ",\"match\":{\"meetDate\":\"" + meetDate + "\",\"capacity\":2,"
                                 + "\"levelLabel\":\"OWD 이상\"}}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    /** 같이가요 글 작성 → 생성된 id. */
+    private long matchPost(Account author, String title, LocalDate meetDate) throws Exception {
+        MvcResult result = mockMvc.perform(post("/community/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(author))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"MATCH\",\"title\":\"" + title + "\","
+                                + "\"match\":{\"meetDate\":\"" + meetDate + "\",\"capacity\":4,"
+                                + "\"levelLabel\":\"AOWD 이상\"}}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        return ((Number) com.jayway.jsonpath.JsonPath.read(
+                result.getResponse().getContentAsString(), "$.id")).longValue();
+    }
+
+    @Test
+    @DisplayName("M3: 같이가요 피드는 일정 임박순으로 온다 (최신순이 아니라 — 늦게 쓴 글이라도 일정이 가까우면 위)")
+    void matchFeed_ordersBySoonestDate() throws Exception {
+        Account me = account("m3@c.com", "diverC36", Role.STUDENT);
+        matchPost(me, "먼 일정", LocalDate.now().plusDays(30));
+        matchPost(me, "가까운 일정", LocalDate.now().plusDays(2));
+
+        // 나중에 쓴 "가까운 일정" 이 위로 온다 — 최신순이었다면 순서가 같아 구분이 안 되므로,
+        // 일부러 나중에 쓴 쪽을 임박하게 만들어 두 정렬을 갈라놨다.
+        mockMvc.perform(get("/community/posts").param("category", "MATCH"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.posts[0].title").value("가까운 일정"))
+                .andExpect(jsonPath("$._embedded.posts[1].title").value("먼 일정"));
+    }
+
+    @Test
+    @DisplayName("M4: 일정이 지난 모집글은 open=false 다 (지난 글이 멀쩡해 보이면 안 된다)")
+    void pastMatch_isClosed() throws Exception {
+        Account me = account("m4@c.com", "diverC37", Role.STUDENT);
+        long id = matchPost(me, "지나갈 일정", LocalDate.now().plusDays(1));
+
+        // 지난 날짜는 API 가 거부하므로(@FutureOrPresent) HTTP 로는 만들 수 없다.
+        // 시간이 흐른 상황을 재현하려면 저장된 일정을 직접 과거로 돌리는 수밖에 없다.
+        CommunityPostMatch match = matchRepo.findById(id).orElseThrow();
+        match.setMeetDate(LocalDate.now().minusDays(1));
+        matchRepo.saveAndFlush(match);
+
+        mockMvc.perform(get("/community/posts/" + id))
+                .andExpect(jsonPath("$.match.open").value(false));
+    }
+
+    @Test
+    @DisplayName("M5: 같이가요인데 모집 정보를 빠뜨리면 400 (일정·인원·자격은 이 카테고리의 필수 필드다)")
+    void matchWithoutMeta_rejected() throws Exception {
+        Account me = account("m5@c.com", "diverC38", Role.STUDENT);
+
+        mockMvc.perform(post("/community/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"MATCH\",\"title\":\"모집 정보 없는 글\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("M6: 카테고리를 같이가요에서 다른 것으로 바꾸면 모집 정보가 함께 사라진다")
+    void changingCategoryAwayFromMatch_dropsMeta() throws Exception {
+        Account me = account("m6@c.com", "diverC39", Role.STUDENT);
+        long id = matchPost(me, "원래 같이가요", LocalDate.now().plusDays(5));
+
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"이제 자랑 글\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.match").doesNotExist());
+
+        assertThat(matchRepo.findById(id)).isEmpty();
     }
 
     /* ════════════════ A — 작성자 합성 ════════════════ */
