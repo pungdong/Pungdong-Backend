@@ -37,6 +37,7 @@
 ### 위치 · 장비 (venue 도메인 소유, 코스는 참조)
 - 강사는 **"위치목록"** 하나만 요청(`GET /venues/builder`)하면 official(Sanity)+custom(내 DB)이 합쳐 온다. 코스는 고른 위치를 **`venueRefId`**("CUSTOM:&lt;pk&gt;"/"OFFICIAL:&lt;sanityId&gt;")로 가리키고, 저장 시 검증(내 custom / 캐시된 official).
 - **위치별 대여 장비**는 코스가 아니라 강사×위치 가격표(equipment extension). 코스 상세는 그 가격표를 **읽기 시점 합성**해 보여준다 — 가격 바꾸면 모든 코스에 반영(코스에 복제 안 함).
+- **Step 3(장비) prefill** — 저장분 없는 OFFICIAL 위치는 `GET /venue-equipment?venueRefId=` 가 venue 기본 장비(Sanity `defaultEquipment`)를 `source=VENUE_DEFAULT` 로 합성해 줘, 신규 강사가 빈 화면 대신 수영장 공시가에서 시작한다(수정 후 PUT 저장 시 실체화 = MINE). 정책·부활 금지 규칙은 [venue.md](venue.md) "대여 장비" 절.
 - 코스는 위치의 **이용권 선택**(ticketRef × 평일/주말)만 보관. 실제 가격·시간 해석은 부킹 시점(후속).
 
 ### 상태 · 검수

@@ -231,6 +231,8 @@ erDiagram
 
 - **장비료는 위치별·강사 전역** — 코스에 복제하지 않고 `venueRefId` 로 위치를 가리켜 코스 읽을 때 합성. 가격이 위치마다 다른 현실(딥스테이션 무료포함↔5m풀 유료)을 코스가 아니라 여기서 흡수.
 - 저장 시 `venueRefId` 검증 — CUSTOM=내 소유 위치(`VenueService.ownsCustomVenue`), OFFICIAL=Sanity 캐시 존재(`OfficialVenueCache.contains`). 아니면 400.
+- **prefill fallback (2026-08-11)** — `GET /venue-equipment?venueRefId=` 에서 저장 행이 없고 참조가 OFFICIAL 이며 캐시 문서에 `defaultEquipment`(Sanity `venue.defaultEquipment[]`)가 있으면, `source=VENUE_DEFAULT` 로 합성해 반환(top-level `id`·item `id` = null, `sizeOptions` = **null**(= "자동" — `[]` 는 FE 가 "0개 선택"으로 렌더해 표시≠저장, 계약서 §3 개정 2026-08-11). price 누락/비숫자 행은 name 누락과 동일하게 skip(미상≠무료). 저장 행이 있으면(빈 items 포함) 그대로 `source=MINE` — 기본값 부활 없음. CUSTOM/기본값 없는 OFFICIAL/깨진 토큰/무필터 전체 목록은 기존처럼 빈 컬렉션(조회라 400 아님). `sizeFormat` 은 lenient 파싱(`SizeFormat.lenientOrNull` — 미상 문자열 null, enum crash 금지). booking 경로(`findMine`)·`PUT` 은 무변경 — 정책·왜는 [docs/features/venue.md](../features/venue.md).
+- **캐시 스키마 버전 마커** — `_rev` 대조는 Sanity 문서 변경만 감지하므로, BE projection 확장(예: defaultEquipment 추가) 배포 후 구버전 코드가 남긴 캐시는 새 필드가 없다. `OfficialVenueCache.SCHEMA_VERSION` 을 적재 시 함께 기록하고 읽기 경로(getAll/contains/getDoc)가 버전 불일치 시 lazy reload.
 
 **즐겨찾기 (venue favorite)** — 표식이라 내용물이 없다. `(owner, venueRefId)` UNIQUE 가 곧 멱등성:
 
@@ -265,7 +267,7 @@ erDiagram
 | `GET /venues/builder?disciplineCode=&type=` | 필요 | OFFICIAL(전체 공개) + 내 CUSTOM(남의 것 제외) 머지 |
 | `GET /venues/{id}` | 필요 | 내 커스텀만 — 아니면 400(존재 숨김) |
 | `PUT/DELETE /venues/{id}` | 필요 | 내 커스텀만 — 아니면 400 |
-| `GET /venue-equipment?venueRefId=` | 필요 | 내 가격표만 (owner=현재 계정) |
+| `GET /venue-equipment?venueRefId=` | 필요 | 내 가격표만 (owner=현재 계정). 저장분 없는 OFFICIAL 은 venue 기본 장비 합성(`source=VENUE_DEFAULT`, §4) |
 | `PUT /venue-equipment` | 필요 | 내 가격표 upsert — venueRefId 가 내 custom 또는 캐시된 official 이어야 (아니면 400) |
 | `GET /venue-favorites` | 필요 | 내 표식만 (owner=현재 계정) |
 | `POST /venue-favorites` | 필요 | `VenueRefValidator` — 내 custom 또는 캐시된 official 이어야 (아니면 400). 멱등 |
@@ -298,7 +300,7 @@ erDiagram
 - `VenueFavoriteUseCaseTest`: `S1`~`S4` custom·official 마크→빌더 `favorite=true` / 해제 복귀 / 목록 · `D1`·`D2` 마크·해제 멱등 · `V1`·`V2` 형식 오류·없는 official 400 · `R1`~`R3` 남의 custom 400·강사별 격리·비로그인 401 · `L1` 위치 삭제 시 표식 동반 삭제
 - `C1`~`C4` reconcile 초기적재 / 무변경 재fetch 안 함 / `_rev` 변경 refetch / 삭제 evict
 - `W1`~`W3` 웹훅 유효서명 200+reconcile / 위조 401 / 재전송 dedup
-- `VenueEquipmentUseCaseTest`: `E1` 커스텀 저장+사이즈 프리셋 / `E2` 스냅샷 교체 / `E3` 공식 위치 저장 / `V1`·`V2` 비소유 custom·없는 official·깨진 토큰 400 / `R1` 소유 격리
+- `VenueEquipmentUseCaseTest`: `E1` 커스텀 저장+사이즈 프리셋 / `E2` 스냅샷 교체 / `E3` 공식 위치 저장 / `S1`~`S6` venue 기본 장비 prefill(합성·PUT 후 MINE·빈 저장 부활 금지·기본값 없는 official·CUSTOM·무필터 제외) / `V1`·`V2` 비소유 custom·없는 official·깨진 토큰 400 / `V3` 미상 sizeFormat lenient null / `C1` 캐시 스키마 버전 lazy reload / `R1` 소유 격리
 
 > 공식 위치 캐시는 임베디드 Redis(process-전역)라, 캐시를 읽는 테스트는 `@BeforeEach` 로 `venue:official:*` flush 해 순서 의존을 없앤다.
 

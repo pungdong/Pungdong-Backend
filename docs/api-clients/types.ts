@@ -944,14 +944,14 @@ export type SizeFormat = 'NONE' | 'SHOE_MM' | 'APPAREL_SXL';
 
 /** 장비 1종 (요청·응답 공용 모양). price 0 = 무료. */
 export interface VenueEquipmentItem {
-  /** 응답에만. */
-  id?: number;
+  /** 응답에만. VENUE_DEFAULT 일 때 null. */
+  id?: number | null;
   name: string;
   price: number;
   /** 미지정 시 NONE 취급. */
   sizeFormat?: SizeFormat;
-  /** 수강생이 고를 사이즈. 비우면 sizeFormat 프리셋으로 채워져 응답에 옴. */
-  sizeOptions?: string[];
+  /** 수강생이 고를 사이즈. 비우면 sizeFormat 프리셋으로 채워져 응답에 옴. VENUE_DEFAULT 일 때 null(= 자동 — 프리셋 폴백). */
+  sizeOptions?: string[] | null;
 }
 
 /** PUT /venue-equipment 요청 — 한 위치 가격표 저장(items 전량 교체 스냅샷). */
@@ -963,9 +963,13 @@ export interface VenueEquipmentRequest {
 
 /** 가격표 응답. 목록은 `_embedded.extensions`(CollectionModel). */
 export interface VenueEquipmentResponse extends HalLinks {
-  id: number;
+  /** VENUE_DEFAULT 일 때 null(아직 저장 행 없음). */
+  id: number | null;
   venueRefId: string;
   items: VenueEquipmentItem[];
+  /** 'MINE' = 강사 저장분(기존 동작). 'VENUE_DEFAULT' = 저장분 없음 → venue 기본 장비 prefill.
+   *  VENUE_DEFAULT 일 때 item.id 는 null (예약 불가 — Step3 저장 시 실체화되며 id 부여). */
+  source?: 'MINE' | 'VENUE_DEFAULT';
 }
 
 // ── 주소 검색 + 좌표 변환 (address) — docs/architecture/address.md ──

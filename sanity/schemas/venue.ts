@@ -136,6 +136,42 @@ export const venueClosure = defineType({
   },
 })
 
+/**
+ * 기본 대여 장비 1종 — 수영장이 공시한 장비·1인 대여료. 강사 가격표(BE venue_equipment_extension)의
+ * prefill 시작값으로만 쓰인다(저장분 없을 때 GET /venue-equipment 가 source=VENUE_DEFAULT 로 합성).
+ * sizeOptions(사이즈 재고)는 여기 두지 않는다 — 강사 관심사라 저장 시 프리셋 자동 채움을 재사용.
+ */
+export const venueEquipDefault = defineType({
+  name: 'venueEquipDefault',
+  title: '기본 장비',
+  type: 'object',
+  fields: [
+    defineField({
+      name: 'name', title: '장비명', type: 'string', validation: (r) => r.required(),
+      description: '예: 롱핀, 슈트, 마스크·스노클',
+    }),
+    defineField({
+      name: 'price', title: '1인 대여료(원)', type: 'number', validation: (r) => r.required().min(0),
+      description: '0 = 무료(입장료 포함).',
+    }),
+    defineField({
+      name: 'sizeFormat', title: '사이즈 형식', type: 'string',
+      options: {list: [
+        {title: '없음', value: 'NONE'},
+        {title: '신발 mm', value: 'SHOE_MM'},
+        {title: '의류 S~XL', value: 'APPAREL_SXL'},
+      ]},
+      description: '비워두면 FE 가 장비명으로 추론(guessSizeFormat).',
+    }),
+  ],
+  preview: {
+    select: {name: 'name', price: 'price'},
+    prepare: ({name, price}) => ({
+      title: `${name || '장비'} · ${typeof price === 'number' ? price.toLocaleString('ko-KR') : '?'}원`,
+    }),
+  },
+})
+
 /** 이용 옵션 1종 = 한 카드(일반권/하프권/종일권). 이용시간은 시간블록/키반납에서 파생(저장 안 함). */
 export const venueTicket = defineType({
   name: 'venueTicket',
@@ -203,10 +239,27 @@ export const venue = defineType({
     defineField({name: 'longitude', title: '경도', type: 'number', fieldset: 'geo'}),
     // 정보 제공용 — 이미지만. 영상은 의도적으로 제외(트랜스코딩/스트리밍 서드파티 회피). type:'image' 라 이미지 자산만 허용.
     defineField({name: 'photos', title: '장소 사진', type: 'array', of: [{type: 'image'}], options: {layout: 'grid'}}),
-    // 장비 대여료는 위치에 두지 않는다 — 코스 개설 시 강사가 지정. 위치엔 '장비 대여 정보'(자유 텍스트)만.
+    // (2026-08-11 결정 번복) 기본 장비·대여료를 위치의 구조화 필드로 둔다 — 예전 결정("장비 대여료는
+    // 위치에 두지 않는다, 코스 개설 시 강사가 지정")은 폐기. 이유: 신규 강사의 코스 작성 Step 3 가
+    // 빈 화면 대신 수영장 공시가로 시작(prefill). 강사 소유 모델(BE venue_equipment_extension)은
+    // 무변경 — 이건 저장분이 없을 때의 시작값일 뿐이고, 학생에게는 노출되지 않는다(prefill 전용).
     defineField({
-      name: 'equipInfo', title: '장비 대여 정보', type: 'text', rows: 3,
-      description: '대여 가능 장비·슈트·요금 등 자유 서술(멀티라인).',
+      name: 'defaultEquipment', title: '기본 대여 장비', type: 'array', of: [{type: 'venueEquipDefault'}],
+      description: '수영장 공시 대여 장비·1인 대여료. 강사 저장분이 없을 때 코스 작성 Step 3 의 시작값으로만 쓰인다(학생 노출 없음).',
+      validation: (r) =>
+        r.custom((items) => {
+          const names = ((items as Array<{name?: string}> | undefined) || [])
+            .map((i) => i?.name)
+            .filter(Boolean)
+          const dup = names.find((n, idx) => names.indexOf(n) !== idx)
+          return dup ? `중복 장비명: ${dup}` : true
+        }).warning(),
+    }),
+    // equipInfo 는 구조화 defaultEquipment 도입(위)으로 "비고" 로 강등 — 대여 데스크 위치, 풀세트 할인 등
+    // 구조화가 안 되는 부가 정보만. 장비명·가격은 defaultEquipment 에.
+    defineField({
+      name: 'equipInfo', title: '장비 대여 비고', type: 'text', rows: 3,
+      description: '자유 텍스트 비고 — 대여 데스크 위치, 풀세트 할인 등. 장비명·가격은 위 "기본 대여 장비"에.',
     }),
     defineField({name: 'closures', title: '정기 휴무', type: 'array', of: [{type: 'venueClosure'}]}),
     defineField({

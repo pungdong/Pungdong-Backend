@@ -87,7 +87,7 @@ BE 는 OFFICIAL venue 를 Sanity 에서 읽어 **Redis 에 캐싱**(availability
 
 ### 대여 장비 = 위치별·강사 전역 (equipment extension)
 - 장비 대여료는 **위치마다 다르다**(딥스테이션=입장료에 포함돼 무료 ↔ 5m풀=유료, 강사가 더 싸게도). 그래서 장비를 **코스가 아니라 "강사 × 위치" 가격표**(equipment extension, BE `venue.equipment`)에 둔다 — 그 강사의 모든 코스가 공유하고 "어디서 바꿔도 신규 접수부터 적용".
-- official 위치엔 자유텍스트 `장비 대여 정보`(Sanity)만 — 강사가 받을 실제 대여 항목·가격은 이 가격표. 강사 custom 위치엔 장비란 없음(여기서 설정).
+- **venue 기본 장비 = Sanity 구조화 필드 `defaultEquipment`** (2026-08-11 번복 — 아래 결정 히스토리). official 위치가 공시한 장비·1인 대여료를 어드민이 Sanity 에 넣고, **강사 저장분이 없을 때만** `GET /venue-equipment` 가 `source=VENUE_DEFAULT` 로 합성해 준다 — **코스 작성 Step 3 prefill 전용**(신규 강사가 빈 화면 대신 수영장 공시가로 시작). 강사가 한 번이라도 저장하면(비운 것 포함) 그대로 강사분(`MINE`) — 기본값 부활 없음. **학생/booking 경로는 무변경**(사용자 확정: 학생은 강사 저장분만 본다). 자유텍스트 `equipInfo` 는 "장비 대여 비고"로 강등(대여 데스크 위치·풀세트 할인 등). 강사 custom 위치엔 장비란 없음(여기서 설정).
 - **장비료는 평일/주말로 안 나뉜다**(입장료와 달리 위치 종속 단일가). 항목별 **사이즈 형식**(핀=신발mm / 슈트=S~XL / 마스크=없음, 직접입력)으로 수강생 신청 마찰 0(chat39).
 
 ### 투어·다이빙 포인트
@@ -115,6 +115,7 @@ BE 는 OFFICIAL venue 를 Sanity 에서 읽어 **Redis 에 캐싱**(availability
 | 2026-06-13 | **reconcile 잡 liveness heartbeat alert 필수** | reconcile 가 정합성의 바닥 — 잡이 죽으면 무한 stale |
 | 2026-06-14 | **통합 read + 동기화 인프라 구현**(`GET /venues/builder` · `venue.sync`: HttpSanityVenueClient + Redis cache-aside + `_rev` reconcile + 웹훅 + actuator heartbeat) | 위 설계대로. 캐시 cache-aside lazy-load 라 cold start·테스트도 동작. 실 페이징은 Phase 4 |
 | 2026-06-14 | **대여 장비 = equipment extension 구현**(`venue.equipment`: 강사×위치 가격표 `(owner,venueRefId)` 유니크, 사이즈 형식 프리셋) | 장비료가 위치별로 달라 코스가 아니라 위치에 종속. 강사 전역·코스 공유. `GET/PUT /venue-equipment` |
+| 2026-08-11 | **번복: venue 기본 장비를 Sanity 구조화 필드로**(`venue.defaultEquipment[]` name·price·sizeFormat) — 종전 "장비 대여료는 위치(Sanity)에 두지 않는다, 강사가 지정" 폐기 | 신규 강사의 Step 3 가 빈 화면으로 시작하는 문제 — 수영장 공시가를 prefill 시작값으로. **강사 소유 모델(venue_equipment_extension)은 무변경** — 저장분 없을 때만 `GET /venue-equipment` 가 `source=VENUE_DEFAULT` 합성, 저장분 있으면(빈 items 포함) 부활 없음. **학생 booking 경로 무변경**(사용자 확정: prefill 전용). `equipInfo` 는 비고로 강등. 사이즈 재고(sizeOptions)는 Sanity 에 안 둠(강사 관심사 — 저장 시 프리셋 자동 채움 재사용) |
 
 ## 미해결 / 확장
 
