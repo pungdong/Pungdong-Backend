@@ -30,4 +30,19 @@ public enum SizeFormat {
     public List<String> presetOptions() {
         return presetOptions;
     }
+
+    /**
+     * lenient 파싱 — 미상/빈 문자열이면 null(enum crash 금지). Sanity {@code defaultEquipment.sizeFormat}
+     * 은 어드민 입력이라 신뢰하지 않는다. null 이면 FE 가 장비명으로 추론(guessSizeFormat).
+     */
+    public static SizeFormat lenientOrNull(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return SizeFormat.valueOf(raw);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
 }

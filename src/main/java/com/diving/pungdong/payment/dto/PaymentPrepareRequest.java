@@ -63,6 +63,22 @@ public class PaymentPrepareRequest {
     private String targetTicketRef;
 
     /**
+     * <b>목표 슬롯 위치(선택 — 보내면 대조한다)</b>. 차액 결제는 <b>위치를 바꾸지 못한다</b> — 서버는 언제나
+     * 회차의 현재 위치로 목표 슬롯을 해석한다.
+     *
+     * <p>그래서 클라이언트가 <b>다른 위치</b>를 띄워놓고 이 요청을 보내면, (이용권·시간이 현재 위치에도 우연히
+     * 존재할 경우) 학생이 고른 적 없는 <b>원래 위치</b>로 조용히 옮겨진다 — 돈은 나갔는데 장소가 다르고 성공
+     * 화면은 정상으로 보인다. 그 조용한 어긋남을 막으려고, 값을 보내면 현재 위치와 대조해 다르면
+     * {@code -1019}({@link com.diving.pungdong.global.advice.exception.VenueChangeRequiresReapplyException})
+     * 로 <b>거부</b>한다.
+     *
+     * <p>즉 이 필드는 기능이 아니라 <b>가드</b>다. 클라이언트는 사용자에게 보여준 위치를 항상 실어 보내는 것을
+     * 권장한다(안 보내면 대조를 못 하니 이 방어가 꺼진다). 애초에 위치가 바뀌는 경로로 들어오지 않게 하는 1차
+     * 방어는 {@code reschedule} 이 {@code -1019} 를 먼저 내는 것이다.
+     */
+    private String targetVenueRefId;
+
+    /**
      * 목표 슬롯 시작 시각 — {@code "14:00"} · {@code "14:00:00"} 둘 다 받는다(ISO_LOCAL_TIME).
      *
      * <p>⚠️ 예전엔 {@code @JsonFormat(pattern = "HH:mm")} 이 붙어 있어 <b>{@code "14:00:00"} 이 400</b> 이었다.

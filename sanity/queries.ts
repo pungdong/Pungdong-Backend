@@ -62,6 +62,7 @@ export const officialVenuesByDiscipline = `
   | order(sortOrder asc) {
     _id, name, type, maxDepth, address, addressDetail, latitude, longitude, "photos": photos[].asset->url,
     equipInfo,
+    defaultEquipment[]{ name, price, sizeFormat },
     closures[]{ type, weekdays, nth, monthlyWeekday },
     tickets[]{ "_key": _key, name, disciplines, weekday ${VENUE_DAYPART}, weekend ${VENUE_DAYPART} }
   }
@@ -72,6 +73,7 @@ export const venueById = `
 *[_type == "venue" && _id == $id][0] {
   _id, name, type, maxDepth, address, addressDetail, latitude, longitude, "photos": photos[].asset->url,
   equipInfo,
+  defaultEquipment[]{ name, price, sizeFormat },
   closures[]{ type, weekdays, nth, monthlyWeekday },
   tickets[]{ "_key": _key, name, disciplines, weekday ${VENUE_DAYPART}, weekend ${VENUE_DAYPART} }
 }

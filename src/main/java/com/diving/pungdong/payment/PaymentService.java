@@ -9,6 +9,7 @@ import com.diving.pungdong.enrollment.PaymentWindow;
 import com.diving.pungdong.global.sitesettings.SiteSettingsProvider;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
+import com.diving.pungdong.global.advice.exception.VenueChangeRequiresReapplyException;
 import com.diving.pungdong.payment.dto.PaymentConfirmResponse;
 import com.diving.pungdong.payment.dto.PaymentPrepareResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -60,8 +61,15 @@ public class PaymentService {
         this.siteSettings = siteSettings;
     }
 
-    /** 차액 결제가 적용할 목표 슬롯 — 위치는 회차 고정, 일정(날짜·이용권·블록)만 바뀐다. */
-    public record SlotChangeTarget(LocalDate date, String ticketRef, LocalTime blockStart, LocalTime blockEnd) {
+    /**
+     * 차액 결제가 적용할 목표 슬롯 — 위치는 회차 고정, 일정(날짜·이용권·블록)만 바뀐다.
+     *
+     * @param venueRefId 클라이언트가 <b>사용자에게 보여준</b> 위치(선택). 값이 오면 회차의 현재 위치와 대조해
+     *                   다르면 거부한다 — 위치는 이 경로로 못 바꾸므로, 안 막으면 학생이 고른 적 없는 원래
+     *                   위치로 조용히 옮겨진다. null 이면 대조를 건너뛴다(하위호환).
+     */
+    public record SlotChangeTarget(LocalDate date, String ticketRef, LocalTime blockStart, LocalTime blockEnd,
+                                   String venueRefId) {
     }
 
     /**
@@ -88,6 +96,10 @@ public class PaymentService {
             r = requirePayable(student, roundId);
             amount = authoritativeAmount(r);
         } else {
+            // ★ 위치 가드 — 차액 결제는 위치를 못 바꾼다. 클라이언트가 다른 위치를 띄워놓고 보냈다면
+            // (이용권·시간이 현재 위치에도 우연히 있으면) 학생이 고른 적 없는 곳으로 조용히 옮겨진다.
+            // 값을 보내온 경우에만 대조 가능 — 1차 방어는 reschedule 이 -1019 를 먼저 내는 것.
+            requireSameVenue(student, roundId, target.venueRefId());
             // 검증·가격 산정은 enrollment 소관(payment→enrollment, 허용 방향). 여기선 금액만 받아 주문을 만든다.
             EnrollmentService.SlotChangeQuote quote = enrollmentService.quoteSlotChange(
                     student, roundId, target.date(), target.ticketRef(), target.blockStart(), target.blockEnd());
@@ -142,6 +154,26 @@ public class PaymentService {
                 : PaymentWindow.remainingSecondsFor(r, ttlHours, now);
         return PaymentPrepareResponse.of(order, orderNoFormatter.format(order.getId(), order.getCreatedAt()),
                 gateway.provider(), params, expiresInSeconds);
+    }
+
+    /**
+     * 목표 위치 가드 — 클라이언트가 실어 보낸 위치가 회차의 현재 위치와 다르면 거부한다({@code -1019}).
+     * 차액 결제 경로는 위치를 바꾸지 못하므로(승인 시 {@code applySlotChange} 가 {@code venueRefId} 를 그대로 둔다),
+     * 다른 위치를 의도한 요청은 <b>성사시키면 안 되는</b> 요청이다. 값이 없으면(하위호환) 대조를 건너뛴다.
+     */
+    private void requireSameVenue(Account student, Long roundId, String targetVenueRefId) {
+        if (targetVenueRefId == null) {
+            return;
+        }
+        EnrollmentRound round = roundRepo.findById(roundId).orElseThrow(ResourceNotFoundException::new);
+        // 소유 검증은 곧이어 quoteSlotChange 가 하지만, 그 전에 남의 회차 위치를 떠보지 못하게 여기서도 막는다.
+        if (round.getEnrollment() == null || round.getEnrollment().getStudent() == null
+                || !round.getEnrollment().getStudent().getId().equals(student.getId())) {
+            throw new ResourceNotFoundException(); // 없음/남의 회차 — 존재 숨김
+        }
+        if (!targetVenueRefId.equals(round.getVenueRefId())) {
+            throw new VenueChangeRequiresReapplyException();
+        }
     }
 
     /**

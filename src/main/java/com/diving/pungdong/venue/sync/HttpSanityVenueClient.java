@@ -31,11 +31,12 @@ public class HttpSanityVenueClient implements SanityVenueClient {
 
     private static final String DAYPART = "{ sold, fee, timeMode, blocks[]{ start, end }, open, close, holdHours }";
 
-    /** 공식 위치 전량(활성) + _rev. */
+    /** 공식 위치 전량(활성) + _rev. projection 을 넓히면 {@link OfficialVenueCache#SCHEMA_VERSION} 도 +1. */
     private static final String ALL_QUERY =
             "*[_type == \"venue\" && active == true] | order(sortOrder asc) {" +
                     " _id, _rev, name, type, maxDepth, address, addressDetail, latitude, longitude," +
-                    " equipInfo, closures[]{ type, weekdays, nth, monthlyWeekday }," +
+                    " equipInfo, defaultEquipment[]{ name, price, sizeFormat }," +
+                    " closures[]{ type, weekdays, nth, monthlyWeekday }," +
                     " tickets[]{ \"_key\": _key, name, disciplines, weekday " + DAYPART + ", weekend " + DAYPART + " } }";
 
     /** 리비전 토큰만 — 바이트 단위, reconcile 의 변경 감지 게이트. */

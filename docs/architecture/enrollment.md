@@ -80,8 +80,8 @@ sequenceDiagram
 ```
 
 - **결제** = `POST /payments/prepare`·`confirm`([payment.md](payment.md)). 성공 시 **항상** `PENDING → ACCEPT_PENDING`, `respondedAt=결제시각`(강사 24h 응답시계 시작). 좌석은 *신청* 시점에 이미 점유(결제 전에도) — 결제는 좌석을 새로 잡지 않는다. 금액만 회차별로 다르다(수강료는 1회차 주문에 전액, 2회차+ 는 부대비용만).
-- **강사 결정은 3지선다** — 수락 / 거절 / 일정조정 제안. 셋 다 `ACCEPT_PENDING` 에서만. 결제가 앞으로 당겨졌으니 제안도 결제 *후* 시점이 되고, 그래서 **학생은 결제가 아니라 ㅇㅋ/ㄴㄴ만** 하면 된다(제안 자리는 강사가 이미 승인한 자리 → pick 은 재수락도 추가결제도 없이 곧장 `CONFIRMED`).
-- **금액 불변식** — "그 회차에 남은 결제 순액 == `chargeTotal()`". 결제 후 슬롯 변경(pick/reschedule)은 **금액이 늘면 400**(더 비싼 시간대는 취소 후 재신청), 줄면 `EnrollmentPartialRefundRequestedEvent` 로 차액 자동환불. 제안 단계에서 이미 더 비싼 슬롯을 걸러낸다. 덕분에 enrollment 는 payment 를 조회하지 않고도(역참조 금지) 결제액을 안다.
+- **강사 결정은 3지선다** — 수락 / 거절 / 일정조정 제안. 셋 다 `ACCEPT_PENDING` 에서만. 결제가 앞으로 당겨졌으니 제안도 결제 *후* 시점이 되고, 그래서 **학생은 결제가 아니라 ㅇㅋ/ㄴㄴ만** 하면 된다(제안 자리는 강사가 이미 승인한 자리 → pick 은 재수락도 추가결제도 없이 곧장 `CONFIRMED`). **단 강사가 더 비싼 시간대를 제안했다면 예외** — pick 이 `-1018` 로 돌려보내고 차액 결제를 거치며, 그 종착지는 `CONFIRMED` 가 아니라 `ACCEPT_PENDING`(재수락)이다.
+- **금액 불변식** — "그 회차에 남은 결제 순액 == `chargeTotal()`". 결제 후 슬롯 변경(pick/reschedule)은 줄면 `EnrollmentPartialRefundRequestedEvent` 로 차액 자동환불, **늘면 두 갈래** — 위치 유지면 `-1018`(차액만 결제하면 갈 수 있다), 위치까지 바뀌면 `-1019`(차액 경로가 위치를 못 바꿔 취소 후 재신청). ⚠️ **제안 단계의 "결제액 이하" 필터는 2026-08-10 제거**됐다 — 강사는 더 비싼 시간대도 제안할 수 있고, 학생이 그걸 고르면 차액 결제로 간다. 덕분에 enrollment 는 payment 를 조회하지 않고도(역참조 금지) 결제액을 안다.
 - **거절/취소 = 그 회차만** — 수강 자체는 유지되고 `RoundGate` 가 자리를 비우므로(활성 회차만 "이미 잡음"으로 봄) 학생이 **그 회차를 다른 날짜로 다시 신청**할 수 있다(시간 제한 없음). "제안이 다 안 되니 다음에 다시" 가 성립하는 근거. hub 파생은 같은 회차에 더 최근 활성/완료 행이 있으면 죽은 행을 제외한다(안 그러면 재신청 후에도 강의가 영구 `RESCHEDULING`).
 - **자동환불**(거절·학생취소·무응답) — enrollment 가 `EnrollmentRefundRequestedEvent` 발행 → payment 의 `EnrollmentRefundListener` 가 **동기(같은 트랜잭션)** 로 전액 환불(`RefundService.refundRoundFully`). 동기라 환불 실패 시 상태전이도 함께 롤백(다음 sweep 재시도). 의존 방향 = payment→enrollment (역방향 금지 준수). 차액 환불도 같은 계약(`refundRoundPartially`).
 - **만료 스위퍼**(`EnrollmentExpiryService.sweepExpired`, 5분) — PENDING(미결제)은 `createdAt` 기준 `paymentTtlHours`(12h, 환불 없음), ACCEPT_PENDING(결제완료)은 `respondedAt` 기준 `pendingTtlHours`(24h)+전액환불. **두 갈래뿐.** TTL 은 Sanity `siteSettings` 런타임 config.
@@ -153,6 +153,8 @@ erDiagram
 
 **의도된 설계**: 점유의 capacity 단위는 `AvailabilitySession`(위치·시간블록·정원). 첫 신청이 `(instructor,date,venueRef,block)` session 을 find-or-create — 같은 (위치,블록)이면 join. 슬롯 식별자 = `(date, venueRefId, blockStart, blockEnd)`(옛 `availabilityWindowId` 대체 — enrollment 가 `date` 스냅샷을 가짐). 신청 자격은 그 블록이 강사 `AvailabilityCoverage` 에 통째로 ⊆(`CoverageMerger.containsWhole`) 일 때만 — coverage 는 enrollment 가 직접 읽어 검증. 가격은 스냅샷(추정치). venue 운영블록은 저장 안 하고 `BookableSlotDeriver` 가 `VenueResponse`(daypart·timeBlock)에서 읽기 시 도출 — CUSTOM/OFFICIAL scope 무관.
 
+**파생 응답 필드(저장 안 함)** — `paymentExpiresInSeconds`: 미결제(`PENDING`) 회차의 결제 잔여 초. `createdAt + paymentTtlHours` 를 읽을 때 푼다(`enrollment/PaymentWindow`, 만료 스윕과 같은 식 공유). `EnrollmentResponse`·`ScheduleHubResponse.ScheduleRound`·`PaymentPrepareResponse` 에 실린다. **절대시각이 아니라 잔여 초**인 이유는 기기 시계 오차([time-handling.md](time-handling.md)). ⚠️ `0` 이 곧 결제 불가는 아니다 — 스윕이 주기 폴링(기본 5분)이라 잠깐은 결제가 성사된다(성사되면 `ACCEPT_PENDING` 이 되어 스윕 대상에서 빠지므로 "결제했는데 취소" 구멍은 없다).
+
 ## 5. 보안 / 권한 매트릭스
 
 | 엔드포인트 | 인증 | 게이트 | 소유/검증 |
@@ -165,18 +167,20 @@ erDiagram
 | POST `/instructor/enrollments/{id}/accept` | ✅ | 강사신청 | 내 코스 · **ACCEPT_PENDING**(결제완료) → CONFIRMED |
 | POST `/instructor/enrollments/{id}/reject` | ✅ | 강사신청 | 내 코스 · **ACCEPT_PENDING** · **전 회차** → REJECTED + 전액 자동환불(그 회차만) |
 | GET `/instructor/enrollments/{id}/propose-options` | ✅ | 강사신청 | 내 코스 회차만(비소유=숨김) · `ticketName`·`unavailableReason`(FULL/TIME_CONFLICT) 포함 · **위치 고정**(회차 venue 1개로 스코프) · 중복 제거 · 오늘+8주 ∩ coverage window |
-| POST `/instructor/enrollments/{id}/propose-slots` | ✅ | 강사신청 | 내 코스 · **ACCEPT_PENDING** · **최대 3** · bookable+좌석여유+**결제액 이하**만 채택 → 좌석 보장 hold |
-| POST `/enrollments/rounds/{id}/pick-slot` | ✅(학생) | — | 내 회차 · 제안목록 내 슬롯 · **hold 보장(만석 무관)** → **CONFIRMED**(추가 결제 없음, 차액만 환불) |
-| POST `/enrollments/rounds/{id}/reschedule` | ✅(학생) | — | 내 **PENDING**(미결제) 또는 **ACCEPT_PENDING**(결제 유지 재제안) · 금액 증가 시 400 |
+| POST `/instructor/enrollments/{id}/propose-slots` | ✅ | 강사신청 | 내 코스 · **ACCEPT_PENDING** · **최대 3** · bookable+좌석여유만 채택(**가격 무관 — 더 비싸도 제안 가능**) → 좌석 보장 hold |
+| POST `/enrollments/rounds/{id}/pick-slot` | ✅(학생) | — | 내 회차 · 제안목록 내 슬롯 · **hold 보장(만석 무관)** → **CONFIRMED**(차액만 환불). 더 비싼 제안 = **-1018**(차액 결제로), 제안 만료 = **-1020** |
+| POST `/enrollments/rounds/{id}/reschedule` | ✅(학생) | — | 내 **PENDING**(미결제) 또는 **ACCEPT_PENDING**(결제 유지 재제안) · 금액 증가 시 **-1018**(위치 유지) / **-1019**(위치까지 변경) |
 
 ## 6. 알려진 설계 간극
 
 - 🟢 **선결제 전환(2026-08-07) → 전 회차 통일(2026-08-09)** — 회차 구분 없이 신청 직후 결제(`PENDING → 결제 → ACCEPT_PENDING`) → 강사 수락 `CONFIRMED` / 거절·취소·무응답 만료 시 자동환불. `PAYMENT_PENDING` 제거(잔존 행은 Flyway `V13` 이 `PENDING` 으로 이관). 상태기계·동시성 하드닝은 §3-2. [payment 도메인](payment.md)(PG 중립) 소유. 남은 것: notification 결제/거절 푸시 · 정산 수수료 분해.
-- 🟢 **더 비싼 슬롯으로의 결제후 변경** — 금액이 늘어나는 슬롯 변경은 400 이고, 취소(전액환불) 후 재신청으로 우회한다. 차액 추가 청구를 하려면 "결제 대기" 상태가 다시 필요해지는데, 그게 이번에 없앤 것이라 의도적으로 막았다. 실제로 걸리는 빈도를 보고 재검토.
+- 🟢 **더 비싼 슬롯으로의 결제후 변경 — 해결됨(2026-08-10, #204)** — 옛 제약("늘면 400, 취소 후 재신청")은 "차액을 청구하려면 결제 대기 상태가 필요한데 그걸 없앴다" 는 이유였다. **대기를 예약이 아니라 주문에 두어** 풀었다 — `PaymentOrder.target*` + 주문 귀속 `AvailabilityHold`(`paymentOrderId`). 지금은 `-1018` → 차액 결제 → 슬롯 교체 + `ACCEPT_PENDING`(강사 재수락). 상세 [payment.md](payment.md) §3.
+- 🟡 **위치까지 바꾸는 차액 결제 — 미구현** — 차액 경로는 위치를 못 바꾼다(`applySlotChange` 가 `venueRefId` 를 그대로 둔다). 그래서 "위치 변경 + 금액 상승" 은 `-1019` 로 **명시 거부**한다 — 안 막으면 결제 후 학생이 고른 적 없는 원래 위치로 조용히 옮겨진다(#232). **이건 임시 가드지 확정 정책이 아니다** — 지원이 원래 방향이고, 하려면 장비 가격표(위치 종속)·입장료 재산정·`AvailabilitySession` 자연키·좌석 hold·겹침 판정·회차 후보 검증이 함께 재계산돼야 한다.
+- 🟢 **제안 hold 누수 — 해결됨(2026-08-11, #234·#235)** — 제안 hold 는 `proposedSlots.clear()` 하는 **모든** 경로에서 회수한다(`pickSlot`·`applySlotChange`·`swapSlot`). 또 `requireSeat(session, ignoreProposalRoundId)` 로 **내 몫 hold 를 내 좌석검사에서 제외** — 안 그러면 "나를 위해 잡아둔 자리" 에 내가 막혀(정원 1이면 확정) 차액 결제가 데드엔드가 됐다.
 - 🟢 **venue 운영 정밀도** — `BookableSlotDeriver` 는 FIXED·OPEN(단일)·SAME, WEEKLY·MONTHLY 휴무 지원. 공휴일·OPEN 세분화는 후속.
 - 🟢 **가격 권위성** — 신청 스냅샷은 추정치. 권위(청구) 금액은 결제 시점 `POST /payments/prepare` 가 재계산(수강료 라이브 + 입장료/장비 스냅샷). 입장료/장비 live 재도출은 후속([payment.md](payment.md)).
 - 🟢 **applicants = enrollment 만** — 캘린더 슬롯 안 신청자 행은 풍덩 enrollment 만(외부 hold 는 externalCount 로만). 디자인의 external applicant 행은 후속.
-- 🟢 **강사 제안 = 좌석 보장(hold-and-guarantee)** — propose 시 슬롯마다 `AvailabilityHold`(`proposalRoundId`·`expiresAt`) 를 잡아 학생 pick 이 만석으로 막히지 않게 한다(하드캡 우회 X — 미리 잡은 자리 사용). `proposalTtlHours`(6h) 만료 시 `EnrollmentExpiryService.sweepExpiredProposals` 가 hold 해제·제안 lapse. 정책·왜는 [docs/features/reschedule.md](../features/reschedule.md).
+- 🟢 **강사 제안 = 좌석 보장(hold-and-guarantee)** — propose 시 슬롯마다 `AvailabilityHold`(`proposalRoundId`·`expiresAt`) 를 잡아 학생 pick 이 만석으로 막히지 않게 한다(하드캡 우회 X — 미리 잡은 자리 사용). `proposalTtlHours`(Sanity 런타임값, 기본 6h) 만료 시 `EnrollmentExpiryService.sweepExpiredProposals` 가 hold 해제·제안 lapse(회차 상태는 안 건드림 → 파생 뷰가 `RESCHEDULING`→`WAITING`). 만료 후 pick 은 `-1020`. 정책·왜는 [docs/features/reschedule.md](../features/reschedule.md).
 
 ## 7. 더 깊게: 테스트로 보기
 

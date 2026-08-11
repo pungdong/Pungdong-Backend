@@ -27,7 +27,9 @@ import com.diving.pungdong.global.advice.exception.AdditionalPaymentRequiredExce
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.IdentityVerificationRequiredException;
 import com.diving.pungdong.global.advice.exception.PreLaunchException;
+import com.diving.pungdong.global.advice.exception.ProposalExpiredException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
+import com.diving.pungdong.global.advice.exception.VenueChangeRequiresReapplyException;
 import com.diving.pungdong.identityverification.IdentityVerificationJpaRepo;
 import com.diving.pungdong.identityverification.IdentityVerificationStatus;
 import com.diving.pungdong.venue.VenueRefResolver;
@@ -144,7 +146,12 @@ public class EnrollmentService {
      * 강사 일정변경요청 중 학생이 슬롯 선택("ㅇㅋ") — 위치 고정, 날짜/이용권/블록을 그 제안 슬롯으로 바꿔 재검증 후
      * reschedule. <b>선결제라 이미 결제된 회차</b>이고 강사가 이용권·블록까지 정해 제안한 = 강사가 승인한 자리이므로,
      * 추가 결제도 재수락도 없이 <b>곧장 {@code CONFIRMED}</b>. 입장료는 그 daypart 로 재산정되며, 싸졌으면 차액을
-     * 자동 환불한다(비싼 슬롯은 애초에 제안 단계에서 걸러진다 — {@code InstructorEnrollmentService.proposeSlots}).
+     * 자동 환불한다.
+     *
+     * <p>⚠️ <b>더 비싼 제안은 예외다</b> — 강사는 더 비싼 daypart 도 제안할 수 있고(2026-08-10), 그걸 고르면
+     * 여기서 {@code -1018}({@link AdditionalPaymentRequiredException})로 거부되어 차액 결제를 거쳐야 한다.
+     * (옛 주석은 "비싼 슬롯은 제안 단계에서 걸러진다" 였는데 그 필터가 없어진 뒤 stale 이었다 — 실제 동작은
+     * use-case 테스트 {@code C1-1} 이 고정한다.)
      *
      * <p><b>좌석 보장</b>: 좌석은 제안 시점에 그 일정에 hold 로 잡아뒀으므로 pick 은 만석으로 막히지 않는다(하드캡
      * 우회가 아니라 — 미리 잡아둔 자리를 쓰는 것). 고른 슬롯의 hold 를 회수해 실점유로 전환하고, 안 고른 나머지
@@ -154,7 +161,9 @@ public class EnrollmentService {
     public EnrollmentResponse pickSlot(Account student, Long roundId, PickSlotRequest req) {
         EnrollmentRound round = requireMyRound(student, roundId);
         if (!round.hasRescheduleOffer()) {
-            throw new BadRequestException(); // 강사 제안 받은 회차만(만료로 제안 사라지면 여기서 막힘)
+            // 제안이 없다 — TTL 만료로 사라진 경우가 대부분이다. 사용자 잘못이 아니고 회복 동선이
+            // 명확해(일정 직접 선택) 범용 -1011 이 아니라 전용 코드로 안내한다.
+            throw new ProposalExpiredException();
         }
         LocalDate date = req.getDate();
         String ticketRef = req.getTicketRef();
@@ -188,7 +197,7 @@ public class EnrollmentService {
         round.getProposedSlots().clear();
         round.setStatus(EnrollmentStatus.CONFIRMED); // 이미 결제 + 강사가 승인한 자리 → 곧장 확정
         round.setRespondedAt(OffsetDateTime.now(ZoneOffset.UTC));
-        settleSlotChange(round, paidTotal, "일정 변경 차액");
+        settleSlotChange(round, paidTotal, "일정 변경 차액", false); // 제안은 위치 고정이라 위치가 바뀔 수 없다
         // 옛 슬롯 + 안 고른 제안 슬롯 일정 정리(점유 0이면 삭제). 고른 newSession 은 실점유라 보존.
         if (oldSession != null && !oldSession.getId().equals(newSession.getId())) {
             sessionCleaner.deleteIfEmpty(oldSession);
@@ -273,11 +282,14 @@ public class EnrollmentService {
         AvailabilitySession newSession = findOrCreateSession(instructor, req.getDate(),
                 req.getBlockStart(), req.getBlockEnd(), req.getVenueRefId(), req.getTicketRef());
         if (oldSession == null || !oldSession.getId().equals(newSession.getId())) {
-            requireSeat(newSession); // 같은 일정으로 되돌아가면 이미 내가 점유 중이라 검사 불필요(자기 자신에 막힘)
+            // 내 제안 hold 는 제외 — 제안받은 자리로 (pick-slot 대신) reschedule 해도 "나를 위한 자리"에 막히면 안 된다.
+            requireSeat(newSession, round.getId()); // 같은 일정으로 되돌아가면 이미 내가 점유 중이라 검사 불필요(자기 자신에 막힘)
         }
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         int paidTotal = round.chargeTotal(); // 결제완료 경로에서 = 이미 결제된 금액
+        // 위치가 바뀌는 변경인가 — 금액까지 오르면 차액 결제로는 못 가는 조합이라 아래에서 갈라 거부한다.
+        boolean venueChanged = !Objects.equals(round.getVenueRefId(), req.getVenueRefId());
         round.archiveCurrentSlot(now); // 옛 슬롯 이력 (취소 아님)
         round.setAvailabilitySession(newSession);
         round.setVenueRefId(req.getVenueRefId());
@@ -294,14 +306,23 @@ public class EnrollmentService {
             // 학생 재제안 — 결제는 유지, 강사 결정 대기로 되돌리고 24h 시계 재시작. 금액 줄면 차액 환불.
             round.setStatus(EnrollmentStatus.ACCEPT_PENDING);
             round.setRespondedAt(now);
-            settleSlotChange(round, paidTotal, "일정 변경 차액");
+            settleSlotChange(round, paidTotal, "일정 변경 차액", venueChanged);
         } else {
             round.setStatus(EnrollmentStatus.PENDING); // 미결제 — 그대로 결제 대기
             round.setCreatedAt(now);     // 새 요청 = 결제 클럭 재시작
             round.setRespondedAt(null);  // 아직 강사 응답 전
         }
+        // 제안을 비웠으면 그 자리를 붙들던 보장 hold 도 함께 회수한다 — 안 풀면 아무도 못 쓰는 고아 hold 가
+        // 남아 proposalTtlHours(6h) 동안 남의 신청을 막는다(정원 1이면 그 시간대가 통째로 잠긴다).
+        // ⚠️ 회차를 새 세션에 붙인 뒤에 푼다 — 먼저 풀면 그 일정이 "점유 0"이 되어 정리돼 버린다.
+        List<AvailabilitySession> heldSessions = releaseProposalHolds(round);
         if (oldSession != null && !oldSession.getId().equals(newSession.getId())) {
             sessionCleaner.deleteIfEmpty(oldSession);
+        }
+        for (AvailabilitySession heldSession : heldSessions) {
+            if (!heldSession.getId().equals(newSession.getId())) {
+                sessionCleaner.deleteIfEmpty(heldSession); // 안 고른 제안 자리 정리
+            }
         }
         return EnrollmentResponse.of(round, venue.getName(), instructor.getNickName(), paymentExpiresInSeconds(round));
     }
@@ -413,7 +434,8 @@ public class EnrollmentService {
         releaseOrderHold(paymentOrderId); // 재-prepare 멱등
         AvailabilitySession session = findOrCreateSession(instructor, date, start, end,
                 round.getVenueRefId(), ticketRef);
-        requireSeat(session);
+        // 이 회차를 위해 잡아둔 제안 hold 는 만석 계산에서 뺀다 — 안 그러면 "나를 위한 자리"에 내가 막힌다.
+        requireSeat(session, round.getId());
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         session.addHold(AvailabilityHold.builder()
                 .count(1).paymentOrderId(paymentOrderId).expiresAt(expiresAt).createdAt(now).build());
@@ -467,25 +489,48 @@ public class EnrollmentService {
         round.setEntrySnapshot(targetEntryFee);
         round.getProposedSlots().clear();
         // 학생이 고른 시간이라 강사 동의가 없다 → 강사 결정 대기로 되돌리고 24h 시계 재시작.
+        // (제안 슬롯이 비싸 차액 결제로 온 경우도 동일하게 재수락을 받는다 — 결정 히스토리는 enrollment/CLAUDE.md.)
         round.setStatus(EnrollmentStatus.ACCEPT_PENDING);
         round.setRespondedAt(now);
         // ⚠️ hold 해제는 <b>회차를 새 세션에 붙인 뒤</b>에 — 먼저 풀면 그 일정이 "점유 0"이 되어 정리돼 버린다.
         releaseOrderHold(paymentOrderId); // 잡아둔 자리를 실점유로 전환(이중계산 방지)
+        // 제안 hold 도 회수한다 — 제안(-1018)에서 출발한 차액 결제면 그 자리에 "나를 위한" hold 가 남아 있어,
+        // 안 풀면 실점유와 겹쳐 좌석을 이중으로 묶는다(정원 1이면 남의 신청이 통째로 막힌다).
+        List<AvailabilitySession> heldSessions = releaseProposalHolds(round);
         if (oldSession != null && !oldSession.getId().equals(newSession.getId())) {
             sessionCleaner.deleteIfEmpty(oldSession);
+        }
+        for (AvailabilitySession heldSession : heldSessions) {
+            if (!heldSession.getId().equals(newSession.getId())) {
+                sessionCleaner.deleteIfEmpty(heldSession); // 안 고른 제안 자리 정리
+            }
         }
     }
 
     /**
-     * 결제된 회차의 슬롯이 바뀌었을 때 금액 정산 — 줄었으면 차액 자동환불, 늘었으면 400.
+     * 결제된 회차의 슬롯이 바뀌었을 때 금액 정산 — 줄었으면 차액 자동환불, 늘었으면 거부(아래).
      *
      * <p><b>불변식</b>: "그 회차에 남아 있는 결제 순액 == {@code chargeTotal()}" — 줄 때마다 즉시 환불하므로
      * 변경 <i>전</i> {@code chargeTotal()} 이 곧 결제액이다(payment 도메인 조회 불필요 = 역참조 없음).
-     * 더 비싼 슬롯으로 옮기려면 취소(전액환불) 후 재신청 — 추가 청구 상태를 되살리지 않으려는 의도적 제약.
+     *
+     * <p><b>금액이 늘 때 두 갈래</b>(2026-08-10 차액 결제 도입 이후):
+     * <ul>
+     *   <li>위치 유지 → {@code -1018}({@link AdditionalPaymentRequiredException}) — <b>차액만 결제</b>하면 갈 수 있다
+     *       ({@code POST /payments/prepare} + {@code target*}).</li>
+     *   <li>위치까지 변경 → {@code -1019}({@link VenueChangeRequiresReapplyException}) — 차액 경로가 위치를 못 바꾸므로
+     *       취소 후 재신청. <b>임시 제약</b>이지 확정 정책이 아니다(위치 변경 + 차액 결제는 지원이 원래 방향).</li>
+     * </ul>
+     * (옛 주석은 "늘면 400 — 취소 후 재신청이 유일" 이었는데, 추가 청구 상태를 <i>예약</i>이 아니라 <i>주문</i>에 두는
+     * 방식으로 풀려 더는 맞지 않는다. 상세: docs/architecture/payment.md §3 "슬롯 변경 차액 결제".)
      */
-    private void settleSlotChange(EnrollmentRound round, int paidTotal, String reason) {
+    private void settleSlotChange(EnrollmentRound round, int paidTotal, String reason, boolean venueChanged) {
         int refundable = paidTotal - round.chargeTotal();
         if (refundable < 0) {
+            if (venueChanged) {
+                // 위치까지 바뀌는데 금액도 오름 — 차액 결제 경로는 위치를 못 바꾸므로(-1018 로 내보내면
+                // FE 가 결제로 유도하고, 결제 후 학생은 고른 적 없는 원래 위치로 옮겨진다) 아예 갈라 거부한다.
+                throw new VenueChangeRequiresReapplyException();
+            }
             // 금액이 늘어남 — 추가 결제 없이는 못 옮긴다. 전용 코드(-1018)로 내려 FE 가 나머지 400
             // (만석·확정 회차·슬롯 무효 …)과 구분해 차액 결제로 유도하게 한다.
             throw new AdditionalPaymentRequiredException();
@@ -726,9 +771,27 @@ public class EnrollmentService {
      * 뒤 신청은 앞 신청이 커밋(좌석 채움)한 뒤에야 count 를 실행해 만석을 본다. (중복 세션 생성 경합은 자연키 UNIQUE 제약으로 차단.)
      */
     private void requireSeat(AvailabilitySession session) {
+        requireSeat(session, null);
+    }
+
+    /**
+     * 좌석 확보 검사. {@code ignoreProposalRoundId} 가 주어지면 <b>그 회차를 위해 잡아둔 제안 hold</b> 는
+     * 만석 계산에서 뺀다.
+     *
+     * <p><b>왜 빼야 하나</b> — 강사 제안 hold 의 목적은 "학생이 고르면 만석으로 막히지 않게" 자리를 맡아두는
+     * 것이다. 그런데 <b>더 비싼 제안</b>은 pick-slot 이 {@code -1018} 로 돌려보내 차액 결제로 가게 되는데,
+     * 그 결제 준비가 같은 자리에 주문 hold 를 잡으려다 <b>나를 위해 맡아둔 그 hold</b> 를 만석으로 세어
+     * 400 이 났다(정원 1이면 확정적). 안내한 경로가 데드엔드가 되는 것이라, 내 몫으로 잡힌 자리는
+     * 내 좌석 검사에서 제외한다 — {@code swapSlot} 이 "곧 비울 내 옛 세션"을 겹침 판정에서 빼는 것과 같은 결.
+     */
+    private void requireSeat(AvailabilitySession session, Long ignoreProposalRoundId) {
         AvailabilitySession locked = sessionRepo.lockById(session.getId()).orElse(session);
         int occupied = roundRepo.countByAvailabilitySessionIdAndStatusIn(locked.getId(), EnrollmentStatus.ACTIVE);
-        if (occupied + locked.heldCount() >= locked.effectiveCapacity()) {
+        int held = locked.getHolds().stream()
+                .filter(h -> ignoreProposalRoundId == null
+                        || !ignoreProposalRoundId.equals(h.getProposalRoundId()))
+                .mapToInt(AvailabilityHold::getCount).sum();
+        if (occupied + held >= locked.effectiveCapacity()) {
             throw new BadRequestException(); // 만석
         }
     }
