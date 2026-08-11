@@ -3,6 +3,11 @@
 Studio 에서 하나씩 손으로 넣기 불편한 카탈로그를 ndjson 으로 일괄 적재한다. 문서는 **안정 `_id`** 라
 `--replace` 로 **재실행해도 멱등**(같은 _id 덮어씀, 다른 문서는 안 건드림).
 
+> ⚠️ **`humanVerified`(운영자 검수 체크, Studio 수기)와 재적재** — venue 스키마의 검수 체크박스는
+> Studio 에서만 관리되고 seed ndjson 엔 없다. `--replace` 는 **문서를 통째로 덮어써 체크가 풀린다.**
+> 재적재 전 체크된 목록을 백업하고(`*[_type=="venue" && humanVerified==true]{_id}`) 재적재 후 다시
+> 체크하거나, 그 venue 를 건드리지 않았다면 재적재 대상에서 제외할 것.
+
 > **2026-08-11 Track B 전면 재검증 반영** — 기존 22곳 전량 검증(주소·요금·운영시간·휴무 diff 정정) +
 > 장비 가격 수집(`defaultEquipment`) + 신규 8곳 등재. 원 자료는 팀 스크래치 `venueequip/research/`.
 > **장비가 방침**: 출처로 확인된 가격만 `defaultEquipment` 에 넣고, 미공개는 필드 자체를 생략 + `equipInfo`

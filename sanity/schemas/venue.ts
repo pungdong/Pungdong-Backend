@@ -268,9 +268,22 @@ export const venue = defineType({
     }),
     defineField({name: 'sortOrder', title: '정렬', type: 'number', initialValue: 0}),
     defineField({name: 'active', title: '노출', type: 'boolean', initialValue: true}),
+    defineField({
+      name: 'humanVerified',
+      title: '운영자 검수 완료 (수기)',
+      type: 'boolean',
+      initialValue: false,
+      description:
+        '요금·운영시간·휴무·장비·좌표를 사람이 최종 확인했으면 체크 — 미체크 문서만 재검수하면 된다. ' +
+        '⚠️ seed 재적재(--replace)는 문서를 통째로 덮어써 체크가 풀린다. 재적재 후 재확인 필요(seed/README.md).',
+    }),
   ],
   orderings: [
     {title: '정렬순', name: 'sortOrderAsc', by: [{field: 'sortOrder', direction: 'asc'}]},
+    {title: '미검수 먼저', name: 'unverifiedFirst', by: [{field: 'humanVerified', direction: 'asc'}, {field: 'sortOrder', direction: 'asc'}]},
   ],
-  preview: {select: {title: 'name', subtitle: 'type'}},
+  preview: {
+    select: {title: 'name', type: 'type', verified: 'humanVerified'},
+    prepare: ({title, type, verified}) => ({title, subtitle: `${verified ? '✅ 검수됨' : '⬜ 미검수'} · ${type}`}),
+  },
 })
