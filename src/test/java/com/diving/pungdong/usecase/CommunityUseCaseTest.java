@@ -57,6 +57,7 @@ class CommunityUseCaseTest {
     @Autowired com.diving.pungdong.community.CommunityPostBookmarkJpaRepo bookmarkRepo;
     @Autowired com.diving.pungdong.community.CommunityCommentJpaRepo commentRepo;
     @Autowired com.diving.pungdong.community.CommunityCommentLikeJpaRepo commentLikeRepo;
+    @Autowired com.diving.pungdong.community.ContentReportJpaRepo reportRepo;
 
     @Value("${pungdong.storage.local.base-url:http://localhost:8080}")
     String localBaseUrl;
@@ -70,6 +71,7 @@ class CommunityUseCaseTest {
         matchRepo.deleteAll();
         likeRepo.deleteAll();
         bookmarkRepo.deleteAll();
+        reportRepo.deleteAll();
         commentLikeRepo.deleteAll();
         // 댓글은 자기 자신을 참조한다(대댓글 → 부모). deleteAll 은 삭제 순서를 보장하지 않아
         // 부모가 먼저 지워지면 FK 위반이 난다 — 대댓글을 먼저 걷어낸 뒤 나머지를 지운다.
@@ -713,6 +715,129 @@ class CommunityUseCaseTest {
         mockMvc.perform(post("/community/posts/" + postId + "/comments")
                         .contentType(MediaType.APPLICATION_JSON).content("{\"body\":\"비로그인\"}"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    /* ════════════════ X — 신고 ════════════════ */
+
+    private String report(Account reporter, String targetType, long targetId, String reason) throws Exception {
+        return mockMvc.perform(post("/community/reports")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(reporter))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"targetType\":\"" + targetType + "\",\"targetId\":" + targetId
+                                + ",\"reason\":\"" + reason + "\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+    }
+
+    @Test
+    @DisplayName("X1: 남의 글을 신고하면 접수되고 대기 상태로 큐에 쌓인다")
+    void report_isQueued() throws Exception {
+        Account owner = account("x1r@c.com", "diverC40", Role.STUDENT);
+        Account reporter = account("x1s@c.com", "diverC41", Role.STUDENT);
+        long postId = createPost(owner, "TOUR", "신고 대상 글", "본문");
+
+        report(reporter, "POST", postId, "SPAM");
+
+        assertThat(reportRepo.countByStatus(com.diving.pungdong.community.ReportStatus.PENDING)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("X2: 같은 대상을 두 번 신고해도 1건이다 (이미 신고한 걸 또 눌러도 사용자에겐 성공이 맞다)")
+    void duplicateReport_isIdempotent() throws Exception {
+        Account owner = account("x2r@c.com", "diverC42", Role.STUDENT);
+        Account reporter = account("x2s@c.com", "diverC43", Role.STUDENT);
+        long postId = createPost(owner, "TOUR", "중복 신고 대상", "본문");
+
+        report(reporter, "POST", postId, "SPAM");
+        report(reporter, "POST", postId, "ABUSE");
+
+        assertThat(reportRepo.count()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("X3: 자기 글은 신고할 수 없다 (어드민 큐만 늘리고 판단할 게 없다)")
+    void selfReport_rejected() throws Exception {
+        Account me = account("x3@c.com", "diverC44", Role.STUDENT);
+        long postId = createPost(me, "TOUR", "내 글", "본문");
+
+        mockMvc.perform(post("/community/reports")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"targetType\":\"POST\",\"targetId\":" + postId + ",\"reason\":\"SPAM\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("X4: 사유가 기타면 설명이 필수다 (설명 없으면 어드민이 판단할 근거가 없다)")
+    void otherReasonWithoutDetail_rejected() throws Exception {
+        Account owner = account("x4r@c.com", "diverC45", Role.STUDENT);
+        Account reporter = account("x4s@c.com", "diverC46", Role.STUDENT);
+        long postId = createPost(owner, "TOUR", "대상", "본문");
+
+        mockMvc.perform(post("/community/reports")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(reporter))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"targetType\":\"POST\",\"targetId\":" + postId + ",\"reason\":\"OTHER\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("X5: 없는 대상은 신고할 수 없다 (열 수 없는 행이 큐에 쌓이면 안 된다)")
+    void reportingMissingTarget_rejected() throws Exception {
+        Account reporter = account("x5@c.com", "diverC47", Role.STUDENT);
+
+        mockMvc.perform(post("/community/reports")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(reporter))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"targetType\":\"POST\",\"targetId\":999999,\"reason\":\"SPAM\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("X6: 어드민이 조치하면 신고된 글이 실제로 피드에서 사라진다 (상태만 바뀌면 안 된다)")
+    void adminAction_hidesTarget() throws Exception {
+        Account owner = account("x6o@c.com", "diverC48", Role.STUDENT);
+        Account reporter = account("x6s@c.com", "diverC49", Role.STUDENT);
+        Account admin = account("x6a@c.com", "diverC50", Role.ADMIN);
+        long postId = createPost(owner, "TOUR", "조치될 글", "본문");
+
+        String body = report(reporter, "POST", postId, "ABUSE");
+        long reportId = ((Number) com.jayway.jsonpath.JsonPath.read(body, "$.id")).longValue();
+
+        mockMvc.perform(patch("/admin/community/reports/" + reportId)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(admin))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"ACTIONED\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ACTIONED"));
+
+        mockMvc.perform(get("/community/posts"))
+                .andExpect(jsonPath("$.page.totalElements").value(0));
+    }
+
+    @Test
+    @DisplayName("X7: 어드민 큐는 ADMIN 만 볼 수 있다")
+    void adminQueue_requiresAdminRole() throws Exception {
+        Account normal = account("x7@c.com", "diverC51", Role.STUDENT);
+
+        mockMvc.perform(get("/admin/community/reports")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(normal)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("X8: 어드민 목록에는 신고자와 대상 미리보기가 실린다 (열어보지 않고 판단할 수 있게)")
+    void adminQueue_carriesReporterAndPreview() throws Exception {
+        Account owner = account("x8o@c.com", "diverC52", Role.STUDENT);
+        Account reporter = account("x8s@c.com", "diverC53", Role.STUDENT);
+        Account admin = account("x8a@c.com", "diverC54", Role.ADMIN);
+        long postId = createPost(owner, "TOUR", "미리보기 대상 글", "본문");
+        report(reporter, "POST", postId, "SPAM");
+
+        mockMvc.perform(get("/admin/community/reports")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(admin)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.reports[0].reporterNickName").value("diverC53"))
+                .andExpect(jsonPath("$._embedded.reports[0].targetPreview").value("미리보기 대상 글"));
     }
 
     /* ════════════════ R — 권한 ════════════════ */
