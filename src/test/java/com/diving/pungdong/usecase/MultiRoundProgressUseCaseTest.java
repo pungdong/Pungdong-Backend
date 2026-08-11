@@ -700,6 +700,33 @@ class MultiRoundProgressUseCaseTest {
     }
 
     @Test
+    @DisplayName("C1-3 정원 1에서 제안받은 자리로 (pick-slot 대신) reschedule 해도 내 제안 hold 에 막히지 않는다")
+    void rescheduleIntoProposedSlotNotBlockedByOwnHold() throws Exception {
+        Account ins = instructor("ins-c13@pd.com", "강사C13", 1); // 정원 1 — hold 하나로 만석
+        Venue v = venue(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String ticket = v.getTickets().get(0).getRef();
+        Course course = twoRoundCourse(ins, ref, ticket);
+        LocalDate d3 = LocalDate.now().plusWeeks(3);
+        openCoverage(ins, D1); openCoverage(ins, D2); openCoverage(ins, d3);
+        Account stu = account("stu-c13@pd.com", "학생C13", Role.STUDENT);
+        EnrollmentRound r2 = round2Paid(ins, course, ref, ticket, stu);
+
+        propose(ins, r2.getId(), List.of(slot(d3, ticket))).andExpect(status().isOk());
+        assertThat(holdRepo.findByProposalRoundId(r2.getId())).hasSize(1);
+
+        // 같은 자리를 reschedule 로 보낸다(입장료 동일 → 차액 없음). 그 자리를 붙든 건 "나를 위한" hold 다.
+        mockMvc.perform(post("/enrollments/rounds/{id}/reschedule", r2.getId())
+                        .header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON).content(roundBody(ref, ticket, d3)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.date").value(d3.toString()));
+
+        assertThat(holdRepo.findAll()).isEmpty(); // 실점유로 전환되며 hold 는 남지 않는다
+        assertThat(roundRepo.findById(r2.getId()).orElseThrow().getDate()).isEqualTo(d3);
+    }
+
+    @Test
     @DisplayName("C2 차액 결제 준비는 슬롯이 준 시간 표기(\"18:00:00\")를 그대로 받는다 — 자를 필요 없다")
     void prepareAcceptsFullSecondsTimeFormat() throws Exception {
         Account ins = instructor("ins-c2@pd.com", "강사C2", 4);
@@ -1152,6 +1179,7 @@ class MultiRoundProgressUseCaseTest {
         EnrollmentRound r2 = round2Paid(ins, course, ref, ticket, stu);
 
         propose(ins, r2.getId(), List.of(slot(d3, ticket))).andExpect(status().isOk());
+        assertThat(holdRepo.findByProposalRoundId(r2.getId())).hasSize(1); // 제안이 d3 자리를 붙들고 있다
 
         // 제안(d3)이 안 맞아 학생이 d4 로 되보냄 — 결제는 유지되고 강사 결정 대기로 돌아간다
         mockMvc.perform(post("/enrollments/rounds/{id}/reschedule", r2.getId())
@@ -1160,6 +1188,9 @@ class MultiRoundProgressUseCaseTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ACCEPT_PENDING"))
                 .andExpect(jsonPath("$.date").value(d4.toString()));
+
+        // ★ 안 고른 제안의 보장 hold 도 함께 풀린다 — 안 풀면 아무도 못 쓰는 자리가 6h 잠긴다
+        assertThat(holdRepo.findByProposalRoundId(r2.getId())).isEmpty();
 
         // 강사 hub 에는 "변경 검토(CHANGING)" 로 뜬다(= 강사 액션 필요)
         mockMvc.perform(get("/instructor/enrollments/hub").header(HttpHeaders.AUTHORIZATION, token(ins)))
