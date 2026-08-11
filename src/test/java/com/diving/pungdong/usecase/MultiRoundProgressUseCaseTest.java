@@ -641,6 +641,65 @@ class MultiRoundProgressUseCaseTest {
     }
 
     @Test
+    @DisplayName("C1-2 정원 1에서도 제안→(-1018)→차액 결제가 이어진다 — 자기 제안 hold 에 자기가 막히지 않는다")
+    void pickSlotDiffPaymentNotBlockedByOwnProposalHold() throws Exception {
+        Account ins = instructor("ins-c12@pd.com", "강사C12", 1); // 정원 1 — hold 하나로 만석
+        Venue v = venueWithNightTicket(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String dayTicket = v.getTickets().get(0).getRef();   // 일반권 15,000
+        String nightTicket = v.getTickets().get(1).getRef(); // 야간권 25,000
+        Course course = twoTicketCourse(ins, ref, dayTicket, nightTicket);
+        openCoverageIncludingNight(ins, D1); openCoverageIncludingNight(ins, D2);
+        Account stu = account("stu-c12@pd.com", "학생C12", Role.STUDENT);
+
+        mockMvc.perform(post("/enrollments").header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("courseId", course.getId(), "date", D1.toString(),
+                                "venueRefId", ref, "ticketRef", dayTicket,
+                                "blockStart", START.toString(), "blockEnd", END.toString()))))
+                .andExpect(status().isCreated());
+        EnrollmentRound r1 = paid(roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).get(0));
+
+        // 강사가 더 비싼 야간 슬롯 제안 → 그 자리에 보장 hold 가 잡힌다(정원 1이라 그것만으로 만석)
+        propose(ins, r1.getId(), List.of(slot(D2, nightTicket, NIGHT_START, NIGHT_END)))
+                .andExpect(status().isOk());
+        assertThat(holdRepo.findByProposalRoundId(r1.getId())).hasSize(1);
+
+        // 고르면 -1018 (차액 결제로 가라)
+        mockMvc.perform(post("/enrollments/rounds/{id}/pick-slot", r1.getId())
+                        .header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(slot(D2, nightTicket, NIGHT_START, NIGHT_END))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(-1018));
+
+        // ★ 안내대로 차액 결제로 갔을 때 — 그 자리를 붙들고 있는 건 "나를 위한" 제안 hold 다.
+        //   그걸 만석으로 세면 학생은 안내받은 경로에서 데드엔드에 빠진다.
+        String prepared = mockMvc.perform(post("/payments/prepare").header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("roundId", r1.getId(),
+                                "targetDate", D2.toString(), "targetTicketRef", nightTicket,
+                                "targetVenueRefId", ref,
+                                "targetBlockStart", NIGHT_START.toString(), "targetBlockEnd", NIGHT_END.toString()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.amount").value(10000))
+                .andReturn().getResponse().getContentAsString();
+        String orderId = objectMapper.readTree(prepared).path("orderId").asText();
+
+        mockMvc.perform(post("/payments/confirm").header(HttpHeaders.AUTHORIZATION, token(stu))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("pgPayload", Map.of("paymentKey", "pk_c12"),
+                                "orderId", orderId, "amount", 10000))))
+                .andExpect(status().isOk());
+
+        EnrollmentRound after = roundRepo.findById(r1.getId()).orElseThrow();
+        assertThat(after.getTicketRef()).isEqualTo(nightTicket);
+        assertThat(after.getDate()).isEqualTo(D2);
+        // 옛 제안 hold 가 남아 그 자리를 이중으로 묶으면 안 된다(정원 1이라 곧 남 신청도 막힌다)
+        assertThat(holdRepo.findAll()).isEmpty();
+    }
+
+    @Test
     @DisplayName("C2 차액 결제 준비는 슬롯이 준 시간 표기(\"18:00:00\")를 그대로 받는다 — 자를 필요 없다")
     void prepareAcceptsFullSecondsTimeFormat() throws Exception {
         Account ins = instructor("ins-c2@pd.com", "강사C2", 4);

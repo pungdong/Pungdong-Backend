@@ -424,7 +424,8 @@ public class EnrollmentService {
         releaseOrderHold(paymentOrderId); // 재-prepare 멱등
         AvailabilitySession session = findOrCreateSession(instructor, date, start, end,
                 round.getVenueRefId(), ticketRef);
-        requireSeat(session);
+        // 이 회차를 위해 잡아둔 제안 hold 는 만석 계산에서 뺀다 — 안 그러면 "나를 위한 자리"에 내가 막힌다.
+        requireSeat(session, round.getId());
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         session.addHold(AvailabilityHold.builder()
                 .count(1).paymentOrderId(paymentOrderId).expiresAt(expiresAt).createdAt(now).build());
@@ -478,12 +479,21 @@ public class EnrollmentService {
         round.setEntrySnapshot(targetEntryFee);
         round.getProposedSlots().clear();
         // 학생이 고른 시간이라 강사 동의가 없다 → 강사 결정 대기로 되돌리고 24h 시계 재시작.
+        // (제안 슬롯이 비싸 차액 결제로 온 경우도 동일하게 재수락을 받는다 — 결정 히스토리는 enrollment/CLAUDE.md.)
         round.setStatus(EnrollmentStatus.ACCEPT_PENDING);
         round.setRespondedAt(now);
         // ⚠️ hold 해제는 <b>회차를 새 세션에 붙인 뒤</b>에 — 먼저 풀면 그 일정이 "점유 0"이 되어 정리돼 버린다.
         releaseOrderHold(paymentOrderId); // 잡아둔 자리를 실점유로 전환(이중계산 방지)
+        // 제안 hold 도 회수한다 — 제안(-1018)에서 출발한 차액 결제면 그 자리에 "나를 위한" hold 가 남아 있어,
+        // 안 풀면 실점유와 겹쳐 좌석을 이중으로 묶는다(정원 1이면 남의 신청이 통째로 막힌다).
+        List<AvailabilitySession> heldSessions = releaseProposalHolds(round);
         if (oldSession != null && !oldSession.getId().equals(newSession.getId())) {
             sessionCleaner.deleteIfEmpty(oldSession);
+        }
+        for (AvailabilitySession heldSession : heldSessions) {
+            if (!heldSession.getId().equals(newSession.getId())) {
+                sessionCleaner.deleteIfEmpty(heldSession); // 안 고른 제안 자리 정리
+            }
         }
     }
 
@@ -742,9 +752,27 @@ public class EnrollmentService {
      * 뒤 신청은 앞 신청이 커밋(좌석 채움)한 뒤에야 count 를 실행해 만석을 본다. (중복 세션 생성 경합은 자연키 UNIQUE 제약으로 차단.)
      */
     private void requireSeat(AvailabilitySession session) {
+        requireSeat(session, null);
+    }
+
+    /**
+     * 좌석 확보 검사. {@code ignoreProposalRoundId} 가 주어지면 <b>그 회차를 위해 잡아둔 제안 hold</b> 는
+     * 만석 계산에서 뺀다.
+     *
+     * <p><b>왜 빼야 하나</b> — 강사 제안 hold 의 목적은 "학생이 고르면 만석으로 막히지 않게" 자리를 맡아두는
+     * 것이다. 그런데 <b>더 비싼 제안</b>은 pick-slot 이 {@code -1018} 로 돌려보내 차액 결제로 가게 되는데,
+     * 그 결제 준비가 같은 자리에 주문 hold 를 잡으려다 <b>나를 위해 맡아둔 그 hold</b> 를 만석으로 세어
+     * 400 이 났다(정원 1이면 확정적). 안내한 경로가 데드엔드가 되는 것이라, 내 몫으로 잡힌 자리는
+     * 내 좌석 검사에서 제외한다 — {@code swapSlot} 이 "곧 비울 내 옛 세션"을 겹침 판정에서 빼는 것과 같은 결.
+     */
+    private void requireSeat(AvailabilitySession session, Long ignoreProposalRoundId) {
         AvailabilitySession locked = sessionRepo.lockById(session.getId()).orElse(session);
         int occupied = roundRepo.countByAvailabilitySessionIdAndStatusIn(locked.getId(), EnrollmentStatus.ACTIVE);
-        if (occupied + locked.heldCount() >= locked.effectiveCapacity()) {
+        int held = locked.getHolds().stream()
+                .filter(h -> ignoreProposalRoundId == null
+                        || !ignoreProposalRoundId.equals(h.getProposalRoundId()))
+                .mapToInt(AvailabilityHold::getCount).sum();
+        if (occupied + held >= locked.effectiveCapacity()) {
             throw new BadRequestException(); // 만석
         }
     }
