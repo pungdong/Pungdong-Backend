@@ -18,6 +18,9 @@
   - **이니시스 특이점**(INIpay PRO, P_ 스킴): `initParams` 는 **외부 호출 없이** P_ 파라미터+서명 `P_CHKFAKE`(=Base64(SHA-512(P_AMT+P_OID+P_TIMESTAMP+hashKey)))만 계산 — FE 가 `INIPayPro_v2.js` 로 결제창을 띄운다. **승인(payAppl.ini)엔 서명이 없다** → 금액은 콜백값이 아니라 주문 권위값으로 대조. **승인 호스트를 콜백 `P_IDCNAME`으로 조립**하므로 `idcHost()`가 소문자 토큰만 허용(SSRF 방어). **환불(iniapi V2 JSON)** 의 `hashData`(SHA-512hex)는 body 의 `data`와 **바이트 동일**해야 통과 → `data`를 한 번만 직렬화해 양쪽에 쓴다. 부분취소 `confirmPrice`=취소 **후** 잔액(포트 `remainingAmount`−`cancelAmount`). 테스트/운영은 엔드포인트가 아니라 **MID**(테스트 `INIpayTest`)로 갈려 live 플래그 없음.
 - **엔티티**: `PaymentOrder`(orderId·**enrollmentRound**·amount(권위 금액)·status·paymentKey…) → `PaymentOrderJpaRepo`. **`RefundOrder`**(paymentOrder·amount·reason·status — 주문별 환불 감사기록) → `RefundOrderJpaRepo`. enum `PaymentStatus`(READY/DONE/CANCELED/FAILED), `RefundStatus`(REQUESTED/DONE/FAILED).
 - **dto/**: `PaymentPrepare/Confirm Request/Response`(+**`orderNo`** = CS·고객용 주문번호), **`RefundQuote`**(total + 회차별 line: tuitionPart/extraPart 분리 — 실행 매핑용).
+  - **`PaymentConfirmResponse` 는 두 축이 섞인 DTO**(2026-08-11 개명) — **결제의 결과**(`status`·`amount`·**`scheduleChange`**)는 멱등, **`currentEnrollmentStatus`** 는 회차를 **live 로** 읽어 멱등이 아니다(강사가 그새 수락하면 `CONFIRMED` 가 온다). 옛 이름 `enrollmentStatus` 가 "결제의 결과" 로 읽혀 FE 회귀를 만들어 개명했다. `enrollmentId` → **`roundId`**(담는 값이 회차 id 인데 환불 경로의 수강 id 와 혼동).
+  - `PaymentPrepareResponse.paymentExpiresInSeconds` — 결제창 잔여 초. **일반 결제는 회차 window, 차액 결제는 주문 window**(시계가 다름).
+  - `PaymentPrepareRequest.targetVenueRefId` — **가드**(기능 아님). 보내온 값이 회차의 현재 위치와 다르면 `-1019`. 안 보내면 대조를 못 해 방어가 꺼진다. `targetBlockStart/End` 는 `@JsonFormat` 을 떼서 `"18:00"`·`"18:00:00"` 둘 다 받는다.
 - **`OrderNoFormatter`**: 순차 `PaymentOrder` id → **Hashids 난독화 코드**(`PD-YYMMDD-XXXXXXXX`, 날짜+가역·혼동문자 제외). PG `orderId`(멱등키, 내부)와 별개의 표시값 — 누적 주문 수 유추 방지. salt=`pungdong.hashids.salt`(키, 노출 금지). ⚠️ account/course 등 **다른 외부 id 난독화**는 별도 "공개 식별자 전략" 안건(아직 X).
 
 레거시 `domain/payment/Payment` 는 **건드리지 않는다**(옛 예약 플로우 전용, PG 필드 없음).
@@ -54,7 +57,7 @@
 ## 안전망 테스트
 
 `src/test/.../usecase/PaymentUseCaseTest` — 실 H2 + 시큐리티 체인, `PaymentGateway` 만 `@MockBean`(PG 중립 사양).
-`src/test/.../payment/InicisPaymentTransmissionTest` — 이니시스 전문 사양(외부 호출 0): 승인 전문이 서버 권위 금액을 싣는지(K1), P_CHKFAKE 서명 공식(K2), 환불 hashData `data` 바이트동일성(K3/K4), 부분/전체취소 분기(K5), SSRF idcHost 방어(V2). `PaymentUseCaseTest`: P1(prepare)·P2(confirm→확정)·P3(금액불일치)·P4(멱등)·P5(결제대기 아님)·P6(비소유)·P7(점유→둘째 수락 차단) + **I1~I6 이니시스 콜백**(승인·거절·인증실패·위조 + I5 낯선 Origin 도 CORS 통과 + I6 전역 CORS 유지) + O1~O2. ⚠️ Authorization raw JWT.
+`src/test/.../payment/InicisPaymentTransmissionTest` — 이니시스 전문 사양(외부 호출 0): 승인 전문이 서버 권위 금액을 싣는지(K1), P_CHKFAKE 서명 공식(K2), 환불 hashData `data` 바이트동일성(K3/K4), 부분/전체취소 분기(K5), SSRF idcHost 방어(V2). `PaymentUseCaseTest`: P1(prepare)·P2(confirm→확정)·P3(금액불일치)·P4(멱등)·P5(결제대기 아님)·P6(비소유)·P7(점유→둘째 수락 차단) + **W1~W3**(결제 잔여 초 노출·결제 후 소멸·일반결제 `scheduleChange=false`) + **I1~I6 이니시스 콜백**(승인·거절·인증실패·위조 + I5 낯선 Origin 도 CORS 통과 + I6 전역 CORS 유지) + O1~O2. **차액 결제 사양은 `MultiRoundProgressUseCaseTest` 의 C1~C5·PH5** (C1 reschedule -1018 / C1-1 pick-slot -1018 / C1-2 정원1 데드엔드 / C1-3 정원1 reschedule / C2 시간포맷 / C3 scheduleChange / C4 -1019 / C5 위치 가드 / PH5 -1020). ⚠️ Authorization raw JWT.
 
 ## 아직 안 한 것 (후속 PR)
 

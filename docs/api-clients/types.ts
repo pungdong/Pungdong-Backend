@@ -1605,9 +1605,11 @@ export interface SlotProposal {
 /**
  * 강사 일정변경요청 — POST /instructor/enrollments/{roundId}/propose-slots. 완전한 대안 슬롯 제안(**최대 3개**).
  * **결제완료(ACCEPT_PENDING) 회차에만** — 수락/거절과 나란한 강사의 세 번째 선택지다.
- * 서버가 bookable + **좌석 여유** + **입장료가 결제액 이하**인 것만 채택하고, 채택된 슬롯마다 그 일정에
- * **좌석 보장 hold**(proposalTtl, 기본 6h)를 잡아 학생 pick 이 만석으로 막히지 않게 한다(그 동안 다른 학생 신청은 막힘).
- * 4개 이상이거나 전부 불가/만석/더 비싸면 400. (더 비싼 슬롯을 빼는 이유 = 학생에게 추가 청구가 생기면 안 되므로.)
+ * 서버가 bookable + **좌석 여유**인 것만 채택하고, 채택된 슬롯마다 그 일정에 **좌석 보장 hold**(proposalTtl, 기본 6h)를
+ * 잡아 학생 pick 이 만석으로 막히지 않게 한다(그 동안 다른 학생 신청은 막힘).
+ * ★ **더 비싼 시간대도 제안할 수 있다**(2026-08-10 부터 — 옛 "결제액 이하만" 필터는 제거됐다). 학생이 그걸 고르면
+ *   pick-slot 이 -1018 로 돌려보내고 **차액만 결제**하는 경로로 간다. 강사 클라이언트가 비싼 슬롯을 미리 숨기지 말 것.
+ * 4개 이상이거나 전부 불가/만석이면 400.
  */
 export interface ProposeSlotsRequest {
   slots: SlotProposal[]; // 최대 3
@@ -1616,7 +1618,12 @@ export interface ProposeSlotsRequest {
 /**
  * 제안 슬롯 선택("ㅇㅋ") — POST /enrollments/rounds/{roundId}/pick-slot → 200.
  * 이미 결제된 회차 + 강사가 승인한 자리라 **추가 결제도 재수락도 없이 곧장 CONFIRMED**(입장료가 싸졌으면 차액 자동환불).
- * 좌석은 제안 시점 hold 로 보장돼 있어 만석으로 막히지 않는다(제안이 TTL 만료로 사라졌으면 400 — status 가 WAITING 으로 돌아감).
+ * ★ **단 더 비싼 제안은 예외** — 그걸 고르면 **-1018**(ADDITIONAL_PAYMENT_REQUIRED)로 거부되고, 차액 결제
+ *   (POST /payments/prepare + target*)를 거쳐야 한다. 그 경로의 종착지는 CONFIRMED 가 아니라 **ACCEPT_PENDING**(강사 재수락).
+ *   거부는 완전 롤백이라 제안이 그대로 남아 다시 고를 수 있다.
+ * 좌석은 제안 시점 hold 로 보장돼 있어 만석으로 막히지 않는다.
+ * 제안이 TTL 만료로 사라졌으면 **-1020**(PROPOSAL_EXPIRED) — 사용자 잘못이 아니니 "일정을 직접 골라보세요"로 안내하고
+ *   reschedule 로 유도할 것. 회차는 살아 있고(status 가 WAITING 으로 복귀) 다시 잡으면 된다.
  * 제안이 다 안 맞으면("ㄴㄴ") cancel(전액환불) 또는 reschedule(내 슬롯으로 재제안).
  */
 export type PickSlotRequest = SlotProposal; // proposedSlots 중 하나
@@ -1627,9 +1634,10 @@ export type PickSlotRequest = SlotProposal; // proposedSlots 중 하나
  * 재선택 가능. 두 경로:
  *  - 미결제(PENDING) → status 그대로 **PENDING**(결제 시계 재시작).
  *  - 결제완료(ACCEPT_PENDING) → **결제를 유지한 채 학생 재제안**. status 그대로 **ACCEPT_PENDING**(강사 24h 시계 재시작,
- *    강사 hub 엔 CHANGING). 금액이 줄면 차액 자동환불, **늘면 400**
+ *    강사 hub 엔 CHANGING). 금액이 줄면 차액 자동환불, **늘면 -1018**(ADDITIONAL_PAYMENT_REQUIRED)
  *    → 이때는 **차액 결제 경로**를 쓴다: POST /payments/prepare 에 target* 넷을 실어 차액만 결제(payment 섹션).
- *    단 차액 경로는 **일정(날짜·이용권·블록)만** 바꾼다 — 위치·장비까지 바꾸며 금액이 오르면 취소 후 재신청.
+ *    단 차액 경로는 **일정(날짜·이용권·블록)만** 바꾼다 — **위치까지 바꾸며 금액이 오르면 -1019**
+ *    (VENUE_CHANGE_REQUIRES_REAPPLY, 차액 결제 불가 → 취소 후 재신청). 위치가 바뀌어도 **같거나 싸면** 그냥 된다.
  * 확정(CONFIRMED)·거절·취소된 회차는 400.
  * 슬롯 후보는 GET /enrollments/rounds/{roundId}/options (1회차 옵션과 동일 EnrollmentOptionsResponse — 슬롯 UI 재사용).
  */
@@ -2004,7 +2012,7 @@ export interface PaymentConfirmResponse {
   /**
    * 이 주문이 **일정 변경 차액** 결제인가 — 완료 화면 문구 분기용
    * (false: "결제가 완료됐어요" / true: "일정 변경을 요청했어요").
-   * enrollmentStatus 는 두 경우 모두 'ACCEPT_PENDING' 이라 구분이 안 되고, 이니시스는 성공 URL 을 BE 가 만들어
+   * currentEnrollmentStatus 는 두 경우 모두 'ACCEPT_PENDING' 이라 구분이 안 되고, 이니시스는 성공 URL 을 BE 가 만들어
    * 302 하므로 FE 가 쿼리를 실을 수도 없다 → 서버가 알려준다. **쿠키/sessionStorage 우회 불필요.**
    */
   scheduleChange: boolean;
@@ -2117,15 +2125,17 @@ export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
 // 사이트 설정 (siteSettings) — 런칭 토글
 // ⚠️ BE 엔드포인트가 아니라 **Sanity 싱글톤**. FE 가 Sanity CDN 에서 직접 읽는다
 //   (cert org/term 과 동일 패턴). 값 하나 바꿔 publish 하면 FE/BE 양쪽 무배포로 런칭 전환.
-//   GROQ: *[_type == "siteSettings"][0]{launched, showSeededCourses, pendingTtlHours, paymentTtlHours}
+//   GROQ: *[_type == "siteSettings"][0]{launched, showSeededCourses, pendingTtlHours, paymentTtlHours, proposalTtlHours}
 //   BE 도 같은 문서를 서버사이드로 읽어 신청 차단(PRE_LAUNCH)·데모 필터·좌석 lock 만료를 강제한다.
 // ============================================================
 
 export interface SiteSettings {
   launched: boolean; // false → 전 코스 신청 차단(BE 403 PRE_LAUNCH) + "정식 런칭을 기다려주세요" 배너
   showSeededCourses: boolean; // false → 데모(seeded) 코스가 둘러보기/상세에서 빠짐(데이터는 보존)
-  pendingTtlHours: number;  // BE 내부 — 신청 좌석 lock 만료(강사 무응답, 기본 24). FE 미사용
-  paymentTtlHours: number;  // BE 내부 — 결제 대기 만료(미결제, 기본 12). FE 미사용
+  pendingTtlHours: number;  // BE 내부 — 결제완료·강사 무응답 만료 + 전액 자동환불(기본 24). FE 미사용
+  paymentTtlHours: number;  // BE 내부 — 미결제 만료(신청 시각 기준, 기본 12 / 현재 운영값 1).
+                            // ★ FE 는 이 값을 읽지 말 것 — 카운트다운은 응답의 paymentExpiresInSeconds 를 쓴다
+  proposalTtlHours: number; // BE 내부 — 강사 제안 슬롯·보장 hold 만료(기본 6). 만료 후 pick-slot 은 -1020
 }
 
 // ============================================================

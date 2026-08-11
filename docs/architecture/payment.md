@@ -72,7 +72,8 @@ sequenceDiagram
 더 비싼 시간대로 옮기려면 차액을 받아야 하는데, 그 "결제 대기"를 예약 상태({`EnrollmentStatus`})에 두면 방금 없앤 `PAYMENT_PENDING` 류가 되살아난다. 대신 **대기를 주문에** 둔다:
 
 ```
-POST /payments/prepare {roundId, targetDate, targetTicketRef, targetBlockStart, targetBlockEnd}
+POST /payments/prepare {roundId, targetDate, targetTicketRef, targetBlockStart, targetBlockEnd, targetVenueRefId}
+                                                              └ 선택이지만 **항상 보낼 것** — 안 보내면 -1019 위치 가드가 꺼진다
   ├─ enrollment 가 검증·가격 산정(quoteSlotChange) — 위치·장비 고정이라 갈리는 건 입장료뿐
   ├─ amount = 목표 회차금액 − 현재 회차금액 (차액만)
   ├─ 주문에 목표 슬롯 박제 + 목표 슬롯 좌석 hold(주문 귀속, paymentTtlHours)
@@ -179,7 +180,8 @@ applyCancel
 
 | 엔드포인트 | 인증 | 소유권 검증 | 비고 |
 |---|---|---|---|
-| `POST /payments/prepare` | authenticated | round.enrollment.student == 나 + 상태 **미결제(PENDING)**, 전 회차 동일 | 비소유/없음 = 400, 미결제 아님 = 400 |
+| `POST /payments/prepare` (일반) | authenticated | round.enrollment.student == 나 + 상태 **미결제(PENDING)**, 전 회차 동일 | 비소유/없음 = 400, 미결제 아님 = 400 |
+| `POST /payments/prepare` (**차액**, `target*` 동반) | authenticated | 내 회차 + 상태 **`ACCEPT_PENDING`**(결제완료·강사 결정 대기) | 목표가 안 비싸면 400 · `targetVenueRefId` 가 현재 위치와 다르면 **-1019**(주문·hold 생성 전) |
 | `POST /payments/confirm` | authenticated | order.enrollment.student == 나 | **TOSS/STUB 전용**. amount 불일치 = 400, 멱등(이미 DONE = 200) |
 | `GET /payments/orders/{orderId}` | authenticated | order.enrollment.student == 나 | 성공화면·재진입 조회. 비소유 = 400 |
 | `POST /payments/inicis/return` | **permitAll** + **CORS 제외** | (P_AUTH_TID + 서버 권위 금액 대조가 방어) | 이니시스 결제창 form POST. 승인 후 302 리다이렉트(성패·web/app). `/payments/**` 보다 먼저 매칭. cross-origin form POST 라 CORS 검사에서 뺌(아래) |

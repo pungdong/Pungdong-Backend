@@ -508,11 +508,20 @@ public class EnrollmentService {
     }
 
     /**
-     * 결제된 회차의 슬롯이 바뀌었을 때 금액 정산 — 줄었으면 차액 자동환불, 늘었으면 400.
+     * 결제된 회차의 슬롯이 바뀌었을 때 금액 정산 — 줄었으면 차액 자동환불, 늘었으면 거부(아래).
      *
      * <p><b>불변식</b>: "그 회차에 남아 있는 결제 순액 == {@code chargeTotal()}" — 줄 때마다 즉시 환불하므로
      * 변경 <i>전</i> {@code chargeTotal()} 이 곧 결제액이다(payment 도메인 조회 불필요 = 역참조 없음).
-     * 더 비싼 슬롯으로 옮기려면 취소(전액환불) 후 재신청 — 추가 청구 상태를 되살리지 않으려는 의도적 제약.
+     *
+     * <p><b>금액이 늘 때 두 갈래</b>(2026-08-10 차액 결제 도입 이후):
+     * <ul>
+     *   <li>위치 유지 → {@code -1018}({@link AdditionalPaymentRequiredException}) — <b>차액만 결제</b>하면 갈 수 있다
+     *       ({@code POST /payments/prepare} + {@code target*}).</li>
+     *   <li>위치까지 변경 → {@code -1019}({@link VenueChangeRequiresReapplyException}) — 차액 경로가 위치를 못 바꾸므로
+     *       취소 후 재신청. <b>임시 제약</b>이지 확정 정책이 아니다(위치 변경 + 차액 결제는 지원이 원래 방향).</li>
+     * </ul>
+     * (옛 주석은 "늘면 400 — 취소 후 재신청이 유일" 이었는데, 추가 청구 상태를 <i>예약</i>이 아니라 <i>주문</i>에 두는
+     * 방식으로 풀려 더는 맞지 않는다. 상세: docs/architecture/payment.md §3 "슬롯 변경 차액 결제".)
      */
     private void settleSlotChange(EnrollmentRound round, int paidTotal, String reason, boolean venueChanged) {
         int refundable = paidTotal - round.chargeTotal();

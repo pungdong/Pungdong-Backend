@@ -85,7 +85,13 @@ Settled feature packages (each auto-loads its own `CLAUDE.md` when you work in i
 - `notification/` — domain events → outbox → FCM pipeline.
 - `venue/` — 위치(수영장·딥풀·해양 포인트). 장소 종속 정보(입장료·시간대·이용권·정기휴무)를 1급으로. **강사 커스텀(CUSTOM·비공개·종목잠금) 위치만 BE 소유** — 공식(OFFICIAL) 수영장은 Sanity authoring(`sanity/schemas/venue.ts`), FE 가 둘을 합침. 코스가 위치를 참조(강사 availability 교차·BE 의 OFFICIAL 읽기/동기화는 후속). 도메인 개념·동기화 설계는 `docs/features/venue.md`.
 - `address/` — 주소 검색 + 주소→좌표(geocoding). 외부 juso(주소기반산업지원서비스) 통합을 BE 한 곳에 가둠 — FE 는 `/address-search`·`/geocode` 경유(승인키 은닉). `AddressApiClient`(juso/stub 게이트), 좌표는 proj4j 로 한국격자→WGS84. 좌표제공 개발키 부재로 로컬 stub 기본.
-- `global/` — domain-agnostic shared: `global/config/`, `global/security/`, `global/advice/`, `global/model/` (CommonResult envelope), `global/ResponseService`.
+- `enrollment/` — 수강신청·회차(다회차)·일정변경·취소. `payment/` 와 짝 (돈=payment, 예약=enrollment).
+- `payment/` — 결제 준비/승인/환불, PG 어댑터(이니시스·토스·stub), 주문·환불 원장.
+- `availability/` — 강사 캘린더 coverage(예약가능시간)/session(일정)/hold(점유).
+- `course/` · `branding/` · `consent/` · `discipline/` · `identityverification/` · `instructorapplication/` · `legal/` · `profile/` — 각자 `CLAUDE.md` 보유.
+- `global/` — domain-agnostic shared: `global/config/`, `global/sitesettings/`(Sanity 런타임 설정 — TTL 등), `global/security/`, `global/advice/`, `global/model/` (CommonResult envelope), `global/validation/`, `global/ResponseService`.
+
+> 위 목록이 곧 "이미 feature 패키지로 옮겨진 도메인" 이다 — `src/main/java/**/CLAUDE.md` 가 있는 곳이 기준. 레거시 layered 에 남은 건 아래 §Legacy 목록뿐.
 
 Cross-domain coupling is expected in this monolith — e.g. `Account` is imported by ~35 files in other domains (lecture/reservation reference it as creator/applicant). That's fine; just keep the dependency direction one-way (account doesn't import lecture).
 
@@ -96,9 +102,11 @@ Cross-domain coupling is expected in this monolith — e.g. `Account` is importe
 - `repo/` — Spring Data JPA repositories. Dynamic queries use **`JpaSpecificationExecutor` + a sibling `*Specifications` utility class** (e.g. `LectureSpecifications` — `matching` for filters, `keywordMatch` for keyword search); QueryDSL was removed in Phase 0.4.
 - `domain/` — JPA entities grouped by aggregate (`account/`, `lecture/`, `schedule/`, `reservation/`, `payment/`, `review/`, `equipment/`, `location/`).
 - `dto/` — request/response DTOs. **Convention**: `dto/<feature>/<operation>/` (e.g. `dto/lecture/create/`, `dto/account/signUp/`). Add new DTOs to the matching operation folder; create a new one if needed.
-- `config/` — Spring `@Configuration` beans (Redis, email, HTTP client, i18n message source). `config/security/` holds `SecurityConfiguration` (still extends the **deprecated** `WebSecurityConfigurerAdapter` — migration to `SecurityFilterChain` bean is scheduled with the Phase 1 auth absorption), `JwtTokenProvider`, `JwtAuthenticationFilter`, `CurrentUser` (custom `@AuthenticationPrincipal` annotation), `UserAccount` (`UserDetails` wrapper).
-- `advice/` — `@RestControllerAdvice` exception handling. Custom exceptions live in `advice/exception/`; user-facing messages are looked up via `MessageSource` against `src/main/resources/i18n/exception*.yml` (configured via `yaml-resource-bundle`).
-- `model/` — `CommonResult` / `SingleResult<T>` / `ListResult<T>` / `SuccessResult` envelope types returned to clients. Build them through `ResponseService`.
+> ⚠️ The three items below (`config/`, `advice/`, `model/`) are **not** top-level packages — they live under `global/` (see the `global/` bullet above). They are listed here because the legacy layered code still routes through them.
+
+- `global/config/` — Spring `@Configuration` beans (Redis, email, HTTP client, i18n message source, `global/sitesettings/` = the Sanity-backed runtime `SiteSettings`). **Auth infra is `global/security/`**: `SecurityConfiguration`, `JwtTokenProvider`, `JwtAuthenticationFilter`, `CurrentUser` (custom `@AuthenticationPrincipal`), `UserAccount` (`UserDetails` wrapper). `SecurityConfiguration` is a **`SecurityFilterChain` bean** — the `WebSecurityConfigurerAdapter` migration is **done**, don't look for `configure(...)` methods.
+- `global/advice/` — `@RestControllerAdvice` exception handling. Custom exceptions live in `global/advice/exception/`; user-facing messages are looked up via `MessageSource` against `src/main/resources/i18n/exception*.yml` (configured via `yaml-resource-bundle`). Each exception maps to a numeric code via an i18n key (`<key>.code` / `<key>.msg`) — **adding a code means touching the exception class, the yml, `ExceptionAdvice`, and `docs/api-clients/types.ts`'s `ErrorCode`.**
+- `global/model/` — `CommonResult` / `SingleResult<T>` / `ListResult<T>` / `SuccessResult` envelope types. **Error responses only** — success responses in feature packages use Spring HATEOAS `EntityModel`/`CollectionModel`.
 
 ## 도메인 기저 원칙 — 일정 확정에는 강사의 수락이 무조건 필요하다
 
@@ -117,7 +125,7 @@ Cross-domain coupling is expected in this monolith — e.g. `Account` is importe
 
 ## Security model
 
-JWT-based, stateless (`SessionCreationPolicy.STATELESS`). `JwtAuthenticationFilter` runs before `UsernamePasswordAuthenticationFilter`. URL → role mapping is centralized in `SecurityConfiguration.configure(HttpSecurity)` — when adding a new endpoint, update the matchers there. Roles: `ADMIN`, `INSTRUCTOR`, `STUDENT` (the default for new sign-ups). Several public endpoints (lecture browsing, sign-up/login, email code, password reset, exception lookup) are explicitly `permitAll`. Inject the current user via `@CurrentUser Account` rather than reading from `SecurityContextHolder` directly.
+JWT-based, stateless (`SessionCreationPolicy.STATELESS`). `JwtAuthenticationFilter` runs before `UsernamePasswordAuthenticationFilter`. URL → role mapping is centralized in the `SecurityConfiguration.filterChain(HttpSecurity)` **bean** — when adding a new endpoint, update the matchers there. Roles: `ADMIN`, `INSTRUCTOR`, `STUDENT` (the default for new sign-ups). Several public endpoints (lecture browsing, sign-up/login, email code, password reset, exception lookup) are explicitly `permitAll`. Inject the current user via `@CurrentUser Account` rather than reading from `SecurityContextHolder` directly.
 
 Auth failures return **JSON `401`** directly via `CustomAuthenticationEntryPoint`; access denials return **JSON `403`** via `CustomAccessDeniedHandler` (both wired in `SecurityConfiguration.exceptionHandling`; bodies are the `CommonResult` `{success:false, code, msg}` envelope, code/msg from `MessageSource`). This replaced the old 302-redirect-to-`/exception/*` scheme (done in PR #19). `ExceptionController` now only exposes a **vestigial** `GET /exception/forbiddenToken` (throws `ForbiddenTokenException` → `ExceptionAdvice`) — it is not wired into the auth flow anymore and is a cleanup candidate.
 
@@ -167,7 +175,7 @@ Auth failures return **JSON `401`** directly via `CustomAuthenticationEntryPoint
 
 ## Docs
 
-REST Docs source: `src/docs/asciidoc/api.adoc` (Korean). The `bootJar` task copies the rendered HTML into `static/docs/` so it is served from the running app at `/docs/**` (whitelisted in `SecurityConfiguration.configure(WebSecurity)`). Snippets used by `api.adoc` come from controller tests — a new endpoint without a `document(...)` call in its test will leave the doc with broken includes.
+REST Docs source: `src/docs/asciidoc/api.adoc` (Korean). The `bootJar` task copies the rendered HTML into `static/docs/` so it is served from the running app at `/docs/**` (whitelisted in `SecurityConfiguration.webSecurityCustomizer()`). Snippets used by `api.adoc` come from controller tests — a new endpoint without a `document(...)` call in its test will leave the doc with broken includes.
 
 ## CI / Deployment
 
