@@ -998,20 +998,28 @@ export interface CommunityCommentRequest {
  * ⚠️ 중복 신고는 **200 멱등**(기존 건 반환). 자기 글·댓글은 400. 없는 대상도 400.
  * ⚠️ `reason === 'OTHER'` 면 `detail` 필수 — 없으면 400.
  */
+export type ReportTargetType = 'POST' | 'COMMENT';
+
+/** 신고 사유 6종. `OTHER` 면 `detail` 필수. */
+export type ReportReason = 'SPAM' | 'ABUSE' | 'SEXUAL' | 'COMMERCIAL' | 'FALSE_INFO' | 'OTHER';
+
+/** 어드민 처리 상태. `ACTIONED` 는 대상이 실제로 숨겨졌다는 뜻이다(상태만 바뀌는 게 아니다). */
+export type ReportStatus = 'PENDING' | 'ACTIONED' | 'DISMISSED';
+
 export interface ContentReportRequest {
-  targetType: 'POST' | 'COMMENT';
+  targetType: ReportTargetType;
   targetId: number;
-  reason: 'SPAM' | 'ABUSE' | 'SEXUAL' | 'COMMERCIAL' | 'FALSE_INFO' | 'OTHER';
+  reason: ReportReason;
   detail?: string;   // 최대 500자
 }
 
 export interface ContentReport {
   id: number;
-  targetType: 'POST' | 'COMMENT';
+  targetType: ReportTargetType;
   targetId: number;
-  reason: ContentReportRequest['reason'];
+  reason: ReportReason;
   detail?: string;
-  status: 'PENDING' | 'ACTIONED' | 'DISMISSED';
+  status: ReportStatus;
   createdAt: string;
   handledAt?: string;
   /** 어드민 목록에만. 접수 응답에는 키가 없다. */
