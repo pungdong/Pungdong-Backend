@@ -23,17 +23,31 @@ import java.util.Set;
  * 대조) + 웹훅이 유지하며 <b>TTL 은 두지 않는다</b>(venue.md 결정 — 안 바뀐 전체 재fetch 낭비 회피).
  *
  * <p>Redis 키: {@code venue:official:ids}(SET) · {@code :doc:<id>}(GROQ JSON) · {@code :rev:<id>} ·
- * {@code venue:official:loaded}(적재 마커) · {@code venue:official:reconcileAt}(heartbeat epoch ms).
+ * {@code venue:official:loaded}(적재 마커) · {@code venue:official:schemaVersion}(문서 스키마 버전) ·
+ * {@code venue:official:reconcileAt}(heartbeat epoch ms).
+ *
+ * <p><b>스키마 버전 마커</b>: {@code _rev} 대조는 "Sanity 문서가 그대로인가"만 보므로, BE 가 projection
+ * 을 넓혀 배포해도(예: defaultEquipment 추가) 구버전 코드가 적재한 캐시는 새 필드 없이 그대로 남는다.
+ * 그래서 적재 시 {@link #SCHEMA_VERSION} 을 함께 기록하고, 읽기 경로가 버전 불일치를 보면 lazy reload
+ * 한다(계약: projection 확장 배포 후 구형 캐시 자동 회복).
+ *
+ * <p>⚠️ 롤링 배포 창 한정 오봉인 가능성: 신버전이 마커를 "2"로 봉인한 직후 아직 살아있는 구버전 인스턴스의
+ * reconcile/webhook 이 구형 projection 으로 replaceAll 하면 문서는 구형인데 마커는 신버전 값으로 남는다.
+ * 배포 완료 직후 Sanity publish 가 겹쳤다면 캐시 flush 또는 reconcile 1회 권장(배포 노트).
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class OfficialVenueCache {
 
+    /** 캐시된 GROQ 문서의 모양 버전 — {@code ALL_QUERY} projection 을 넓힐 때마다 +1. (2 = defaultEquipment) */
+    static final String SCHEMA_VERSION = "2";
+
     private static final String IDS = "venue:official:ids";
     private static final String DOC = "venue:official:doc:";
     private static final String REV = "venue:official:rev:";
     private static final String LOADED = "venue:official:loaded";
+    private static final String SCHEMA_VERSION_KEY = "venue:official:schemaVersion";
     private static final String RECONCILE_AT = "venue:official:reconcileAt";
 
     private final RedisTemplate<String, String> redisTemplate;
@@ -42,9 +56,7 @@ public class OfficialVenueCache {
 
     /** 공식 위치 전량을 통합 DTO 로. 캐시가 비어 있으면 Sanity 에서 lazy-load 후 반환. */
     public List<VenueResponse> getAll() {
-        if (!Boolean.TRUE.equals(redisTemplate.hasKey(LOADED))) {
-            loadFromSource();
-        }
+        ensureLoadedAndCurrent();
         List<VenueResponse> out = new ArrayList<>();
         Set<String> ids = redisTemplate.opsForSet().members(IDS);
         if (ids == null) {
@@ -65,6 +77,19 @@ public class OfficialVenueCache {
         replaceAll(sanityVenueClient.fetchAll());
     }
 
+    /** 미적재이거나 구버전 코드가 남긴 캐시(스키마 버전 불일치)면 Sanity 에서 다시 적재 — 읽기 경로 공통 게이트. */
+    private void ensureLoadedAndCurrent() {
+        if (!Boolean.TRUE.equals(redisTemplate.hasKey(LOADED))) {
+            loadFromSource();
+            return;
+        }
+        if (!SCHEMA_VERSION.equals(redisTemplate.opsForValue().get(SCHEMA_VERSION_KEY))) {
+            log.info("[venue-sync] official venue cache schema version mismatch — lazy reload (expected {})",
+                    SCHEMA_VERSION);
+            loadFromSource();
+        }
+    }
+
     /** 캐시 전량 교체(reconcile·webhook 가 변경 감지 시 호출). 작은 카탈로그라 통째 교체가 단순·안전. */
     @SneakyThrows
     public void replaceAll(List<OfficialVenueDoc> docs) {
@@ -83,6 +108,7 @@ public class OfficialVenueCache {
             }
             redisTemplate.opsForSet().add(IDS, d.getId());
         }
+        redisTemplate.opsForValue().set(SCHEMA_VERSION_KEY, SCHEMA_VERSION);
         redisTemplate.opsForValue().set(LOADED, "1");
         log.info("[venue-sync] official venue cache replaced — {} venue(s)", docs.size());
     }
@@ -105,10 +131,15 @@ public class OfficialVenueCache {
 
     /** 공식 위치 id 가 캐시(=Sanity)에 존재하는가 — 장비 가격표가 official 참조를 검증할 때. */
     public boolean contains(String officialId) {
-        if (!isLoaded()) {
-            loadFromSource();
-        }
+        ensureLoadedAndCurrent();
         return Boolean.TRUE.equals(redisTemplate.opsForSet().isMember(IDS, officialId));
+    }
+
+    /** 공식 위치 1건의 원본 GROQ 문서(JsonNode). 없으면 null — 장비 prefill 이 defaultEquipment 를 읽을 때. */
+    public JsonNode getDoc(String officialId) {
+        ensureLoadedAndCurrent();
+        String json = redisTemplate.opsForValue().get(DOC + officialId);
+        return json == null ? null : parse(json);
     }
 
     /** reconcile 성공 시각(heartbeat) 기록 — liveness 판정용. */

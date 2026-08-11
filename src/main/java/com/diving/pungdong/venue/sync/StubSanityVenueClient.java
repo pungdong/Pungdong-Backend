@@ -15,8 +15,10 @@ import java.util.List;
  * 패턴). 코스 빌더 머지/리컨사일/종목 필터를 실 외부 호출 없이 검증하기 위함.
  *
  * <ul>
- *   <li>딥스테이션 — DEEP_POOL, FREEDIVING·SCUBA, 평일 FIXED + 주말 SAME</li>
- *   <li>양양 비치 — OCEAN, SCUBA, 평일 OPEN(키반납 3h) + 주말 미판매</li>
+ *   <li>딥스테이션 — DEEP_POOL, FREEDIVING·SCUBA, 평일 FIXED + 주말 SAME, 기본 대여 장비 5행
+ *       (미상 sizeFormat "KG_BELT"·sizeFormat 누락·price 누락(합성 시 skip → 유효 4종) 포함 —
+ *       lenient 파싱·skip 검증용)</li>
+ *   <li>양양 비치 — OCEAN, SCUBA, 평일 OPEN(키반납 3h) + 주말 미판매, 기본 장비 없음</li>
  * </ul>
  *
  * {@code @Profile("test")} — 운영/로컬은 {@link HttpSanityVenueClient}.
@@ -38,7 +40,13 @@ public class StubSanityVenueClient implements SanityVenueClient {
                 + "\"_id\":\"" + DEEPSTATION_ID + "\",\"_rev\":\"rev-deep-1\","
                 + "\"name\":\"딥스테이션\",\"type\":\"DEEP_POOL\",\"maxDepth\":36,"
                 + "\"address\":\"경기도 용인시 처인구 포곡읍 성산로 523\",\"addressDetail\":\"딥스테이션\","
-                + "\"latitude\":37.25,\"longitude\":127.21,\"equipInfo\":\"풀세트 입장료 포함\","
+                + "\"latitude\":37.25,\"longitude\":127.21,\"equipInfo\":\"대여 데스크는 1층 안내 옆\","
+                + "\"defaultEquipment\":["
+                + "{\"name\":\"롱핀\",\"price\":5000,\"sizeFormat\":\"SHOE_MM\"},"
+                + "{\"name\":\"슈트\",\"price\":10000,\"sizeFormat\":\"APPAREL_SXL\"},"
+                + "{\"name\":\"마스크·스노클\",\"price\":0},"
+                + "{\"name\":\"웨이트\",\"price\":2000,\"sizeFormat\":\"KG_BELT\"},"
+                + "{\"name\":\"보온조끼\"}],"
                 + "\"closures\":[{\"type\":\"WEEKLY\",\"weekdays\":[\"MONDAY\"]}],"
                 + "\"tickets\":["
                 + "{\"_key\":\"deep-tk-1\",\"name\":\"일반권\",\"disciplines\":[\"FREEDIVING\",\"SCUBA\"],"
