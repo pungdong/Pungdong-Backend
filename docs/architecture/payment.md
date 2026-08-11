@@ -199,6 +199,7 @@ applyCancel
 - 🟢 **환불 clientIp 등록 불요** (2026-08-07 검증) — 환불 전문의 `clientIp`(기본값·변동 egress)로 이니시스 환불이 통과했다. 즉 **고정 egress(fck-nat) 불필요** — 환불 자동화에 인프라 부담 0. (KCP 8012 취소-IP 제약과 달리 이니시스는 IP 대조를 안 하는 것으로 확인. prod MID 에서 재확인 권장이나 강신호. 만약 prod 에서 IP 제약이 나타나면 fck-nat/나노 NAT ~$7/월 옵션 — 히스토리는 git.)
 - 🟢 **결제 미완 만료 + 거절/무응답 자동환불 구현** (2026-08-07 선결제 전환) — 선결제 1회차: 미결제(PENDING) 12h 만료(슬롯 해제·환불 없음), 결제완료(ACCEPT_PENDING) 강사 무응답 24h 만료 + **전액 자동환불**, 강사 거절 시 **전액 자동환불**. enrollment 이벤트(`EnrollmentRefundRequestedEvent`) → `EnrollmentRefundListener` → `RefundService.refundRoundFully`(동기·롤백 안전). 상태기계는 [enrollment.md](enrollment.md) §3-2.
 - 🟢 **결제 카운트다운·차액 구분 노출 완료** (2026-08-11) — 미결제 회차의 **잔여 초**(`paymentExpiresInSeconds`)를 `EnrollmentResponse`·일정 hub `ScheduleRound`·`PaymentPrepareResponse` 에 싣는다. **저장 컬럼 없음** — `createdAt + paymentTtlHours` 를 읽을 때 푼다(`enrollment/PaymentWindow`, 만료 스윕과 같은 식). 절대시각이 아니라 잔여 초인 이유는 기기 시계 오차([time-handling.md](time-handling.md)). 승인 응답엔 `scheduleChange`(= `PaymentOrder.isSlotChange()`)를 실어 완료 화면이 "결제 완료"와 "일정 변경 요청"을 가르게 했다 — 이니시스는 성공 URL 을 BE 가 만들어 302 하므로 FE 가 쿼리로 실어보낼 수 없어 서버가 알려주는 게 유일한 경로다.
+- 🟢 **위치 변경 + 금액 상승은 차액 결제로 못 간다 — 코드로 갈라 막음** (2026-08-11) — 차액 결제는 "입장료만 갈린다"는 전제 위에 서 있어 `applySlotChange` 가 `venueRefId` 를 그대로 둔다. 그런데 이 조합을 `-1018` 로 내보내면 FE 가 차액 결제로 유도하고, **결제 후 학생이 고른 적 없는 원래 위치로 조용히 옮겨진다**(이용권·시간이 두 위치에 겹치면 검증도 통과하고 성공 화면도 정상으로 보인다). 두 겹으로 막았다: ① **`reschedule` 이 `-1019` 를 먼저 낸다**(위치를 이미 받으므로 FE 변경 없이 방어) ② `prepare` 가 선택 입력 `targetVenueRefId` 를 받아 현재 위치와 대조(다르면 `-1019`, 주문·hold 생성 전). 위치 변경이라도 **같거나 싸면** reschedule 로 그대로 된다. 완전한 "위치 변경 + 차액 결제"는 장비 가격표(위치 종속)·세션 자연키·좌석 hold·겹침 판정까지 재계산이 필요해 별도 피처.
 - 🟡 **입장료/장비 live 재계산 안 함** — 권위 금액은 수강료만 라이브, 입장료/장비는 신청 스냅샷. venue 블록 재도출 후속.
 - 🟢 **정산(지급대행) 미연동** — 강사 정산은 이니시스 **지급대행**이 대행한다(런칭엔 상점관리자페이지 수동 운영, 지급대행 API 는 후속). 플랫폼 수수료/포인트 분해 정산은 우리 로직이 계산(런칭엔 포인트 없음). → 정책은 [docs/features/payment.md](../features/payment.md).
 - 🟢 **캘린더 표시** — 결제완료·점유 상태(`ACCEPT_PENDING`/`CONFIRMED`)를 `confirmed` 버킷으로 합산(점유). FE 가 "미결제(PENDING)"를 별도 표시하려면 카운트 분리 후속.
@@ -222,6 +223,8 @@ applyCancel
 - `C1` 더 비싼 슬롯으로 그냥 reschedule → **-1018**(`ADDITIONAL_PAYMENT_REQUIRED`), 슬롯은 롤백
 - `C2` prepare 의 `target*` 시각은 `"18:00"`·`"18:00:00"` 둘 다 받는다(슬롯이 준 표기 그대로)
 - `C3` 차액 결제 승인·주문조회 응답 모두 `scheduleChange=true`
+- `C4` **위치까지 바꾸면서 비싸지면 `-1018` 이 아니라 `-1019`** — 차액 경로로 못 가는 조합
+- `C5` prepare 에 다른 `targetVenueRefId` 를 실으면 `-1019` (주문·좌석 hold 생성 전에 차단), 같은 위치면 통과
 - `I1` 이니시스 콜백 승인 → 서버 승인·확정 + app 성공 스킴 302 / `I2` PG 거절 → 주문 READY 유지, web fail 302 / `I3` 인증실패(P_STATUS≠00) → 승인 호출 없이 fail 302 / `I4` 알 수 없는 P_OID(위조) → web fail 302
 - `O1` GET /payments/orders/{id} 소유자 조회(DONE·확정) / `O2` 남의 주문 조회 400
 - `InicisPaymentTransmissionTest`(K/M/V) — 이니시스 전문·서명·hashData 바이트동일성·SSRF(외부 호출 0, 자격증명 불요)

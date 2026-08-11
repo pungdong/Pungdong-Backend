@@ -1919,6 +1919,14 @@ export interface PaymentPrepareRequest {
   //   (예전엔 'HH:mm' 만 받아 "14:00:00" 이 400 이었다. 2026-08-11 수정.)
   targetBlockStart?: string;
   targetBlockEnd?: string;
+  /**
+   * 목표 슬롯 **위치**(선택 — 보내면 서버가 대조한다). ★ 차액 결제는 **위치를 바꾸지 못한다** —
+   * 서버는 언제나 회차의 현재 위치로 목표 슬롯을 해석한다.
+   * 그래서 다른 위치를 띄워놓고 보내면 (이용권·시간이 현재 위치에도 우연히 있을 경우) 학생이 고른 적 없는
+   * 원래 위치로 조용히 옮겨진다 → 값을 보내면 다를 때 **-1019 로 거부**한다.
+   * **사용자에게 보여준 위치를 항상 실어 보낼 것**(안 보내면 이 방어가 꺼진다).
+   */
+  targetVenueRefId?: string;
 }
 
 /**
@@ -2072,6 +2080,16 @@ export const ErrorCode = {
    * 나오는 곳: POST /enrollments/rounds/{roundId}/reschedule, POST /enrollments/rounds/{roundId}/pick-slot.
    */
   ADDITIONAL_PAYMENT_REQUIRED: -1018,
+  /**
+   * 위치까지 바꾸면서 금액이 오르는 변경 — **차액 결제로는 갈 수 없는 조합**이다.
+   * ★ 이 코드에는 "추가 결제하고 변경하기" 를 띄우면 안 된다. 차액 결제 경로는 위치를 못 바꾸므로,
+   *   결제를 태우면 학생이 고른 적 없는 **원래 위치**의 슬롯으로 옮겨진다(성공 화면은 정상으로 보인다).
+   *   안내: "위치까지 바꾸려면 지금 예약을 취소하고 다시 신청" (= cancel → 재신청).
+   * 나오는 곳: POST /enrollments/rounds/{roundId}/reschedule (위치 변경 + 금액 상승),
+   *           POST /payments/prepare (targetVenueRefId 가 회차의 현재 위치와 다를 때).
+   * 참고: 위치 변경이라도 **같거나 싸면** reschedule 로 그대로 된다(차액 자동환불).
+   */
+  VENUE_CHANGE_REQUIRES_REAPPLY: -1019,
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
