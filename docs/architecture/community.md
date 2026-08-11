@@ -96,7 +96,7 @@ sequenceDiagram
     CS->>OB: CommunityCommentEvent (같은 트랜잭션 안)
     OB->>DB: notification_outbox INSERT
   end
-  CS-->>U: 201 CommunityCommentResponse
+  CS-->>U: 200 CommunityCommentResponse
 ```
 
 **수신자는 언제나 최대 1명이다.** 답글에 대해 글 작성자까지 보내면 스레드가 길어질수록 소음이 된다(N3 시나리오로 고정). **자기 알림 가드는 발행 지점**에 있다 — 내 글에 내가 댓글을 다는 건 흔한 동작이라 안 막으면 자기 알림이 쏟아진다(N2).
@@ -242,6 +242,8 @@ erDiagram
 **왜 `hasRole("INSTRUCTOR")` 가 없나** — 커뮤니티는 전 role 공용이고, 강사 강조는 **권한이 아니라 표시**다. 강사 판정은 승인된 신청에서 서비스가 파생한다(승인 전 강사를 403 으로 막지 않는 레포 전반의 방침. [branding.md](branding.md) §5 와 같은 이유).
 
 **404 를 쓰지 않는다** — 없는 글·남의 글·숨긴 글은 전부 **400(존재 숨김)**. 있고 없고를 알려주는 것 자체가 정보다.
+
+**생성도 200 이다(201 아님).** 글·댓글 작성이 전부 `ResponseEntity.ok()` 다 — [branding](branding.md) 과 같고, 201 을 쓰는 건 `course` 뿐이라 레포 안에서도 소수다. 실 응답으로 확인한 값이니 클라이언트는 `2xx` 로 판정하면 된다.
 
 ## 6. 알려진 설계 간극
 

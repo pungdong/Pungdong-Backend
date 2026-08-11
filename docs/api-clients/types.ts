@@ -828,8 +828,9 @@ export interface CommunityMatch {
 /**
  * GET /community/posts (비로그인 가능) — 피드.
  * PagedModel — 배열은 `_embedded.posts`(빈 결과면 키 없음), 메타는 `page`.
- * 쿼리: `?category=&bookmarkedByMe=&page=&size=` · size 상한 50.
- * ⚠️ 정렬 파라미터는 **없다**. 서버가 최신순으로 고정하고, `category=MATCH` 면 **일정 임박순**으로 자동 전환된다.
+ * 쿼리: `?category=&sort=&bookmarkedByMe=&page=&size=` · size 상한 50.
+ * `sort` 는 **`CommunityFeedSort`(LATEST 기본 · POPULAR) 둘뿐** — 그 외 값은 400. 메인 피드의 최신/인기 pill 이 이걸 쓴다.
+ * ⚠️ `category=MATCH` 면 `sort` 와 무관하게 **일정 임박순**으로 자동 전환된다(정렬 pill 을 노출하지 않는 화면이라 서버 기본 동작으로 처리).
  * ⚠️ `bookmarkedByMe=true` 는 인증 필요 — 비로그인이면 에러가 아니라 **빈 페이지**.
  */
 export interface CommunityPostCard {
