@@ -776,6 +776,133 @@ export interface BrandingPublishRequest {
   published: boolean;
 }
 
+// ── 커뮤니티 (community) — docs/features/community.md ──
+// 글·사진·댓글·좋아요. 카테고리 4종. 강사 작성자를 시각적으로 구분해 프로필 → 강의 전환을 유도한다.
+//
+// ⚠️ 게시물 테이블은 브랜딩과 **공유**한다. 노출은 **브랜딩 → 커뮤니티 단방향**:
+//    - 브랜딩(POST /branding/me/posts)에 올린 글 → 프로필 그리드 + 커뮤니티 피드 **둘 다**
+//    - 커뮤니티(POST /community/posts)에 올린 글 → 피드에만. 프로필 그리드엔 안 나온다
+//    브랜딩은 "남기고 싶은 하이라이트", 커뮤니티는 "오늘의 흐름" 이라 방향이 한쪽이다.
+
+export type CommunityCategory = 'TOUR' | 'TRAINING' | 'MATCH' | 'QNA';
+// 라벨은 클라이언트 소유(투어 자랑/트레이닝/같이가요/궁금해요). BE 는 코드만 준다.
+
+/**
+ * 게시물에 연결된 강의 미니카드. BrandingPostDetail.linkedCourse 와 **같은 형태**다(BE 도 같은 DTO).
+ * ⚠️ 투어는 없다 — CourseKind 에 TOUR 가 없어서 강의만 연결된다.
+ */
+export interface LinkedCourse {
+  id: number;
+  title: string;
+  thumbnailUrl?: string | null;
+  price: number;
+  status: 'OPEN' | 'CLOSED';
+}
+
+/** 피드·상세·댓글에 공통으로 실리는 작성자. 강사 강조 UI(링+✓+"강사 · 강의 N")의 유일한 소스. */
+export interface CommunityAuthor {
+  /** 공개 프로필 진입 키 — GET /instructors/{nickName} 에 그대로 쓴다. */
+  nickName: string;
+  avatarUrl?: string | null;
+  /** 항상 온다(생략 아님) — 카드마다 분기하는 값이라 없으면 "안 온 것"과 구분이 안 된다. */
+  isInstructor: boolean;
+  /** 강사만. 일반 유저는 **키 자체가 없다** — 0 을 주면 "강의 0개인 강사" 로 읽힌다. */
+  lessonCount?: number;
+}
+
+/**
+ * 같이가요 모집 정보 — MATCH 카테고리 글에만.
+ * ⚠️ 일정은 civil time(오프셋 없음) — 다이브 포인트의 벽시계라 뷰어 TZ 로 변환 금지.
+ * ⚠️ 참여자 수가 없다. "참여 신청" 은 만들지 않기로 확정(신청류는 기존 수강신청 플로우).
+ *    모집 칸은 capacity 만으로 "N명 모집" 렌더.
+ */
+export interface CommunityMatch {
+  meetDate: string;            // "2026-05-24"
+  meetTime?: string | null;    // "09:00:00"
+  capacity: number;
+  levelLabel?: string | null;  // "AOWD 이상 · 보트다이빙 경험"
+  /** meetDate >= today. 뱃지용이 아니라 **지난 모집글을 흐리게** 처리하는 용도. */
+  open: boolean;
+}
+
+/**
+ * GET /community/posts (비로그인 가능) — 피드.
+ * PagedModel — 배열은 `_embedded.posts`(빈 결과면 키 없음), 메타는 `page`.
+ * 쿼리: `?category=&bookmarkedByMe=&page=&size=` · size 상한 50.
+ * ⚠️ 정렬 파라미터는 **없다**. 서버가 최신순으로 고정하고, `category=MATCH` 면 **일정 임박순**으로 자동 전환된다.
+ * ⚠️ `bookmarkedByMe=true` 는 인증 필요 — 비로그인이면 에러가 아니라 **빈 페이지**.
+ */
+export interface CommunityPostCard {
+  id: number;
+  /** 브랜딩에서 올라온 글은 카테고리가 없을 수 있다 → 그런 글은 "전체" 피드에만 뜬다. */
+  category?: CommunityCategory;
+  /** 브랜딩발 글은 제목이 없을 수 있다. 카드가 제목을 조건부 렌더하므로 없어도 깨지지 않는다. */
+  title?: string;
+  bodyExcerpt?: string | null;   // 앞 200자 — FE 가 CSS 3줄 클램프
+  author: CommunityAuthor;
+  thumbnailUrls: string[];       // 앞 3장만 (카드가 3장 + "+N" 구조)
+  mediaCount: number;
+  locationLabel?: string;
+  createdAt: string;             // UTC ISO-8601. "15분 전" 은 FE 가 만든다
+  likeCount: number; commentCount: number; bookmarkCount: number;
+  likedByMe: boolean; bookmarkedByMe: boolean;
+  /** 공개 피드에선 항상 false. **오너가 자기 글을 볼 때만** true — 숨김 배지·토글 상태용. */
+  hidden: boolean;
+  linkedCourse?: LinkedCourse;   // 강사 글만. DRAFT·삭제 코스면 키 없음
+  match?: CommunityMatch;        // MATCH 만
+}
+
+/** GET /community/posts/{postId} (비로그인 가능). 숨김·미노출은 400(존재 숨김) — 단 오너 본인은 열린다. */
+export interface CommunityPostDetail extends HalLinks {
+  id: number;
+  category?: CommunityCategory;
+  title?: string;
+  body?: string | null;
+  author: CommunityAuthor;
+  media: { url: string; sortOrder: number }[];
+  /** 카드·상세 어디에도 렌더되지 않는다 — **수정 폼 프리필용**. */
+  tags: string[];
+  locationLabel?: string;
+  createdAt: string;
+  updatedAt: string;
+  likeCount: number; commentCount: number; bookmarkCount: number;
+  likedByMe: boolean; bookmarkedByMe: boolean;
+  hidden: boolean;
+  /** 내 글이면 "더보기" 에 수정·삭제 노출. 카드엔 메뉴가 없어 불필요. */
+  mine: boolean;
+  linkedCourse?: LinkedCourse;
+  match?: CommunityMatch;
+}
+
+/**
+ * POST /community/posts · PUT /community/posts/{postId} (인증)
+ * ⚠️ 수정도 **스냅샷 교체** — 보낸 mediaUrls/tags 가 최종 상태다.
+ * ⚠️ mediaUrls 는 업로드(POST /branding-images)로 받은 우리 CDN URL 만. 배열 순서 = 표시 순서.
+ */
+export interface CommunityPostRequest {
+  category: CommunityCategory;   // 필수
+  title: string;                 // 필수 2~100자
+  body?: string;                 // 최대 5000자
+  mediaUrls?: string[];          // 최대 10장. 사진 없는 글 허용(궁금해요·같이가요)
+  tags?: string[];               // 최대 5개, 각 30자
+  locationLabel?: string;        // 최대 60자
+  /** 강사 + 내 코스만. ⚠️ category==='MATCH' 면 **연결 불가**(영리활동 금지 가드) → 400 */
+  linkedCourseId?: number;
+  /** category==='MATCH' 일 때 필수. */
+  match?: {
+    meetDate: string;            // 오늘 이후
+    meetTime?: string;
+    capacity: number;            // 2~20
+    levelLabel: string;          // 필수, 최대 60자
+  };
+}
+
+/** PATCH /community/posts/{postId}/visibility — 삭제와 다르다(되돌릴 수 있고 공개 경로에서만 빠진다). */
+export interface CommunityPostVisibilityRequest { hidden: boolean }
+
+// 사진 업로드는 **기존 POST /branding-images 를 그대로 쓴다**(같은 공개 버킷·같은 검증). 신규 엔드포인트 없음.
+// 좋아요·북마크·댓글·신고·discovery(카테고리 카운트·인기 태그·관련 글)는 후속 커밋 그룹.
+
 // ── 위치 (venue) — docs/features/venue.md ──
 // 수영장(딥풀)·해양 포인트 = 강의가 진행되는 장소. 입장료·운영 시간대·이용 옵션·정기휴무가 위치에 종속.
 // ⚠️ 소유 분담:
