@@ -8,6 +8,7 @@ import com.diving.pungdong.global.security.CurrentUser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PagedResourcesAssembler;
+import org.springframework.hateoas.CollectionModel;
 import org.springframework.hateoas.EntityModel;
 import org.springframework.hateoas.Link;
 import org.springframework.hateoas.MediaTypes;
@@ -42,12 +43,21 @@ public class PublicCommunityController {
      */
     @GetMapping
     public ResponseEntity<?> feed(@RequestParam(required = false) CommunityCategory category,
+                                  @RequestParam(required = false, defaultValue = "LATEST") FeedSort sort,
                                   @RequestParam(required = false, defaultValue = "false") boolean bookmarkedByMe,
                                   @CurrentUser Account account,
                                   Pageable pageable,
                                   PagedResourcesAssembler<CommunityPostCardResponse> assembler) {
         return ResponseEntity.ok()
-                .body(assembler.toModel(postService.feed(category, bookmarkedByMe, account, pageable)));
+                .body(assembler.toModel(postService.feed(category, sort, bookmarkedByMe, account, pageable)));
+    }
+
+    /** 관련 글 — 웹 상세 우측 rail. 같은 카테고리·자기 제외·최신순. */
+    @GetMapping("/{postId}/related")
+    public ResponseEntity<?> related(@PathVariable Long postId,
+                                     @RequestParam(required = false, defaultValue = "3") int limit,
+                                     @CurrentUser Account account) {
+        return ResponseEntity.ok().body(CollectionModel.of(postService.related(postId, limit, account)));
     }
 
     /** 상세. 숨김·미노출 글은 400(존재 숨김) — 단 <b>오너 본인은 자기 글이면</b> 볼 수 있다. */

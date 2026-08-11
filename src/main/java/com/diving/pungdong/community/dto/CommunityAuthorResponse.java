@@ -23,10 +23,15 @@ public class CommunityAuthorResponse {
      * 강사 여부. <b>항상 내려간다</b>(생략하지 않는다) — 카드마다 분기하는 값이라 없으면 FE 가
      * "아직 안 온 것"과 "강사가 아닌 것"을 구분할 수 없다.
      *
-     * <p>⚠️ {@code @JsonProperty} 가 없으면 Jackson 이 {@code instructor} 로 직렬화해 계약이 조용히 깨진다.
+     * <p>⚠️ <b>필드 이름이 {@code instructor} 인 게 핵심이다.</b> Lombok 이 만드는 getter 는
+     * {@code isInstructor()} 이고 Jackson 은 그걸 암묵 프로퍼티 {@code "instructor"} 로 본다.
+     * 필드까지 {@code isInstructor} 로 두면 <b>암묵 이름이 서로 달라 두 프로퍼티로 갈라져</b>
+     * {@code {"instructor":false,"isInstructor":false}} 처럼 <b>둘 다</b> 나간다(실제로 그렇게 나갔다).
+     * 필드를 {@code instructor} 로 맞춰 getter 와 암묵 이름을 일치시킨 뒤
+     * {@code @JsonProperty} 로 계약상 이름을 지정해야 하나로 합쳐진다.
      */
     @JsonProperty("isInstructor")
-    private final boolean isInstructor;
+    private final boolean instructor;
 
     /**
      * 공개 강의 수 — "강사 · 강의 N" 칩. <b>강사가 아니면 키 자체가 없다.</b>

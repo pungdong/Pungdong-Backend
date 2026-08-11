@@ -901,7 +901,39 @@ export interface CommunityPostRequest {
 export interface CommunityPostVisibilityRequest { hidden: boolean }
 
 // 사진 업로드는 **기존 POST /branding-images 를 그대로 쓴다**(같은 공개 버킷·같은 검증). 신규 엔드포인트 없음.
-// 좋아요·북마크·댓글·신고·discovery(카테고리 카운트·인기 태그·관련 글)는 후속 커밋 그룹.
+
+/** 피드 정렬. `MATCH` 진입 시엔 이 값과 무관하게 서버가 **일정 임박순**으로 자동 전환한다. */
+export type CommunityFeedSort = 'LATEST' | 'POPULAR';
+// POPULAR = **최근 7일 안에서** 좋아요 많은 순. 기간을 자르지 않으면 오래된 인기글이 상단을 영구 점유한다.
+
+/**
+ * POST·DELETE /community/posts/{postId}/like · /bookmark (인증)
+ * ⚠️ **멱등**이다 — 같은 요청을 두 번 보내도 결과가 같다. 낙관적 업데이트 후 이 값으로 덮어쓰면 항상 수렴한다.
+ * ⚠️ 숨김·없는 글에는 반응할 수 없다 → 400(존재 숨김).
+ */
+export interface ReactionResponse {
+  count: number;    // 갱신된 총 개수
+  active: boolean;  // 내 상태. POST 뒤 true, DELETE 뒤 false
+}
+
+/** GET /community/categories (비로그인 가능) — 4-up 그리드. 배열은 `_embedded.categories`. */
+export interface CommunityCategoryCount {
+  category: CommunityCategory;
+  /** 최근 7일 글 수. **4종이 항상 전부 온다** — 0개인 카테고리도 칸은 그려져야 하므로 0 으로 채워 준다. */
+  weeklyPostCount: number;
+}
+// HOT 뱃지 임계값(>50)은 클라이언트 상수다 — 서버는 숫자만 준다.
+
+/** GET /community/tags/popular?limit=8 (비로그인 가능) — 배열은 `_embedded.tags`. 건수 내림차순. */
+export interface PopularTag {
+  tag: string;   // '#' 없는 순수 문자열. 표시용 '#' 은 클라이언트가 붙인다
+  count: number;
+}
+
+// GET /community/posts/{postId}/related?limit=3 (비로그인 가능) — 배열은 `_embedded.posts`(CommunityPostCard).
+// 같은 카테고리·자기 제외·최신순. ⚠️ 카테고리가 없는 글(브랜딩발)은 **빈 배열** — 묶을 축이 없어서다.
+
+// 댓글·신고는 후속 커밋 그룹.
 
 // ── 위치 (venue) — docs/features/venue.md ──
 // 수영장(딥풀)·해양 포인트 = 강의가 진행되는 장소. 입장료·운영 시간대·이용 옵션·정기휴무가 위치에 종속.

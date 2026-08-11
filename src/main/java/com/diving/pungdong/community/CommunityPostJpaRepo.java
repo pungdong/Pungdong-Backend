@@ -56,6 +56,38 @@ public interface CommunityPostJpaRepo extends JpaRepository<BrandingPost, Long>,
     Page<BrandingPost> findMatchFeed(Pageable pageable);
 
     /**
+     * 인기순 피드 — 최근 {@code since} 이후 글을 좋아요 많은 순으로.
+     *
+     * <p><b>기간을 자르는 이유</b>: 자르지 않으면 한 번 인기를 얻은 오래된 글이 영구히 상단을 차지해
+     * 피드가 굳는다. 최근 창 안에서만 겨루게 해야 새 글에 기회가 간다.
+     *
+     * <p>{@code group by p}(엔티티 전체)로 묶는 건 H2·MySQL 양쪽에서 안전하기 때문이다 —
+     * {@code group by p.id} 는 DB 의 {@code ONLY_FULL_GROUP_BY} 해석에 따라 갈린다.
+     * 정렬 tie-break 은 {@code id desc} 라 좋아요 수가 같아도 페이지 경계가 흔들리지 않는다.
+     *
+     * <p>{@code countQuery} 를 따로 준 이유: group by 가 붙은 쿼리를 그대로 count 로 감싸면
+     * "그룹 수" 가 아니라 행 수가 나와 총 개수가 어긋난다.
+     */
+    @Query(value = "select p from BrandingPost p left join CommunityPostLike l on l.post.id = p.id "
+            + "where p.showInFeed = true and p.isHidden = false and p.createdAt >= :since "
+            + "group by p order by count(l) desc, p.id desc",
+            countQuery = "select count(p) from BrandingPost p "
+                    + "where p.showInFeed = true and p.isHidden = false and p.createdAt >= :since")
+    Page<BrandingPost> findPopularFeed(@Param("since") OffsetDateTime since, Pageable pageable);
+
+    /** 위와 같되 카테고리로 좁힌다. */
+    @Query(value = "select p from BrandingPost p left join CommunityPostLike l on l.post.id = p.id "
+            + "where p.showInFeed = true and p.isHidden = false and p.createdAt >= :since "
+            + "and p.category = :category "
+            + "group by p order by count(l) desc, p.id desc",
+            countQuery = "select count(p) from BrandingPost p "
+                    + "where p.showInFeed = true and p.isHidden = false and p.createdAt >= :since "
+                    + "and p.category = :category")
+    Page<BrandingPost> findPopularFeedByCategory(@Param("since") OffsetDateTime since,
+                                                 @Param("category") com.diving.pungdong.branding.CommunityCategory category,
+                                                 Pageable pageable);
+
+    /**
      * 카테고리별 최근 7일 글 수 — 피드 상단 4-up 그리드와 HOT 뱃지(&gt;50).
      * 카테고리가 없는 글(브랜딩발)은 어느 칸에도 속하지 않으므로 제외한다.
      */

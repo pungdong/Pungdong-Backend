@@ -25,6 +25,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -53,6 +55,12 @@ public class CommunityPostService {
     /** 카드 본문 미리보기 길이. FE 가 CSS 로 3줄 클램프를 거니 넉넉해야 줄이 꽉 찬다. */
     private static final int EXCERPT_LENGTH = 200;
 
+    /**
+     * 인기순·카테고리 카운트의 집계 창(일). 둘 다 "최근 N일" 로 자르는 이유가 같다 —
+     * 자르지 않으면 오래된 글이 상단·숫자를 영구히 차지해 피드가 굳고 "이번 주" 라는 라벨이 거짓이 된다.
+     */
+    private static final int POPULAR_WINDOW_DAYS = 7;
+
     private final CommunityPostJpaRepo postRepo;
     private final CommunityPostMatchJpaRepo matchRepo;
     private final CommunityPostLikeJpaRepo likeRepo;
@@ -76,6 +84,7 @@ public class CommunityPostService {
      * 전용 쿼리를 탄다. 나머지는 최신순.
      */
     public Page<CommunityPostCardResponse> feed(CommunityCategory category,
+                                                FeedSort sort,
                                                 boolean bookmarkedByMe,
                                                 Account viewer,
                                                 Pageable pageable) {
@@ -88,7 +97,12 @@ public class CommunityPostService {
         }
 
         Page<BrandingPost> posts;
-        if (category == CommunityCategory.MATCH && !bookmarkedByMe) {
+        if (sort == FeedSort.POPULAR && !bookmarkedByMe) {
+            OffsetDateTime since = OffsetDateTime.now(ZoneOffset.UTC).minusDays(POPULAR_WINDOW_DAYS);
+            posts = category == null
+                    ? postRepo.findPopularFeed(since, page)
+                    : postRepo.findPopularFeedByCategory(since, category, page);
+        } else if (category == CommunityCategory.MATCH && !bookmarkedByMe) {
             posts = postRepo.findMatchFeed(page);
         } else {
             Specification<BrandingPost> spec = Specification.where(CommunityPostSpecifications.feedVisible())
@@ -113,6 +127,52 @@ public class CommunityPostService {
             throw new ResourceNotFoundException();
         }
         return toDetail(post, viewer);
+    }
+
+    /**
+     * 카테고리별 이번 주 글 수 — 4-up 그리드.
+     *
+     * <p><b>4종을 항상 전부 돌려준다.</b> 글이 0개인 카테고리도 칸은 그려져야 하는데, 집계 결과에는
+     * 행이 아예 없어서 그대로 주면 FE 가 칸을 못 그린다. 0 으로 채워서 보낸다 — 이건 없는 값을
+     * 지어내는 게 아니라 <b>실제로 0</b> 이다.
+     */
+    public List<CategoryCountResponse> categoryCounts() {
+        OffsetDateTime since = OffsetDateTime.now(ZoneOffset.UTC).minusDays(POPULAR_WINDOW_DAYS);
+        Map<CommunityCategory, Long> counted = new EnumMap<>(CommunityCategory.class);
+        for (Object[] row : postRepo.countByCategorySince(since)) {
+            counted.put((CommunityCategory) row[0], (Long) row[1]);
+        }
+        return Arrays.stream(CommunityCategory.values())
+                .map(category -> CategoryCountResponse.builder()
+                        .category(category)
+                        .weeklyPostCount(counted.getOrDefault(category, 0L))
+                        .build())
+                .collect(Collectors.toList());
+    }
+
+    /** 인기 태그 — 웹 sidebar. 건수 내림차순, 동률이면 사전순(순서가 매 요청 흔들리지 않게). */
+    public List<PopularTagResponse> popularTags(int limit) {
+        int size = Math.min(Math.max(limit, 1), MAX_PAGE_SIZE);
+        return postRepo.countPopularTags(PageRequest.of(0, size)).stream()
+                .map(row -> PopularTagResponse.builder()
+                        .tag((String) row[0]).count((Long) row[1]).build())
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 관련 글 — 웹 상세 우측 rail. 같은 카테고리·자기 제외·최신순.
+     *
+     * <p>카테고리가 없는 글(브랜딩발)에는 관련 글이 없다 — 묶을 축이 없어서다. 임의로 전체 최신글을
+     * 채우지 않는다("관련" 이라고 부르면서 무관한 걸 보여주는 게 더 나쁘다).
+     */
+    public List<CommunityPostCardResponse> related(Long postId, int limit, Account viewer) {
+        BrandingPost post = postRepo.findVisibleInFeed(postId).orElseThrow(ResourceNotFoundException::new);
+        if (post.getCategory() == null) {
+            return List.of();
+        }
+        int size = Math.min(Math.max(limit, 1), MAX_PAGE_SIZE);
+        List<BrandingPost> posts = postRepo.findRelated(post.getCategory(), postId, PageRequest.of(0, size));
+        return posts.stream().map(cardMapperFor(posts, viewer)).collect(Collectors.toList());
     }
 
     /* ─── 작성 ───────────────────────────────────────────── */
@@ -363,7 +423,7 @@ public class CommunityPostService {
             result.put(postId, CommunityAuthorResponse.builder()
                     .nickName(account.getNickName())
                     .avatarUrl(avatarUrlOf(account))
-                    .isInstructor(isInstructor)
+                    .instructor(isInstructor)
                     // 강사가 아니면 키 자체를 생략한다 — 0 을 내려주면 "강의 0개인 강사" 로 읽힌다.
                     .lessonCount(isInstructor
                             ? (int) (long) lessonCounts.getOrDefault(account.getId(), 0L)

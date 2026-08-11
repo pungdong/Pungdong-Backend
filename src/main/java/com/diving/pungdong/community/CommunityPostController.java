@@ -30,6 +30,7 @@ import javax.validation.Valid;
 public class CommunityPostController {
 
     private final CommunityPostService postService;
+    private final CommunityReactionService reactionService;
 
     /** 작성 — 브랜딩 프로필이 없으면 여기서 만든다(첫 쓰기 = 생성). */
     @PostMapping
@@ -64,6 +65,30 @@ public class CommunityPostController {
                                         BindingResult result) {
         reject(result);
         return ResponseEntity.ok().body(model(postService.updateHidden(account, postId, request.getHidden())));
+    }
+
+    /* ─── 좋아요·북마크 ───────────────────────────────────── */
+    // 전부 멱등이다 — 같은 요청을 두 번 보내도 결과가 같다((대상, 계정) UNIQUE).
+    // 응답에 갱신된 카운트와 내 상태를 함께 실어, 낙관적 업데이트가 항상 수렴하게 한다.
+
+    @PostMapping("/{postId}/like")
+    public ResponseEntity<?> like(@CurrentUser Account account, @PathVariable Long postId) {
+        return ResponseEntity.ok().body(reactionService.like(account, postId));
+    }
+
+    @DeleteMapping("/{postId}/like")
+    public ResponseEntity<?> unlike(@CurrentUser Account account, @PathVariable Long postId) {
+        return ResponseEntity.ok().body(reactionService.unlike(account, postId));
+    }
+
+    @PostMapping("/{postId}/bookmark")
+    public ResponseEntity<?> bookmark(@CurrentUser Account account, @PathVariable Long postId) {
+        return ResponseEntity.ok().body(reactionService.bookmark(account, postId));
+    }
+
+    @DeleteMapping("/{postId}/bookmark")
+    public ResponseEntity<?> unbookmark(@CurrentUser Account account, @PathVariable Long postId) {
+        return ResponseEntity.ok().body(reactionService.unbookmark(account, postId));
     }
 
     private void reject(BindingResult result) {

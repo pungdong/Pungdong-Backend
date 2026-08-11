@@ -65,6 +65,9 @@ public class SecurityConfiguration {
                         // 쓰기(POST/PUT/DELETE/PATCH)는 아래 authenticated 매처가 잡는다.
                         .antMatchers(HttpMethod.GET, "/community/posts").permitAll()
                         .antMatchers(HttpMethod.GET, "/community/posts/*").permitAll()
+                        .antMatchers(HttpMethod.GET, "/community/posts/*/related").permitAll()
+                        .antMatchers(HttpMethod.GET, "/community/categories").permitAll()
+                        .antMatchers(HttpMethod.GET, "/community/tags/popular").permitAll()
                         .antMatchers(HttpMethod.GET, "/courses/browse").permitAll()
                         .antMatchers(HttpMethod.GET, "/courses/level-labels").permitAll()
                         .antMatchers(HttpMethod.GET, "/courses/*/detail").permitAll()

@@ -327,6 +327,162 @@ class CommunityUseCaseTest {
                 .andExpect(jsonPath("$.hidden").value(true));
     }
 
+    /* ════════════════ K — 좋아요·북마크 ════════════════ */
+
+    @Test
+    @DisplayName("K1: 좋아요를 두 번 눌러도 1개다 (재시도·연타에 카운트가 부풀지 않는다)")
+    void like_isIdempotent() throws Exception {
+        Account me = account("k1@c.com", "diverC16", Role.STUDENT);
+        long id = createPost(me, "TOUR", "좋아요 대상", "본문");
+
+        mockMvc.perform(post("/community/posts/" + id + "/like")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.count").value(1))
+                .andExpect(jsonPath("$.active").value(true));
+
+        mockMvc.perform(post("/community/posts/" + id + "/like")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.count").value(1));
+
+        assertThat(likeRepo.count()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("K2: 좋아요를 취소하면 카운트가 줄고 내 상태가 false 가 된다")
+    void unlike_decrements() throws Exception {
+        Account me = account("k2@c.com", "diverC17", Role.STUDENT);
+        long id = createPost(me, "TOUR", "취소 대상", "본문");
+
+        mockMvc.perform(post("/community/posts/" + id + "/like")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(me)));
+
+        mockMvc.perform(delete("/community/posts/" + id + "/like")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(jsonPath("$.count").value(0))
+                .andExpect(jsonPath("$.active").value(false));
+    }
+
+    @Test
+    @DisplayName("K3: 피드 카드에 좋아요 수와 내가 눌렀는지가 실린다 (비로그인이면 likedByMe 는 false)")
+    void feedCard_carriesLikeState() throws Exception {
+        Account me = account("k3@c.com", "diverC18", Role.STUDENT);
+        long id = createPost(me, "TOUR", "카드 상태", "본문");
+        mockMvc.perform(post("/community/posts/" + id + "/like")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(me)));
+
+        mockMvc.perform(get("/community/posts").header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(jsonPath("$._embedded.posts[0].likeCount").value(1))
+                .andExpect(jsonPath("$._embedded.posts[0].likedByMe").value(true));
+
+        mockMvc.perform(get("/community/posts"))
+                .andExpect(jsonPath("$._embedded.posts[0].likeCount").value(1))
+                .andExpect(jsonPath("$._embedded.posts[0].likedByMe").value(false));
+    }
+
+    @Test
+    @DisplayName("K4: 북마크한 글만 따로 볼 수 있고, 비로그인은 에러가 아니라 빈 목록이다")
+    void bookmarkedFilter_worksAndIsEmptyForAnonymous() throws Exception {
+        Account me = account("k4@c.com", "diverC19", Role.STUDENT);
+        long saved = createPost(me, "TOUR", "저장할 글", "본문");
+        createPost(me, "QNA", "안 저장할 글", "본문");
+
+        mockMvc.perform(post("/community/posts/" + saved + "/bookmark")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(me)));
+
+        mockMvc.perform(get("/community/posts").param("bookmarkedByMe", "true")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(jsonPath("$.page.totalElements").value(1))
+                .andExpect(jsonPath("$._embedded.posts[0].title").value("저장할 글"));
+
+        mockMvc.perform(get("/community/posts").param("bookmarkedByMe", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(0));
+    }
+
+    @Test
+    @DisplayName("K5: 숨긴 글에는 좋아요를 걸 수 없다 (존재를 알려주지 않는다)")
+    void hiddenPost_cannotBeLiked() throws Exception {
+        Account owner = account("k5a@c.com", "diverC20", Role.STUDENT);
+        Account other = account("k5b@c.com", "diverC21", Role.STUDENT);
+        long id = createPost(owner, "TOUR", "숨긴 글", "본문");
+
+        mockMvc.perform(patch("/community/posts/" + id + "/visibility")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(owner))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"hidden\":true}"));
+
+        mockMvc.perform(post("/community/posts/" + id + "/like")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(other)))
+                .andExpect(status().isBadRequest());
+    }
+
+    /* ════════════════ D — 탐색 지표 ════════════════ */
+
+    @Test
+    @DisplayName("D1: 카테고리 카운트는 글이 0개인 카테고리도 0 으로 채워 4종을 전부 준다 (칸이 그려져야 한다)")
+    void categoryCounts_alwaysReturnsAllFour() throws Exception {
+        Account me = account("d1@c.com", "diverC22", Role.STUDENT);
+        createPost(me, "TOUR", "자랑", "본문");
+
+        mockMvc.perform(get("/community/categories"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.categories.length()").value(4))
+                .andExpect(jsonPath("$._embedded.categories[?(@.category=='TOUR')].weeklyPostCount")
+                        .value(org.hamcrest.Matchers.contains(1)))
+                .andExpect(jsonPath("$._embedded.categories[?(@.category=='MATCH')].weeklyPostCount")
+                        .value(org.hamcrest.Matchers.contains(0)));
+    }
+
+    @Test
+    @DisplayName("D2: 인기 태그는 건수 내림차순으로 온다")
+    void popularTags_orderedByCount() throws Exception {
+        Account me = account("d2@c.com", "diverC23", Role.STUDENT);
+        mockMvc.perform(post("/community/posts")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"category\":\"TOUR\",\"title\":\"글1\",\"tags\":[\"제주\",\"문섬\"]}"));
+        mockMvc.perform(post("/community/posts")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"category\":\"TOUR\",\"title\":\"글2\",\"tags\":[\"제주\"]}"));
+
+        mockMvc.perform(get("/community/tags/popular"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.tags[0].tag").value("제주"))
+                .andExpect(jsonPath("$._embedded.tags[0].count").value(2));
+    }
+
+    @Test
+    @DisplayName("D3: 관련 글은 같은 카테고리만 오고 자기 자신은 빠진다")
+    void related_sameCategoryExcludingSelf() throws Exception {
+        Account me = account("d3@c.com", "diverC24", Role.STUDENT);
+        long id = createPost(me, "TOUR", "기준 글", "본문");
+        createPost(me, "TOUR", "같은 카테고리", "본문");
+        createPost(me, "QNA", "다른 카테고리", "본문");
+
+        mockMvc.perform(get("/community/posts/" + id + "/related"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.posts.length()").value(1))
+                .andExpect(jsonPath("$._embedded.posts[0].title").value("같은 카테고리"));
+    }
+
+    @Test
+    @DisplayName("D4: 인기순은 좋아요가 많은 글을 위로 올린다")
+    void popularSort_ordersByLikes() throws Exception {
+        Account me = account("d4a@c.com", "diverC25", Role.STUDENT);
+        Account other = account("d4b@c.com", "diverC26", Role.STUDENT);
+        createPost(me, "TOUR", "인기 없는 글", "본문");
+        long popular = createPost(me, "TOUR", "인기 있는 글", "본문");
+
+        mockMvc.perform(post("/community/posts/" + popular + "/like")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(other)));
+
+        mockMvc.perform(get("/community/posts").param("sort", "POPULAR"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.posts[0].title").value("인기 있는 글"));
+    }
+
     /* ════════════════ R — 권한 ════════════════ */
 
     @Test
