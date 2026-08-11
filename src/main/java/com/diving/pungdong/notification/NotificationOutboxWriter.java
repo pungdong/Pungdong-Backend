@@ -3,6 +3,7 @@ package com.diving.pungdong.notification;
 import com.diving.pungdong.notification.NotificationOutbox;
 import com.diving.pungdong.notification.NotificationStatus;
 import com.diving.pungdong.notification.NotificationType;
+import com.diving.pungdong.notification.event.CommunityCommentEvent;
 import com.diving.pungdong.notification.event.LectureNotificationEvent;
 import com.diving.pungdong.notification.event.ReservationCancelledEvent;
 import com.diving.pungdong.notification.event.ReservationCreatedEvent;
@@ -70,6 +71,34 @@ public class NotificationOutboxWriter {
                     .build();
             enqueue(NotificationType.LECTURE_NOTIFICATION, recipientId, payload);
         }
+    }
+
+    /**
+     * 커뮤니티 댓글·답글 알림.
+     *
+     * <p>딥링크는 URL 을 만들어 보내지 않고 {@code data} 의 id 들로 클라이언트가 조립한다(기존 알림과 동일).
+     * {@code commentId} 를 함께 싣는 이유는 글만 열면 어느 댓글 때문에 온 알림인지 알 수 없어서다.
+     */
+    @EventListener
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void onCommunityComment(CommunityCommentEvent event) {
+        Map<String, String> data = new LinkedHashMap<>();
+        data.put("type", NotificationType.COMMUNITY_COMMENT.name());
+        data.put("postId", String.valueOf(event.getPostId()));
+        data.put("commentId", String.valueOf(event.getCommentId()));
+
+        // 제목이 없는 글(브랜딩에서 올라온 글)이 있어서 문구를 나눈다 — "null님의 글" 이 나가면 안 된다.
+        String where = event.getPostTitle() == null || event.getPostTitle().isBlank()
+                ? "회원님의 글"
+                : String.format("'%s'", event.getPostTitle());
+        String what = event.isReply() ? "답글" : "댓글";
+
+        NotificationPayload payload = NotificationPayload.builder()
+                .title(event.isReply() ? "새 답글" : "새 댓글")
+                .body(String.format("%s님이 %s에 %s을 남겼어요", event.getActorNickName(), where, what))
+                .data(data)
+                .build();
+        enqueue(NotificationType.COMMUNITY_COMMENT, event.getRecipientAccountId(), payload);
     }
 
     private Map<String, String> commonReservationData(Long lectureId, Long scheduleId, NotificationType type) {

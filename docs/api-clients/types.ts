@@ -974,7 +974,45 @@ export interface CommunityCommentRequest {
 //   ⚠️ 삭제된 댓글에는 누를 수 없다 → 400.
 // ⚠️ 게시물의 `commentCount` 는 **삭제된 댓글을 뺀 수**다("댓글 3" 인데 2개 보이면 안 되므로).
 
-// 신고는 후속 커밋 그룹.
+/**
+ * POST /community/reports (인증) — 신고 접수.
+ * ⚠️ 중복 신고는 **200 멱등**(기존 건 반환). 자기 글·댓글은 400. 없는 대상도 400.
+ * ⚠️ `reason === 'OTHER'` 면 `detail` 필수 — 없으면 400.
+ */
+export interface ContentReportRequest {
+  targetType: 'POST' | 'COMMENT';
+  targetId: number;
+  reason: 'SPAM' | 'ABUSE' | 'SEXUAL' | 'COMMERCIAL' | 'FALSE_INFO' | 'OTHER';
+  detail?: string;   // 최대 500자
+}
+
+export interface ContentReport {
+  id: number;
+  targetType: 'POST' | 'COMMENT';
+  targetId: number;
+  reason: ContentReportRequest['reason'];
+  detail?: string;
+  status: 'PENDING' | 'ACTIONED' | 'DISMISSED';
+  createdAt: string;
+  handledAt?: string;
+  /** 어드민 목록에만. 접수 응답에는 키가 없다. */
+  reporterNickName?: string;
+  /** 어드민 목록에만. 대상이 이미 지워졌으면 키가 없다. */
+  targetPreview?: string;
+}
+
+// 어드민(ROLE_ADMIN) — 신고 처리 큐. 어드민 FE 용이라 모바일/웹 클라이언트는 쓰지 않는다.
+//   GET   /admin/community/reports?status=&page=&size=   배열은 `_embedded.reports`
+//   GET   /admin/community/reports/counts                {pending, actioned, dismissed}
+//   PATCH /admin/community/reports/{reportId}            {status: 'ACTIONED' | 'DISMISSED'}
+//   ⚠️ ACTIONED 는 **대상 콘텐츠를 실제로 숨긴다**(게시물 hidden / 댓글 soft delete).
+
+// ── 알림 (커뮤니티分) ──
+// 댓글·답글이 달리면 수신자에게 푸시 1건. data.type = 'COMMUNITY_COMMENT', data.postId·data.commentId 동봉.
+//   딥링크는 BE 가 URL 을 만들지 않는다 — 클라이언트가 그 id 들로 조립한다(기존 알림과 동일).
+// ⚠️ Android 채널은 기존 `notice` 를 재사용한다(앱이 채널을 만들므로 새 채널은 릴리스에 묶인다).
+// ⚠️ 좋아요 알림은 없다(소음). 자기 글에 자기가 단 댓글도 알림이 없다.
+// ⚠️ 답글은 **부모 댓글 작성자에게만** 간다 — 글 작성자까지 보내면 스레드가 길수록 소음이 된다.
 
 // ── 위치 (venue) — docs/features/venue.md ──
 // 수영장(딥풀)·해양 포인트 = 강의가 진행되는 장소. 입장료·운영 시간대·이용 옵션·정기휴무가 위치에 종속.

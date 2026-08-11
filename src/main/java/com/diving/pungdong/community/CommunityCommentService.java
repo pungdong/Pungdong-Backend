@@ -9,7 +9,9 @@ import com.diving.pungdong.community.dto.CommunityCommentResponse;
 import com.diving.pungdong.community.dto.ReactionResponse;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
+import com.diving.pungdong.notification.event.CommunityCommentEvent;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,6 +45,12 @@ public class CommunityCommentService {
     private final CommunityPostJpaRepo postRepo;
     private final AccountJpaRepo accountRepo;
     private final CommunityAuthorComposer authorComposer;
+
+    /**
+     * 댓글 알림 발행. 이 트랜잭션 안에서 발행해야 한다 — outbox 리스너가 {@code MANDATORY} 라
+     * 트랜잭션 밖 발행은 예외고, 안에서 발행해야 롤백 시 알림도 함께 취소된다.
+     */
+    private final ApplicationEventPublisher eventPublisher;
 
     /* ─── 조회 ───────────────────────────────────────────── */
 
@@ -103,6 +111,7 @@ public class CommunityCommentService {
 
         CommunityComment saved = commentRepo.save(CommunityComment.builder()
                 .post(post).parent(parent).account(me).body(request.getBody()).build());
+        notifyRecipient(saved, post, parent, me);
         return toResponse(saved, authorComposer.compose(List.of(me)), Map.of(), Set.of(), currentUser, List.of());
     }
 
@@ -159,6 +168,40 @@ public class CommunityCommentService {
                 .ifPresent(commentLikeRepo::delete);
         return ReactionResponse.builder()
                 .count(commentLikeRepo.countByCommentId(commentId)).active(false).build();
+    }
+
+    /* ─── 알림 ───────────────────────────────────────────── */
+
+    /**
+     * 댓글·답글 알림을 <b>한 사람에게만</b> 보낸다 — 답글이면 부모 댓글 작성자, 아니면 글 작성자.
+     *
+     * <p><b>답글일 때 글 작성자에게도 보내지 않는 이유</b>: 스레드가 길어지면 글 작성자가 모든 답글을
+     * 다 받게 돼 소음이 된다. 인앱 알림함이 없어 푸시가 유일한 채널이라 더 조심해야 한다.
+     *
+     * <p><b>자기 자신에게는 보내지 않는다.</b> 파이프라인에 자기알림 필터가 없어서 여기서 걸러야 하고,
+     * 내 글에 내가 댓글 다는 건 흔한 동작이다.
+     *
+     * <p>발행은 이 트랜잭션 안에서 일어난다 — {@code NotificationOutboxWriter} 리스너가
+     * {@code MANDATORY} 라 트랜잭션 밖에서 발행하면 예외가 난다. 덕분에 <b>댓글 저장이 롤백되면
+     * 알림도 함께 롤백</b>돼 유령 알림이 생기지 않는다.
+     */
+    private void notifyRecipient(CommunityComment saved, BrandingPost post,
+                                 CommunityComment parent, Account actor) {
+        Account recipient = parent != null
+                ? parent.getAccount()
+                : post.getBranding().getAccount();
+
+        if (Objects.equals(recipient.getId(), actor.getId())) {
+            return;
+        }
+        eventPublisher.publishEvent(CommunityCommentEvent.builder()
+                .recipientAccountId(recipient.getId())
+                .postId(post.getId())
+                .commentId(saved.getId())
+                .actorNickName(actor.getNickName())
+                .postTitle(post.getTitle())
+                .reply(parent != null)
+                .build());
     }
 
     /* ─── 내부 ───────────────────────────────────────────── */

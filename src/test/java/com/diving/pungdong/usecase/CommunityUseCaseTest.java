@@ -24,6 +24,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -58,6 +59,7 @@ class CommunityUseCaseTest {
     @Autowired com.diving.pungdong.community.CommunityCommentJpaRepo commentRepo;
     @Autowired com.diving.pungdong.community.CommunityCommentLikeJpaRepo commentLikeRepo;
     @Autowired com.diving.pungdong.community.ContentReportJpaRepo reportRepo;
+    @Autowired com.diving.pungdong.notification.NotificationOutboxJpaRepo outboxRepo;
 
     @Value("${pungdong.storage.local.base-url:http://localhost:8080}")
     String localBaseUrl;
@@ -72,6 +74,7 @@ class CommunityUseCaseTest {
         likeRepo.deleteAll();
         bookmarkRepo.deleteAll();
         reportRepo.deleteAll();
+        outboxRepo.deleteAll();
         commentLikeRepo.deleteAll();
         // 댓글은 자기 자신을 참조한다(대댓글 → 부모). deleteAll 은 삭제 순서를 보장하지 않아
         // 부모가 먼저 지워지면 FK 위반이 난다 — 대댓글을 먼저 걷어낸 뒤 나머지를 지운다.
@@ -715,6 +718,59 @@ class CommunityUseCaseTest {
         mockMvc.perform(post("/community/posts/" + postId + "/comments")
                         .contentType(MediaType.APPLICATION_JSON).content("{\"body\":\"비로그인\"}"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    /* ════════════════ N — 알림 ════════════════ */
+    // 알림 파이프라인 자체(outbox → 워커 → FCM)는 NotificationOutboxFlowTest 가 검증한다.
+    // 여기서 확인하는 건 **커뮤니티가 올바른 사람에게, 올바른 횟수로 발행하는가** — 자기알림 가드와
+    // 수신자 선택은 발행 지점(커뮤니티 서비스)의 책임이라 HTTP 로 끝까지 몰아 확인해야 의미가 있다.
+
+    private List<com.diving.pungdong.notification.NotificationOutbox> commentNotifications() {
+        return outboxRepo.findAll().stream()
+                .filter(o -> o.getType() == com.diving.pungdong.notification.NotificationType.COMMUNITY_COMMENT)
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    @Test
+    @DisplayName("N1: 남의 글에 댓글을 달면 글 작성자에게 알림이 1건 쌓인다")
+    void comment_notifiesPostAuthor() throws Exception {
+        Account author = account("n1a@c.com", "diverC55", Role.STUDENT);
+        Account commenter = account("n1b@c.com", "diverC56", Role.STUDENT);
+        long postId = createPost(author, "QNA", "질문 있어요", "본문");
+
+        comment(commenter, postId, "답변 드려요", null);
+
+        var notifications = commentNotifications();
+        assertThat(notifications).hasSize(1);
+        assertThat(notifications.get(0).getRecipientAccountId()).isEqualTo(author.getId());
+    }
+
+    @Test
+    @DisplayName("N2: 내 글에 내가 댓글을 달면 알림이 없다 (흔한 동작이라 안 막으면 자기 알림이 쏟아진다)")
+    void selfComment_doesNotNotify() throws Exception {
+        Account me = account("n2@c.com", "diverC57", Role.STUDENT);
+        long postId = createPost(me, "QNA", "내 글", "본문");
+
+        comment(me, postId, "내가 내 글에 다는 댓글", null);
+
+        assertThat(commentNotifications()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("N3: 답글은 부모 댓글 작성자에게만 간다 (글 작성자까지 보내면 스레드가 길어질수록 소음이 된다)")
+    void reply_notifiesOnlyParentAuthor() throws Exception {
+        Account postAuthor = account("n3a@c.com", "diverC58", Role.STUDENT);
+        Account commenter = account("n3b@c.com", "diverC59", Role.STUDENT);
+        Account replier = account("n3c@c.com", "diverC60", Role.STUDENT);
+        long postId = createPost(postAuthor, "QNA", "질문", "본문");
+        long parent = comment(commenter, postId, "댓글", null);
+
+        outboxRepo.deleteAll();               // 위 댓글이 만든 알림은 이 시나리오의 관심사가 아니다
+        comment(replier, postId, "답글", parent);
+
+        var notifications = commentNotifications();
+        assertThat(notifications).hasSize(1);
+        assertThat(notifications.get(0).getRecipientAccountId()).isEqualTo(commenter.getId());
     }
 
     /* ════════════════ X — 신고 ════════════════ */
