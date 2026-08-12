@@ -74,6 +74,7 @@ public class IdentityVerificationService {
                 .phoneNumber(request.getPhoneNumber())
                 .carrier(request.getCarrier())
                 .provider(request.getProvider())
+                .foreignerType(resolveForeignerType(request.getRrnSeventhDigit()))
                 .attemptCount(0)
                 .build());
 
@@ -202,11 +203,24 @@ public class IdentityVerificationService {
         return v;
     }
 
+    /**
+     * 내·외국인 판별 — 주민번호 7번째 자리 원본에서 도출(5~8 = 외국인등록번호 식별자).
+     * 다날이 이 자리를 포함한 신원 전체를 검증하므로 confirm 성공 시 검증된 값이 된다.
+     * 원본이 없으면(구버전 앱) 역산 경로 = 내국인 식별자만 가능하므로 DOMESTIC.
+     * (다날 회신의 외국인 여부 필드는 별도 계약 요청이 필요해 안 쓴다 — 이 도출로 충분.)
+     */
+    private static ForeignerType resolveForeignerType(String rrnSeventhDigit) {
+        return rrnSeventhDigit != null && rrnSeventhDigit.matches("[5-8]")
+                ? ForeignerType.FOREIGN : ForeignerType.DOMESTIC;
+    }
+
     /** VERIFIED 전이 — 기관 반환값을 요청 입력 위에 덮어써 권위값으로, CI/DI 적재. */
     private void applyVerified(IdentityVerification v, VerifiedCustomer customer) {
         v.setStatus(IdentityVerificationStatus.VERIFIED);
         v.setVerifiedAt(OffsetDateTime.now(ZoneOffset.UTC));
-        v.setForeignerType(ForeignerType.DOMESTIC); // 실 내외국인 판별은 개통 후 보정
+        if (v.getForeignerType() == null) {
+            v.setForeignerType(ForeignerType.DOMESTIC); // 구 레코드(도출 도입 전 생성) 폴백
+        }
         if (customer != null) {
             v.setCi(customer.ci());
             v.setDi(customer.di());

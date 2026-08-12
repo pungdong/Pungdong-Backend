@@ -6,6 +6,7 @@ import com.diving.pungdong.account.ProfilePhotoJpaRepo;
 import com.diving.pungdong.account.Role;
 import com.diving.pungdong.global.security.JwtTokenProvider;
 import com.diving.pungdong.identityverification.Carrier;
+import com.diving.pungdong.identityverification.ForeignerType;
 import com.diving.pungdong.identityverification.IdentityVerification;
 import com.diving.pungdong.identityverification.IdentityVerificationJpaRepo;
 import com.diving.pungdong.identityverification.IdentityVerificationStatus;
@@ -172,6 +173,33 @@ class IdentityVerificationUseCaseTest {
         assertThat(saved.getCi()).startsWith("CI-STUB-"); // 컨버터가 복호화해 원문 반환
         assertThat(saved.getDi()).startsWith("DI-STUB-");
         assertThat(saved.getVerifiedAt()).isNotNull();
+        assertThat(saved.getForeignerType()).isEqualTo(ForeignerType.DOMESTIC); // 픽스처 digit "1"
+    }
+
+    @Test
+    @DisplayName("S5: 주민번호 7번째 자리가 외국인 식별자(5~8)면 foreignerType=FOREIGN 으로 저장된다")
+    void create_foreignRrnDigitStoresForeign() throws Exception {
+        Account student = createStudent("s5@test.com", "diverS5");
+        Map<String, Object> body = new HashMap<>();
+        body.put("realName", "존 스미스");
+        body.put("birth", "19980914");
+        body.put("gender", "MALE");
+        body.put("rrnSeventhDigit", "5"); // 1900년대생 외국인(남)
+        body.put("phoneNumber", "01012345678");
+        body.put("carrier", "SKT");
+        body.put("method", "SMS");
+        body.put("agreedRequiredTerms", true);
+        MvcResult result = mockMvc.perform(post("/identity-verifications")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(student))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(write(body)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long id = objectMapper.readTree(result.getResponse().getContentAsString())
+                .get("verificationId").asLong();
+
+        IdentityVerification saved = identityVerificationRepo.findById(id).orElseThrow();
+        assertThat(saved.getForeignerType()).isEqualTo(ForeignerType.FOREIGN);
     }
 
     @Test

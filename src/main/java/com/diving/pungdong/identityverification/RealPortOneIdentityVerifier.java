@@ -109,12 +109,18 @@ public class RealPortOneIdentityVerifier implements IdentityVerifier {
             return ConfirmResult.failed(IdentityVerificationErrorCode.OTP_MISMATCH);
         }
         JsonNode vc = iv.path("verifiedCustomer");
-        return ConfirmResult.verified(new VerifiedCustomer(
+        VerifiedCustomer customer = new VerifiedCustomer(
                 nullIfBlank(vc.path("ci").asText("")),
                 nullIfBlank(vc.path("di").asText("")),
                 nullIfBlank(vc.path("name").asText("")),
                 nullIfBlank(vc.path("phoneNumber").asText("")),
-                parseCarrier(vc.path("operator").asText(""))));
+                parseCarrier(vc.path("operator").asText("")));
+        // 응답 경로(verifiedCustomer.*) 검증용 — 값은 절대 남기지 않는다(CI/DI = 고유식별정보, 이름/번호 = PII).
+        // 존재 여부만 불리언으로. ci/di 가 false 로 찍히면 응답 경로가 어긋난 것(체크리스트 (d)).
+        log.info("[identity-portone] confirm VERIFIED ci={} di={} name={} phone={} operator={}",
+                customer.ci() != null, customer.di() != null, customer.realName() != null,
+                customer.phoneNumber() != null, customer.carrier());
+        return ConfirmResult.verified(customer);
     }
 
     /* ─── 내부 ─────────────────────────────────────────── */
