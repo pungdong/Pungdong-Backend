@@ -204,11 +204,11 @@ repo 규약(정상 UI 상태는 200+결과 필드)에 따라 **OTP 재입력 가
 |---|---|---|---|---|
 | `customer.name` | `realName` | 그대로 | 문자열 | ✅ 실호출 통과(2026-08-12, 제약 미상·`@Size(max=50)` 은 우리 방어) |
 | `customer.phoneNumber` | `010-1234-5678` | **숫자만** | `01012345678` | ✅ 실호출 통과(2026-08-12) — 숫자만으로 400 없음 |
-| `customer.identityNumber` | `birth`(8자리)+`gender` | `toIdentityNumber` 역산 | 주민번호 앞 7자리 `yyMMdd`+성별식별자 | ✅ **실응답 확정(2026-08-12)** — 400 `REQUIRED(when="method == SMS")` 로 필수 확인. `birthDate`/`gender` 전송은 제거 |
+| `customer.identityNumber` | `rrnSeventhDigit`(원본, 선택) 또는 `birth`+`gender` 역산 폴백 | `toIdentityNumber` | 주민번호 앞 7자리 `yyMMdd`+성별식별자 | ✅ **실응답 확정(2026-08-12)** — 400 `REQUIRED(when="method == SMS")` 로 필수 확인. `birthDate`/`gender` 전송은 제거 |
 | `operator` | `carrier`(SKT/KT/LGU/*_MVNO) | `.name()` | 동일 | ✅ 포트원 v2 `operator` enum 문서 확인 |
 | `method` | (고정) | — | `"SMS"` | 📞 포트원 기술지원 회신(SDK 없이 REST 만) |
 
-**핵심**: FE 는 주민번호 앞 6+뒷 1자리를 받아 8자리 `birth`+`gender` 로 변환해 BE 로 보내고(`lib/rrn.ts`), BE 는 그걸 다시 7자리 `identityNumber` 로 역산한다(`toIdentityNumber` — 1900년대 남1/여2, 2000년대 남3/여4). **외국인 식별자(5~8)는 이 역산이 못 만든다** — `foreignerType` 실판별(체크리스트 (f))과 묶어 후속. 왕복 변환이 낭비로 보이면 FE→BE 계약을 7자리로 바꾸는 것도 검토 대상이나, BE 가 생년월일·성별을 프로필 권위값으로도 쓰므로 현행 유지가 자연스럽다.
+**핵심**: FE 는 주민번호 앞 6+뒷 1자리를 받아 8자리 `birth`+`gender` 로 변환해 보내면서, **뒷 1자리 원본도 `rrnSeventhDigit` 로 같이 전달**한다(2026-08-12 계약 추가). `toIdentityNumber` 는 원본 우선 — **다날은 외국인(5~8) 인증도 허용**하므로 원본을 그대로 쓰면 외국인도 통과한다(회신값의 외국인 여부 필드만 다날에 별도 요청 필요 = `foreignerType` 실판별 후속, 체크리스트 (f)). `rrnSeventhDigit` 이 null 인 **구버전 앱**만 birth+gender 역산 폴백을 타며(1900년대 남1/여2, 2000년대 남3/여4), 이 폴백은 내국인(1~4)만 무손실 — 외국인은 잘못된 값이 나가 다날에서 실패한다(구버전 앱 한정 한계).
 
 ### 응답 — `confirm` 의 `verifiedCustomer` 에서 읽는 것
 

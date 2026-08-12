@@ -77,7 +77,7 @@ public class RealPortOneIdentityVerifier implements IdentityVerifier {
                 + "\"customer\":{"
                 + "\"name\":\"" + esc(c.realName()) + "\","
                 + "\"phoneNumber\":\"" + esc(c.phoneNumber()) + "\","
-                + "\"identityNumber\":\"" + esc(toIdentityNumber(c.birth(), c.gender())) + "\"},"
+                + "\"identityNumber\":\"" + esc(toIdentityNumber(c)) + "\"},"
                 + "\"method\":\"" + esc(c.method().name()) + "\","
                 + "\"operator\":\"" + esc(c.carrier().name()) + "\"}";
         postExpectOk(String.format(SEND_URL, c.portoneVerificationId()), body, "send");
@@ -162,17 +162,25 @@ public class RealPortOneIdentityVerifier implements IdentityVerifier {
     }
 
     /**
-     * yyyyMMdd + Gender → 주민등록번호 앞 7자리(yyMMdd + 성별식별자). 포트원이 SMS 방식에서
+     * 주민등록번호 앞 7자리(yyMMdd + 성별식별자). 포트원이 SMS 방식에서
      * {@code customer.identityNumber} 로 요구(2026-08-12 실응답 400 REQUIRED 로 확정).
-     * 내국인 가정 — 외국인 식별자(5~8)는 foreignerType 실판별과 함께 후속(체크리스트 (f)).
+     *
+     * <p>7번째 자리는 FE 가 입력받은 원본({@code rrnSeventhDigit})을 우선 사용 — 다날은 외국인
+     * (식별자 5~8) 인증도 허용하므로 원본이 있으면 그대로 통과시킨다. null(구버전 앱)이면
+     * birth+gender 역산 폴백 — 내국인(1~4)은 세기×성별의 함수라 무손실, 외국인은 이 폴백으로는
+     * 잘못된 값이 나가 다날에서 실패한다(구버전 앱 한정 한계).
      * {@code birth} 는 DTO {@code BirthDate} 검증을 통과한 8자리 숫자.
      */
-    private static String toIdentityNumber(String birth, Gender gender) {
-        int year = Integer.parseInt(birth.substring(0, 4));
+    private static String toIdentityNumber(SendCommand c) {
+        String yymmdd = c.birth().substring(2);
+        if (c.rrnSeventhDigit() != null && !c.rrnSeventhDigit().isBlank()) {
+            return yymmdd + c.rrnSeventhDigit();
+        }
+        int year = Integer.parseInt(c.birth().substring(0, 4));
         char genderDigit = year >= 2000
-                ? (gender == Gender.MALE ? '3' : '4')
-                : (gender == Gender.MALE ? '1' : '2');
-        return birth.substring(2) + genderDigit;
+                ? (c.gender() == Gender.MALE ? '3' : '4')
+                : (c.gender() == Gender.MALE ? '1' : '2');
+        return yymmdd + genderDigit;
     }
 
     private static IdentityVerificationErrorCode mapOtpError(String hint) {

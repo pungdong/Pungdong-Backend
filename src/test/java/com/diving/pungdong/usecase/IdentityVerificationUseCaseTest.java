@@ -85,6 +85,8 @@ class IdentityVerificationUseCaseTest {
         body.put("realName", realName);
         body.put("birth", birth);
         body.put("gender", "MALE");
+        // FE 가 입력받은 주민번호 7번째 자리 원본 — birth(1998, MALE)와 정합인 '1'.
+        body.put("rrnSeventhDigit", "1");
         body.put("phoneNumber", phoneNumber);
         body.put("carrier", "SKT");
         body.put("method", "SMS");
@@ -273,6 +275,23 @@ class IdentityVerificationUseCaseTest {
         IdentityVerification saved = identityVerificationRepo.findById(id).orElseThrow();
         assertThat(saved.getStatus()).isEqualTo(IdentityVerificationStatus.READY);
         assertThat(saved.getAttemptCount()).isZero(); // 진짜 추측만 센다
+    }
+
+    @Test
+    @DisplayName("V6: 주민번호 7번째 자리가 1~8 이 아니면(9) 400 + 필드 메시지 — 레코드 미생성")
+    void create_invalidRrnSeventhDigit() throws Exception {
+        Account student = createStudent("v6@test.com", "diverV6");
+        Map<String, Object> body = new HashMap<>();
+        body.put("realName", "한어진");
+        body.put("birth", "19980914");
+        body.put("gender", "MALE");
+        body.put("rrnSeventhDigit", "9"); // 1800년대생 식별자 — 생존자 없음, 오타로 간주
+        body.put("phoneNumber", "01012345678");
+        body.put("carrier", "SKT");
+        body.put("method", "SMS");
+        body.put("agreedRequiredTerms", true);
+        expectRejectedBeforeSending(tokenFor(student), write(body),
+                "주민등록번호 뒷자리 첫 번째 숫자가 올바르지 않습니다.");
     }
 
     @Test

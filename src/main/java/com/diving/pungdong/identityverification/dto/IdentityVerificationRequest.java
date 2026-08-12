@@ -47,6 +47,15 @@ public class IdentityVerificationRequest {
     @NotNull
     private Gender gender;
 
+    /**
+     * 주민등록번호 7번째 자리(성별식별자) — 선택. 포트원/다날 SMS 는 {@code customer.identityNumber}
+     * (주민번호 앞 7자리)를 요구하는데, 내국인(1~4)은 birth+gender 에서 역산 가능하지만
+     * <b>외국인(5~8)은 역산이 불가</b>해 FE 가 입력받은 원본을 그대로 전달한다.
+     * null 이면(구버전 앱) 역산 폴백 — 내국인은 무손실이라 안전.
+     */
+    @Pattern(regexp = "^[1-8]$", message = "주민등록번호 뒷자리 첫 번째 숫자가 올바르지 않습니다.")
+    private String rrnSeventhDigit;
+
     /** 숫자만 (정규화 후). KR 전용 규칙 — {@link KoreanMobileNumber}. */
     @NotBlank
     @Pattern(regexp = KoreanMobileNumber.PATTERN, message = KoreanMobileNumber.MESSAGE)
