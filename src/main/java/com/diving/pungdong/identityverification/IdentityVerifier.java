@@ -32,12 +32,17 @@ public interface IdentityVerifier {
     /** OTP 확인 — VERIFIED(customer 채움) 또는 FAILED(errorCode). 전송 실패만 예외. */
     ConfirmResult confirm(String portoneVerificationId, String otp);
 
-    /** 발송 명령 — 서비스가 만든 portoneVerificationId + 본인확인 입력. */
+    /**
+     * 발송 명령 — 서비스가 만든 portoneVerificationId + 본인확인 입력.
+     * {@code rrnSeventhDigit} 은 주민번호 7번째 자리(선택) — null 이면(구버전 앱) 구현이
+     * birth+gender 에서 역산한다(내국인 무손실, 외국인 5~8 은 원본 전달만 정확).
+     */
     record SendCommand(
             String portoneVerificationId,
             String realName,
             String birth,
             Gender gender,
+            String rrnSeventhDigit,
             String phoneNumber,
             Carrier carrier,
             IdentityVerificationMethod method) {}

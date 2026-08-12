@@ -6,6 +6,7 @@ import com.diving.pungdong.account.ProfilePhotoJpaRepo;
 import com.diving.pungdong.account.Role;
 import com.diving.pungdong.global.security.JwtTokenProvider;
 import com.diving.pungdong.identityverification.Carrier;
+import com.diving.pungdong.identityverification.ForeignerType;
 import com.diving.pungdong.identityverification.IdentityVerification;
 import com.diving.pungdong.identityverification.IdentityVerificationJpaRepo;
 import com.diving.pungdong.identityverification.IdentityVerificationStatus;
@@ -85,6 +86,8 @@ class IdentityVerificationUseCaseTest {
         body.put("realName", realName);
         body.put("birth", birth);
         body.put("gender", "MALE");
+        // FE 가 입력받은 주민번호 7번째 자리 원본 — birth(1998, MALE)와 정합인 '1'.
+        body.put("rrnSeventhDigit", "1");
         body.put("phoneNumber", phoneNumber);
         body.put("carrier", "SKT");
         body.put("method", "SMS");
@@ -170,6 +173,33 @@ class IdentityVerificationUseCaseTest {
         assertThat(saved.getCi()).startsWith("CI-STUB-"); // 컨버터가 복호화해 원문 반환
         assertThat(saved.getDi()).startsWith("DI-STUB-");
         assertThat(saved.getVerifiedAt()).isNotNull();
+        assertThat(saved.getForeignerType()).isEqualTo(ForeignerType.DOMESTIC); // 픽스처 digit "1"
+    }
+
+    @Test
+    @DisplayName("S5: 주민번호 7번째 자리가 외국인 식별자(5~8)면 foreignerType=FOREIGN 으로 저장된다")
+    void create_foreignRrnDigitStoresForeign() throws Exception {
+        Account student = createStudent("s5@test.com", "diverS5");
+        Map<String, Object> body = new HashMap<>();
+        body.put("realName", "존 스미스");
+        body.put("birth", "19980914");
+        body.put("gender", "MALE");
+        body.put("rrnSeventhDigit", "5"); // 1900년대생 외국인(남)
+        body.put("phoneNumber", "01012345678");
+        body.put("carrier", "SKT");
+        body.put("method", "SMS");
+        body.put("agreedRequiredTerms", true);
+        MvcResult result = mockMvc.perform(post("/identity-verifications")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(student))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(write(body)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long id = objectMapper.readTree(result.getResponse().getContentAsString())
+                .get("verificationId").asLong();
+
+        IdentityVerification saved = identityVerificationRepo.findById(id).orElseThrow();
+        assertThat(saved.getForeignerType()).isEqualTo(ForeignerType.FOREIGN);
     }
 
     @Test
@@ -273,6 +303,23 @@ class IdentityVerificationUseCaseTest {
         IdentityVerification saved = identityVerificationRepo.findById(id).orElseThrow();
         assertThat(saved.getStatus()).isEqualTo(IdentityVerificationStatus.READY);
         assertThat(saved.getAttemptCount()).isZero(); // 진짜 추측만 센다
+    }
+
+    @Test
+    @DisplayName("V6: 주민번호 7번째 자리가 1~8 이 아니면(9) 400 + 필드 메시지 — 레코드 미생성")
+    void create_invalidRrnSeventhDigit() throws Exception {
+        Account student = createStudent("v6@test.com", "diverV6");
+        Map<String, Object> body = new HashMap<>();
+        body.put("realName", "한어진");
+        body.put("birth", "19980914");
+        body.put("gender", "MALE");
+        body.put("rrnSeventhDigit", "9"); // 1800년대생 식별자 — 생존자 없음, 오타로 간주
+        body.put("phoneNumber", "01012345678");
+        body.put("carrier", "SKT");
+        body.put("method", "SMS");
+        body.put("agreedRequiredTerms", true);
+        expectRejectedBeforeSending(tokenFor(student), write(body),
+                "주민등록번호 뒷자리 첫 번째 숫자가 올바르지 않습니다.");
     }
 
     @Test

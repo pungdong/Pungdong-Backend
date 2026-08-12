@@ -137,7 +137,7 @@ erDiagram
 - 계정당 **여러 레코드 허용**(이력/감사). `GET /me` 는 최신 **VERIFIED** 1건(`findTopByAccountIdAndStatusOrderByIdDesc`) — READY/FAILED(진행중·실패) 는 제외.
 - **verificationId(우리 DB Long id)** ≠ **portoneVerificationId(포트원 identityVerificationId)**. 후자는 생성 시 `iv_<UUID>` 로 우리가 발급해 발송/확인 매핑키로 쓴다.
 - `verifiedAt` 노출하되 **만료 판단 안 함(무만료)** — 법적 재인증 주기 정해지면 TTL 을 얹는다.
-- `carrier` 는 SMS 에선 **요청 입력**(발송 대상), 확인 성공 시 포트원 반환 operator 로 덮어써 권위값. `foreignerType` 은 기본 `DOMESTIC`(실 내외국인 판별은 개통 후 보정). 처리방침(Sanity `legalDocument` slug=`privacy`) 의 본인인증 수집 항목("휴대전화번호, 통신사, 내·외국인 구분")과 저장 컬럼 1:1.
+- `carrier` 는 SMS 에선 **요청 입력**(발송 대상), 확인 성공 시 포트원 반환 operator 로 덮어써 권위값. `foreignerType` 은 **`rrnSeventhDigit`(주민번호 7번째 자리)에서 도출** — 5~8 = FOREIGN, 그 외/null(구버전 앱) = DOMESTIC. 다날이 그 자리를 포함한 신원을 검증하므로 confirm 성공 시 검증된 값이 된다(다날 회신의 외국인 여부 필드는 별도 계약 요청 필요 — 안 씀). 처리방침(Sanity `legalDocument` slug=`privacy`) 의 본인인증 수집 항목("휴대전화번호, 통신사, 내·외국인 구분")과 저장 컬럼 1:1.
 - **CI/DI 암호화**: `CryptoStringConverter`(AES-256/GCM, 키 `IDENTITY_CRYPTO_KEY`). 현재 어떤 소비자도 CI/DI 를 **읽지 않아**(read 경로 0) 마이그레이션에 평문 stub 행이 남아도 무해(컨버터가 복호화 실패 시 원문 반환).
 
 ---
@@ -204,11 +204,11 @@ repo 규약(정상 UI 상태는 200+결과 필드)에 따라 **OTP 재입력 가
 |---|---|---|---|---|
 | `customer.name` | `realName` | 그대로 | 문자열 | ✅ 실호출 통과(2026-08-12, 제약 미상·`@Size(max=50)` 은 우리 방어) |
 | `customer.phoneNumber` | `010-1234-5678` | **숫자만** | `01012345678` | ✅ 실호출 통과(2026-08-12) — 숫자만으로 400 없음 |
-| `customer.identityNumber` | `birth`(8자리)+`gender` | `toIdentityNumber` 역산 | 주민번호 앞 7자리 `yyMMdd`+성별식별자 | ✅ **실응답 확정(2026-08-12)** — 400 `REQUIRED(when="method == SMS")` 로 필수 확인. `birthDate`/`gender` 전송은 제거 |
+| `customer.identityNumber` | `rrnSeventhDigit`(원본, 선택) 또는 `birth`+`gender` 역산 폴백 | `toIdentityNumber` | 주민번호 앞 7자리 `yyMMdd`+성별식별자 | ✅ **실응답 확정(2026-08-12)** — 400 `REQUIRED(when="method == SMS")` 로 필수 확인. `birthDate`/`gender` 전송은 제거 |
 | `operator` | `carrier`(SKT/KT/LGU/*_MVNO) | `.name()` | 동일 | ✅ 포트원 v2 `operator` enum 문서 확인 |
 | `method` | (고정) | — | `"SMS"` | 📞 포트원 기술지원 회신(SDK 없이 REST 만) |
 
-**핵심**: FE 는 주민번호 앞 6+뒷 1자리를 받아 8자리 `birth`+`gender` 로 변환해 BE 로 보내고(`lib/rrn.ts`), BE 는 그걸 다시 7자리 `identityNumber` 로 역산한다(`toIdentityNumber` — 1900년대 남1/여2, 2000년대 남3/여4). **외국인 식별자(5~8)는 이 역산이 못 만든다** — `foreignerType` 실판별(체크리스트 (f))과 묶어 후속. 왕복 변환이 낭비로 보이면 FE→BE 계약을 7자리로 바꾸는 것도 검토 대상이나, BE 가 생년월일·성별을 프로필 권위값으로도 쓰므로 현행 유지가 자연스럽다.
+**핵심**: FE 는 주민번호 앞 6+뒷 1자리를 받아 8자리 `birth`+`gender` 로 변환해 보내면서, **뒷 1자리 원본도 `rrnSeventhDigit` 로 같이 전달**한다(2026-08-12 계약 추가). `toIdentityNumber` 는 원본 우선 — **다날은 외국인(5~8) 인증도 허용**하므로 원본을 그대로 쓰면 외국인도 통과한다(`foreignerType` 도 이 원본에서 도출 — 체크리스트 (f) 해소, 다날 회신 필드 불필요). `rrnSeventhDigit` 이 null 인 **구버전 앱**만 birth+gender 역산 폴백을 타며(1900년대 남1/여2, 2000년대 남3/여4), 이 폴백은 내국인(1~4)만 무손실 — 외국인은 잘못된 값이 나가 다날에서 실패한다(구버전 앱 한정 한계).
 
 ### 응답 — `confirm` 의 `verifiedCustomer` 에서 읽는 것
 
@@ -221,7 +221,7 @@ repo 규약(정상 UI 상태는 200+결과 필드)에 따라 **OTP 재입력 가
 | 실명 | `verifiedCustomer.name` | `realName` 덮어씀(권위값) | ⚠️ 추정 |
 | 휴대폰 | `verifiedCustomer.phoneNumber` | `phoneNumber` 덮어씀 | ⚠️ 추정 |
 | 통신사 | `verifiedCustomer.operator` | `carrier` 덮어씀 | ⚠️ 추정 |
-| 내·외국인 | (미매핑) | `foreignerType=DOMESTIC` 하드코딩 | ⚠️ 개통 후 실판별 |
+| 내·외국인 | (회신 안 씀 — 별도 계약 요청 필요) | `rrnSeventhDigit` 5~8 → `FOREIGN` 도출(생성 시) | ✅ 자체 도출로 해소(2026-08-12) |
 
 OTP 실패 에러코드도 추정 — `type`/`message` 문자열을 `mapOtpError` 로 키워드 매칭(`EXPIR`/`EXCEED`/`ATTEMPT`). 개통 후 실제 에러 코드 체계로 보정.
 
@@ -248,7 +248,7 @@ OTP 실패 에러코드도 추정 — `type`/`message` 문자열을 `mapOtpError
   - [x] (c) **생년월일·성별 전송** — `birthDate`/`gender` 아님, **`identityNumber`(주민번호 앞 7자리) 필수**로 확정(2026-08-12 실응답 400) → `toIdentityNumber` 역산으로 전환
   - [ ] (d) **`verifiedCustomer` 응답 경로**(`ci`/`di`/`name`/`phoneNumber`/`operator`) 실제 JSON 과 일치
   - [ ] (e) **OTP 실패 에러코드 체계** → `mapOtpError` 키워드 매칭 보정
-  - [ ] (f) 내·외국인(`foreignerType`) 실판별(현재 `DOMESTIC` 하드코딩)
+  - [x] (f) 내·외국인(`foreignerType`) — `rrnSeventhDigit`(5~8=FOREIGN) 자체 도출로 해소(2026-08-12). 다날 회신 필드 불필요
   - [ ] (g) 형식 확정 후 [types.ts](../api-clients/types.ts)(우리 입력)·이 표(외부 전송) 동기화
 
   **2026-08-12 다날 CPID 승인 → staging/prod `real` 전환**(다날은 테스트 채널이 없어 두 env 동일 키). 위 체크리스트는 스테이징 실 문자 E2E 로 확정한다 — prod terraform apply 는 그 통과 후. 로컬/테스트는 계속 `stub`.
