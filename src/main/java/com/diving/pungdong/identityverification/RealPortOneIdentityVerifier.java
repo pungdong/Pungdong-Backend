@@ -1,5 +1,6 @@
 package com.diving.pungdong.identityverification;
 
+import com.diving.pungdong.account.Gender;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -32,14 +33,13 @@ import java.time.ZoneOffset;
  * </pre>
  * {@code {id}} = 우리가 발급한 {@code portoneVerificationId}.
  *
- * <p>⚠️ <b>라이브 미검증</b>: 다날 CPID/통신사 심사(리드타임 최대 1주) 전에는 실호출을 검증할 수
- * 없다. 아래 요청/응답 매핑은 REST 명세 기반이며, <b>OTP 에러코드·응답 필드 경로는 개통 후 실응답으로
- * 보정</b>해야 한다(로그로 raw 응답을 남긴다). {@code mode=real} + PORTONE_* env 일 때만 활성.
+ * <p>2026-08-12 다날 CPID 개통 후 라이브 검증 진행 중 — send 요청 형식은 실응답으로 확정:
+ * SMS 방식은 {@code customer.identityNumber}(주민번호 앞 7자리) 필수, {@code birthDate}/{@code gender}
+ * 는 보내지 않는다. <b>OTP 에러코드·confirm 응답 필드 경로는 아직 실응답 확정 전</b>(로그로 raw 를 남긴다).
+ * {@code mode=real} + PORTONE_* env 일 때만 활성.
  *
- * <p>📋 <b>각 필드 형식의 권위 출처(우리 결정 vs 포트원/다날 요구)와 개통 시 확정 체크리스트</b>는
+ * <p>📋 <b>각 필드 형식의 권위 출처(우리 결정 vs 포트원/다날 요구)와 확정 체크리스트</b>는
  * {@code docs/architecture/identity-verification.md} 의 "외부 계약 — 포트원 v2 / 다날" 표.
- * 특히 {@code birthDate}(8자리 입력은 우리 편의, 포트원 전송은 {@code yyyy-MM-dd})·{@code phoneNumber}
- * (숫자만 = 추정) 는 개통 후 실응답으로 확정 대상.
  */
 @Slf4j
 @Component
@@ -77,8 +77,7 @@ public class RealPortOneIdentityVerifier implements IdentityVerifier {
                 + "\"customer\":{"
                 + "\"name\":\"" + esc(c.realName()) + "\","
                 + "\"phoneNumber\":\"" + esc(c.phoneNumber()) + "\","
-                + "\"birthDate\":\"" + esc(toIsoDate(c.birth())) + "\","
-                + "\"gender\":\"" + esc(c.gender().name()) + "\"},"
+                + "\"identityNumber\":\"" + esc(toIdentityNumber(c.birth(), c.gender())) + "\"},"
                 + "\"method\":\"" + esc(c.method().name()) + "\","
                 + "\"operator\":\"" + esc(c.carrier().name()) + "\"}";
         postExpectOk(String.format(SEND_URL, c.portoneVerificationId()), body, "send");
@@ -162,12 +161,18 @@ public class RealPortOneIdentityVerifier implements IdentityVerifier {
         }
     }
 
-    /** yyyyMMdd → yyyy-MM-dd (포트원 birthDate 포맷). 이미 대시 있으면 그대로. */
-    private static String toIsoDate(String birth) {
-        if (birth != null && birth.length() == 8 && birth.chars().allMatch(Character::isDigit)) {
-            return birth.substring(0, 4) + "-" + birth.substring(4, 6) + "-" + birth.substring(6, 8);
-        }
-        return birth;
+    /**
+     * yyyyMMdd + Gender → 주민등록번호 앞 7자리(yyMMdd + 성별식별자). 포트원이 SMS 방식에서
+     * {@code customer.identityNumber} 로 요구(2026-08-12 실응답 400 REQUIRED 로 확정).
+     * 내국인 가정 — 외국인 식별자(5~8)는 foreignerType 실판별과 함께 후속(체크리스트 (f)).
+     * {@code birth} 는 DTO {@code BirthDate} 검증을 통과한 8자리 숫자.
+     */
+    private static String toIdentityNumber(String birth, Gender gender) {
+        int year = Integer.parseInt(birth.substring(0, 4));
+        char genderDigit = year >= 2000
+                ? (gender == Gender.MALE ? '3' : '4')
+                : (gender == Gender.MALE ? '1' : '2');
+        return birth.substring(2) + genderDigit;
     }
 
     private static IdentityVerificationErrorCode mapOtpError(String hint) {

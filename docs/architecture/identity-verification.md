@@ -194,7 +194,7 @@ repo 규약(정상 UI 상태는 200+결과 필드)에 따라 **OTP 재입력 가
 
 > **왜 이 섹션이 필요한가**: 위 "요청 형식 검증"은 *우리가 FE 로부터 받는* 입력 형식(SSOT = [types.ts](../api-clients/types.ts))이고, 여기는 *우리가 포트원/다날에 보내고 받는* 외부 전송 형식이다. 둘은 다르고, 형식 규칙이 **"우리 편의 결정"인지 "외부 기관 요구"인지** 뒤섞이면 개통 후 보정 때 근거를 리버스해야 한다. 그 권위 출처를 여기 고정한다. `RealPortOneIdentityVerifier` 구현이 이 표의 코드측 짝.
 
-**⚠️ 라이브 미검증은 불가피하다** — 포트원 공식: *"다날 SMS 본인인증은 PG사 정책상 테스트환경 지원 불가, 실 계약 후 실연동 KEY 로만 테스트 가능"* ([헬프센터](https://help.portone.io/content/cellphone-identity-verification)). CPID 개통(계약 ~2026-07-25 예정) 전에는 아래 형식이 **포트원 타입정의·예제 기반 추정**이다. 개통 시 이 표가 실응답으로 확정하는 **갱신 앵커**.
+**라이브 검증 진행 중** — 포트원 공식: *"다날 SMS 본인인증은 PG사 정책상 테스트환경 지원 불가, 실 계약 후 실연동 KEY 로만 테스트 가능"* ([헬프센터](https://help.portone.io/content/cellphone-identity-verification)). **2026-08-12 CPID 개통 → staging 실호출로 확정 시작** — send 요청 형식은 실응답으로 확정됨(아래 표), confirm 응답은 아직 추정.
 
 ### 요청 — `POST /identity-verifications/{portoneId}/send` 로 보내는 것
 
@@ -202,14 +202,13 @@ repo 규약(정상 UI 상태는 200+결과 필드)에 따라 **OTP 재입력 가
 
 | 포트원 필드 | 우리 입력(FE→BE) | 변환 | 포트원 전송 형식 | 출처 / 확정도 |
 |---|---|---|---|---|
-| `customer.name` | `realName` | 그대로 | 문자열 | ⚠️ 추정(제약 미상, `@Size(max=50)` 은 우리 방어) |
-| `customer.phoneNumber` | `010-1234-5678` | **숫자만** | `01012345678` | ⚠️ **추정** — 다날이 숫자만인지 하이픈 허용인지 **미확인**. 개통 시 1순위 확인 |
-| `customer.birthDate` | `19980914`(8자리) | `toIsoDate` | `1998-09-14` | 🔶 **8자리 입력은 우리 결정**(FE 가 주민번호 뒷자리로 세기 복원해 전송) / `yyyy-MM-dd` 전송은 포트원 예제 기반 추정 |
-| `customer.gender` | `MALE`\|`FEMALE` | `.name()` | `MALE`\|`FEMALE` | ⚠️ 추정(포트원 예제) |
+| `customer.name` | `realName` | 그대로 | 문자열 | ✅ 실호출 통과(2026-08-12, 제약 미상·`@Size(max=50)` 은 우리 방어) |
+| `customer.phoneNumber` | `010-1234-5678` | **숫자만** | `01012345678` | ✅ 실호출 통과(2026-08-12) — 숫자만으로 400 없음 |
+| `customer.identityNumber` | `birth`(8자리)+`gender` | `toIdentityNumber` 역산 | 주민번호 앞 7자리 `yyMMdd`+성별식별자 | ✅ **실응답 확정(2026-08-12)** — 400 `REQUIRED(when="method == SMS")` 로 필수 확인. `birthDate`/`gender` 전송은 제거 |
 | `operator` | `carrier`(SKT/KT/LGU/*_MVNO) | `.name()` | 동일 | ✅ 포트원 v2 `operator` enum 문서 확인 |
 | `method` | (고정) | — | `"SMS"` | 📞 포트원 기술지원 회신(SDK 없이 REST 만) |
 
-**핵심**: `birth` 를 8자리로 받는 건 **포트원 요구가 아니라 우리 편의 결정**이다(포트원은 `yyyy-MM-dd`). 이 변환 단계(`toIsoDate`)가 바로 #172 이전 버그 — 8자리가 아니면 조용히 통과 — 의 온상이었다. 개통 후 포트원이 `yyyy-MM-dd` 를 확정 요구하면, 입력을 처음부터 그 형식으로 받아 변환을 없애는 것도 검토(변환 단계 = 형식 사각지대).
+**핵심**: FE 는 주민번호 앞 6+뒷 1자리를 받아 8자리 `birth`+`gender` 로 변환해 BE 로 보내고(`lib/rrn.ts`), BE 는 그걸 다시 7자리 `identityNumber` 로 역산한다(`toIdentityNumber` — 1900년대 남1/여2, 2000년대 남3/여4). **외국인 식별자(5~8)는 이 역산이 못 만든다** — `foreignerType` 실판별(체크리스트 (f))과 묶어 후속. 왕복 변환이 낭비로 보이면 FE→BE 계약을 7자리로 바꾸는 것도 검토 대상이나, BE 가 생년월일·성별을 프로필 권위값으로도 쓰므로 현행 유지가 자연스럽다.
 
 ### 응답 — `confirm` 의 `verifiedCustomer` 에서 읽는 것
 
@@ -245,8 +244,8 @@ OTP 실패 에러코드도 추정 — `type`/`message` 문자열을 `mapOtpError
 
 - 🔴 **실 PortOne/다날 라이브 미검증** — `RealPortOneIdentityVerifier` 는 REST 명세 기반으로 작성됐으나, 포트원 공식상 **다날 SMS 는 실 계약 전 테스트 자체가 불가**(위 "외부 계약" 참조)라 CPID 개통(계약 ~2026-07-25 예정) 전엔 검증 불가. **개통 시 검증 체크리스트** — 위 "외부 계약" 표의 `⚠️추정` 을 실응답으로 확정:
   - [ ] (a) 실 문자 수신 → OTP → VERIFIED → CI/DI 암호화 적재 end-to-end
-  - [ ] (b) **`customer.phoneNumber` 형식** — 다날이 숫자만/하이픈/E.164 중 뭘 받나(전송 표 1순위)
-  - [ ] (c) **`customer.birthDate` 형식** — `yyyy-MM-dd` 확정? (아니면 입력 8자리 → 변환 재검토)
+  - [x] (b) **`customer.phoneNumber` 형식** — 숫자만으로 실호출 통과(2026-08-12)
+  - [x] (c) **생년월일·성별 전송** — `birthDate`/`gender` 아님, **`identityNumber`(주민번호 앞 7자리) 필수**로 확정(2026-08-12 실응답 400) → `toIdentityNumber` 역산으로 전환
   - [ ] (d) **`verifiedCustomer` 응답 경로**(`ci`/`di`/`name`/`phoneNumber`/`operator`) 실제 JSON 과 일치
   - [ ] (e) **OTP 실패 에러코드 체계** → `mapOtpError` 키워드 매칭 보정
   - [ ] (f) 내·외국인(`foreignerType`) 실판별(현재 `DOMESTIC` 하드코딩)
