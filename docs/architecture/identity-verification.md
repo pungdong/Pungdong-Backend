@@ -6,7 +6,7 @@
 
 > **왜 SMS(휴대폰) 인가.** 간편인증(카카오/네이버/토스)은 **CI 미반환** 케이스가 있어 CI/DI 확보가 불안정하다. 휴대폰 본인인증(다날)이 CI/DI 를 안정적으로 준다. 간편인증(APP) 코드/어휘(`IdentityProvider`)는 향후 대비로 **유지** — `method` 판별자로 공존. 정책·히스토리는 **[docs/features/identity-verification.md](../features/identity-verification.md)**.
 
-> **모드 게이트.** `pungdong.identity-verification.mode` = `stub`(기본, 문자 미발송·매직 OTP `"000000"`=성공) / `disabled`(fail-closed) / `real`(포트원/다날). 실 다날은 **CPID 개통(통신사 심사, 리드타임 최대 1주) 후** `real` 로 전환. (memory `identity-verification-model`)
+> **모드 게이트.** `pungdong.identity-verification.mode` = `stub`(기본, 문자 미발송·매직 OTP `"000000"`=성공) / `disabled`(fail-closed) / `real`(포트원/다날). **2026-08-12 다날 CPID 승인 → staging/prod `real` 전환**(시크릿·모드는 Terraform 주입 — `infra/envs/*/main.tf`). 로컬/테스트는 계속 `stub`. (memory `identity-verification-model`)
 
 ---
 
@@ -252,7 +252,7 @@ OTP 실패 에러코드도 추정 — `type`/`message` 문자열을 `mapOtpError
   - [ ] (f) 내·외국인(`foreignerType`) 실판별(현재 `DOMESTIC` 하드코딩)
   - [ ] (g) 형식 확정 후 [types.ts](../api-clients/types.ts)(우리 입력)·이 표(외부 전송) 동기화
 
-  그 전까지 로컬/테스트는 `stub`, prod 는 `disabled`.
+  **2026-08-12 다날 CPID 승인 → staging/prod `real` 전환**(다날은 테스트 채널이 없어 두 env 동일 키). 위 체크리스트는 스테이징 실 문자 E2E 로 확정한다 — prod terraform apply 는 그 통과 후. 로컬/테스트는 계속 `stub`.
 - 🟡 **무만료(TTL 없음)** — 한 번 VERIFIED면 영구 재사용. 법적 재인증 주기가 확인되면 `verifiedAt` 기준 TTL 추가 → 만료 시 `GET /me` 가 `verified:false`. (사용자 확정: 무만료 유지)
 - 🟡 **수강 플로우 미구현** — 본인확인의 또 다른 소비자(강의 신청 전 본인확인)는 아직 없음. 도메인은 공유 자산으로 준비됨.
 - 🟢 **CI/DI DI 기반 중복가입 확인 미사용** — DI 는 저장하되 중복가입 차단 로직 없음. 필요 시 유니크/조회 추가.

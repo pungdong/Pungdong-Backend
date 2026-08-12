@@ -23,7 +23,9 @@ locals {
   # INICIS_*: 이니시스 서명 키(운영 MID plopol1192 값 — 2026-08-10 _LIVE 로 스왑). client-key 는 공개값이지만 SSM 에 같이 넣어 일괄 참조.
   # SANITY_TOKEN: legal 프록시(GET /legal/{slug})가 Sanity legalDocument 를 읽는 Viewer read 토큰
   #   (legalDocument 가 익명 거부라 토큰 필요 — legal/CLAUDE.md). ⚠️ SSM 에 미리 넣어야 task 기동.
-  user_secret_names = ["JWT_SECRET", "ADMIN_MAIL_ID", "ADMIN_MAIL_PASSWORD", "JUSO_SEARCH_KEY", "JUSO_COORD_KEY", "TOSS_SECRET_KEY", "TOSS_CLIENT_KEY", "INICIS_HASH_KEY", "INICIS_API_KEY", "SANITY_TOKEN"]
+  # PORTONE_*: 본인확인(포트원 V2, 다날 CPID→채널키 매핑). 다날은 테스트 채널이 없어 staging/prod 동일 값.
+  # IDENTITY_CRYPTO_KEY: CI/DI AES-256/GCM 키 — env 별 별도 랜덤 값.
+  user_secret_names = ["JWT_SECRET", "ADMIN_MAIL_ID", "ADMIN_MAIL_PASSWORD", "JUSO_SEARCH_KEY", "JUSO_COORD_KEY", "TOSS_SECRET_KEY", "TOSS_CLIENT_KEY", "INICIS_HASH_KEY", "INICIS_API_KEY", "SANITY_TOKEN", "PORTONE_API_SECRET", "PORTONE_STORE_ID", "PORTONE_CHANNEL_KEY", "IDENTITY_CRYPTO_KEY"]
   user_secrets = {
     for n in local.user_secret_names :
     n => "arn:aws:ssm:${var.aws_region}:${local.account_id}:parameter${local.ssm_prefix}/${n}"
@@ -46,7 +48,9 @@ locals {
     # 공개 이미지(코스/프로필/리뷰) — 공개 버킷에 올리고 CDN URL 로 서빙. (자격증=비공개 uploads 버킷.)
     CLOUD_AWS_S3_PUBLIC_BUCKET = local.public_bucket
     STORAGE_PUBLIC_BASE_URL    = local.cdn_base_url
-    IDENTITY_VERIFICATION_MODE = "stub" # 실 본인확인기관 연동 전까지(심사용). 정식 출시 전 disabled/real 검토.
+    # 본인확인: 2026-08-12 다날 CPID 승인 → real (포트원 V2, 실 SMS 발송·건당 과금).
+    # ⚠️ prod apply 는 staging real E2E(실 문자 → OTP → VERIFIED) 통과 후에만.
+    IDENTITY_VERIFICATION_MODE = "real"
     ADDRESS_GEOCODE_MODE       = "juso"
     JUSO_REFERER               = "https://plop.cool" # 운영 juso 키 등록 referer 와 일치
     # 🧪 seeded 강의 가용시간 개방(신청 가능하게). (자동수락 DEMO_AUTO_ACCEPT 은 선결제 전환으로 제거됨 —
