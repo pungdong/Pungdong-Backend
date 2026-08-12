@@ -79,7 +79,7 @@ public class IdentityVerificationService {
 
         SendResult sent = identityVerifier.send(new SendCommand(
                 portoneId, request.getRealName(), request.getBirth(), request.getGender(),
-                request.getPhoneNumber(), request.getCarrier(), method));
+                request.getRrnSeventhDigit(), request.getPhoneNumber(), request.getCarrier(), method));
         v.setOtpExpiresAt(sent.otpExpiresAt());
 
         return sendResult(v);
