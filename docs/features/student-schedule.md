@@ -15,7 +15,7 @@
 | availability | [architecture/availability.md](../architecture/availability.md) | 회차=session(위치·시간) | ✅ 있음 |
 | course | [architecture/course.md](../architecture/course.md) | 강의 정체성(title·org·level·회차정의) | ✅ 있음 |
 | review | [architecture/review.md](../architecture/review.md) | 완료 후 리뷰 | ⚠️ **레거시(Lecture/Reservation), enrollment 미연결** |
-| certificate | (없음) | 완료 후 자격증 등록 | ❌ BE 없음 |
+| certificate | [architecture/certificate.md](../architecture/certificate.md) | 완료 후 자격증 등록 | ✅ 도메인 신설(2026-08-14) — 조회·등록·삭제·사진. 연결 소스가 이 hub 의 `COMPLETED` |
 
 ## ★ 설계 ↔ BE 상태 매핑 + 갭 (핵심)
 
@@ -45,9 +45,9 @@
 | `rescheduling` | 회차 중 REJECTED 있음(복구 가능) |
 | `cancelled` | 전부 CANCELLED |
 | `finalizing` | 🟡 done 은 있으나 "마무리" 별도 단계는 없음(완료 즉시 COMPLETED) |
-| `completed` | ✅ `CourseScheduleStatus.COMPLETED`(모든 정규회차 done). 자격증 발급은 여전히 없음 |
+| `completed` | ✅ `CourseScheduleStatus.COMPLETED`(모든 정규회차 done). **자격증 등록도 붙었다** — 이 상태의 `enrollmentId` 를 `POST /certificates` 에 실으면 강사·강의가 박제된다 |
 
-→ **7상태 중 6개 파생 가능.** 남은 건 `finalizing`(완료 직전 단계를 따로 둘지) 뿐이고, 자격증 발급만 여전히 도메인 부재.
+→ **7상태 중 6개 파생 가능.** 남은 건 `finalizing`(완료 직전 단계를 따로 둘지) 뿐이다. 자격증 도메인은 2026-08-14 신설됐다.
 
 ### 회차 대여 장비 (2026-07-06)
 회차 카드(`ScheduleRound`)에 내가 신청한 **대여 장비 내역 `gearItems`**(`{name, sizeLabel}`, 신청 시점 스냅샷)를 echo — 학생이 자기 일정에서 뭘 빌렸는지(핀 270 · 슈트 L) 본다. 강사 hub·강사 캘린더 신청자행과 **같은 공유 `GearItem`** 형태(단위는 FE 표기). 사이즈 캡처는 신청 요청 `equipmentSizes` 로(booking 참조).
@@ -62,7 +62,7 @@
 - ~~**환불(refund)**~~ ✅ shipped — `RefundService`·`RefundCalculator`·`RefundOrder`(V15 원장)·`POST /enrollments/{id}/refund`. 거절·취소·무응답 만료는 자동 전액환불.
 - ~~**결제 만료**~~ ✅ 선결제 전환(2026-08-07)으로 구현 — 미결제 PENDING 12h·결제완료 ACCEPT_PENDING 24h(+자동환불) 자동 만료(전 회차 동일)(`EnrollmentExpiryService`). CANCELLED 로 통합(별도 status 없음).
 - **리뷰 ↔ 완료 enrollment 연결** — Review 는 레거시 `Lecture/Reservation` 에 묶임, `Course/Enrollment` 미연결.
-- **자격증 등록** — certificate 도메인 BE 부재.
+- ~~**자격증 등록**~~ ✅ shipped — `certificate` 도메인([architecture/certificate.md](../architecture/certificate.md)). 이 hub 의 `status === 'COMPLETED'` 인 `courses[].enrollmentId` 가 연결 소스다. **신규 조회 엔드포인트 없이** 기존 hub 로 파생된다.
 - ~~**다회차 진행(2회차+)**~~ ✅ shipped(2026-06-28) — `POST /enrollments/{id}/rounds` + `RoundGate` 순차 게이트.
 
 ## 구현 (Phase 1 — 이 PR)
@@ -78,11 +78,11 @@
 
 ## 로드맵 (Phase 2+ — QA 후 우선순위)
 
-- 🟢 ~~출석/완료(done)~~ ✅ shipped — `doneAt` + 자동 sweep. 남은 건 **리뷰·자격증 사이클** 연결.
+- 🟢 ~~출석/완료(done)~~ ✅ shipped — `doneAt` + 자동 sweep. ~~자격증~~ ✅ shipped(2026-08-14). 남은 건 **리뷰 사이클** 연결.
 - 🟢 ~~결제 만료·환불 상태기계~~ ✅ shipped. 남은 건 PG **webhook**(비동기 취소 통보) — [payment.md](payment.md).
 - 🟢 ~~일정 변경(reschedule)~~ ✅ shipped(강사측 hub 와 함께).
 - 🟡 **세션 채팅** — 회차별 단체채팅(done=read-only).
-- 🟢 **강사 메모(회차별)** · **리뷰 enrollment 연결**(레거시 Review→Course 이관) · **자격증 등록** 도메인.
+- 🟢 **강사 메모(회차별)** · **리뷰 enrollment 연결**(레거시 Review→Course 이관). ~~자격증 등록 도메인~~ ✅ shipped.
 - 🟢 **다회차 진행** — roundIndex 2+ 신청.
 
 ## 관련 메모리

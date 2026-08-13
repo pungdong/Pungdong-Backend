@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -72,10 +73,13 @@ class AccountDeletionUseCaseTest {
     @MockBean S3Uploader s3Uploader;
     /** 자격증 이미지 저장소 — 익명화가 여기까지 파기를 전파하는지 검증하려고 경계를 잡는다. */
     @MockBean CertificateImageStorage certificateImageStorage;
+    @MockBean com.diving.pungdong.certificate.storage.StudentCertificatePhotoStorage studentCertificatePhotoStorage;
+    @org.springframework.boot.test.mock.mockito.SpyBean com.diving.pungdong.certificate.StudentCertificateJpaRepo studentCertificateJpaRepo;
 
     @AfterEach
     void cleanUp() {
         firebaseTokenJpaRepo.deleteAll();
+        studentCertificateJpaRepo.deleteAll(); // account FK — 계정보다 먼저
         accountJpaRepo.deleteAll();
         profilePhotoJpaRepo.deleteAll();
         redisTemplate.execute((RedisConnection conn) -> {
@@ -277,6 +281,52 @@ class AccountDeletionUseCaseTest {
         Account reloaded = accountJpaRepo.findById(student.getId()).orElseThrow();
         assertThat(reloaded.getAnonymizedAt()).isNotNull();
         assertThat(reloaded.getNickName()).isNull();
+    }
+
+    @Test
+    @DisplayName("A6: 자격증 사진 삭제가 실패해도 자격증 행은 지워지고 익명화도 완료된다 (행=PII, 사진만 best-effort)")
+    void anonymize_purgesCertificateRows_evenIfPhotoDeletionFails() {
+        Account student = createStudent("a6@test.com", "a6user");
+        studentCertificateJpaRepo.save(com.diving.pungdong.certificate.StudentCertificate.builder()
+                .owner(student)
+                .disciplineCode("FREEDIVING")
+                .organizationCode("AIDA")
+                .level(com.diving.pungdong.course.CertLevel.LEVEL_2)
+                .certificateNumber("A6-PII")
+                .acquiredAt(java.time.LocalDate.of(2024, 11, 2))
+                .source(com.diving.pungdong.certificate.CertificateSource.EXTERNAL)
+                .photoFileKey("studentCertificate/" + student.getId() + "/x.jpg")
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC))
+                .build());
+        student.setIsDeleted(true);
+        student.setDeletedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        accountJpaRepo.save(student);
+        willThrow(new RuntimeException("s3 down")).given(studentCertificatePhotoStorage).deleteAllFor(student.getId());
+
+        anonymizationService.anonymize(student.getId());
+
+        // 행(=PII)은 반드시 사라져야 한다. 스토리지 장애를 이유로 남기면 anonymizedAt 만 찍힌 채
+        // 멱등 가드 때문에 재시도도 안 돼 영구히 남는다.
+        assertThat(studentCertificateJpaRepo.findAll()).isEmpty();
+        assertThat(accountJpaRepo.findById(student.getId()).orElseThrow().getAnonymizedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("A7: 자격증 행 삭제가 실패하면 익명화 전체가 실패한다 — anonymizedAt 을 찍고 넘어가지 않는다")
+    void anonymize_failsLoudly_ifCertificateRowDeletionFails() {
+        Account student = createStudent("a7@test.com", "a7user");
+        student.setIsDeleted(true);
+        student.setDeletedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        accountJpaRepo.save(student);
+        // 행 삭제 자체가 실패하는 상황(스토리지가 아니라 DB 쪽).
+        willThrow(new RuntimeException("db down")).given(studentCertificateJpaRepo).deleteByOwnerId(student.getId());
+
+        assertThatThrownBy(() -> anonymizationService.anonymize(student.getId()))
+                .isInstanceOf(RuntimeException.class);
+
+        // ★ 여기가 핵심 — anonymizedAt 이 찍히면 멱등 가드가 재시도를 막아 PII 가 영구히 남는다.
+        //   삼키면 "익명화 완료" 로 보이면서 자격증 행이 남는다.
+        assertThat(accountJpaRepo.findById(student.getId()).orElseThrow().getAnonymizedAt()).isNull();
     }
 
     @Test
