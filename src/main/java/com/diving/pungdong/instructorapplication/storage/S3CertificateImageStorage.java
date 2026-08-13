@@ -20,7 +20,6 @@ import java.time.Duration;
 @RequiredArgsConstructor
 public class S3CertificateImageStorage implements CertificateImageStorage {
 
-    private static final String CERTIFICATE_DIR = "instructorCertificate";
     /** 열람 URL 수명 — 심사 시 한 번 보는 용도라 짧게. 유출돼도 이 창 안에서만 유효. */
     private static final Duration VIEW_TTL = Duration.ofMinutes(3);
 
@@ -34,5 +33,11 @@ public class S3CertificateImageStorage implements CertificateImageStorage {
     @Override
     public String viewUrl(String key) {
         return s3Uploader.generatePresignedGetUrl(key, VIEW_TTL);
+    }
+
+    /** {@code instructorCertificate/{ownerId}/} prefix 를 통째로 지운다 — {@link #store} 의 그룹핑과 짝. */
+    @Override
+    public void deleteAllFor(Long ownerId) {
+        s3Uploader.deletePrivateObjectsUnderPrefix(CertificateImageStorage.ownerPrefix(ownerId));
     }
 }

@@ -1,9 +1,11 @@
 package com.diving.pungdong.account;
 
+import com.diving.pungdong.account.event.AccountAnonymizedEvent;
 import com.diving.pungdong.service.image.S3Uploader;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +37,7 @@ public class AccountAnonymizationService {
     private final ProfilePhotoJpaRepo profilePhotoJpaRepo;
     private final S3Uploader s3Uploader;
     private final PasswordEncoder passwordEncoder;
+    private final ApplicationEventPublisher eventPublisher;
 
     /** 탈퇴 후 PII 를 보유하는 유예기간(일). 기본 30일 — docs/features/account-deletion.md. */
     @Value("${pungdong.account.deletion.grace-days:30}")
@@ -73,6 +76,10 @@ public class AccountAnonymizationService {
 
         // 푸시 토큰(기기 식별자) 전량 제거.
         firebaseTokenJpaRepo.deleteByAccount_Id(accountId);
+
+        // 다른 도메인이 보관한 PII(자격증 이미지 등) 파기 — 각 도메인의 리스너가 자기 저장소를 정리한다.
+        // account 는 feature 도메인을 import 하지 않으므로(단방향) 이벤트로 알린다.
+        eventPublisher.publishEvent(new AccountAnonymizedEvent(accountId));
 
         // 식별정보 파기 — 이메일은 유니크 슬롯을 비워 재가입을 막지 않도록 결정적 placeholder 로.
         account.setEmail("deleted_" + accountId + "@deleted.local");
