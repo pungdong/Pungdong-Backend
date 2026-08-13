@@ -44,7 +44,13 @@ public class UserNotificationService {
         return repo.countByRecipientAccountIdAndReadAtIsNull(accountId);
     }
 
-    /** 소유권 검증은 쿼리에 내장 — 남의 알림이면 404(존재 숨김). 이미 읽었으면 no-op(멱등). */
+    /**
+     * 소유권 검증을 쿼리에 내장한다 — 남의 알림은 조회 자체가 안 되므로 IDOR 이 구조적으로 막힌다.
+     * 이미 읽었으면 no-op(멱등).
+     *
+     * <p>남의 알림이면 {@code ResourceNotFoundException} → <b>400 + 존재 숨김</b>
+     * ({@code ExceptionAdvice:78-79} 가 {@code BAD_REQUEST} 로 매핑. 404 아님).
+     */
     @Transactional
     public void markRead(Long accountId, Long notificationRowId) {
         UserNotification notification = repo.findByIdAndRecipientAccountId(notificationRowId, accountId)

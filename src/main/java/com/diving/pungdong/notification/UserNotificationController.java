@@ -51,7 +51,13 @@ public class UserNotificationController {
                 userNotificationService.unreadCount(account.getId())));
     }
 
-    /** 단건 읽음. 남의 알림이면 404(존재 숨김). 멱등 — 이미 읽었어도 204. */
+    /**
+     * 단건 읽음. 멱등 — 이미 읽었어도 204({@code readAt} 은 최초 값 유지).
+     *
+     * <p>남의 알림이면 <b>400 + 존재 숨김</b>이다(403 이 아니다 — "그 id 가 존재한다"를 알려주지 않는다).
+     * 404 가 아닌 이유는 이 레포가 {@code ResourceNotFoundException} 을 {@code BAD_REQUEST} 로
+     * 매핑하기 때문({@code ExceptionAdvice:78-79}) — enrollment 등 기존 존재-숨김 경로와 같은 규약이다.
+     */
     @PatchMapping("/{id}/read")
     public ResponseEntity<Void> markRead(@CurrentUser Account account, @PathVariable Long id) {
         userNotificationService.markRead(account.getId(), id);
