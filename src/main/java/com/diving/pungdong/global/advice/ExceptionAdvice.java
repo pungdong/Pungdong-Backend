@@ -177,6 +177,19 @@ public class ExceptionAdvice {
                 Integer.parseInt(getMessage("concurrentModification.code")), getMessage("concurrentModification.msg"));
     }
 
+    /**
+     * 동시 요청이 유니크 제약에 걸려 진 경우(예: 같은 회차 동시 prepare) — 낙관적 락 충돌과 같은 성격이라
+     * 동일하게 409 / -1021 로 내려 "잠시 후 재시도" 를 안내한다. 재시도하면 먼저 만들어진 자원을 재사용한다.
+     */
+    @ExceptionHandler(ConcurrentRequestException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public CommonResult concurrentRequest(ConcurrentRequestException e) {
+        log.warn("[concurrency] 동시 요청 유니크 충돌 — 재시도로 해결. cause={}",
+                e.getCause() == null ? null : e.getCause().getMessage());
+        return responseService.getFailResult(
+                Integer.parseInt(getMessage("concurrentModification.code")), getMessage("concurrentModification.msg"));
+    }
+
     @ExceptionHandler(EmailDuplicationException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public CommonResult emailDuplication(EmailDuplicationException e) {
