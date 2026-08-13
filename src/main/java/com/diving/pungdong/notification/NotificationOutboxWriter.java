@@ -159,9 +159,11 @@ public class NotificationOutboxWriter {
     @EventListener
     @Transactional(propagation = Propagation.MANDATORY)
     public void onEnrollmentExpired(EnrollmentExpiredEvent event) {
+        // paid 갈래에도 코스명을 넣는다 — 여러 강의를 신청한 유저는 강사 이름만으로 어느 건인지 못 가린다.
+        // (승인 문구의 미세 수정. staging 실기기 검수 목록에 "문구 변경분" 으로 올림.)
         String body = event.isPaid()
-                ? String.format("%s님이 24시간 내에 응답하지 않아 신청이 취소되고 전액 환불되었어요",
-                        event.getInstructorNickName())
+                ? String.format("%s님이 24시간 내에 응답하지 않아 %s 신청이 취소되고 전액 환불되었어요",
+                        event.getInstructorNickName(), event.getCourseTitle())
                 : String.format("결제 기한이 지나 %s 신청이 취소되었어요", event.getCourseTitle());
         enqueue(NotificationType.ENROLLMENT_EXPIRED, event.getStudentAccountId(),
                 NotificationPayload.builder()

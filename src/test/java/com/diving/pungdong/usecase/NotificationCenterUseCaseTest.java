@@ -271,6 +271,28 @@ class NotificationCenterUseCaseTest {
                 .andExpect(status().isUnauthorized());
     }
 
+    /**
+     * 빈 수신함은 HAL 규약상 {@code _embedded} 키 자체가 <b>빠진다</b>(원소가 없으므로).
+     * FE 가 그걸 {@code []} 로 방어하고 있어(크로스체크 확인) 계약 위반이 아니지만, 여기서 고정해 둔다 —
+     * 나중에 누가 빈 배열을 강제로 넣으면 그때 이 테스트가 "계약이 바뀌었다"고 알려준다.
+     */
+    @Test
+    @DisplayName("S7 알림이 하나도 없으면 빈 페이지가 오고 totalElements 는 0 이다")
+    void feed_emptyInbox() throws Exception {
+        Account me = persistAccount("me@test.com");
+
+        mockMvc.perform(get("/me/notifications")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(0))
+                .andExpect(jsonPath("$._embedded").doesNotExist());
+
+        mockMvc.perform(get("/me/notifications/unread-count")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.count").value(0)); // 0 건도 200 이다(4xx 아님)
+    }
+
     @Test
     @DisplayName("V1 size 상한(50)을 넘겨 요청해도 50으로 잘린다")
     void feed_capsPageSize() throws Exception {

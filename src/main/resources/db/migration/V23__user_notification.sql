@@ -18,8 +18,11 @@ CREATE TABLE IF NOT EXISTS user_notification (
     title                VARCHAR(255) NOT NULL,
     body                 VARCHAR(500) NOT NULL,
     data                 TEXT         NULL,
-    read_at              DATETIME     NULL,
-    created_at           DATETIME     NOT NULL,
+    -- DATETIME(6): 초 단위로 잘리면 같은 초에 생긴 알림들의 순서가 불확정이 되어
+    -- created_at DESC 페이지네이션이 행을 건너뛰거나 중복시킨다(알림은 한 트랜잭션에서 여러 건 생길 수 있다).
+    -- 정렬에는 id DESC 타이브레이커도 함께 건다(리포지토리) — 둘 다 있어야 안정 정렬이다.
+    read_at              DATETIME(6)  NULL,
+    created_at           DATETIME(6)  NOT NULL,
     PRIMARY KEY (id),
     UNIQUE KEY uk_user_notification_notification_id (notification_id),
     KEY idx_user_notif_recipient_created (recipient_account_id, created_at),

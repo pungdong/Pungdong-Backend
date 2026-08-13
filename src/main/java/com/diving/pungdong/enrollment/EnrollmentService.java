@@ -575,7 +575,10 @@ public class EnrollmentService {
         round.setStatus(EnrollmentStatus.CANCELLED);
         round.setRespondedAt(OffsetDateTime.now(ZoneOffset.UTC));
         if (paid) {
-            events.publishEvent(new EnrollmentRefundRequestedEvent(roundId, "학생 취소"));
+            // studentInitiated=true — 학생이 스스로 한 취소라 환불 완료를 알린다(거절·만료와 달리
+            // 이 경로엔 "환불됩니다" 를 알려주는 다른 알림이 없다). 실제 반환액은 환불 실행부만
+            // 알기 때문에 알림도 거기서 발행한다(RefundService.refundRoundFully).
+            events.publishEvent(new EnrollmentRefundRequestedEvent(roundId, "학생 취소", true));
         }
         EnrollmentResponse resp = EnrollmentResponse.of(round, venueName(round.getVenueRefId()), instructorName(round), paymentExpiresInSeconds(round));
         sessionCleaner.deleteIfEmpty(session);

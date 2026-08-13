@@ -202,7 +202,8 @@ class NotificationEventCatalogTest {
                 .paid(true)
                 .build());
 
-        assertThat(onlyOutbox(student).getPayload()).contains("전액 환불되었어요");
+        // 코스명이 들어가야 한다 — 여러 강의를 신청한 유저는 강사 이름만으로 어느 건인지 못 가린다.
+        assertThat(onlyOutbox(student).getPayload()).contains("프리다이빙 입문 신청이 취소되고 전액 환불되었어요");
     }
 
     @Test

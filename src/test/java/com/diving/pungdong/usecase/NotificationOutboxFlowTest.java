@@ -29,6 +29,9 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import javax.persistence.EntityManager;
+import javax.persistence.PersistenceContext;
+
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -51,6 +54,7 @@ class NotificationOutboxFlowTest {
     @Autowired FirebaseTokenJpaRepo firebaseTokenRepo;
     @Autowired AccountJpaRepo accountRepo;
     @Autowired TransactionTemplate transactionTemplate;
+    @PersistenceContext EntityManager entityManager;
 
     @MockBean FcmGateway fcmGateway;
 
@@ -283,21 +287,30 @@ class NotificationOutboxFlowTest {
                 recipient, OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(10));
         NotificationDispatcher dispatcher = newDispatcher();
 
-        // 백오프로 nextAttemptAt 이 미래로 밀리므로, 매 회 과거로 되돌려 다음 틱을 흉내낸다.
-        for (int i = 0; i < 12; i++) { // MAX_ATTEMPTS(10) 보다 넉넉히 — 상수는 package-private 라 직접 참조 불가
-            if (outboxRepo.findById(poison.getId()).orElseThrow().getStatus()
-                    == NotificationStatus.GAVE_UP) {
-                break;
-            }
-            transactionTemplate.executeWithoutResult(s ->
-                    outboxRepo.findById(poison.getId()).orElseThrow()
-                            .markFailedAndScheduleRetry("rewind for test",
-                                    OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(1)));
+        // ⚠️ 백오프로 nextAttemptAt 이 미래로 밀리므로 매 회 과거로 되돌려 "다음 틱"을 흉내낸다.
+        // 되돌리는 건 nextAttemptAt <b>뿐</b>이다 — 예전엔 markFailedAndScheduleRetry 로 되돌렸는데
+        // 그 메서드가 attempts 를 직접 올려서, 디스패처가 아무 것도 안 해도 통과하는 vacuous 테스트였다.
+        // 이제 attempts 증가는 오직 dispatch() → recordDeliveryFailure 만이 만든다.
+        int ticks = 0;
+        while (outboxRepo.findById(poison.getId()).orElseThrow().getStatus() != NotificationStatus.GAVE_UP
+                && ticks++ < 15) { // MAX_ATTEMPTS(10) 보다 넉넉히 — 상수는 package-private 라 직접 참조 불가
+            rewindNextAttempt(poison.getId());
             dispatcher.dispatch();
         }
 
         NotificationOutbox after = outboxRepo.findById(poison.getId()).orElseThrow();
         assertThat(after.getStatus()).isEqualTo(NotificationStatus.GAVE_UP);
+        // 디스패처가 실제로 시도 횟수를 쌓았다는 증거(테스트가 대신 올린 게 아니다).
+        assertThat(after.getAttempts()).isGreaterThanOrEqualTo(10);
+    }
+
+    /** {@code nextAttemptAt} 만 과거로 되돌린다 — attempts·status 는 건드리지 않는다. */
+    private void rewindNextAttempt(Long outboxId) {
+        transactionTemplate.executeWithoutResult(s -> entityManager
+                .createQuery("update NotificationOutbox o set o.nextAttemptAt = :t where o.id = :id")
+                .setParameter("t", OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(1))
+                .setParameter("id", outboxId)
+                .executeUpdate());
     }
 
     @Test

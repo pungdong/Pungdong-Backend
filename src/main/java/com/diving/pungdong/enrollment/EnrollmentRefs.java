@@ -18,15 +18,17 @@ public final class EnrollmentRefs {
 
     private final Long studentAccountId;
     private final Long instructorAccountId;
+    private final String instructorNickName;
     private final Long courseId;
     private final Long enrollmentId;
     private final Long roundId;
     private final String courseTitle;
 
-    private EnrollmentRefs(Long studentAccountId, Long instructorAccountId, Long courseId,
-                           Long enrollmentId, Long roundId, String courseTitle) {
+    private EnrollmentRefs(Long studentAccountId, Long instructorAccountId, String instructorNickName,
+                           Long courseId, Long enrollmentId, Long roundId, String courseTitle) {
         this.studentAccountId = studentAccountId;
         this.instructorAccountId = instructorAccountId;
+        this.instructorNickName = instructorNickName;
         this.courseId = courseId;
         this.enrollmentId = enrollmentId;
         this.roundId = roundId;
@@ -35,7 +37,7 @@ public final class EnrollmentRefs {
 
     public static EnrollmentRefs of(EnrollmentRound round) {
         if (round == null) {
-            return new EnrollmentRefs(null, null, null, null, null, null);
+            return new EnrollmentRefs(null, null, null, null, null, null, null);
         }
         Enrollment enrollment = round.getEnrollment();
         var course = enrollment == null ? null : enrollment.getCourse();
@@ -44,6 +46,7 @@ public final class EnrollmentRefs {
         return new EnrollmentRefs(
                 student == null ? null : student.getId(),
                 instructor == null ? null : instructor.getId(),
+                instructor == null ? null : instructor.getNickName(),
                 course == null ? null : course.getId(),
                 enrollment == null ? null : enrollment.getId(),
                 round.getId(),
@@ -63,5 +66,10 @@ public final class EnrollmentRefs {
     /** 문구에 쓰는 코스명 — 없으면 빈 문자열이 아니라 무난한 대체어(문구가 "null 수업" 이 되면 안 된다). */
     public String courseTitleOrFallback() {
         return courseTitle == null || courseTitle.isBlank() ? "수업" : courseTitle;
+    }
+
+    /** 문구에 쓰는 강사 닉네임 — 같은 이유로 대체어. 만료 알림처럼 강사 계정이 없어도 나가야 하는 문구가 있다. */
+    public String instructorNickNameOrFallback() {
+        return instructorNickName == null || instructorNickName.isBlank() ? "강사" : instructorNickName;
     }
 }

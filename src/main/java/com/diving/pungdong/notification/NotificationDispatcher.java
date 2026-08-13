@@ -40,15 +40,22 @@ public class NotificationDispatcher {
             Long id = row.getId();
             try {
                 deliveryWorker.deliver(id);
-            } catch (RuntimeException e) {
+            } catch (Error fatal) {
+                // OOM·StackOverflow 등 JVM 수준 오류는 삼키면 안 된다 — 어느 행에서 터졌는지만 남기고 전파.
+                log.error("Notification {} 발송 중 치명적 오류 — 배치 중단", id, fatal);
+                throw fatal;
+            } catch (Exception e) {
                 // poison pill 방지. deliver 는 REQUIRES_NEW 라 예외 시 자기 트랜잭션이 롤백돼
                 // 상태·attempts 가 그대로 남는데, 픽업이 ORDER BY createdAt ASC 라 그대로 두면
                 // 다음 틱에도 같은 행이 선두로 뽑혀 큐 전체가 멈춘다(그 사이 뒤 행들은 영영 미발송).
                 // 별도 트랜잭션으로 실패를 기록해 백오프를 태우고, 이 틱의 남은 행은 계속 처리한다.
+                // ⚠️ 이 행이 <b>일부 토큰에는 이미 발송된 뒤</b> 터졌을 수도 있다(워커가 토큰별로 루프를 돈다).
+                // 그때 재시도하면 그 단말엔 같은 알림이 두 번 간다 — 설계상 허용되는 at-least-once 이고,
+                // 앱이 data.notificationId 로 dedup 하므로 유저 체감 중복은 없다(docs/features/push.md).
                 log.error("Notification {} 발송 중 예외 — 실패 기록 후 다음 행으로", id, e);
                 try {
                     deliveryWorker.recordDeliveryFailure(id, e.toString());
-                } catch (RuntimeException recordFailed) {
+                } catch (Exception recordFailed) {
                     // 기록마저 실패(예: DB 장애). 이 행은 다음 틱에 다시 시도되지만,
                     // 배치를 멈추지는 않는다.
                     log.error("Notification {} 실패 기록도 실패 — 이번 틱 건너뜀", id, recordFailed);

@@ -12,9 +12,14 @@ import java.util.Optional;
 
 public interface UserNotificationJpaRepo extends JpaRepository<UserNotification, Long> {
 
-    Page<UserNotification> findByRecipientAccountIdOrderByCreatedAtDesc(Long accountId, Pageable pageable);
+    /**
+     * ⚠️ {@code IdDesc} 타이브레이커가 필수다. 알림은 한 트랜잭션에서 여러 건 생길 수 있어
+     * {@code created_at} 이 같은 행이 흔한데, 그때 정렬이 불확정이면 페이지 경계에서 같은 행이
+     * 두 번 오거나 아예 건너뛰어진다(무한스크롤이 조용히 항목을 잃는다).
+     */
+    Page<UserNotification> findByRecipientAccountIdOrderByCreatedAtDescIdDesc(Long accountId, Pageable pageable);
 
-    Page<UserNotification> findByRecipientAccountIdAndReadAtIsNullOrderByCreatedAtDesc(
+    Page<UserNotification> findByRecipientAccountIdAndReadAtIsNullOrderByCreatedAtDescIdDesc(
             Long accountId, Pageable pageable);
 
     long countByRecipientAccountIdAndReadAtIsNull(Long accountId);

@@ -34,7 +34,8 @@ import java.util.stream.Collectors;
  *
  * <p>만료 = {@code CANCELLED} 로 전환 + 점유 0 이면 {@link SessionCleaner} 가 빈 일정 삭제(좌석 해제). 결제완료분(ACCEPT_PENDING)은 자동환불. TTL 값은
  * {@link SiteSettings}(Sanity, 런타임 config). 각 건은 자기 트랜잭션 — 한 건 실패가 배치를 막지 않는다.
- * (만료 알림 — 학생에게 "시간 초과 자동취소" 푸시 — 은 후속: enrollment→notification outbox 연동 필요.)
+ * <p>만료 시 학생에게 {@code ENROLLMENT_EXPIRED} 알림을 발행한다 — 통보 없이 신청이 사라지지 않게.
+ * 결제완료분은 자동환불이 함께 일어나므로 그 사실을 body 에 포함한다(별도 환불 알림은 보내지 않는다).
  */
 @Slf4j
 @Service
@@ -195,13 +196,6 @@ public class EnrollmentExpiryService {
         return true;
     }
 
-    /** 만료 문구의 "{강사닉}님이 24시간 내에 응답하지 않아…" 부분. 없으면 무난한 대체어. */
-    private String instructorNickNameOf(EnrollmentRound r) {
-        var enrollment = r.getEnrollment();
-        var course = enrollment == null ? null : enrollment.getCourse();
-        var instructor = course == null ? null : course.getInstructor();
-        return instructor == null || instructor.getNickName() == null ? "강사" : instructor.getNickName();
-    }
 
     private boolean expireOne(Long id, OffsetDateTime now) {
         EnrollmentRound r = roundRepo.findById(id).orElse(null);
@@ -229,7 +223,7 @@ public class EnrollmentExpiryService {
                     .enrollmentId(refs.getEnrollmentId())
                     .roundId(refs.getRoundId())
                     .courseTitle(refs.courseTitleOrFallback())
-                    .instructorNickName(instructorNickNameOf(r))
+                    .instructorNickName(refs.instructorNickNameOrFallback())
                     .paid(wasPaid)
                     .build());
         }

@@ -34,8 +34,8 @@ public class UserNotificationService {
     public Page<UserNotificationResponse> feed(Long accountId, boolean unreadOnly, Pageable pageable) {
         Pageable fixed = NotificationPaging.fixed(pageable);
         Page<UserNotification> page = unreadOnly
-                ? repo.findByRecipientAccountIdAndReadAtIsNullOrderByCreatedAtDesc(accountId, fixed)
-                : repo.findByRecipientAccountIdOrderByCreatedAtDesc(accountId, fixed);
+                ? repo.findByRecipientAccountIdAndReadAtIsNullOrderByCreatedAtDescIdDesc(accountId, fixed)
+                : repo.findByRecipientAccountIdOrderByCreatedAtDescIdDesc(accountId, fixed);
         return page.map(this::toResponse);
     }
 

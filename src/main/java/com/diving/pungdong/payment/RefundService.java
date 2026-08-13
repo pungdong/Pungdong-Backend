@@ -6,7 +6,9 @@ import com.diving.pungdong.availability.SessionCleaner;
 import com.diving.pungdong.course.RoundKind;
 import com.diving.pungdong.enrollment.Enrollment;
 import com.diving.pungdong.enrollment.EnrollmentJpaRepo;
+import com.diving.pungdong.enrollment.EnrollmentRefs;
 import com.diving.pungdong.enrollment.EnrollmentRound;
+import com.diving.pungdong.enrollment.EnrollmentRoundJpaRepo;
 import com.diving.pungdong.enrollment.EnrollmentStatus;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.PaymentGatewayException;
@@ -51,6 +53,7 @@ public class RefundService {
     private final RefundCalculator calculator;
     private final PaymentGatewayRegistry gateways;
     private final SessionCleaner sessionCleaner;
+    private final EnrollmentRoundJpaRepo roundRepo;    // 환불 알림 좌표 조회
     private final ApplicationEventPublisher events; // 학생 요청 환불 완료 알림
 
     /**
@@ -90,12 +93,16 @@ public class RefundService {
         }
 
         // (부분)취소 실행 + RefundOrder 기록 + 잔액 반영
+        // ⚠️ 알림 문구에 쓸 금액은 <b>계획액이 아니라 실제 반환액</b>이어야 한다 — applyCancel 은
+        // 잔액으로 clamp 하고, 결과 미확인 시도가 있으면 아예 0 을 돌려주고 건너뛴다. 계획액으로
+        // 문구를 만들면 "N원이 환불되었어요" 가 거짓이 될 수 있고, 그 문구는 알림함에 영구 보존된다.
+        int refunded = 0;
         for (Map.Entry<Long, Integer> entry : orderRefund.entrySet()) {
             PaymentOrder order = orderRepo.findById(entry.getKey()).orElse(null);
             if (order == null || order.getPaymentKey() == null) {
                 continue; // 안전: 주문 없거나 미승인이면 건너뜀
             }
-            applyCancel(order, entry.getValue(), "수강 환불", now);
+            refunded += applyCancel(order, entry.getValue(), "수강 환불", now);
         }
 
         // 활성·미완료 회차 모두 CANCELLED + 빈 일정 해제(완료/이미취소는 유지)
@@ -107,11 +114,11 @@ public class RefundService {
                 sessionCleaner.deleteIfEmpty(session);
             }
         }
-        // 환불 완료 알림 — 여기(학생이 직접 요청한 수강 환불)에서만 발행한다.
+        // 환불 완료 알림 — <b>학생이 직접 요청한 환불</b>에만 발행한다(2026-08-14 사용자 결정).
         // 거절·만료로 인한 자동환불(refundRoundFully/Partially)에는 걸지 않는다: 그쪽은
-        // ENROLLMENT_REJECTED / ENROLLMENT_EXPIRED body 가 이미 환불을 안내하므로 같은 사건에
-        // 알림이 2건 연속 가면 소음이다(2026-08-14 사용자 결정).
-        int refunded = orderRefund.values().stream().mapToInt(Integer::intValue).sum();
+        // ENROLLMENT_REJECTED / ENROLLMENT_EXPIRED body 가 이미 환불을 안내해서 같은 사건에
+        // 알림이 2건 연속 가면 소음이다.
+        // 실제로 한 푼도 안 나갔으면(전액 clamp/미확인 스킵) 알리지 않는다 — 0원 환불 알림은 거짓이다.
         if (refunded > 0) {
             events.publishEvent(RefundCompletedEvent.builder()
                     .studentAccountId(student.getId())
@@ -179,14 +186,47 @@ public class RefundService {
      */
     @Transactional
     public void refundRoundFully(Long roundId, String reason) {
+        refundRoundFully(roundId, reason, false);
+    }
+
+    /**
+     * @param studentInitiated 학생이 스스로 취소해서 생긴 환불인가. {@code true} 면 <b>환불 완료 알림</b>을
+     *                         발행한다 — 거절·만료는 그쪽 알림 body 가 이미 환불을 안내하므로 발행하지
+     *                         않는다(사용자 결정: 같은 사건에 알림 2건은 소음).
+     *                         금액은 <b>실제 반환액</b>이다({@link #applyCancel} 이 잔액으로 clamp 하고,
+     *                         결과 미확인 시도가 있으면 0 을 돌려주고 건너뛴다).
+     */
+    @Transactional
+    public void refundRoundFully(Long roundId, String reason, boolean studentInitiated) {
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         // 그 회차의 승인 주문을 모두 각각 잔액 전액 취소 — cancelAmount == 그 주문 잔액이라 어댑터가 전체취소로 처리.
+        int refunded = 0;
         for (PaymentOrder order : paidOrders(roundId)) {
             if (order.getPaymentKey() == null) {
                 continue; // 안전: 미승인 주문은 건너뜀
             }
-            applyCancel(order, order.refundableAmount(), reason, now);
+            refunded += applyCancel(order, order.refundableAmount(), reason, now);
         }
+        if (studentInitiated && refunded > 0) {
+            publishRefundCompleted(roundId, refunded);
+        }
+    }
+
+    /** 회차 하나 기준 환불 완료 알림. 좌표를 못 만들면(수신자 null) 발행을 건너뛴다 — 알림 때문에 환불이 롤백되면 안 된다. */
+    private void publishRefundCompleted(Long roundId, int refunded) {
+        EnrollmentRound round = roundRepo.findById(roundId).orElse(null);
+        EnrollmentRefs refs = EnrollmentRefs.of(round);
+        if (!refs.canNotifyStudent()) {
+            return;
+        }
+        events.publishEvent(RefundCompletedEvent.builder()
+                .studentAccountId(refs.getStudentAccountId())
+                .courseId(refs.getCourseId())
+                .enrollmentId(refs.getEnrollmentId())
+                .roundId(refs.getRoundId())
+                .courseTitle(refs.courseTitleOrFallback())
+                .amount(refunded)
+                .build());
     }
 
     /**
