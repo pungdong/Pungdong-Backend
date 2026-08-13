@@ -19,6 +19,7 @@ import com.diving.pungdong.payment.dto.RefundQuote;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -290,7 +291,15 @@ public class RefundService {
             // 커밋돼 회차는 끝나는데 돈만 남는다(C2). 발행자를 롤백시켜 "환불 못 하면 상태 전이도 확정 안 함"을 강제.
             throw new RefundBlockedException("결과 미확인 환불 시도가 있어 환불을 진행할 수 없음 order=" + order.getOrderId());
         }
-        Long attemptId = ledger.recordAttempt(order.getId(), amount, reason, now); // 별도 tx — 즉시 커밋
+        // 위 가드는 락 없는 pre-check 라 near-simultaneous 두 환불이 둘 다 통과할 수 있다(H-1). 실제 원자 차단은
+        // uk_refund_order_inflight(V25) — 주문당 REQUESTED 1개. 동시 두 번째 recordAttempt 는 유니크 위반으로
+        // 여기서 걸러 PG 취소까지 못 가고 발행자를 롤백시킨다(가드가 던지는 것과 같은 결과 — 이중환불 방지).
+        Long attemptId;
+        try {
+            attemptId = ledger.recordAttempt(order.getId(), amount, reason, now); // 별도 tx — 즉시 커밋
+        } catch (DataIntegrityViolationException dup) {
+            throw new RefundBlockedException("동시 환불 시도 충돌 — 다른 환불이 진행 중 order=" + order.getOrderId());
+        }
         log.info("[payment] 환불 요청 order={} provider={} 취소액={} 잔액={} tid={} 사유={} attempt={}",
                 order.getOrderId(), order.getProvider(), amount, refundable, order.getPaymentKey(), reason, attemptId);
         PaymentGateway.CancelResult result;
