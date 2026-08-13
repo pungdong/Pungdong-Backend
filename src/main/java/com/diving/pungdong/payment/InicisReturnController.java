@@ -28,6 +28,7 @@ import java.util.Map;
 public class InicisReturnController {
 
     private final PaymentService paymentService;
+    private final PaymentCallbackRecorder callbackRecorder; // 콜백 수신 기록(REQUIRES_NEW)
     private final String webSuccess;
     private final String webFail;
     private final String appSuccess;
@@ -35,11 +36,13 @@ public class InicisReturnController {
 
     public InicisReturnController(
             PaymentService paymentService,
+            PaymentCallbackRecorder callbackRecorder,
             @Value("${pungdong.payment.inicis.return-web-success:}") String webSuccess,
             @Value("${pungdong.payment.inicis.return-web-fail:}") String webFail,
             @Value("${pungdong.payment.inicis.return-app-success:plop://payment/success}") String appSuccess,
             @Value("${pungdong.payment.inicis.return-app-fail:plop://payment/fail}") String appFail) {
         this.paymentService = paymentService;
+        this.callbackRecorder = callbackRecorder;
         this.webSuccess = webSuccess;
         this.webFail = webFail;
         this.appSuccess = appSuccess;
@@ -62,12 +65,14 @@ public class InicisReturnController {
         if (redirect == null) {
             // 알 수 없는 주문(위조/오배송) — 어느 client 인지 모르니 web fail 로.
             log.warn("[payment-inicis] 콜백 — 알 수 없는 P_OID={}", orderId);
+            callbackRecorder.record(orderId, form, CallbackOutcome.UNKNOWN_ORDER);
             return found(target(PaymentClient.WEB, false, null, "unknown"));
         }
         if (!"00".equals(form.get("P_STATUS"))) {
             // 인증 실패 — 승인 호출 없이 실패 리다이렉트.
             log.warn("[payment-inicis] 콜백 인증실패 orderId={} P_STATUS={} P_RMESG={}",
                     orderId, form.get("P_STATUS"), form.get("P_RMESG"));
+            callbackRecorder.record(orderId, form, CallbackOutcome.AUTH_FAILED);
             return found(target(redirect.client(), false, orderId, redirect.orderNo()));
         }
         try {
@@ -75,9 +80,12 @@ public class InicisReturnController {
                     "P_AUTH_TID", form.getOrDefault("P_AUTH_TID", ""),
                     "P_IDCNAME", form.getOrDefault("P_IDCNAME", "")));
             log.info("[payment-inicis] 콜백 승인 성공 orderId={} client={} → 성공 리다이렉트", orderId, redirect.client());
+            callbackRecorder.record(orderId, form, CallbackOutcome.APPROVED);
             return found(target(redirect.client(), true, orderId, redirect.orderNo()));
         } catch (RuntimeException e) {
-            log.warn("[payment-inicis] 콜백 승인 실패 orderId={} : {}", orderId, e.toString());
+            // 돈이 걸린 경로 — 예외 객체를 넘겨 스택트레이스를 남긴다(e.toString() 은 원인 8종을 클래스명 하나로 뭉갠다).
+            log.error("[payment-inicis] 콜백 승인 실패 orderId={} authTid={}", orderId, form.get("P_AUTH_TID"), e);
+            callbackRecorder.record(orderId, form, CallbackOutcome.APPROVAL_FAILED);
             return found(target(redirect.client(), false, orderId, redirect.orderNo()));
         }
     }

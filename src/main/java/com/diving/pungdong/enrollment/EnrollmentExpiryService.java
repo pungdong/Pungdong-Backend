@@ -86,7 +86,9 @@ public class EnrollmentExpiryService {
                     expired++;
                 }
             } catch (RuntimeException e) {
-                log.warn("[expiry] 회차 {} 만료 건너뜀 ({})", id, e.toString());
+                // 돈이 걸린 경로(ACCEPT_PENDING 만료 = 전액 자동환불) — 예외 객체를 넘겨 스택을 남긴다.
+                // 환불 실패로 롤백된 건은 다음 스윕이 재시도하지만, 왜 실패했는지는 여기서만 드러난다.
+                log.error("[expiry] 회차 {} 만료 건너뜀 — 다음 스윕 재시도", id, e);
             }
         }
         return expired;
