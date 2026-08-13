@@ -1,5 +1,6 @@
 package com.diving.pungdong.payment;
 
+import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -99,6 +100,55 @@ class InicisPaymentTransmissionTest {
     void refundTypeBoundary() {
         assertThat(InicisPaymentGateway.refundType(365_000, 365_000)).isEqualTo("refund");   // 전액
         assertThat(InicisPaymentGateway.refundType(100_000, 365_000)).isEqualTo("partialRefund"); // 일부
+    }
+
+    /* ─── K* 승인 응답 검증(verifyApproval) — 승인엔 서명이 없어 금액 대조가 유일한 방어선 ─── */
+
+    @Test
+    @DisplayName("K6 승인 응답 금액이 서버 권위 금액과 다르면 승인 거부 — 로그만 남기고 통과하지 않는다")
+    void approvalAmountMismatchRejected() {
+        var command = new PaymentGateway.ConfirmCommand("rnd-7-abc", 365_000, Map.of());
+        // 이니시스가 다른 금액(1000)을 승인해 돌려줘도 우리 권위 금액(365000)과 다르면 거부
+        Map<String, String> res = Map.of("P_STATUS", "00", "P_AMT", "1000", "P_TID", "tid-1");
+
+        assertThatThrownBy(() -> InicisPaymentGateway.verifyApproval(res, command))
+                .isInstanceOf(BadRequestException.class);
+    }
+
+    @Test
+    @DisplayName("K7 P_AMT 가 없거나 숫자가 아니면 '일치' 로 떨어지지 않고 거부 — 폴백이 command.amount() 이면 대조가 무력화된다")
+    void approvalMissingAmountRejected() {
+        var command = new PaymentGateway.ConfirmCommand("rnd-7-abc", 365_000, Map.of());
+
+        assertThatThrownBy(() -> InicisPaymentGateway.verifyApproval(
+                Map.of("P_STATUS", "00", "P_TID", "tid-1"), command))   // P_AMT 부재
+                .isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> InicisPaymentGateway.verifyApproval(
+                Map.of("P_STATUS", "00", "P_AMT", "삼십육만오천", "P_TID", "tid-1"), command)) // 파싱 불가
+                .isInstanceOf(BadRequestException.class);
+    }
+
+    @Test
+    @DisplayName("K8 P_STATUS=00 + 금액 일치면 승인 성립 — tid(P_TID) 를 취소 식별자로 싣는다")
+    void approvalSucceedsWhenStatusOkAndAmountMatches() {
+        var command = new PaymentGateway.ConfirmCommand("rnd-7-abc", 365_000, Map.of());
+        Map<String, String> res = Map.of("P_STATUS", "00", "P_AMT", "365000", "P_TID", "tid-1", "P_TYPE", "CARD");
+
+        PaymentGateway.ConfirmResult result = InicisPaymentGateway.verifyApproval(res, command);
+
+        assertThat(result.approved()).isTrue();
+        assertThat(result.pgTransactionId()).isEqualTo("tid-1");
+        assertThat(result.method()).isEqualTo("카드");
+    }
+
+    @Test
+    @DisplayName("K9 P_STATUS 가 00 이 아니면(인증 실패) 승인 거부")
+    void approvalRejectedWhenStatusNotOk() {
+        var command = new PaymentGateway.ConfirmCommand("rnd-7-abc", 365_000, Map.of());
+
+        assertThatThrownBy(() -> InicisPaymentGateway.verifyApproval(
+                Map.of("P_STATUS", "01", "P_RMESG", "인증 실패", "P_AMT", "365000"), command))
+                .isInstanceOf(BadRequestException.class);
     }
 
     /* ─── M* 결제수단 라벨 ─── */

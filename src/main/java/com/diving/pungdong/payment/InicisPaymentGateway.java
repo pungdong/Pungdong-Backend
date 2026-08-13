@@ -148,18 +148,26 @@ public class InicisPaymentGateway implements PaymentGateway {
         String idcName = command.require("P_IDCNAME");
         String url = "https://" + idcHost(idcName) + PAYAPPL_PATH;
         String raw = postForm(url, payApplBody(mid, command), "payAppl");
-        Map<String, String> res = parseKeyValue(raw);
+        return verifyApproval(parseKeyValue(raw), command);
+    }
 
+    /**
+     * 승인 응답 검증 + 결과 조립 — 외부 호출 없는 순수 판단이라 테스트로 고정한다(전송은 {@link #confirm} 담당).
+     * 승인엔 서명이 없어 <b>서버 권위 금액과의 대조가 유일한 금액 방어선</b>이므로, 불일치면 로그만 남기지 말고 거부한다.
+     */
+    static ConfirmResult verifyApproval(Map<String, String> res, ConfirmCommand command) {
         String status = res.getOrDefault("P_STATUS", "");
         if (!OK.equals(status)) {
             log.warn("[payment-inicis] 승인 거절 P_STATUS={} P_RMESG={}", status, res.get("P_RMESG"));
             throw new BadRequestException();
         }
-        // 방어적 대조 — 승인엔 서명이 없으니 승인액이 우리 권위 금액과 다르면 즉시 드러나야 한다.
-        int approved = parseInt(res.get("P_AMT"), command.amount());
+        // 방어적 대조 — 승인액이 우리 권위 금액과 다르면 승인을 거부한다(로그만 남기고 통과 X).
+        // 폴백을 command.amount() 로 두면 P_AMT 부재/파싱불가가 "일치"로 판정돼 대조가 무력화되므로 -1(불가값)로 둔다.
+        int approved = parseInt(res.get("P_AMT"), -1);
         if (approved != command.amount()) {
-            log.error("[payment-inicis] ⚠️ 승인액 불일치 tid={} 서버={} INICIS={}",
+            log.error("[payment-inicis] ⚠️ 승인액 불일치 — 승인 거부 tid={} 서버={} INICIS={}",
                     refundTid(res), command.amount(), approved);
+            throw new BadRequestException();
         }
         String tid = refundTid(res);
         String method = methodLabel(res);
