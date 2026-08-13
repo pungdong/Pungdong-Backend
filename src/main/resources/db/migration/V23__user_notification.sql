@@ -9,7 +9,10 @@
 
 CREATE TABLE IF NOT EXISTS user_notification (
     id                   BIGINT       NOT NULL AUTO_INCREMENT,
-    notification_id      CHAR(36)     NOT NULL,
+    -- ⚠️ VARCHAR(36) 이어야 한다. CHAR(36) 로 두면 Flyway 는 통과하지만 hbm2ddl=validate 가
+    -- "found [char], but expecting [varchar(36)]" 로 부팅을 거부한다(엔티티가 String + length=36).
+    -- 테스트는 H2 + Flyway OFF 라 엔티티에서 스키마를 만들므로 이 불일치를 못 잡는다 — 실제로 밟았다.
+    notification_id      VARCHAR(36)  NOT NULL,
     recipient_account_id BIGINT       NOT NULL,
     type                 VARCHAR(32)  NOT NULL,
     title                VARCHAR(255) NOT NULL,
