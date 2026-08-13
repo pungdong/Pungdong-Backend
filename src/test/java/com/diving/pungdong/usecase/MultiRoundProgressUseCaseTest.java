@@ -83,6 +83,7 @@ class MultiRoundProgressUseCaseTest {
     @Autowired com.diving.pungdong.payment.PaymentOrderJpaRepo orderRepo;
     @Autowired com.diving.pungdong.payment.PaymentService paymentService;
     @Autowired com.diving.pungdong.payment.RefundOrderJpaRepo refundRepo;
+    @Autowired com.diving.pungdong.payment.PaymentApprovalJpaRepo approvalRepo;
 
     // PG 는 유일한 외부 경계라 mock(결정적). 레지스트리째 mock 하는 이유 = 어댑터 3개가 모두 빈이라
     // PaymentGateway 타입으로 mock 하면 주입이 모호해진다(PaymentUseCaseTest 와 같은 패턴).
@@ -106,6 +107,7 @@ class MultiRoundProgressUseCaseTest {
     void clean() {
         holdRepo.deleteAll();
         refundRepo.deleteAll(); // payment_order FK — 주문 삭제 전
+        approvalRepo.deleteAll(); // payment_order FK — 주문 삭제 전
         orderRepo.deleteAll(); // enrollment_round FK — 회차 삭제 전
         enrollmentRepo.deleteAll();
         sessionRepo.deleteAll();

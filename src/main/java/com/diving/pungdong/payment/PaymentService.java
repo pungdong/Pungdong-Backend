@@ -9,6 +9,7 @@ import com.diving.pungdong.enrollment.PaymentWindow;
 import com.diving.pungdong.global.sitesettings.SiteSettingsProvider;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ConcurrentRequestException;
+import com.diving.pungdong.global.advice.exception.PaymentGatewayException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.global.advice.exception.VenueChangeRequiresReapplyException;
 import com.diving.pungdong.payment.dto.PaymentConfirmResponse;
@@ -24,6 +25,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -51,16 +53,19 @@ public class PaymentService {
     private final OrderNoFormatter orderNoFormatter;
     private final EnrollmentService enrollmentService; // 슬롯 변경 검증·좌석 hold·적용(payment→enrollment)
     private final SiteSettingsProvider siteSettings;   // 차액 결제창 window = paymentTtlHours
+    private final PaymentApprovalLedger approvalLedger; // 승인 시도 원장(REQUIRES_NEW) — 청구 사실 durable 기록
 
     public PaymentService(PaymentOrderJpaRepo orderRepo, EnrollmentRoundJpaRepo roundRepo,
                           PaymentGatewayRegistry gateways, OrderNoFormatter orderNoFormatter,
-                          EnrollmentService enrollmentService, SiteSettingsProvider siteSettings) {
+                          EnrollmentService enrollmentService, SiteSettingsProvider siteSettings,
+                          PaymentApprovalLedger approvalLedger) {
         this.orderRepo = orderRepo;
         this.roundRepo = roundRepo;
         this.gateways = gateways;
         this.orderNoFormatter = orderNoFormatter;
         this.enrollmentService = enrollmentService;
         this.siteSettings = siteSettings;
+        this.approvalLedger = approvalLedger;
     }
 
     /**
@@ -241,34 +246,73 @@ public class PaymentService {
             throw new BadRequestException(); // 결제 가능 상태가 아님(이미 결제/확정/취소/만료 등)
         }
 
-        // 승인은 <b>결제창을 띄운 그 PG</b> 로 간다 — pgPayload 가 그 PG 의 인증값이므로 전역 설정을 보면 안 된다.
-        PaymentGateway.ConfirmResult result = gateways.forOrder(order.getProvider()).confirm(
-                new PaymentGateway.ConfirmCommand(order.getOrderId(), order.getAmount(), pgPayload));
-        if (!result.approved()) {
-            throw new BadRequestException(); // PG 승인 미완(어댑터가 PG별 성공표현을 정규화)
+        // 이미 승인(청구)된 이력이 있으면 — 이전 확정이 롤백돼 주문이 READY 로 남은 것 — 재청구 없이 전진 확정.
+        Optional<PaymentApproval> already = approvalLedger.findApproved(order.getId());
+        if (already.isPresent()) {
+            PaymentApproval a = already.get();
+            log.warn("[payment] 이미 승인된 주문 재확정(이전 확정 롤백 추정) order={} tid={}", order.getOrderId(), a.getPgTransactionId());
+            return finalizeApproval(order, r, a.getPgTransactionId(), a.getMethod(), a.getApprovedAt());
+        }
+        // 결과 미확인 승인 시도가 있으면 재청구 금지(이중청구 방지) — 사람이 PG 원장 대사 후 확정해야 다시 흐른다.
+        if (approvalLedger.hasUnresolvedApproval(order.getId())) {
+            throw new BadRequestException();
         }
 
+        // 승인은 <b>결제창을 띄운 그 PG</b> 로 간다 — pgPayload 가 그 PG 의 인증값이므로 전역 설정을 보면 안 된다.
+        // PG 호출 직전 원장에 ATTEMPTED 선기록(REQUIRES_NEW) → 청구 사실을 잃지 않는다(C1).
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        Long attemptId = approvalLedger.recordAttempt(order.getId(), order.getAmount(), order.getProvider(), now);
+        PaymentGateway.ConfirmResult result;
+        try {
+            result = gateways.forOrder(order.getProvider()).confirm(
+                    new PaymentGateway.ConfirmCommand(order.getOrderId(), order.getAmount(), pgPayload));
+        } catch (BadRequestException | PaymentGatewayException e) {
+            approvalLedger.markFailed(attemptId, "REJECTED", e.getMessage(), now); // PG 명시적 거절 — 청구 안 됨
+            throw e;
+        } catch (RuntimeException e) {
+            // 전송 실패(IllegalStateException 등) — 청구됐는지 모른다. ATTEMPTED 로 남겨 대사 대상(재승인 차단).
+            log.error("[payment] 승인 전송 실패 — 결과 미확인 order={} attempt={}", order.getOrderId(), attemptId, e);
+            throw e;
+        }
+        if (!result.approved()) {
+            approvalLedger.markFailed(attemptId, "NOT_APPROVED", null, now);
+            throw new BadRequestException(); // PG 승인 미완(어댑터가 PG별 성공표현을 정규화)
+        }
+        // 승인 성공 — 원장에 즉시 APPROVED 확정(REQUIRES_NEW). 이후 확정이 롤백돼도 청구 사실은 durable.
+        approvalLedger.markApproved(attemptId, result.pgTransactionId(), result.method(), result.approvedAt(), now);
+        return finalizeApproval(order, r, result.pgTransactionId(), result.method(), result.approvedAt());
+    }
+
+    /**
+     * 승인 확정 — 청구가 (지금 또는 과거에) 성공했음을 전제로 주문을 {@code DONE} + 회차를 전이시킨다.
+     * <b>outer 트랜잭션</b>에서 실행되므로 여기서 {@code @Version} 충돌·좌석 재검증 실패 등으로 예외가 나면
+     * 이 확정은 롤백되지만, <b>승인 원장의 APPROVED 는 이미 커밋</b>돼 있어(재청구 없음) 재시도가 {@code findApproved}
+     * 로 다시 이 지점에 도달해 전진 확정한다(정확히 한 번 청구 / 여러 번 적용). {@code DONE} 은 회차 전이까지 끝난 뒤
+     * 세워지므로, 멱등 반환({@code status==DONE})은 "확정까지 완료"를 뜻한다.
+     */
+    private PaymentConfirmResponse finalizeApproval(PaymentOrder order, EnrollmentRound r,
+                                                    String pgTransactionId, String method, OffsetDateTime approvedAt) {
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         order.setStatus(PaymentStatus.DONE);
-        order.setPaymentKey(result.pgTransactionId()); // PG 거래 식별자(토스 paymentKey / 이니시스 P_TID) — 취소에 쓴다
-        order.setMethod(result.method());
-        order.setApprovedAt(result.approvedAt());
-        order.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        order.setPaymentKey(pgTransactionId); // PG 거래 식별자(토스 paymentKey / 이니시스 P_TID) — 취소에 쓴다
+        order.setMethod(method);
+        order.setApprovedAt(approvedAt);
+        order.setUpdatedAt(now);
         // 차액 결제 — 슬롯을 교체하고 강사 결정 대기로 되돌린다(학생이 고른 시간이라 강사 동의가 필요).
         if (order.isSlotChange()) {
             enrollmentService.applySlotChange(r.getId(), order.getId(),
                     order.getTargetDate(), order.getTargetTicketRef(),
                     order.getTargetBlockStart(), order.getTargetBlockEnd(), targetEntryFee(order, r));
-            log.info("[payment] 슬롯 변경 차액 승인 order={} round={} → {} {}~{}", order.getOrderId(), r.getId(),
+            log.info("[payment] 슬롯 변경 차액 승인 확정 order={} round={} → {} {}~{}", order.getOrderId(), r.getId(),
                     order.getTargetDate(), order.getTargetBlockStart(), order.getTargetBlockEnd());
             return response(order);
         }
         // 선결제 → 강사 결정 대기(ACCEPT_PENDING). 결제시각을 respondedAt 에 = 강사 24h 무응답 시계 시작.
-        EnrollmentStatus after = EnrollmentStatus.ACCEPT_PENDING;
-        r.setStatus(after);
-        r.setRespondedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        r.setStatus(EnrollmentStatus.ACCEPT_PENDING);
+        r.setRespondedAt(now);
         log.info("[payment] 승인 확정 order={} amount={} provider={} round={} tid={} method={} → {}",
                 order.getOrderId(), order.getAmount(), order.getProvider(), r.getId(),
-                result.pgTransactionId(), result.method(), after);
+                pgTransactionId, method, EnrollmentStatus.ACCEPT_PENDING);
         return response(order);
     }
 
