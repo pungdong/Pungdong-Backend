@@ -16,7 +16,10 @@ import com.diving.pungdong.global.security.JwtTokenProvider;
 import com.diving.pungdong.instructorapplication.InstructorApplication;
 import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
 import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
+import com.diving.pungdong.payment.ApprovalStatus;
+import com.diving.pungdong.payment.PaymentApproval;
 import com.diving.pungdong.payment.PaymentOrder;
+import com.diving.pungdong.payment.PaymentApprovalJpaRepo;
 import com.diving.pungdong.payment.PaymentOrderJpaRepo;
 import com.diving.pungdong.payment.PaymentStatus;
 import com.diving.pungdong.payment.PaymentGateway;
@@ -92,6 +95,7 @@ class PaymentUseCaseTest {
     @Autowired EnrollmentJpaRepo enrollmentRepo;
     @Autowired EnrollmentRoundJpaRepo roundRepo;
     @Autowired PaymentOrderJpaRepo orderRepo;
+    @Autowired PaymentApprovalJpaRepo approvalRepo;
 
     // 레지스트리를 mock — 어댑터 3개가 모두 빈이라 PaymentGateway 타입으로 mock 하면 주입이 모호해진다.
     @MockBean PaymentGatewayRegistry gateways;
@@ -120,6 +124,7 @@ class PaymentUseCaseTest {
 
     @AfterEach
     void cleanUp() {
+        approvalRepo.deleteAll(); // payment_order FK — 주문 삭제 전
         orderRepo.deleteAll();
         enrollmentRepo.deleteAll();
         sessionRepo.deleteAll();
@@ -238,6 +243,56 @@ class PaymentUseCaseTest {
                 .andExpect(jsonPath("$.currentEnrollmentStatus").value("ACCEPT_PENDING"));
 
         assertThat(orderRepo.findByOrderId(orderId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.DONE);
+        assertThat(roundRepo.findById(e.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.ACCEPT_PENDING);
+    }
+
+    @Test
+    @DisplayName("A2 승인 성공 시 승인 원장에 APPROVED(+tid)가 남는다 — 확정이 롤백돼도 청구 사실은 durable (C1)")
+    void approvalLedgerRecordsCharge() throws Exception {
+        Object[] s = setup(4);
+        Account stu = (Account) s[3];
+        EnrollmentRound e = submitOk(stu, s);
+        String orderId = prepareOrderId(stu, e);
+        Long orderPk = orderRepo.findByOrderId(orderId).orElseThrow().getId();
+
+        mockMvc.perform(post("/payments/confirm")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(stu))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json(Map.of("pgPayload", Map.of("paymentKey", "pk_test_1"), "orderId", orderId, "amount", EXPECTED_AMOUNT))))
+                .andExpect(status().isOk());
+
+        var approvals = approvalRepo.findByPaymentOrderIdAndStatus(orderPk, ApprovalStatus.APPROVED);
+        assertThat(approvals).hasSize(1);
+        assertThat(approvals.get(0).getPgTransactionId()).isEqualTo("pk_test_1");
+    }
+
+    @Test
+    @DisplayName("A3 이미 승인(청구)된 주문은 재청구 없이 전진 확정 — 확정 롤백 후 재시도가 PG 를 다시 부르지 않는다 (C1)")
+    void reconcileForwardWithoutRecharge() throws Exception {
+        Object[] s = setup(4);
+        Account stu = (Account) s[3];
+        EnrollmentRound e = submitOk(stu, s);
+        String orderId = prepareOrderId(stu, e);
+        PaymentOrder order = orderRepo.findByOrderId(orderId).orElseThrow();
+
+        // "PG 청구됐고 원장에 APPROVED 커밋됐지만 finalize(주문 DONE+회차 전이)가 롤백돼 주문이 READY 로 남은" 상태 재현.
+        approvalRepo.save(PaymentApproval.builder()
+                .paymentOrder(order).amount(EXPECTED_AMOUNT).provider(order.getProvider())
+                .status(ApprovalStatus.APPROVED).pgTransactionId("pk_recon").method("카드")
+                .approvedAt(OffsetDateTime.now()).resolvedAt(OffsetDateTime.now()).build());
+
+        mockMvc.perform(post("/payments/confirm")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(stu))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json(Map.of("pgPayload", Map.of("paymentKey", "x"), "orderId", orderId, "amount", EXPECTED_AMOUNT))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DONE"));
+
+        verify(gateway, never()).confirm(any()); // 재청구 없음 — PG 미호출
+        PaymentOrder done = orderRepo.findByOrderId(orderId).orElseThrow();
+        assertThat(done.getStatus()).isEqualTo(PaymentStatus.DONE);
+        assertThat(done.getPaymentKey()).isEqualTo("pk_recon"); // 원장의 tid 로 확정
+        assertThat(approvalRepo.findByPaymentOrderIdAndStatus(order.getId(), ApprovalStatus.APPROVED)).hasSize(1); // 새 시도 없음
         assertThat(roundRepo.findById(e.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.ACCEPT_PENDING);
     }
 

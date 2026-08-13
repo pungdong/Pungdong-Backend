@@ -68,6 +68,7 @@ class RefundUseCaseTest {
     @Autowired EnrollmentRoundJpaRepo roundRepo;
     @Autowired PaymentOrderJpaRepo orderRepo;
     @Autowired RefundOrderJpaRepo refundRepo;
+    @Autowired com.diving.pungdong.payment.PaymentApprovalJpaRepo approvalRepo;
     @Autowired com.diving.pungdong.enrollment.InstructorEnrollmentService instructorEnrollmentService;
     @Autowired com.diving.pungdong.enrollment.EnrollmentExpiryService expiryService;
     @Autowired com.diving.pungdong.payment.RefundService refundService;
@@ -87,6 +88,7 @@ class RefundUseCaseTest {
     @AfterEach
     void clean() {
         refundRepo.deleteAll();
+        approvalRepo.deleteAll(); // payment_order FK — 주문 삭제 전
         orderRepo.deleteAll();
         enrollmentRepo.deleteAll();
         courseRepo.deleteAll();
