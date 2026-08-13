@@ -329,10 +329,6 @@ operation::schedule-delete[]
 [[resource-reservation]]
 == 강의 예약
 
-[[resource-reservation-create]]
-=== 강의 예약하기
-operation::reservation-create[]
-
 [[resource-reservation-find-list]]
 === 강의 예약 리스트
 operation::reservation-find-list[]

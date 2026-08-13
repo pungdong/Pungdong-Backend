@@ -103,6 +103,9 @@ public class SecurityConfiguration {
                         .antMatchers("/account/instructor/**").hasRole("INSTRUCTOR")
                         .antMatchers("/lecture/create", "/lecture/update", "/lecture/delete", "/lecture/manage/list",
                                 "/location/create", "/lectureImage/create/list", "/equipment/create/list").authenticated()
+                        // 레거시 예약 흐름 은퇴 — 선결제(enrollment/payment)로 대체됨. 쓰기 경로는 검증이 무력(@Valid 없음)해
+                        // 좌석 소모·PG 없는 Payment 행·FCM 스팸이 가능하므로 차단한다. 읽기(GET)는 옛 화면 대비 유지.
+                        .antMatchers(HttpMethod.POST, "/reservation", "/reservation/schedule/*/notification").denyAll()
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(exception -> exception

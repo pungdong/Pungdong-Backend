@@ -32,7 +32,7 @@ public class PaymentGatewayRegistry {
     private final PaymentGateway active;
 
     public PaymentGatewayRegistry(List<PaymentGateway> gateways,
-                                  @Value("${pungdong.payment.mode:stub}") String mode) {
+                                  @Value("${pungdong.payment.mode}") String mode) {
         for (PaymentGateway g : gateways) {
             byProvider.put(g.provider(), g);
         }
@@ -70,8 +70,13 @@ public class PaymentGatewayRegistry {
     }
 
     private static PaymentProvider parseMode(String mode) {
+        if (mode == null || mode.isBlank()) {
+            // 미설정/빈값 = 배포에서 PAYMENT_MODE 가 누락된 것. stub 로 조용히 떨어지면 전 결제가 무료 승인되므로 부팅을 막는다.
+            throw new IllegalStateException(
+                    "pungdong.payment.mode(PAYMENT_MODE) 가 설정되지 않았습니다 — stub|toss|inicis 중 하나를 명시하세요");
+        }
         try {
-            return PaymentProvider.valueOf(mode == null ? "STUB" : mode.trim().toUpperCase());
+            return PaymentProvider.valueOf(mode.trim().toUpperCase());
         } catch (IllegalArgumentException e) {
             throw new IllegalStateException("pungdong.payment.mode 값이 올바르지 않습니다: " + mode, e);
         }
