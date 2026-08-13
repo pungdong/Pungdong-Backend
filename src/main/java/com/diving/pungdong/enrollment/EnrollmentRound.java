@@ -34,6 +34,14 @@ public class EnrollmentRound {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /**
+     * 낙관적 락 — 동시 상태 전이의 blind overwrite(lost update)를 막는다. 취소↔승인 교차·supersede·만료 스윕이
+     * 같은 회차를 동시에 바꾸면 진 쪽 트랜잭션이 {@code OptimisticLockException} 으로 롤백된다(먼저 커밋한 쪽이 이긴다).
+     */
+    @Version
+    @Column(nullable = false)
+    private long version;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "enrollment_id")
     private Enrollment enrollment;

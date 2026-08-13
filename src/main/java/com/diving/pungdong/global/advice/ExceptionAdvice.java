@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.MessageSource;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.http.HttpStatus;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -158,6 +159,22 @@ public class ExceptionAdvice {
     public CommonResult paymentGatewayRejected(PaymentGatewayException e) {
         log.warn("[payment] PG 취소 거절 code={} detail={}", e.getCode(), e.getDetail());
         return responseService.getFailResult(Integer.parseInt(getMessage("badRequest.code")), getMessage("badRequest.msg"));
+    }
+
+    /**
+     * 낙관적 락 충돌 — 같은 회차/주문을 동시에 바꾸려다 충돌했다. blind overwrite(lost update) 대신 진 쪽
+     * 트랜잭션이 롤백됐으니, 클라이언트는 잠시 후 재시도하면 된다(전이는 멱등하거나 상태가 이미 바뀌었다).
+     *
+     * <p>⚠️ 결제 승인(confirm)이 진 경우 PG 는 이미 청구됐을 수 있다(고아 결제) — orderId/round id 로 대사
+     * 가능하게 로그를 남긴다. (승인 원장·PG 호출 트랜잭션 분리는 후속 — 여기선 최소한 추적을 보장.)
+     */
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public CommonResult concurrentModification(ObjectOptimisticLockingFailureException e) {
+        log.warn("[concurrency] 낙관적 락 충돌 — 요청 롤백. entity={} id={}",
+                e.getPersistentClassName(), e.getIdentifier(), e);
+        return responseService.getFailResult(
+                Integer.parseInt(getMessage("concurrentModification.code")), getMessage("concurrentModification.msg"));
     }
 
     @ExceptionHandler(EmailDuplicationException.class)
