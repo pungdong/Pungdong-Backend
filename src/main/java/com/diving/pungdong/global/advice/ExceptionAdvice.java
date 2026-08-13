@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.MessageSource;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.http.HttpStatus;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -158,6 +159,35 @@ public class ExceptionAdvice {
     public CommonResult paymentGatewayRejected(PaymentGatewayException e) {
         log.warn("[payment] PG 취소 거절 code={} detail={}", e.getCode(), e.getDetail());
         return responseService.getFailResult(Integer.parseInt(getMessage("badRequest.code")), getMessage("badRequest.msg"));
+    }
+
+    /**
+     * 낙관적 락 충돌 — 같은 회차/주문을 동시에 바꾸려다 충돌했다. blind overwrite(lost update) 대신 진 쪽
+     * 트랜잭션이 롤백됐으니, 클라이언트는 잠시 후 재시도하면 된다(전이는 멱등하거나 상태가 이미 바뀌었다).
+     *
+     * <p>⚠️ 결제 승인(confirm)이 진 경우 PG 는 이미 청구됐을 수 있다(고아 결제) — orderId/round id 로 대사
+     * 가능하게 로그를 남긴다. (승인 원장·PG 호출 트랜잭션 분리는 후속 — 여기선 최소한 추적을 보장.)
+     */
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public CommonResult concurrentModification(ObjectOptimisticLockingFailureException e) {
+        log.warn("[concurrency] 낙관적 락 충돌 — 요청 롤백. entity={} id={}",
+                e.getPersistentClassName(), e.getIdentifier(), e);
+        return responseService.getFailResult(
+                Integer.parseInt(getMessage("concurrentModification.code")), getMessage("concurrentModification.msg"));
+    }
+
+    /**
+     * 동시 요청이 유니크 제약에 걸려 진 경우(예: 같은 회차 동시 prepare) — 낙관적 락 충돌과 같은 성격이라
+     * 동일하게 409 / -1021 로 내려 "잠시 후 재시도" 를 안내한다. 재시도하면 먼저 만들어진 자원을 재사용한다.
+     */
+    @ExceptionHandler(ConcurrentRequestException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public CommonResult concurrentRequest(ConcurrentRequestException e) {
+        log.warn("[concurrency] 동시 요청 유니크 충돌 — 재시도로 해결. cause={}",
+                e.getCause() == null ? null : e.getCause().getMessage());
+        return responseService.getFailResult(
+                Integer.parseInt(getMessage("concurrentModification.code")), getMessage("concurrentModification.msg"));
     }
 
     @ExceptionHandler(EmailDuplicationException.class)

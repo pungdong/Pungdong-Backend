@@ -8,11 +8,13 @@ import com.diving.pungdong.enrollment.EnrollmentStatus;
 import com.diving.pungdong.enrollment.PaymentWindow;
 import com.diving.pungdong.global.sitesettings.SiteSettingsProvider;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
+import com.diving.pungdong.global.advice.exception.ConcurrentRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.global.advice.exception.VenueChangeRequiresReapplyException;
 import com.diving.pungdong.payment.dto.PaymentConfirmResponse;
 import com.diving.pungdong.payment.dto.PaymentPrepareResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -111,14 +113,7 @@ public class PaymentService {
         final EnrollmentRound round = r;
 
         PaymentOrder order = orderRepo.findByEnrollmentRoundIdAndStatus(roundId, PaymentStatus.READY)
-                .orElseGet(() -> orderRepo.save(PaymentOrder.builder()
-                        .orderId(newOrderId(roundId))
-                        .enrollmentRound(round)
-                        .amount(authoritativeAmount)
-                        .orderName(orderName(round))
-                        .status(PaymentStatus.READY)
-                        .createdAt(OffsetDateTime.now(ZoneOffset.UTC))
-                        .build()));
+                .orElseGet(() -> createReadyOrder(round, authoritativeAmount));
         if (order.getAmount() != amount) { // 스냅샷이 그새 갱신됐으면 권위 금액 갱신
             order.setAmount(amount);
             order.setOrderName(orderName(r));
@@ -154,6 +149,27 @@ public class PaymentService {
                 : PaymentWindow.remainingSecondsFor(r, ttlHours, now);
         return PaymentPrepareResponse.of(order, orderNoFormatter.format(order.getId(), order.getCreatedAt()),
                 gateway.provider(), params, expiresInSeconds);
+    }
+
+    /**
+     * READY 주문 생성 — 동시 prepare 방어. {@code uk_payment_order_ready_round}(회차당 READY 1개)가
+     * 이중 주문을 DB 에서 막으므로, 진 쪽은 {@code DataIntegrityViolationException} 을 받는다. 같은 트랜잭션에선
+     * 재조회가 안전하지 않아(rollback-only) {@link ConcurrentRequestException}(409/-1021)로 바꿔 재시도로 넘긴다 —
+     * 재시도하면 먼저 만들어진 주문을 재사용한다. saveAndFlush 로 INSERT 를 즉시 내보내 위반을 여기서 잡는다.
+     */
+    private PaymentOrder createReadyOrder(EnrollmentRound round, int amount) {
+        try {
+            return orderRepo.saveAndFlush(PaymentOrder.builder()
+                    .orderId(newOrderId(round.getId()))
+                    .enrollmentRound(round)
+                    .amount(amount)
+                    .orderName(orderName(round))
+                    .status(PaymentStatus.READY)
+                    .createdAt(OffsetDateTime.now(ZoneOffset.UTC))
+                    .build());
+        } catch (DataIntegrityViolationException e) {
+            throw new ConcurrentRequestException(e);
+        }
     }
 
     /**

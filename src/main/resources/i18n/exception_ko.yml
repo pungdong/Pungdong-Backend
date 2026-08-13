@@ -81,3 +81,7 @@ venueChangeRequiresReapply:
 proposalExpired:
   code: "-1020"
   msg: "강사님이 제안한 일정이 만료됐어요. 원하는 일정을 직접 골라주세요."
+
+concurrentModification:
+  code: "-1021"
+  msg: "요청이 겹쳤어요. 잠시 후 다시 시도해주세요."

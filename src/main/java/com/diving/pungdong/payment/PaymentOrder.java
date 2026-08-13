@@ -32,6 +32,14 @@ public class PaymentOrder {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /**
+     * 낙관적 락 — 승인↔만료 스윕, 동시 환불이 같은 주문을 blind overwrite 하는 것을 막는다. 예: 만료 스윕이
+     * {@code DONE} 주문을 {@code FAILED} 로 덮어써 모든 환불 경로에서 안 보이게 하던 문제(진 쪽이 롤백된다).
+     */
+    @Version
+    @Column(nullable = false)
+    private long version;
+
     /** 토스 주문번호 — prepare 가 생성한 서버 식별자. confirm 의 멱등 키이자 amount 조회 키. */
     @Column(nullable = false)
     private String orderId;
