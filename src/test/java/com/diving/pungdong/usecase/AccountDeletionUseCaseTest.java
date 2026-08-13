@@ -10,6 +10,7 @@ import com.diving.pungdong.account.ProfilePhotoJpaRepo;
 import com.diving.pungdong.account.Role;
 import com.diving.pungdong.global.security.JwtTokenProvider;
 import com.diving.pungdong.service.LectureService;
+import com.diving.pungdong.instructorapplication.storage.CertificateImageStorage;
 import com.diving.pungdong.service.image.S3Uploader;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -34,6 +35,8 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.BDDMockito.then;
+import static org.mockito.BDDMockito.willThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -67,6 +70,8 @@ class AccountDeletionUseCaseTest {
     // 진짜 외부 경계만 모킹 — 탈퇴 시 강의 일괄 close, 익명화 시 S3 삭제.
     @MockBean LectureService lectureService;
     @MockBean S3Uploader s3Uploader;
+    /** 자격증 이미지 저장소 — 익명화가 여기까지 파기를 전파하는지 검증하려고 경계를 잡는다. */
+    @MockBean CertificateImageStorage certificateImageStorage;
 
     @AfterEach
     void cleanUp() {
@@ -241,6 +246,37 @@ class AccountDeletionUseCaseTest {
         assertThat(reloaded.getGender()).isNull();
         // row 자체는 보존(결제·계약 FK 무결성)
         assertThat(reloaded.getIsDeleted()).isTrue();
+    }
+
+    @Test
+    @DisplayName("A4: 익명화하면 그 회원의 자격증 이미지도 저장소에서 삭제된다 (실명·자격증번호가 찍힌 PII)")
+    void anonymize_deletesCertificateImages() {
+        Account student = createStudent("a4@test.com", "a4user");
+        student.setIsDeleted(true);
+        student.setDeletedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        accountJpaRepo.save(student);
+
+        anonymizationService.anonymize(student.getId());
+
+        // account 는 feature 도메인을 모르므로 이벤트로 알리고, instructorapplication 리스너가 지운다.
+        then(certificateImageStorage).should().deleteAllFor(student.getId());
+    }
+
+    @Test
+    @DisplayName("A5: 자격증 이미지 삭제가 실패해도 익명화(PII 파기)는 그대로 완료된다 (best-effort)")
+    void anonymize_completesEvenIfImageDeletionFails() {
+        Account student = createStudent("a5@test.com", "a5user");
+        student.setIsDeleted(true);
+        student.setDeletedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        accountJpaRepo.save(student);
+        willThrow(new RuntimeException("s3 down")).given(certificateImageStorage).deleteAllFor(student.getId());
+
+        anonymizationService.anonymize(student.getId());
+
+        // 스토리지 장애로 파기가 무산되면 안 된다 — 고아 객체 1개보다 익명화 실패가 나쁘다.
+        Account reloaded = accountJpaRepo.findById(student.getId()).orElseThrow();
+        assertThat(reloaded.getAnonymizedAt()).isNotNull();
+        assertThat(reloaded.getNickName()).isNull();
     }
 
     @Test

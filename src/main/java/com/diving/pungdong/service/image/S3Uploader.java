@@ -5,8 +5,11 @@ import com.amazonaws.HttpMethod;
 import com.amazonaws.services.s3.AmazonS3Client;
 import com.amazonaws.services.s3.model.DeleteObjectRequest;
 import com.amazonaws.services.s3.model.GeneratePresignedUrlRequest;
+import com.amazonaws.services.s3.model.ListObjectsV2Request;
+import com.amazonaws.services.s3.model.ListObjectsV2Result;
 import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.PutObjectRequest;
+import com.amazonaws.services.s3.model.S3ObjectSummary;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -188,11 +191,49 @@ public class S3Uploader {
         deleteObject(fallbackBucket, key); // 커스텀 CDN 도메인
     }
 
+    /**
+     * 비공개 객체 삭제 — 저장값이 <b>곧 key</b> 인 경우({@link #uploadPrivate} 가 반환한 값)에만 쓴다.
+     *
+     * <p><b>{@link #deletePublicObject} 를 대신 쓰면 안 된다</b>: 그쪽은 저장값을 <i>공개</i> 버킷 기준으로
+     * (버킷, key) 환원하는 함수라, 비공개 key 를 넘기면 엉뚱한 버킷을 지우려 든다. S3 {@code deleteObject} 는
+     * 없는 key 에도 204 를 주므로 <b>조용히 성공한 것처럼 보인다</b> — #140 이후 프로필 사진이 실제로
+     * 안 지워졌던 사고가 정확히 이 모양이었다.
+     */
+    public void deletePrivateObject(String key) {
+        deleteObject(bucket, key);
+    }
+
+    /**
+     * 비공개 객체를 <b>prefix 단위로</b> 일괄 삭제 — 탈퇴 PII 파기용
+     * (예: {@code instructorCertificate/{accountId}/}).
+     *
+     * <p>1000건 단위 페이지네이션을 끝까지 따라간다. 호출처가 best-effort 로 감싸는 것을 전제로,
+     * 여기서는 예외를 삼키지 않는다(부분 삭제 후 실패하면 그대로 전파 — 재시도 시 남은 것부터 지운다).
+     */
+    public void deletePrivateObjectsUnderPrefix(String prefix) {
+        if (!StringUtils.hasText(prefix)) {
+            return;
+        }
+        ListObjectsV2Request request = new ListObjectsV2Request().withBucketName(bucket).withPrefix(prefix);
+        int deleted = 0;
+        ListObjectsV2Result page;
+        do {
+            page = amazonS3Client.listObjectsV2(request);
+            for (S3ObjectSummary summary : page.getObjectSummaries()) {
+                amazonS3Client.deleteObject(new DeleteObjectRequest(bucket, summary.getKey()));
+                deleted++;
+            }
+            request.setContinuationToken(page.getNextContinuationToken());
+        } while (page.isTruncated());
+
+        log.info("[s3] 비공개 prefix 삭제 bucket={} prefix={} count={}", bucket, prefix, deleted);
+    }
+
     private void deleteObject(String targetBucket, String key) {
         if (!StringUtils.hasText(key)) {
             return;
         }
         amazonS3Client.deleteObject(new DeleteObjectRequest(targetBucket, key));
-        log.info("[s3] 공개 객체 삭제 bucket={} key={}", targetBucket, key);
+        log.info("[s3] 객체 삭제 bucket={} key={}", targetBucket, key);
     }
 }

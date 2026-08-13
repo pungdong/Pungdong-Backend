@@ -104,6 +104,20 @@ presigned는 **만료 + 쿼리 서명**이라 크롤러·SSG가 인덱싱/하드
 ### 삭제 — 저장값 3종을 (버킷, key) 로 환원
 저장값 포맷이 시대별로 **완성 CDN URL / S3 객체 URL / 맨 파일명** 3종이라 그대로 key 로 쓸 수 없다. `S3Uploader.deletePublicObject` 가 셋을 각각 환원한다. **공유 기본 이미지(`ProfilePhoto.DEFAULT_IMAGE_URL`)를 거르는 건 값의 의미를 아는 호출처 책임** — 특정 개인의 사진이 아니라 지우면 안 된다.
 
+### 삭제 — 비공개(PII)는 별도 경로 (2026-08-14)
+
+**비공개 객체엔 삭제 수단이 아예 없었다.** `S3Uploader` 에는 `deletePublicObject` 하나뿐이라, `instructorCertificate/` 에 올라간 자격증·보험 이미지는 **어떤 경로로도 지워지지 않았다.**
+
+- `deletePrivateObject(key)` — 저장값이 곧 key 인 비공개 객체 단건 삭제.
+- `deletePrivateObjectsUnderPrefix(prefix)` — 회원 단위 일괄 삭제(1000건 페이지네이션 추적).
+- **`deletePublicObject` 를 비공개 key 에 쓰면 안 된다** — 공개 버킷 기준으로 (버킷,key)를 환원하므로 엉뚱한 버킷을 지우려 들고, S3 는 없는 key 에도 204 라 **조용히 성공한 것처럼 보인다**(아래 실버그와 같은 실패 모양).
+
+**탈퇴 익명화가 자격증 이미지를 지우지 않고 있었다** — §2 가 회원별 그룹핑(`{dir}/{accountId}/`)의 근거로 든 "탈퇴 시 prefix 일괄 삭제"가 **구현된 적이 없다.** 아래 프로필 사진 사고와 **같은 구멍**이 자격증 쪽에 남아 있었던 것. 이제 `AccountAnonymizationService` 가 `AccountAnonymizedEvent` 를 발행하고 각 도메인 리스너가 자기 저장소를 정리한다.
+
+- **왜 이벤트인가**: 파기 대상이 도메인마다 흩어져 있는데 **account 는 feature 도메인을 import 하지 않는다**(단방향 규칙 — `profile` 패키지가 존재하는 이유와 같은 제약). 새 도메인은 account 를 건드리지 않고 **리스너만 추가**한다.
+- **리스너는 예외를 삼킨다** — 동기 리스너라 던지면 익명화 트랜잭션이 롤백된다. **"고아 객체 1개 < 익명화 실패"** 우선순위(`ProfilePhotoService` 와 동일 원칙).
+- 로컬(dev) 구현도 경로에 `{ownerId}/` 를 넣도록 맞췄다 — 예전엔 평탄 저장이라 소유자 정보가 경로에 없어서 **삭제·소유검증을 dev/테스트에서 검증할 수 없었다**(= prod 에서만 도는 코드).
+
 > 🔴 **왜 지금 고쳤나 (실버그)** — 예전 `deleteFileFromS3` 는 어떤 값이든 **비공개 버킷의 key** 로 취급했다. 공개 버킷 전환(#140) 이후 프로필 사진 저장값은 CDN URL 이라 **존재하지 않는 버킷·key 를 지우고 있었다.** S3 `deleteObject` 는 없는 key 에도 204 를 주고 호출부는 `log.warn` 이라 **완전 무증상** — 결과적으로 **탈퇴 익명화가 얼굴 사진(PII)을 그대로 남겼다.** 개인정보 파기 의무 위반이라 브랜딩 페이지 작업과 분리해 선행 수정했다.
 > 함께: `ProfilePhotoService` 가 교체된 옛 사진을 안 지워 **S3 고아**가 쌓이던 것도 수정(업로드 성공 뒤에만 삭제 — 실패해도 새 사진은 남는다).
 
@@ -118,6 +132,8 @@ presigned는 **만료 + 쿼리 서명**이라 크롤러·SSG가 인덱싱/하드
 | 2026-06-29 | **이미지 변환 = 리전 Lambda(ap-northeast-2) + sharp, CloudFront 뒤** (Lambda@Edge·관리형·업로드시파생 기각) | 결과를 엣지 캐시 → Lambda 는 미스에만; 한국 중심이라 엣지=리전 권역 일치로 Lambda@Edge 이득 미미 + 리전 람다가 운영/디버그 쉬움(솔로 dev); 계약 무변경(쿼리만) | (이 PR) |
 | 2026-08-10 | **공개 이미지 삭제를 (버킷,key) 환원으로 수정** + 프로필 사진 교체 시 옛 객체 삭제 | 공개 버킷 전환 후 삭제가 **무증상으로 아무것도 안 지워** 탈퇴 익명화가 PII(얼굴 사진)를 남겼다. S3 는 없는 key 에도 204 | (이 PR) |
 | 2026-08-10 | **공개 업로드에 타입 allowlist + 8MB 상한** (`ImageUploadPolicy`) | 공개 서빙이라 업로드가 유일한 차단 지점(위조 타입이 그대로 CDN 서빙됨). 8MB 는 변환 Lambda 의 base64 페이로드 상한(~6MB) 때문 | (이 PR) |
+| 2026-08-14 | **비공개 삭제 신설(`deletePrivateObject`/prefix) + 탈퇴 익명화에 자격증 이미지 파기 연결**(`AccountAnonymizedEvent` → 도메인 리스너) | §2 가 회원별 그룹핑의 근거로 든 prefix 일괄 삭제가 **구현된 적이 없었다** — 프로필 사진 사고와 동일한 개인정보 파기 의무 위반이 자격증 쪽에 남아 있었음. 애초에 비공개 객체 삭제 API 자체가 부재 | (이 PR) |
+| 2026-08-14 | **제출 JSON 의 `fileKey` 소유 검증**(`CertificateImageStorage.isOwnedBy`) | presigned URL 은 경로에 key 를 담아, 유출된 URL 에서 key 를 뽑아 자기 신청에 붙이면 **TTL 3분이 영구 접근**이 된다. 비용은 문자열 비교 1회 | (이 PR) |
 | 2026-06-30 | **변환 Lambda 인증 = OAC(AWS_IAM), 정석 (구현·검증)**. 근본원인 규명 = `lambda:InvokeFunction` 권한 누락. **Lambda@Edge(C) 불필요.** | OAC·NONE 둘 다 403 → 원인은 인증모드 아닌 **InvokeFunction 누락**(Terraform 은 InvokeFunctionUrl+InvokeFunction 둘 다 명시 필요, 콘솔은 자동). 임시로 (B)시크릿헤더로 동작시켰다가, 원인 규명 후 **OAC(공개 도달 없음=정석)로 교체**해 B 폐기. C 의 이점(엣지 레이턴시)은 한국 중심엔 무의미 → 글로벌 확장 시 폴백으로만 | (이 PR) |
 
 ---

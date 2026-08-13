@@ -10,7 +10,8 @@
 - **컨트롤러**: `InstructorApplicationController`(신청자 `/instructor-applications/**`), `AdminInstructorApplicationController`(어드민 `/admin/instructor-applications/**`)
 - **서비스**: `InstructorApplicationService`(상태머신 강제 — 모든 전이는 여기서)
 - **본인확인**: 이 도메인 아님 — 별도 [identity-verification](../identityverification/CLAUDE.md) 도메인. 신청은 `verificationId` 로 **참조만**(제출 시 소유+verified 검증). 진입 skip 은 FE 가 `GET /identity-verifications/me`.
-- **이미지 저장 경계** (`storage/`): `CertificateImageStorage`(interface) + `S3CertificateImageStorage`(prod) / `LocalCertificateImageStorage`(dev, 로컬 디스크 + `/local-uploads/**` 정적 서빙 `LocalUploadsWebConfig`). `pungdong.storage.s3.enabled` = `false`(기본) / `true`
+- **이미지 저장 경계** (`storage/`): `CertificateImageStorage`(interface — `store`/`viewUrl`/`deleteAllFor` + static `ownerPrefix`·`isOwnedBy`) + `S3CertificateImageStorage`(prod) / `LocalCertificateImageStorage`(dev, 로컬 디스크 + `/local-uploads/**` 정적 서빙 `LocalUploadsWebConfig`). `pungdong.storage.s3.enabled` = `false`(기본) / `true`. **저장 경로는 양쪽 다 `instructorCertificate/{ownerId}/`** — 소유 판정과 탈퇴 일괄 삭제가 이 그룹핑에 의존한다.
+- **탈퇴 PII 파기** (`CertificateImageAnonymizationListener`): `account` 의 `AccountAnonymizedEvent` 를 받아 `deleteAllFor(accountId)`. **account 는 이 패키지를 모른다**(단방향) → 이벤트 경유. 동기 리스너라 예외는 삼킨다("고아 1개 < 익명화 실패").
 - **종목**: 이 도메인 아님 — [discipline](../discipline/CLAUDE.md). 신청은 `disciplineCode` 로 참조, 제출 시 `DisciplineService.getActiveByCode` 로 검증 + `requiresCertification` 으로 자격증 필수 여부 분기.
 - **엔티티**: `InstructorApplication`(**종목별** 1건, `(account_id, discipline_code)` UNIQUE), `ApplicationCertificate`(자격증 = **단체+이미지**, 1:N — 한 종목에 여러 단체), `InstructorApplicationStatus`(enum). `IdentityVerification` 참조(identity-verification 도메인 소유)
 - **레포**: `InstructorApplicationJpaRepo`, `ApplicationCertificateJpaRepo` (+ identity-verification 의 `IdentityVerificationJpaRepo` 로 제출 시 검증)
@@ -32,6 +33,7 @@
 - **종목별 신청 + 단체=자격증 단위** (2026-06-10) — 신청은 종목별(`(account_id, discipline_code)` UNIQUE, 프리다이빙+스쿠버 동시 가능). 단체(organizationCode)는 신청이 아니라 **`ApplicationCertificate` 단위** — 한 종목에 여러 단체 자격(AIDA+PADI+Molchanovs) 가능. organizationCode 는 문자열(Sanity 카탈로그, 종목별; BE 검증 안 함, `OTHER` 빈값만 체크). 종목의 `requiresCertification` 으로 자격증 필수 여부 분기(수영/서핑=불필요).
 - **자격증 관리 (MVP)** — 승인된 강사는 같은 종목 재신청 차단(400), 대신 `POST /instructor-applications/certificates` 로 자격증만 **검수 없이 append**. 향후 "인증 요청하기"→검수→자격 승격/레벨(자격증에 `ratingCode` 추가)로 확장. (use-case `DS5`)
 - **2-phase 업로드** — 자격증 이미지는 `POST /certificate-images`(multipart)로 먼저 올려 URL 을 받고, 제출 JSON 이 그 URL 을 참조. 제출 컨트랙트가 깔끔한 JSON 이 됨.
+  - ⚠️ **라운드트립되는 `fileKey` 는 반드시 소유 검증**(2026-08-14) — 제출/재제출/자격증추가 세 경로 모두 `requireOwnedFileKey`. 안 하면 유출된 presigned URL 에서 뽑은 남의 key 를 자기 신청에 붙여 **TTL 3분을 무한 재발급**할 수 있다. 새 파일 참조 필드를 추가하면(보험처럼) **여기도 같이 추가**할 것.
 - **승인 = additive role** — STUDENT 유지 + INSTRUCTOR 추가. 권한은 매 요청 DB 재계산이라 토큰 재발급 불필요 (use-case `R3`).
 - **중복/없음 응답** — 종목별 중복 신청은 400(레포에 409 인프라 없음, `EmailDuplicationException` 처럼 400 통일). 내 신청 조회 `GET /me` 는 종목별 **목록**(CollectionModel) — 미신청 종목은 항목 없음(404 아님, FE 가 선택 종목으로 필터).
 - **어드민 지정 = DB role + env allowlist** (Sanity 아님) — admin 권한은 `Account.roles` 의 `ADMIN`(authz 는 우리 신뢰경계). "누구를 admin 으로"의 목록만 env `pungdong.admin.emails` → `account.AdminAccountInitializer` 가 부팅 시 부여. 어드민 심사 목록은 counts(탭 뱃지) + status 옵셔널(전체 탭) 지원. (사용자 결정 2026-06-09)
