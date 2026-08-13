@@ -563,7 +563,10 @@ export interface DisciplineResponse {
 export interface ApplicationCertificate {
   organizationCode: string; // 'AIDA' | 'PADI' | 'OTHER' ... (Sanity 카탈로그, 종목별)
   organizationOther?: string; // 'OTHER' 일 때
-  fileKey: string; // 저장 참조 key. 업로드 응답의 fileKey 를 제출 시 그대로 보냄(라운드트립).
+  // 저장 참조 key. 업로드 응답의 fileKey 를 제출 시 그대로 보냄(라운드트립).
+  // ★ 반드시 **본인이 업로드한** key 여야 한다 — 남의 key 를 보내면 400(2026-08-14). 정상 흐름(업로드 응답을
+  //   그대로 되돌려보냄)은 영향 없다. 임의로 조립하거나 캐시된 남의 값을 재사용하지 말 것.
+  fileKey: string;
   viewUrl?: string; // 조회 응답에만 — 표시용 한시 presigned URL(짧은 TTL). 제출 시 미포함.
 }
 

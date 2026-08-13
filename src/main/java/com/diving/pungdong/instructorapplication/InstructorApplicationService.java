@@ -67,7 +67,7 @@ public class InstructorApplicationService {
         Account managed = loadAccount(account);
         Discipline discipline = disciplineService.getActiveByCode(request.getDisciplineCode());
         IdentityVerification verification = resolveVerification(managed, request.getVerificationId());
-        validateCertification(discipline, request);
+        validateCertification(managed, discipline, request);
 
         InstructorApplication application = applicationRepo
                 .findByAccountIdAndDisciplineCode(managed.getId(), discipline.getCode())
@@ -115,7 +115,7 @@ public class InstructorApplicationService {
         }
 
         IdentityVerification verification = resolveVerification(managed, request.getVerificationId());
-        validateCertification(discipline, request);
+        validateCertification(managed, discipline, request);
 
         applyFields(application, request, verification);
         InstructorApplication saved = applicationRepo.save(application);
@@ -143,6 +143,7 @@ public class InstructorApplicationService {
         if (isBlank(request.getOrganizationCode()) || isBlank(request.getFileKey())) {
             throw new BadRequestException();
         }
+        requireOwnedFileKey(managed, request.getFileKey());
         if (ORGANIZATION_OTHER.equalsIgnoreCase(request.getOrganizationCode()) && isBlank(request.getOrganizationOther())) {
             throw new BadRequestException();
         }
@@ -261,7 +262,10 @@ public class InstructorApplicationService {
      * 종목의 자격증 필수 여부에 따른 조건부 검증. requiresCertification 종목은 자격증 1건 이상,
      * 각 자격증마다 단체(+OTHER 직접입력)·이미지 필수. 그 외(수영/서핑)는 생략 가능.
      */
-    private void validateCertification(Discipline discipline, InstructorApplicationSubmitRequest request) {
+    private void validateCertification(Account owner, Discipline discipline, InstructorApplicationSubmitRequest request) {
+        // 보험 이미지도 같은 업로드 경로를 타므로 종목과 무관하게 소유를 검사한다.
+        requireOwnedFileKey(owner, request.getInsuranceFileKey());
+
         if (!discipline.isRequiresCertification()) {
             return; // 자격증 불필요 종목 — 자격증/단체 생략 가능
         }
@@ -273,12 +277,28 @@ public class InstructorApplicationService {
             if (isBlank(cert.getFileKey())) {
                 throw new BadRequestException(); // 자격증 이미지 필수
             }
+            requireOwnedFileKey(owner, cert.getFileKey());
             if (isBlank(cert.getOrganizationCode())) {
                 throw new BadRequestException(); // 발급 단체 필수
             }
             if (ORGANIZATION_OTHER.equalsIgnoreCase(cert.getOrganizationCode()) && isBlank(cert.getOrganizationOther())) {
                 throw new BadRequestException(); // 기타 단체는 직접입력 필수
             }
+        }
+    }
+
+    /**
+     * 제출 JSON 이 참조하는 저장 참조가 <b>본인이 올린 것</b>인지 검사한다 — 없으면 남의 자격증 이미지를
+     * 자기 신청에 붙여 열람할 수 있다({@link CertificateImageStorage#isOwnedBy} 의 유출 시나리오 참고).
+     *
+     * <p>빈 값은 통과 — "있으면 내 것이어야 한다"는 검사이고, 필수 여부는 호출처가 따로 본다.
+     */
+    private void requireOwnedFileKey(Account owner, String fileKey) {
+        if (isBlank(fileKey)) {
+            return;
+        }
+        if (!CertificateImageStorage.isOwnedBy(fileKey, owner.getId())) {
+            throw new BadRequestException(); // 남의 저장 참조 — 존재 숨김(사유를 특정하지 않는다)
         }
     }
 

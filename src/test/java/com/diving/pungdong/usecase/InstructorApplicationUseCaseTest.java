@@ -106,6 +106,17 @@ class InstructorApplicationUseCaseTest {
         return jwtTokenProvider.createAccessToken(String.valueOf(account.getId()), account.getRoles());
     }
 
+    /**
+     * 업로드가 돌려주는 <b>저장 참조</b>를 흉내낸다 — {@code instructorCertificate/{ownerId}/{name}}.
+     *
+     * <p>예전 픽스처는 {@code "https://s3/cert1.png"} 처럼 소유자 정보가 없는 문자열이었는데, 제출이
+     * <b>남의 fileKey 를 참조하지 못하게</b> 검증하게 되면서 실제 저장 모양을 써야 통과한다.
+     * 계정 id 는 실행마다 달라지므로 리터럴로 박지 않고 여기서 만든다.
+     */
+    private String key(Account owner, String name) {
+        return "instructorCertificate/" + owner.getId() + "/" + name;
+    }
+
     private String identityBody() {
         Map<String, Object> body = new HashMap<>();
         body.put("realName", "김다이버");
@@ -210,7 +221,7 @@ class InstructorApplicationUseCaseTest {
         mockMvc.perform(post("/instructor-applications")
                         .header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(submitBody(verificationId, "PADI", null, List.of("https://s3/cert1.png"))))
+                        .content(submitBody(verificationId, "PADI", null, List.of(key(student, "cert1.png")))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("SUBMITTED"));
 
@@ -219,7 +230,7 @@ class InstructorApplicationUseCaseTest {
         assertThat(saved.getDisciplineCode()).isEqualTo("FREEDIVING");
         // 자격증/본인확인은 LAZY 연관이라 트랜잭션 밖에서 직접 만지지 않고 별도 조회로 검증
         assertThat(certificateRepo.findAll()).hasSize(1);
-        assertThat(certificateRepo.findAll().get(0).getFileKey()).isEqualTo("https://s3/cert1.png");
+        assertThat(certificateRepo.findAll().get(0).getFileKey()).isEqualTo(key(student, "cert1.png"));
         assertThat(certificateRepo.findAll().get(0).getOrganizationCode()).isEqualTo("PADI");
         assertThat(identityVerificationRepo.findAll()).hasSize(1);
     }
@@ -244,7 +255,7 @@ class InstructorApplicationUseCaseTest {
         mockMvc.perform(post("/instructor-applications")
                         .header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(submitBody(verificationId, "AIDA", null, List.of("https://s3/cert1.png", "https://s3/cert2.png"))))
+                        .content(submitBody(verificationId, "AIDA", null, List.of(key(student, "cert1.png"), key(student, "cert2.png")))))
                 .andExpect(status().isCreated());
 
         MvcResult res = mockMvc.perform(get("/instructor-applications/me")
@@ -268,12 +279,12 @@ class InstructorApplicationUseCaseTest {
         String token = tokenFor(student);
         long verificationId = verifyIdentity(token);
         // 저장 참조 key → 표시용 한시 URL 변환을 스텁(운영에선 presigned GET).
-        given(certificateImageStorage.viewUrl("instructorCertificate/9/cert.png"))
+        given(certificateImageStorage.viewUrl(key(student, "cert.png")))
                 .willReturn("https://s3.example/instructorCertificate/9/cert.png?X-Amz-Signature=stub");
         mockMvc.perform(post("/instructor-applications")
                         .header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(submitBody(verificationId, "AIDA", null, List.of("instructorCertificate/9/cert.png"))))
+                        .content(submitBody(verificationId, "AIDA", null, List.of(key(student, "cert.png")))))
                 .andExpect(status().isCreated());
 
         MvcResult res = mockMvc.perform(get("/instructor-applications/me")
@@ -283,7 +294,7 @@ class InstructorApplicationUseCaseTest {
         JsonNode cert = objectMapper.readTree(res.getResponse().getContentAsString())
                 .get("_embedded").get("applications").get(0).get("certificates").get(0);
         // 저장 key 는 라운드트립(클라가 제출에 다시 쓰는 값), viewUrl 은 표시 전용 한시 URL
-        assertThat(cert.get("fileKey").asText()).isEqualTo("instructorCertificate/9/cert.png");
+        assertThat(cert.get("fileKey").asText()).isEqualTo(key(student, "cert.png"));
         assertThat(cert.get("viewUrl").asText()).isEqualTo("https://s3.example/instructorCertificate/9/cert.png?X-Amz-Signature=stub");
     }
 
@@ -293,17 +304,17 @@ class InstructorApplicationUseCaseTest {
         Account student = createAccount("s5@test.com", "diver5", Role.STUDENT);
         String token = tokenFor(student);
         long verificationId = verifyIdentity(token);
-        given(certificateImageStorage.viewUrl("instructorCertificate/9/insurance.png"))
+        given(certificateImageStorage.viewUrl(key(student, "insurance.png")))
                 .willReturn("https://s3.example/insurance?X-Amz-Signature=stub");
 
         Map<String, Object> cert = new HashMap<>();
         cert.put("organizationCode", "AIDA");
-        cert.put("fileKey", "instructorCertificate/9/cert.png");
+        cert.put("fileKey", key(student, "cert.png"));
         Map<String, Object> body = new HashMap<>();
         body.put("disciplineCode", "FREEDIVING");
         body.put("verificationId", verificationId);
         body.put("certificates", List.of(cert));
-        body.put("insuranceFileKey", "instructorCertificate/9/insurance.png");
+        body.put("insuranceFileKey", key(student, "insurance.png"));
 
         mockMvc.perform(post("/instructor-applications")
                         .header(HttpHeaders.AUTHORIZATION, token)
@@ -312,14 +323,14 @@ class InstructorApplicationUseCaseTest {
                 .andExpect(status().isCreated());
 
         InstructorApplication saved = applicationRepo.findByAccountIdAndDisciplineCode(student.getId(), "FREEDIVING").orElseThrow();
-        assertThat(saved.getInsuranceFileKey()).isEqualTo("instructorCertificate/9/insurance.png");
+        assertThat(saved.getInsuranceFileKey()).isEqualTo(key(student, "insurance.png"));
 
         MvcResult res = mockMvc.perform(get("/instructor-applications/me")
                         .header(HttpHeaders.AUTHORIZATION, token))
                 .andExpect(status().isOk()).andReturn();
         JsonNode item = objectMapper.readTree(res.getResponse().getContentAsString())
                 .get("_embedded").get("applications").get(0);
-        assertThat(item.get("insuranceFileKey").asText()).isEqualTo("instructorCertificate/9/insurance.png");
+        assertThat(item.get("insuranceFileKey").asText()).isEqualTo(key(student, "insurance.png"));
         assertThat(item.get("insuranceViewUrl").asText()).isEqualTo("https://s3.example/insurance?X-Amz-Signature=stub");
     }
 
@@ -332,7 +343,7 @@ class InstructorApplicationUseCaseTest {
         mockMvc.perform(post("/instructor-applications")
                         .header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(submitBody(verificationId, "AIDA", null, List.of("instructorCertificate/9/cert.png"))))
+                        .content(submitBody(verificationId, "AIDA", null, List.of(key(student, "cert.png")))))
                 .andExpect(status().isCreated());
 
         InstructorApplication saved = applicationRepo.findByAccountIdAndDisciplineCode(student.getId(), "FREEDIVING").orElseThrow();
@@ -358,7 +369,7 @@ class InstructorApplicationUseCaseTest {
         mockMvc.perform(post("/instructor-applications")
                         .header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(submitBody(null, "PADI", null, List.of("https://s3/cert1.png"))))
+                        .content(submitBody(null, "PADI", null, List.of(key(student, "cert1.png")))))
                 .andExpect(status().is4xxClientError());
 
         assertThat(applicationRepo.findByAccountIdOrderByIdDesc(student.getId())).isEmpty();
@@ -374,7 +385,7 @@ class InstructorApplicationUseCaseTest {
         mockMvc.perform(post("/instructor-applications")
                         .header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(submitBody(unverifiedId, "PADI", null, List.of("https://s3/cert1.png"))))
+                        .content(submitBody(unverifiedId, "PADI", null, List.of(key(student, "cert1.png")))))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value(-1017));
 
@@ -407,10 +418,55 @@ class InstructorApplicationUseCaseTest {
         mockMvc.perform(post("/instructor-applications")
                         .header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(submitBody(verificationId, "OTHER", "  ", List.of("https://s3/cert1.png"))))
+                        .content(submitBody(verificationId, "OTHER", "  ", List.of(key(student, "cert1.png")))))
                 .andExpect(status().is4xxClientError());
 
         assertThat(applicationRepo.findByAccountIdOrderByIdDesc(student.getId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("V4: 남이 올린 자격증 이미지(fileKey)를 자기 신청에 붙여 제출하면 400 + 신청 안 생김")
+    void submit_rejectsOtherPersonsFileKey() throws Exception {
+        Account victim = createAccount("v4-victim@test.com", "diverV4a", Role.STUDENT);
+        Account attacker = createAccount("v4@test.com", "diverV4b", Role.STUDENT);
+        String token = tokenFor(attacker);
+        long verificationId = verifyIdentity(token);
+
+        // presigned URL 은 경로에 key 를 담으므로, 한 번 유출되면 남이 그 key 를 알 수 있다.
+        // 그걸 자기 신청에 붙이면 TTL 3분짜리 열람 창이 무한 재발급으로 바뀐다.
+        mockMvc.perform(post("/instructor-applications")
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(submitBody(verificationId, "AIDA", null, List.of(key(victim, "leaked.png")))))
+                .andExpect(status().is4xxClientError());
+
+        assertThat(applicationRepo.findByAccountIdOrderByIdDesc(attacker.getId())).isEmpty();
+        assertThat(certificateRepo.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("V5: 보험 이미지도 남의 fileKey 면 400 (자격증과 같은 업로드 경로라 같은 검사)")
+    void submit_rejectsOtherPersonsInsuranceFileKey() throws Exception {
+        Account victim = createAccount("v5-victim@test.com", "diverV5a", Role.STUDENT);
+        Account attacker = createAccount("v5@test.com", "diverV5b", Role.STUDENT);
+        String token = tokenFor(attacker);
+        long verificationId = verifyIdentity(token);
+
+        Map<String, Object> cert = new HashMap<>();
+        cert.put("organizationCode", "AIDA");
+        cert.put("fileKey", key(attacker, "mine.png")); // 자격증은 내 것
+        Map<String, Object> body = new HashMap<>();
+        body.put("disciplineCode", "FREEDIVING");
+        body.put("verificationId", verificationId);
+        body.put("certificates", List.of(cert));
+        body.put("insuranceFileKey", key(victim, "leaked-insurance.png")); // 보험만 남의 것
+        mockMvc.perform(post("/instructor-applications")
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(write(body)))
+                .andExpect(status().is4xxClientError());
+
+        assertThat(applicationRepo.findByAccountIdOrderByIdDesc(attacker.getId())).isEmpty();
     }
 
     /* ════════════════ D — 중복 ════════════════ */
@@ -424,14 +480,14 @@ class InstructorApplicationUseCaseTest {
         mockMvc.perform(post("/instructor-applications")
                         .header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(submitBody(verificationId, "PADI", null, List.of("https://s3/cert1.png"))))
+                        .content(submitBody(verificationId, "PADI", null, List.of(key(student, "cert1.png")))))
                 .andExpect(status().isCreated());
 
         long verificationId2 = verifyIdentity(token);
         mockMvc.perform(post("/instructor-applications")
                         .header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(submitBody(verificationId2, "SSI", null, List.of("https://s3/cert9.png"))))
+                        .content(submitBody(verificationId2, "SSI", null, List.of(key(student, "cert9.png")))))
                 .andExpect(status().is4xxClientError());
 
         assertThat(applicationRepo.findAll()).hasSize(1);
@@ -459,7 +515,7 @@ class InstructorApplicationUseCaseTest {
         MvcResult submitted = mockMvc.perform(post("/instructor-applications")
                         .header(HttpHeaders.AUTHORIZATION, studentToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(submitBody(verificationId, "PADI", null, List.of("https://s3/cert1.png"))))
+                        .content(submitBody(verificationId, "PADI", null, List.of(key(student, "cert1.png")))))
                 .andExpect(status().isCreated())
                 .andReturn();
         long applicationId = objectMapper.readTree(submitted.getResponse().getContentAsString()).get("applicationId").asLong();
@@ -485,7 +541,7 @@ class InstructorApplicationUseCaseTest {
         MvcResult submitted = mockMvc.perform(post("/instructor-applications")
                         .header(HttpHeaders.AUTHORIZATION, oldStudentToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(submitBody(verificationId, "PADI", null, List.of("https://s3/cert1.png"))))
+                        .content(submitBody(verificationId, "PADI", null, List.of(key(student, "cert1.png")))))
                 .andExpect(status().isCreated())
                 .andReturn();
         long applicationId = objectMapper.readTree(submitted.getResponse().getContentAsString()).get("applicationId").asLong();
@@ -513,7 +569,7 @@ class InstructorApplicationUseCaseTest {
         Account student = createAccount("j1@test.com", "diver11", Role.STUDENT);
         Account admin = createAccount("admin4@test.com", "admin4", Role.ADMIN);
         String studentToken = tokenFor(student);
-        long applicationId = submitApplication(studentToken, "PADI");
+        long applicationId = submitApplication(student, "PADI");
 
         mockMvc.perform(post("/admin/instructor-applications/" + applicationId + "/reject")
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(admin))
@@ -532,7 +588,7 @@ class InstructorApplicationUseCaseTest {
         Account student = createAccount("j2@test.com", "diver12", Role.STUDENT);
         Account admin = createAccount("admin5@test.com", "admin5", Role.ADMIN);
         String studentToken = tokenFor(student);
-        long applicationId = submitApplication(studentToken, "PADI");
+        long applicationId = submitApplication(student, "PADI");
         mockMvc.perform(post("/admin/instructor-applications/" + applicationId + "/reject")
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(admin))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -543,7 +599,7 @@ class InstructorApplicationUseCaseTest {
         mockMvc.perform(put("/instructor-applications/me")
                         .header(HttpHeaders.AUTHORIZATION, studentToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(submitBody(newVerification, "SSI", null, List.of("https://s3/cert-new.png"))))
+                        .content(submitBody(newVerification, "SSI", null, List.of(key(student, "cert-new.png")))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("SUBMITTED"));
 
@@ -565,8 +621,8 @@ class InstructorApplicationUseCaseTest {
         Account admin = createAccount("admin6@test.com", "admin6", Role.ADMIN);
         String adminToken = tokenFor(admin);
 
-        submitApplication(tokenFor(pending), "PADI");
-        long approvedAppId = submitApplication(tokenFor(approvedUser), "AIDA");
+        submitApplication(pending, "PADI");
+        long approvedAppId = submitApplication(approvedUser, "AIDA");
         mockMvc.perform(post("/admin/instructor-applications/" + approvedAppId + "/approve")
                         .header(HttpHeaders.AUTHORIZATION, adminToken))
                 .andExpect(status().isOk());
@@ -609,9 +665,9 @@ class InstructorApplicationUseCaseTest {
         String adminToken = tokenFor(admin);
 
         // SUBMITTED 1, APPROVED 1, REJECTED 1 구성
-        submitApplication(tokenFor(createAccount("c1@test.com", "diverC1", Role.STUDENT)), "PADI"); // SUBMITTED 유지
-        long toApprove = submitApplication(tokenFor(createAccount("c2@test.com", "diverC2", Role.STUDENT)), "AIDA");
-        long toReject = submitApplication(tokenFor(createAccount("c3@test.com", "diverC3", Role.STUDENT)), "SSI");
+        submitApplication(createAccount("c1@test.com", "diverC1", Role.STUDENT), "PADI"); // SUBMITTED 유지
+        long toApprove = submitApplication(createAccount("c2@test.com", "diverC2", Role.STUDENT), "AIDA");
+        long toReject = submitApplication(createAccount("c3@test.com", "diverC3", Role.STUDENT), "SSI");
         mockMvc.perform(post("/admin/instructor-applications/" + toApprove + "/approve")
                         .header(HttpHeaders.AUTHORIZATION, adminToken)).andExpect(status().isOk());
         mockMvc.perform(post("/admin/instructor-applications/" + toReject + "/reject")
@@ -633,8 +689,8 @@ class InstructorApplicationUseCaseTest {
     void adminList_allStatuses_withEmail() throws Exception {
         Account admin = createAccount("al@test.com", "adminL", Role.ADMIN);
         String adminToken = tokenFor(admin);
-        submitApplication(tokenFor(createAccount("l1@test.com", "diverL1", Role.STUDENT)), "PADI");
-        long approveId = submitApplication(tokenFor(createAccount("l2@test.com", "diverL2", Role.STUDENT)), "AIDA");
+        submitApplication(createAccount("l1@test.com", "diverL1", Role.STUDENT), "PADI");
+        long approveId = submitApplication(createAccount("l2@test.com", "diverL2", Role.STUDENT), "AIDA");
         mockMvc.perform(post("/admin/instructor-applications/" + approveId + "/approve")
                         .header(HttpHeaders.AUTHORIZATION, adminToken)).andExpect(status().isOk());
 
@@ -657,7 +713,7 @@ class InstructorApplicationUseCaseTest {
         Account student = createAccount("a4@test.com", "diver16", Role.STUDENT);
         Account admin = createAccount("admin7@test.com", "심사관", Role.ADMIN);
         String adminToken = tokenFor(admin);
-        long applicationId = submitApplication(tokenFor(student), "PADI");
+        long applicationId = submitApplication(student, "PADI");
         mockMvc.perform(post("/admin/instructor-applications/" + applicationId + "/approve")
                         .header(HttpHeaders.AUTHORIZATION, adminToken)).andExpect(status().isOk());
 
@@ -733,11 +789,11 @@ class InstructorApplicationUseCaseTest {
 
         mockMvc.perform(post("/instructor-applications").header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(submitBody("FREEDIVING", verificationId, "AIDA", null, List.of("https://s3/c1.png"))))
+                        .content(submitBody("FREEDIVING", verificationId, "AIDA", null, List.of(key(student, "c1.png")))))
                 .andExpect(status().isCreated());
         mockMvc.perform(post("/instructor-applications").header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(submitBody("SCUBA", verificationId, "PADI", null, List.of("https://s3/c2.png"))))
+                        .content(submitBody("SCUBA", verificationId, "PADI", null, List.of(key(student, "c2.png")))))
                 .andExpect(status().isCreated());
 
         assertThat(applicationRepo.findByAccountIdOrderByIdDesc(student.getId())).hasSize(2);
@@ -745,7 +801,7 @@ class InstructorApplicationUseCaseTest {
         // 같은 종목(프리다이빙) 재신청은 중복 → 400
         mockMvc.perform(post("/instructor-applications").header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(submitBody("FREEDIVING", verificationId, "SSI", null, List.of("https://s3/c3.png"))))
+                        .content(submitBody("FREEDIVING", verificationId, "SSI", null, List.of(key(student, "c3.png")))))
                 .andExpect(status().is4xxClientError());
 
         assertThat(applicationRepo.findByAccountIdOrderByIdDesc(student.getId())).hasSize(2);
@@ -761,9 +817,9 @@ class InstructorApplicationUseCaseTest {
         mockMvc.perform(post("/instructor-applications").header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(submitBodyMultiCert("FREEDIVING", verificationId, List.of(
-                                new String[]{"AIDA", "https://s3/aida.png"},
-                                new String[]{"PADI", "https://s3/padi.png"},
-                                new String[]{"MOLCHANOVS", "https://s3/mol.png"}))))
+                                new String[]{"AIDA", key(student, "aida.png")},
+                                new String[]{"PADI", key(student, "padi.png")},
+                                new String[]{"MOLCHANOVS", key(student, "mol.png")}))))
                 .andExpect(status().isCreated());
 
         assertThat(certificateRepo.findAll()).hasSize(3);
@@ -779,7 +835,7 @@ class InstructorApplicationUseCaseTest {
         Account admin = createAccount("adminDS5@test.com", "adminDS5", Role.ADMIN);
         String token = tokenFor(student);
         long verificationId = verifyIdentity(token);
-        long applicationId = submitApplication(token, "AIDA"); // FREEDIVING + AIDA
+        long applicationId = submitApplication(student, "AIDA"); // FREEDIVING + AIDA
         mockMvc.perform(post("/admin/instructor-applications/" + applicationId + "/approve")
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(admin))).andExpect(status().isOk());
 
@@ -787,14 +843,14 @@ class InstructorApplicationUseCaseTest {
         long v2 = verifyIdentity(token);
         mockMvc.perform(post("/instructor-applications").header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(submitBody("FREEDIVING", v2, "SSI", null, List.of("https://s3/x.png"))))
+                        .content(submitBody("FREEDIVING", v2, "SSI", null, List.of(key(student, "x.png")))))
                 .andExpect(status().is4xxClientError());
 
         // 자격증 관리 탭: 자격증만 추가 (검수 없이 즉시) → 200, status APPROVED 유지
         Map<String, Object> addBody = new HashMap<>();
         addBody.put("disciplineCode", "FREEDIVING");
         addBody.put("organizationCode", "PADI");
-        addBody.put("fileKey", "https://s3/padi-new.png");
+        addBody.put("fileKey", key(student, "padi-new.png"));
         mockMvc.perform(post("/instructor-applications/certificates").header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(write(addBody)))
@@ -809,12 +865,13 @@ class InstructorApplicationUseCaseTest {
 
     /* ─── helper ─── */
 
-    private long submitApplication(String token, String orgCode) throws Exception {
+    private long submitApplication(Account applicant, String orgCode) throws Exception {
+        String token = tokenFor(applicant);
         long verificationId = verifyIdentity(token);
         MvcResult result = mockMvc.perform(post("/instructor-applications")
                         .header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(submitBody(verificationId, orgCode, null, List.of("https://s3/cert1.png"))))
+                        .content(submitBody(verificationId, orgCode, null, List.of(key(applicant, "cert1.png")))))
                 .andExpect(status().isCreated())
                 .andReturn();
         return objectMapper.readTree(result.getResponse().getContentAsString()).get("applicationId").asLong();
