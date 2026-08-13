@@ -17,7 +17,9 @@ import com.diving.pungdong.instructorapplication.InstructorApplication;
 import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
 import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
 import com.diving.pungdong.payment.ApprovalStatus;
+import com.diving.pungdong.payment.CallbackOutcome;
 import com.diving.pungdong.payment.PaymentApproval;
+import com.diving.pungdong.payment.PaymentCallbackLogJpaRepo;
 import com.diving.pungdong.payment.PaymentOrder;
 import com.diving.pungdong.payment.PaymentApprovalJpaRepo;
 import com.diving.pungdong.payment.PaymentOrderJpaRepo;
@@ -96,6 +98,7 @@ class PaymentUseCaseTest {
     @Autowired EnrollmentRoundJpaRepo roundRepo;
     @Autowired PaymentOrderJpaRepo orderRepo;
     @Autowired PaymentApprovalJpaRepo approvalRepo;
+    @Autowired PaymentCallbackLogJpaRepo callbackLogRepo;
 
     // 레지스트리를 mock — 어댑터 3개가 모두 빈이라 PaymentGateway 타입으로 mock 하면 주입이 모호해진다.
     @MockBean PaymentGatewayRegistry gateways;
@@ -124,6 +127,7 @@ class PaymentUseCaseTest {
 
     @AfterEach
     void cleanUp() {
+        callbackLogRepo.deleteAll(); // FK 없음 — 순서 무관, 테스트 격리용
         approvalRepo.deleteAll(); // payment_order FK — 주문 삭제 전
         orderRepo.deleteAll();
         enrollmentRepo.deleteAll();
@@ -454,6 +458,20 @@ class PaymentUseCaseTest {
                 .param("P_OID", "rnd-999-deadbeef").param("P_STATUS", "00"))
                 .andExpect(status().isFound())
                 .andExpect(header().string("Location", org.hamcrest.Matchers.startsWith("https://web.test/payment/fail")));
+    }
+
+    @Test
+    @DisplayName("I7 콜백 수신은 DB 에 기록된다 — 위조 P_OID 도 UNKNOWN_ORDER + authTid 보존(대사·공격탐지)")
+    void inicisCallbackIsRecorded() throws Exception {
+        mockMvc.perform(post("/payments/inicis/return")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("P_OID", "rnd-999-forged").param("P_STATUS", "00").param("P_AUTH_TID", "authABC"))
+                .andExpect(status().isFound());
+
+        var logs = callbackLogRepo.findByOrderId("rnd-999-forged");
+        assertThat(logs).hasSize(1);
+        assertThat(logs.get(0).getOutcome()).isEqualTo(CallbackOutcome.UNKNOWN_ORDER);
+        assertThat(logs.get(0).getAuthTid()).isEqualTo("authABC"); // 이니시스에 되물을 유일한 키 보존
     }
 
     @Test
