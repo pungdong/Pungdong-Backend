@@ -268,6 +268,67 @@ export interface RegisterDeviceRequest {
   platform?: DeviceType; // 'IOS' | 'ANDROID'
 }
 
+/**
+ * 알림 종류. 앱은 이 값(= 푸시 data.type)으로 딥링크 화면을 고른다.
+ *
+ * 레거시 3종(RESERVATION_*, LECTURE_NOTIFICATION)은 사문화된 /reservation 도메인에서만
+ * 발행되므로 신규 클라이언트가 새로 처리할 일은 없다 — 과거 알림함 행 표시용으로만 남는다.
+ * 모르는 type 은 no-op 해도 안전하다(forward-compat).
+ */
+export type NotificationType =
+  | 'COMMUNITY_COMMENT'
+  // 레거시 (사문화 — 과거 행 표시용)
+  | 'RESERVATION_CREATED'
+  | 'RESERVATION_CANCELLED'
+  | 'LECTURE_NOTIFICATION';
+
+/**
+ * 알림함 한 줄. GET /me/notifications (HAL PagedModel) 의 _embedded.notifications 원소.
+ *
+ * readAt 이 null 이면 미읽음. (boolean 이 아니라 타임스탬프인 이유: 언제 읽었는지가 공짜로
+ * 남고, 원시 boolean 의 Jackson 직렬화 함정을 피한다.)
+ *
+ * ⚠️ data 는 푸시 payload 의 data 와 **완전히 동일한 맵**이다 — notificationId 와 type 을
+ * 포함한다(최상위 필드와 중복). 그래서 알림함 행 탭에서 routeFromPush(row.data) 를 재조립
+ * 없이 그대로 호출한다. 값은 전부 문자열(FCM data 제약).
+ */
+export interface UserNotificationResponse {
+  id: number;                          // 알림함 행 id (읽음처리용)
+  notificationId: string;              // UUID. 푸시 dedup 키와 동일 — 푸시 한 통 ↔ 알림함 한 줄
+  type: NotificationType;
+  title: string;
+  body: string;
+  data: Record<string, string> | null; // {notificationId, type, ...도메인 id}
+  readAt: string | null;               // ISO8601 UTC, offset 포함(...Z). null = 미읽음
+  createdAt: string;                   // ISO8601 UTC, offset 포함(...Z)
+}
+
+/**
+ * GET /me/notifications 쿼리. page 는 0-based.
+ *
+ * unreadOnly=true 는 서버 필터다 — page.totalElements 가 그 탭의 진짜 총계가 되므로
+ * 탭 라벨 카운트로 그대로 쓴다. (클라이언트 필터링은 페이지네이션과 충돌한다.)
+ */
+export interface NotificationFeedQuery {
+  page?: number;        // 기본 0
+  size?: number;        // 기본 20, 상한 50 (초과 요청은 50으로 잘림)
+  unreadOnly?: boolean; // 기본 false
+}
+
+/** GET /me/notifications/unread-count — 뱃지용. 0 건도 200 이다. */
+export interface UnreadNotificationCountResponse {
+  count: number;
+}
+
+/**
+ * 읽음처리: PATCH /me/notifications/{id}/read → 204 (멱등 — 이미 읽었어도 204,
+ * readAt 은 최초 값 유지). 전체: PATCH /me/notifications/read-all → 204.
+ *
+ * ⚠️ 남의 알림 id 를 넘기면 **400** + CommonResult 실패 봉투다(404 아님 — 이 레포는
+ * ResourceNotFoundException 을 BAD_REQUEST 로 매핑한다). 존재를 숨기는 게 목적이라
+ * 403 이 아니다. 정상 흐름에선 발생하지 않는다(자기 목록의 id 만 탭하므로).
+ */
+
 // ============================================================
 // 본인확인 (identity-verification 도메인) — 계정 공유 자산
 // docs/architecture/identity-verification.md · docs/features/identity-verification.md 참고

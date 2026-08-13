@@ -12,7 +12,8 @@
 - **워커**: `NotificationDeliveryWorker`(@Scheduled, PENDING/FAILED 픽업 → 전송 → 상태전이, exp backoff 10회 → GAVE_UP), `NotificationDispatcher`, `NotificationPayload`
 - **FCM**: `fcm/FcmGateway`(인터페이스), `FirebaseFcmGateway`(실전송 + UNREGISTERED/INVALID/NOT_FOUND 시 토큰 행 삭제), `LoggingFcmGateway`(로컬/스텁). **둘은 `firebase.enabled` 프로퍼티로 상호배타 키잉**(true=Firebase, false/미설정=Logging) — `@ConditionalOnMissingBean`/`@ConditionalOnBean` 으로 바꾸지 말 것(↓ 결정 히스토리).
 - **retention**: `NotificationOutboxRetention`(@Scheduled 매일 4am, SENT 30일↑ 삭제. FAILED/GAVE_UP 영구보존)
-- **레포**: `NotificationOutboxJpaRepo`
+- **알림함(인앱 수신함)**: `UserNotification`(엔티티) · `UserNotificationJpaRepo` · `UserNotificationService` · `UserNotificationController`(`/me/notifications` 목록/미읽음수/읽음/전체읽음) · `dto/UserNotificationResponse`(`@Relation("notifications")`) · `dto/UnreadCountResponse` · `NotificationPaging`(size 상한 50, 클라 정렬 무시)
+- **레포**: `NotificationOutboxJpaRepo`, `UserNotificationJpaRepo`
 
 `FirebaseToken` 엔티티는 여기 아님 — **[account](../account/CLAUDE.md)** 소유 (토큰은 사용자가 가진 데이터, 알림은 소비자). 이 도메인은 account 의 토큰을 읽기만.
 
@@ -29,6 +30,11 @@
 - **retention**: SENT 만 30일 후 삭제, FAILED/GAVE_UP 영구보존(포렌식).
 - **FCM 게이트웨이 선택 = 프로퍼티 키잉 (`@ConditionalOnMissingBean` 금지)** — `LoggingFcmGateway`/`FirebaseFcmGateway` 는 `@ConditionalOnProperty("firebase.enabled")` 의 반대값으로 잠근다. 예전 `@ConditionalOnMissingBean(name="firebaseFcmGateway")` 은 **컴포넌트 스캔에서 평가 순서가 비보장**이라, 무관한 클래스(#93·#94)가 추가돼 스캔 순서가 바뀌자 prod(`FIREBASE_ENABLED=false`)에서 FcmGateway 빈이 하나도 안 떠 **부팅이 크래시 루프**(APPLICATION FAILED TO START, #97). 6/24 이미지는 우연히 순서가 맞아 동작했음. **컴포넌트 스캔 빈끼리 `@ConditionalOnMissingBean`/`@ConditionalOnBean` 금지** — 프로퍼티로 결정론적 키잉(회귀 테스트 `FcmGatewayWiringTest`). 메모리 `feedback_conditional_bean_wiring`.
 
+- **알림함 ≠ outbox (겸용 금지)** — outbox 는 "단말에 밀어넣기 성공했나"(전송 시도 원장, SENT 30일 후 삭제, 토큰 없으면 `GAVE_UP`)이고 `user_notification` 은 "이 유저에게 무슨 일이 있었나"(사실 원장, 영구 보존). **웹 사용자·앱 미설치 사용자는 전부 `GAVE_UP` 이 되는데 그들이야말로 알림함이 가장 필요한 대상**이라, 겸용하면 durability 목적 자체가 무너진다. 둘은 `notificationId`(UUID)로 1:1 상관되고 `enqueue` 가 **같은 트랜잭션**에서 함께 쓴다.
+  - ⚠️ **`enqueue` 는 알림함 title/body 를 컬럼 길이(255/500)로 자른다.** outbox payload 는 `@Lob` 이라 길이 제한이 없어서, 안 자르면 긴 `LECTURE_NOTIFICATION` 본문이 `Data too long` 을 내고 **같은 트랜잭션인 비즈니스 작업까지 롤백**시킨다(수강신청이 알림 때문에 실패).
+- **디스패처 poison-pill 방어** — `dispatch()` 루프는 **행 단위 try/catch** 로 감싸고 예외 시 `recordDeliveryFailure`(REQUIRES_NEW)로 실패를 기록한다. 없으면 깨진 payload 행 하나가 `ORDER BY createdAt ASC` 선두에 계속 재선택되며 **큐 전체를 영구 정지**시킨다(`attempts` 가 안 올라 `GAVE_UP` 구제도 안 됨). stub 게이트웨이는 예외를 안 던져 **실전송 전환 순간 발현**하는 종류다. 이 try/catch 를 지우지 말 것 — 회귀 테스트 `P1`·`P2`.
+
 ## 안전망 테스트
 
-`src/test/.../usecase/NotificationOutboxFlowTest` — 이벤트 발행 → outbox 행 → 워커 처리 lifecycle 검증. `FcmGateway` 는 진짜 외부 경계라 mock OK.
+- `src/test/.../usecase/NotificationOutboxFlowTest` — 이벤트 발행 → outbox 행 → 워커 처리 lifecycle + **poison-pill(`P1`·`P2`)**. `FcmGateway` 는 진짜 외부 경계라 mock OK.
+- `src/test/.../usecase/NotificationCenterUseCaseTest` — 알림함 HTTP 사양(`S*` 성공 / `R*` 권한 / `V*` 검증 / `X*` 트랜잭션). **`X1` 이 `MANDATORY` 전파 회귀 테스트**(비즈니스 롤백 시 알림함 행도 사라짐), `X2` 는 "푸시 실패해도 알림함엔 남는다" 를 고정한다.
