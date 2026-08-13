@@ -5,6 +5,8 @@ import com.diving.pungdong.availability.AvailabilityHoldJpaRepo;
 import com.diving.pungdong.availability.AvailabilitySession;
 import com.diving.pungdong.availability.SessionCleaner;
 import com.diving.pungdong.enrollment.event.EnrollmentRefundRequestedEvent;
+import com.diving.pungdong.notification.event.EnrollmentExpiredEvent;
+import com.diving.pungdong.notification.event.RoundCompletedEvent;
 import com.diving.pungdong.global.sitesettings.SiteSettings;
 import com.diving.pungdong.global.sitesettings.SiteSettingsProvider;
 import lombok.extern.slf4j.Slf4j;
@@ -178,7 +180,27 @@ public class EnrollmentExpiryService {
         }
         r.setDoneAt(OffsetDateTime.now(ZoneOffset.UTC));
         roundRepo.save(r);
+        // 완료 경로는 둘이다 — 여기(세션일+24h 자동) 와 강사 수동(InstructorEnrollmentService).
+        // 위 :176 가드가 doneAt != null 이면 빠져나가므로 중복 발행은 없다.
+        EnrollmentRefs refs = EnrollmentRefs.of(r);
+        if (refs.canNotifyStudent()) {
+            events.publishEvent(RoundCompletedEvent.builder()
+                    .studentAccountId(refs.getStudentAccountId())
+                    .courseId(refs.getCourseId())
+                    .enrollmentId(refs.getEnrollmentId())
+                    .roundId(refs.getRoundId())
+                    .courseTitle(refs.courseTitleOrFallback())
+                    .build());
+        }
         return true;
+    }
+
+    /** 만료 문구의 "{강사닉}님이 24시간 내에 응답하지 않아…" 부분. 없으면 무난한 대체어. */
+    private String instructorNickNameOf(EnrollmentRound r) {
+        var enrollment = r.getEnrollment();
+        var course = enrollment == null ? null : enrollment.getCourse();
+        var instructor = course == null ? null : course.getInstructor();
+        return instructor == null || instructor.getNickName() == null ? "강사" : instructor.getNickName();
     }
 
     private boolean expireOne(Long id, OffsetDateTime now) {
@@ -195,6 +217,21 @@ public class EnrollmentExpiryService {
         if (wasPaid) {
             // 결제완료(ACCEPT_PENDING) 무응답 만료 → 전액 자동환불. 동기 이벤트라 환불 실패 시 이 트랜잭션(CANCELLED)까지 롤백 → 다음 sweep 재시도.
             events.publishEvent(new EnrollmentRefundRequestedEvent(id, "미응답 만료"));
+        }
+        // 통보 없이 신청이 사라지지 않게 학생에게 알린다. paid 갈래는 body 에 환불 안내가 붙으므로
+        // 별도 REFUND_COMPLETED 는 보내지 않는다(사용자 결정 — 같은 사건에 알림 2건은 소음).
+        // 위 :186-189 가드가 "그새 수락/결제/취소됨" 을 걸러내므로 sweep 재실행 시 중복 발행은 없다.
+        EnrollmentRefs refs = EnrollmentRefs.of(r);
+        if (refs.canNotifyStudent()) {
+            events.publishEvent(EnrollmentExpiredEvent.builder()
+                    .studentAccountId(refs.getStudentAccountId())
+                    .courseId(refs.getCourseId())
+                    .enrollmentId(refs.getEnrollmentId())
+                    .roundId(refs.getRoundId())
+                    .courseTitle(refs.courseTitleOrFallback())
+                    .instructorNickName(instructorNickNameOf(r))
+                    .paid(wasPaid)
+                    .build());
         }
         sessionCleaner.deleteIfEmpty(session); // 점유 0 이면 빈 일정 삭제(좌석 해제)
         return true;

@@ -276,8 +276,19 @@ export interface RegisterDeviceRequest {
  * 모르는 type 은 no-op 해도 안전하다(forward-compat).
  */
 export type NotificationType =
+  // 수강(enrollment) — data: { courseId, enrollmentId, roundId }
+  | 'ENROLLMENT_ACCEPTED'        // 강사 수락 → 학생
+  | 'ENROLLMENT_REJECTED'        // 강사 거절 → 학생 (body 에 전액 환불 안내 포함)
+  | 'ENROLLMENT_SLOTS_PROPOSED'  // 강사 일정 제안 → 학생 (6h 만료, 선택 유도)
+  | 'ENROLLMENT_EXPIRED'         // TTL 만료 자동취소 → 학생 (결제분은 환불 안내 포함)
+  | 'ENROLLMENT_SUBMITTED'       // 학생 신청 → 강사
+  | 'ROUND_COMPLETED'            // 회차 완료 → 학생 (후기 유도)
+  // 결제(payment) — data 에 orderId 추가
+  | 'PAYMENT_COMPLETED'          // 결제 완료 → 학생
+  | 'REFUND_COMPLETED'           // 환불 완료 → 학생 (직접 요청 환불에만; 자동환불은 위 두 타입이 안내)
+  // 커뮤니티 — data: { postId, commentId }
   | 'COMMUNITY_COMMENT'
-  // 레거시 (사문화 — 과거 행 표시용)
+  // 레거시 (사문화 — 과거 행 표시용). data: { lectureId, scheduleId }
   | 'RESERVATION_CREATED'
   | 'RESERVATION_CANCELLED'
   | 'LECTURE_NOTIFICATION';

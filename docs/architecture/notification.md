@@ -271,11 +271,31 @@ erDiagram
 
 ## 이벤트 타입 매트릭스
 
+**수강(enrollment) 흐름** — `data` 는 공통으로 `{courseId, enrollmentId, roundId}` (+결제계열 `orderId`). 전부 `reservation` 채널(결제계열만 `payment`).
+
+| 이벤트 | 발행 위치 | 수신자 | OutboxType |
+|---|---|---|---|
+| `EnrollmentSubmittedEvent` | `EnrollmentService.submit` | **강사** | `ENROLLMENT_SUBMITTED` |
+| `EnrollmentAcceptedEvent` | `InstructorEnrollmentService.accept` | 학생 | `ENROLLMENT_ACCEPTED` |
+| `EnrollmentRejectedEvent` | `InstructorEnrollmentService.reject` | 학생 | `ENROLLMENT_REJECTED` |
+| `EnrollmentSlotsProposedEvent` | `InstructorEnrollmentService.proposeSlots` | 학생 | `ENROLLMENT_SLOTS_PROPOSED` |
+| `EnrollmentExpiredEvent` | `EnrollmentExpiryService.expireOne` | 학생 | `ENROLLMENT_EXPIRED` |
+| `RoundCompletedEvent` | `InstructorEnrollmentService.completeRound`/`completeSession` **+** `EnrollmentExpiryService.markDone` | 학생 | `ROUND_COMPLETED` |
+| `PaymentCompletedEvent` | `PaymentService.applyConfirm` (FE confirm·이니시스 콜백 공통 코어) | 학생 | `PAYMENT_COMPLETED` |
+| `RefundCompletedEvent` | `RefundService.refundEnrollment` **(학생 직접 요청만)** | 학생 | `REFUND_COMPLETED` |
+
+⚠️ **발행 지점이 여러 개인 두 가지에 주의**:
+- `ROUND_COMPLETED` 는 완료 경로가 **둘**(강사 수동 + 세션일+24h 자동 sweep)이라 양쪽에 훅이 걸려 있다. 둘 다 `doneAt == null` 일 때만 발행해 멱등이다.
+- `REFUND_COMPLETED` 는 **자동환불 경로(`refundRoundFully`/`refundRoundPartially`)에 일부러 걸지 않았다.** 거절·만료 알림 body 가 이미 환불을 안내하므로 같은 사건에 알림이 2건 연속 가면 소음이다(2026-08-14 사용자 결정).
+
+**레거시 (사문화 — `/reservation` 도메인이 FE 계약에 없음)**
+
 | 이벤트 | 발행 위치 | 수신자 | 데이터 페이로드 | OutboxType |
 |---|---|---|---|---|
 | `ReservationCreatedEvent` | `ReservationService.saveReservation` | 강사 (instructorAccountId) | studentNickname, lectureTitle, scheduleId | `RESERVATION_CREATED` |
 | `ReservationCancelledEvent` | 예약 취소 흐름 | 강사 | 동일 | `RESERVATION_CANCELLED` |
 | `LectureNotificationEvent` | 강사가 강의 팔로워에게 직접 알림 | 팔로워 목록 (1:N) | lectureId, title, body | `LECTURE_NOTIFICATION` |
+| `CommunityCommentEvent` | `CommunityCommentService` | 글/댓글 작성자 | postId, commentId | `COMMUNITY_COMMENT` |
 
 **payload 예시** (JSON 으로 outbox 에 저장됨):
 

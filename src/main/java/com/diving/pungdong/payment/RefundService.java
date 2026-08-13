@@ -11,9 +11,11 @@ import com.diving.pungdong.enrollment.EnrollmentStatus;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.PaymentGatewayException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
+import com.diving.pungdong.notification.event.RefundCompletedEvent;
 import com.diving.pungdong.payment.dto.RefundQuote;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,6 +51,7 @@ public class RefundService {
     private final RefundCalculator calculator;
     private final PaymentGatewayRegistry gateways;
     private final SessionCleaner sessionCleaner;
+    private final ApplicationEventPublisher events; // 학생 요청 환불 완료 알림
 
     /**
      * 환불율 기준 '오늘' — 세션일이 KST 운영 캘린더라 instant 를 KST 날짜로 환산한다.
@@ -103,6 +106,22 @@ public class RefundService {
                 r.setRespondedAt(now);
                 sessionCleaner.deleteIfEmpty(session);
             }
+        }
+        // 환불 완료 알림 — 여기(학생이 직접 요청한 수강 환불)에서만 발행한다.
+        // 거절·만료로 인한 자동환불(refundRoundFully/Partially)에는 걸지 않는다: 그쪽은
+        // ENROLLMENT_REJECTED / ENROLLMENT_EXPIRED body 가 이미 환불을 안내하므로 같은 사건에
+        // 알림이 2건 연속 가면 소음이다(2026-08-14 사용자 결정).
+        int refunded = orderRefund.values().stream().mapToInt(Integer::intValue).sum();
+        if (refunded > 0) {
+            events.publishEvent(RefundCompletedEvent.builder()
+                    .studentAccountId(student.getId())
+                    .courseId(e.getCourse() == null ? null : e.getCourse().getId())
+                    .enrollmentId(e.getId())
+                    .roundId(firstRound == null ? null : firstRound.getId())
+                    .courseTitle(e.getCourse() == null || e.getCourse().getTitle() == null
+                            ? "수업" : e.getCourse().getTitle())
+                    .amount(refunded)
+                    .build());
         }
         return quote;
     }

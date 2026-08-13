@@ -25,6 +25,7 @@ import com.diving.pungdong.enrollment.event.EnrollmentPartialRefundRequestedEven
 import com.diving.pungdong.enrollment.event.EnrollmentRefundRequestedEvent;
 import com.diving.pungdong.global.advice.exception.AdditionalPaymentRequiredException;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
+import com.diving.pungdong.notification.event.EnrollmentSubmittedEvent;
 import com.diving.pungdong.global.advice.exception.IdentityVerificationRequiredException;
 import com.diving.pungdong.global.advice.exception.PreLaunchException;
 import com.diving.pungdong.global.advice.exception.ProposalExpiredException;
@@ -106,6 +107,16 @@ public class EnrollmentService {
         EnrollmentRound round = buildRound(instructor, round1, req, 0);
         enrollment.addRound(round);
         enrollmentRepo.save(enrollment); // cascade → round + 장비
+        // 강사에게 "새 신청" 알림. 수신자는 코스 소유자 = 이 신청을 수락/거절할 수 있는 계정과 동일하다.
+        // supersede 경로(위 early return)에서는 발행하지 않는다 — 같은 회차의 슬롯 교체라 새 신청이 아니다.
+        events.publishEvent(EnrollmentSubmittedEvent.builder()
+                .instructorAccountId(instructor.getId())
+                .courseId(course.getId())
+                .enrollmentId(enrollment.getId())
+                .roundId(round.getId())
+                .courseTitle(course.getTitle())
+                .studentNickName(student.getNickName())
+                .build());
         return EnrollmentResponse.of(round, venueName(round.getVenueRefId()), instructor.getNickName(), paymentExpiresInSeconds(round));
     }
 
