@@ -10,6 +10,7 @@ import com.diving.pungdong.enrollment.EnrollmentRound;
 import com.diving.pungdong.enrollment.EnrollmentStatus;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.PaymentGatewayException;
+import com.diving.pungdong.global.advice.exception.RefundBlockedException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.payment.dto.RefundQuote;
 import lombok.RequiredArgsConstructor;
@@ -202,8 +203,11 @@ public class RefundService {
      *
      * <ul>
      *   <li><b>clamp</b> — 취소가능 잔액({@code amount − refundedAmount})을 넘지 않는다. 이미 전액 환불됐으면 no-op(멱등).</li>
-     *   <li><b>대사 가드</b> — 결과를 모르는 시도({@code REQUESTED} 잔존)가 있으면 <b>건너뛴다</b>. PG 엔 이미 취소가
-     *       반영됐을 수 있어 재시도가 이중환불이 되기 때문 — 사람이 PG 원장과 대사해 그 행을 확정해야 다시 흐른다.</li>
+     *   <li><b>대사 가드</b> — 결과를 모르는 시도({@code REQUESTED} 잔존)가 있으면 {@link RefundBlockedException} 을 던져
+     *       <b>발행자(거절·취소·만료)까지 롤백</b>시킨다(C2). 조용히 건너뛰면 회차만 끝나고 돈이 남는다 — "환불 못 하면
+     *       상태 전이도 확정 안 함". 사람이 PG 원장과 대사해 그 행을 확정하면(또는 만료 스윕이 재시도하면) 다시 흐른다.</li>
+     *   <li><b>취소 확정 확인</b> — 어댑터의 {@code canceled} 가 false 면(PG 미확정) {@code FAILED} 로 남기고 던진다(H-2) —
+     *       "환불했다고 기록되나 실제론 안 됨"을 막는다.</li>
      *   <li><b>라우팅</b> — 취소는 <b>그 주문이 결제된 PG</b> 로 간다({@code order.provider}). 전역 설정으로 보내면
      *       PG 를 갈아탄 뒤 과거 주문 환불이 엉뚱한 곳으로 가 실패한다.</li>
      * </ul>
@@ -220,16 +224,19 @@ public class RefundService {
         int refundable = order.refundableAmount();
         int amount = Math.min(requested, refundable);
         if (amount <= 0) {
-            return 0;
+            return 0; // 취소할 잔액 없음(이미 전액 환불) — no-op 멱등
         }
         if (ledger.hasUnresolvedAttempt(order.getId())) {
-            return 0; // 결과 미확인 시도 존재 — 이중환불 위험이라 자동 진행 금지(로그는 ledger 가 남김)
+            // 결과 미확인 시도가 있어 자동 환불 불가. 조용히 넘기면(옛 return 0) 발행자(거절·취소·만료)가 그대로
+            // 커밋돼 회차는 끝나는데 돈만 남는다(C2). 발행자를 롤백시켜 "환불 못 하면 상태 전이도 확정 안 함"을 강제.
+            throw new RefundBlockedException("결과 미확인 환불 시도가 있어 환불을 진행할 수 없음 order=" + order.getOrderId());
         }
         Long attemptId = ledger.recordAttempt(order.getId(), amount, reason, now); // 별도 tx — 즉시 커밋
         log.info("[payment] 환불 요청 order={} provider={} 취소액={} 잔액={} tid={} 사유={} attempt={}",
                 order.getOrderId(), order.getProvider(), amount, refundable, order.getPaymentKey(), reason, attemptId);
+        PaymentGateway.CancelResult result;
         try {
-            gateways.forOrder(order.getProvider()).cancel(order.getPaymentKey(), amount, refundable, reason);
+            result = gateways.forOrder(order.getProvider()).cancel(order.getPaymentKey(), amount, refundable, reason);
         } catch (PaymentGatewayException e) {
             ledger.markFailed(attemptId, e.getCode(), e.getDetail(), OffsetDateTime.now(ZoneOffset.UTC));
             throw e;
@@ -238,6 +245,12 @@ public class RefundService {
             log.error("[payment] 환불 전송 실패 order={} attempt={} — 결과 미확인(REQUESTED 유지, 대사 필요)",
                     order.getOrderId(), attemptId, e);
             throw e;
+        }
+        if (!result.canceled()) {
+            // PG 가 2xx 를 줬지만 취소를 확정하지 않았다(비동기·미지원 상태 등). 반환값을 안 보고 markDone 하면
+            // "환불했다고 기록되나 실제론 안 됨"이 돼 재환불도 clamp 에 막혀 영구 미환불이 된다 — FAILED 로 남기고 롤백(H-2).
+            ledger.markFailed(attemptId, result.rawStatus(), "PG 가 취소를 확정하지 않음", OffsetDateTime.now(ZoneOffset.UTC));
+            throw new PaymentGatewayException(result.rawStatus(), "취소 미확정");
         }
         ledger.markDone(attemptId, order.getId(), amount, OffsetDateTime.now(ZoneOffset.UTC));
         log.info("[payment] 환불 완료 order={} 취소액={} attempt={}", order.getOrderId(), amount, attemptId);

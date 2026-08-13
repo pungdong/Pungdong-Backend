@@ -75,8 +75,12 @@ public class RefundLedger {
      * 결과를 모르는 시도({@code REQUESTED} 잔존)가 있나 — 있으면 그 주문은 <b>자동 환불을 더 시도하지 않는다</b>.
      * PG 에 이미 취소가 반영됐을 수 있어(전송 실패·프로세스 급사) 재시도가 이중환불이 될 수 있기 때문. 사람이
      * PG 원장과 대사한 뒤 그 행을 {@code DONE}/{@code FAILED} 로 확정해야 다시 흐른다.
+     *
+     * <p><b>REQUIRES_NEW</b>: 발행자 트랜잭션에 조인하면 그 스냅샷에 갇혀 <b>다른 트랜잭션이 방금 커밋한
+     * {@code REQUESTED}</b>(동시 환불 시도)를 못 본다 — 가드가 무력해져 이중환불이 난다. 별도 트랜잭션으로
+     * 최신 커밋을 읽는다({@code recordAttempt} 도 REQUIRES_NEW 라 즉시 커밋되므로 이 조회로 보인다).
      */
-    @Transactional(readOnly = true)
+    @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
     public boolean hasUnresolvedAttempt(Long paymentOrderId) {
         List<RefundOrder> pending = refundRepo.findByPaymentOrderIdAndStatus(paymentOrderId, RefundStatus.REQUESTED);
         if (!pending.isEmpty()) {
