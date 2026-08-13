@@ -37,6 +37,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -296,6 +297,49 @@ class StudentCertificateUseCaseTest {
         // hub 표시 상태(PROGRESS)로 판정했다면 여기서 400 이 났을 것이다.
         // hub 가 같은 값을 certifiable 로 노출하는지는 ScheduleHubUseCaseTest SH6 이 검증한다.
         assertThat(certificateRepo.findAll().get(0).getSource()).isEqualTo(CertificateSource.PUNGDONG);
+    }
+
+    @Test
+    @DisplayName("S8: 선택 필드를 생략하든 명시적 null 로 보내든 같게 받는다 (FE 매퍼 구현에 안 묶인다)")
+    void register_toleratesOmittedAndExplicitNull() throws Exception {
+        Account student = account("c-s8@test.com", "diverS8", Role.STUDENT);
+
+        // (1) 선택 필드 생략
+        Map<String, Object> omitted = new HashMap<>();
+        omitted.put("disciplineCode", "FREEDIVING");
+        omitted.put("organizationCode", "AIDA");
+        omitted.put("level", "LEVEL_1");
+        omitted.put("certificateNumber", "OMITTED");
+        omitted.put("acquiredAt", "2024-11-02");
+        register(student, omitted);
+
+        // (2) 같은 필드를 명시적 null 로
+        Map<String, Object> explicitNull = new HashMap<>(omitted);
+        explicitNull.put("certificateNumber", "NULLED");
+        for (String k : List.of("organizationName", "organizationFullName",
+                "certificationDisplayName", "issuer", "photoFileKey", "enrollmentId")) {
+            explicitNull.put(k, null);
+        }
+        register(student, explicitNull);
+
+        assertThat(certificateRepo.findAll()).hasSize(2)
+                .allSatisfy(c -> assertThat(c.getSource()).isEqualTo(CertificateSource.EXTERNAL));
+    }
+
+    @Test
+    @DisplayName("S9: enrollmentId 를 문자열 \"318\" 로 보내도 숫자로 받는다 (JS 직렬화 편차 흡수)")
+    void register_acceptsStringEnrollmentId() throws Exception {
+        Account instructor = account("c-s9i@test.com", "강사S9", Role.INSTRUCTOR);
+        Account student = account("c-s9@test.com", "diverS9", Role.STUDENT);
+        Course course = course(instructor, "FREEDIVING", "AIDA");
+        Enrollment e = enrollment(student, course, true, LocalDate.now().minusDays(2));
+
+        Map<String, Object> payload = body("FREEDIVING", "AIDA", "LEVEL_2", "STR-ID", "2024-11-02");
+        payload.put("enrollmentId", String.valueOf(e.getId())); // 숫자가 아니라 문자열
+
+        register(student, payload);
+
+        assertThat(certificateRepo.findAll().get(0).getEnrollmentId()).isEqualTo(e.getId());
     }
 
     /* ════════════════ V — 검증 거절 ════════════════ */
