@@ -2393,6 +2393,13 @@ export const ErrorCode = {
    * 참고: 제안은 살아 있는데 **목록 밖 슬롯**을 고른 경우는 성격이 달라 -1011 유지.
    */
   PROPOSAL_EXPIRED: -1020,
+  /**
+   * 낙관적 락 충돌 — 같은 회차/주문을 동시에 바꾸려다 충돌해 요청이 롤백됨 (HTTP 409).
+   * ★ 사용자 잘못이 아니다 — 일시적 경합이라 **잠시 후 재시도**하면 대개 해결된다("요청이 겹쳤어요...").
+   * 재시도 시 상태가 이미 바뀌어 있을 수 있으니(예: 그새 취소됨) 재조회 후 판단 권장.
+   * 나오는 곳: 결제 승인/취소·일정 변경·취소 등 상태 전이 엔드포인트 전반.
+   */
+  CONCURRENT_MODIFICATION: -1021,
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
