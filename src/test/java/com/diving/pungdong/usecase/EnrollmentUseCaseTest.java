@@ -27,6 +27,9 @@ import com.diving.pungdong.venue.equipment.VenueEquipmentItem;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
+import com.diving.pungdong.notification.NotificationType;
+import com.diving.pungdong.notification.UserNotification;
+import com.diving.pungdong.notification.UserNotificationJpaRepo;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -43,6 +46,7 @@ import java.time.ZoneOffset;
 import com.diving.pungdong.venue.equipment.SizeFormat;
 import java.util.HashSet;
 import java.util.List;
+import java.util.stream.Collectors;
 import java.util.Map;
 import java.util.Set;
 
@@ -81,6 +85,7 @@ class EnrollmentUseCaseTest {
     @Autowired VenueEquipmentExtensionJpaRepo equipmentRepo;
     @Autowired EnrollmentJpaRepo enrollmentRepo;
     @Autowired EnrollmentRoundJpaRepo roundRepo;
+    @Autowired UserNotificationJpaRepo userNotificationRepo;
     @Autowired IdentityVerificationJpaRepo identityVerificationRepo;
     @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
 
@@ -90,6 +95,7 @@ class EnrollmentUseCaseTest {
 
     @AfterEach
     void cleanUp() {
+        userNotificationRepo.deleteAll(); // enqueue 가 남긴 알림함 행 — 안 지우면 테스트가 서로 오염된다
         enrollmentRepo.deleteAll();
         sessionRepo.deleteAll();
         coverageRepo.deleteAll();
@@ -466,7 +472,8 @@ class EnrollmentUseCaseTest {
         Account ins = account("ins8@pd.com", "강사8");
         enterInstructorTrack(ins);
         Object[] s = setup(ins, 4);
-        EnrollmentRound e = paid(submitOk(account("e@pd.com", "학생E"), (Course) s[0], (String) s[2], ticketRefOf((Venue) s[1])));
+        Account student = account("e@pd.com", "학생E");
+        EnrollmentRound e = paid(submitOk(student, (Course) s[0], (String) s[2], ticketRefOf((Venue) s[1])));
 
         mockMvc.perform(post("/instructor/enrollments/{id}/accept", e.getId())
                 .header(HttpHeaders.AUTHORIZATION, tokenFor(ins)))
@@ -481,6 +488,18 @@ class EnrollmentUseCaseTest {
                 .param("from", D1.minusDays(1).toString()).param("to", D1.plusDays(1).toString()))
                 .andExpect(jsonPath("$.sessions[0].confirmedCount").value(1))
                 .andExpect(jsonPath("$.sessions[0].status").value("CONFIRMED"));
+
+        // ★ 알림 E2E — 실제 엔드포인트를 타고 알림함 행까지 남는지 확인한다.
+        // 리스너는 MANDATORY 전파라 발행 지점에 트랜잭션이 없으면 여기서 런타임에 터진다 = 배선 검증.
+        // ⚠️ enrollment 는 LAZY 라 여기서 round.getEnrollment().getStudent() 를 타면
+        // LazyInitializationException 이다(클래스 주석 참고). 만들어 둔 계정을 그대로 쓴다.
+        List<UserNotification> inbox = userNotificationRepo.findAll().stream()
+                .filter(n -> student.getId().equals(n.getRecipientAccountId()))
+                .collect(Collectors.toList());
+        assertThat(inbox).hasSize(1);
+        assertThat(inbox.get(0).getType()).isEqualTo(NotificationType.ENROLLMENT_ACCEPTED);
+        assertThat(inbox.get(0).getReadAt()).isNull();
+        assertThat(inbox.get(0).getData()).contains("\"roundId\":\"" + e.getId() + "\"");
     }
 
     @Test

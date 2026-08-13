@@ -4,9 +4,17 @@ import com.diving.pungdong.notification.NotificationOutbox;
 import com.diving.pungdong.notification.NotificationStatus;
 import com.diving.pungdong.notification.NotificationType;
 import com.diving.pungdong.notification.event.CommunityCommentEvent;
+import com.diving.pungdong.notification.event.EnrollmentAcceptedEvent;
+import com.diving.pungdong.notification.event.EnrollmentExpiredEvent;
+import com.diving.pungdong.notification.event.EnrollmentRejectedEvent;
+import com.diving.pungdong.notification.event.EnrollmentSlotsProposedEvent;
+import com.diving.pungdong.notification.event.EnrollmentSubmittedEvent;
 import com.diving.pungdong.notification.event.LectureNotificationEvent;
+import com.diving.pungdong.notification.event.PaymentCompletedEvent;
+import com.diving.pungdong.notification.event.RefundCompletedEvent;
 import com.diving.pungdong.notification.event.ReservationCancelledEvent;
 import com.diving.pungdong.notification.event.ReservationCreatedEvent;
+import com.diving.pungdong.notification.event.RoundCompletedEvent;
 import com.diving.pungdong.notification.NotificationOutboxJpaRepo;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,7 +35,12 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class NotificationOutboxWriter {
 
+    /** 알림함 컬럼 길이(`user_notification.title` / `.body`)와 일치시킬 것. */
+    private static final int TITLE_MAX = 255;
+    private static final int BODY_MAX = 500;
+
     private final NotificationOutboxJpaRepo outboxRepo;
+    private final UserNotificationJpaRepo userNotificationRepo;
     private final ObjectMapper objectMapper;
 
     @EventListener
@@ -101,6 +114,153 @@ public class NotificationOutboxWriter {
         enqueue(NotificationType.COMMUNITY_COMMENT, event.getRecipientAccountId(), payload);
     }
 
+    // ── 수강(enrollment) 흐름 ──────────────────────────────────────────────
+
+    @EventListener
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void onEnrollmentAccepted(EnrollmentAcceptedEvent event) {
+        enqueue(NotificationType.ENROLLMENT_ACCEPTED, event.getStudentAccountId(),
+                NotificationPayload.builder()
+                        .title("수강 확정")
+                        .body(String.format("%s님이 %s 신청을 수락했어요",
+                                event.getInstructorNickName(), event.getCourseTitle()))
+                        .data(enrollmentData(NotificationType.ENROLLMENT_ACCEPTED,
+                                event.getCourseId(), event.getEnrollmentId(), event.getRoundId()))
+                        .build());
+    }
+
+    @EventListener
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void onEnrollmentRejected(EnrollmentRejectedEvent event) {
+        enqueue(NotificationType.ENROLLMENT_REJECTED, event.getStudentAccountId(),
+                NotificationPayload.builder()
+                        .title("수강 거절")
+                        .body(String.format("%s님이 %s 신청을 거절했어요. 결제하신 금액은 전액 환불됩니다",
+                                event.getInstructorNickName(), event.getCourseTitle()))
+                        .data(enrollmentData(NotificationType.ENROLLMENT_REJECTED,
+                                event.getCourseId(), event.getEnrollmentId(), event.getRoundId()))
+                        .build());
+    }
+
+    @EventListener
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void onEnrollmentSlotsProposed(EnrollmentSlotsProposedEvent event) {
+        enqueue(NotificationType.ENROLLMENT_SLOTS_PROPOSED, event.getStudentAccountId(),
+                NotificationPayload.builder()
+                        .title("일정 제안 도착")
+                        .body(String.format("%s님이 가능한 일정을 제안했어요. 확인하고 선택해 주세요",
+                                event.getInstructorNickName()))
+                        .data(enrollmentData(NotificationType.ENROLLMENT_SLOTS_PROPOSED,
+                                event.getCourseId(), event.getEnrollmentId(), event.getRoundId()))
+                        .build());
+    }
+
+    /** 만료는 두 갈래다 — 결제 여부에 따라 환불 안내가 붙고 안 붙고가 갈린다. */
+    @EventListener
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void onEnrollmentExpired(EnrollmentExpiredEvent event) {
+        // paid 갈래에도 코스명을 넣는다 — 여러 강의를 신청한 유저는 강사 이름만으로 어느 건인지 못 가린다.
+        // (승인 문구의 미세 수정. staging 실기기 검수 목록에 "문구 변경분" 으로 올림.)
+        String body = event.isPaid()
+                ? String.format("%s님이 24시간 내에 응답하지 않아 %s 신청이 취소되고 전액 환불되었어요",
+                        event.getInstructorNickName(), event.getCourseTitle())
+                : String.format("결제 기한이 지나 %s 신청이 취소되었어요", event.getCourseTitle());
+        enqueue(NotificationType.ENROLLMENT_EXPIRED, event.getStudentAccountId(),
+                NotificationPayload.builder()
+                        .title("신청 만료")
+                        .body(body)
+                        .data(enrollmentData(NotificationType.ENROLLMENT_EXPIRED,
+                                event.getCourseId(), event.getEnrollmentId(), event.getRoundId()))
+                        .build());
+    }
+
+    @EventListener
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void onEnrollmentSubmitted(EnrollmentSubmittedEvent event) {
+        enqueue(NotificationType.ENROLLMENT_SUBMITTED, event.getInstructorAccountId(),
+                NotificationPayload.builder()
+                        .title("새 수강신청")
+                        .body(String.format("%s님이 %s을 신청했어요",
+                                event.getStudentNickName(), event.getCourseTitle()))
+                        .data(enrollmentData(NotificationType.ENROLLMENT_SUBMITTED,
+                                event.getCourseId(), event.getEnrollmentId(), event.getRoundId()))
+                        .build());
+    }
+
+    @EventListener
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void onRoundCompleted(RoundCompletedEvent event) {
+        enqueue(NotificationType.ROUND_COMPLETED, event.getStudentAccountId(),
+                NotificationPayload.builder()
+                        .title("수강 완료")
+                        .body(String.format("%s 수업이 완료되었어요. 어떠셨는지 후기를 남겨주세요",
+                                event.getCourseTitle()))
+                        .data(enrollmentData(NotificationType.ROUND_COMPLETED,
+                                event.getCourseId(), event.getEnrollmentId(), event.getRoundId()))
+                        .build());
+    }
+
+    // ── 결제(payment) 흐름 ────────────────────────────────────────────────
+
+    @EventListener
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void onPaymentCompleted(PaymentCompletedEvent event) {
+        Map<String, String> data = enrollmentData(NotificationType.PAYMENT_COMPLETED,
+                event.getCourseId(), event.getEnrollmentId(), event.getRoundId());
+        putIfPresent(data, "orderId", event.getOrderId());
+        enqueue(NotificationType.PAYMENT_COMPLETED, event.getStudentAccountId(),
+                NotificationPayload.builder()
+                        .title("결제 완료")
+                        .body(String.format("%s %s원 결제가 완료되었어요",
+                                event.getCourseTitle(), formatAmount(event.getAmount())))
+                        .data(data)
+                        .build());
+    }
+
+    @EventListener
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void onRefundCompleted(RefundCompletedEvent event) {
+        Map<String, String> data = enrollmentData(NotificationType.REFUND_COMPLETED,
+                event.getCourseId(), event.getEnrollmentId(), event.getRoundId());
+        putIfPresent(data, "orderId", event.getOrderId());
+        enqueue(NotificationType.REFUND_COMPLETED, event.getStudentAccountId(),
+                NotificationPayload.builder()
+                        .title("환불 완료")
+                        .body(String.format("%s %s원이 환불되었어요",
+                                event.getCourseTitle(), formatAmount(event.getAmount())))
+                        .data(data)
+                        .build());
+    }
+
+    /**
+     * enrollment 계열 공통 라우팅 좌표.
+     *
+     * <p>{@code courseId} 는 v1 라우팅에 쓰이지 않는다(앱은 파라미터 없는 허브로 착지한다) — 비용이 0 이고
+     * 리스트 컨텍스트·향후 회차 상세 화면을 위해 미리 실어 둔다. 레거시 {@code lectureId}/{@code scheduleId}
+     * 는 신규 타입에서 쓰지 않는다.
+     */
+    private Map<String, String> enrollmentData(NotificationType type, Long courseId,
+                                               Long enrollmentId, Long roundId) {
+        Map<String, String> data = new LinkedHashMap<>();
+        data.put("type", type.name());
+        putIfPresent(data, "courseId", courseId);
+        putIfPresent(data, "enrollmentId", enrollmentId);
+        putIfPresent(data, "roundId", roundId);
+        return data;
+    }
+
+    /** null id 를 {@code "null"} 문자열로 넣지 않는다 — 앱이 {@code Number("null")} 로 NaN 을 만든다. */
+    private void putIfPresent(Map<String, String> data, String key, Long value) {
+        if (value != null) {
+            data.put(key, String.valueOf(value));
+        }
+    }
+
+    /** 1234567 → "1,234,567". 금액은 사람이 읽는 문구에 들어가므로 천단위 구분이 필요하다. */
+    private String formatAmount(int amount) {
+        return String.format("%,d", amount);
+    }
+
     private Map<String, String> commonReservationData(Long lectureId, Long scheduleId, NotificationType type) {
         Map<String, String> data = new LinkedHashMap<>();
         data.put("type", type.name());
@@ -115,7 +275,8 @@ public class NotificationOutboxWriter {
         // outbox 행 1개 = notificationId 1개(재시도는 같은 payload 재전송이라 id 유지). 공유 data 맵을
         // 변형하지 않도록 복사본에 넣는다. 정책 = docs/features/push.md.
         Map<String, String> data = new LinkedHashMap<>(payload.getData() == null ? Map.of() : payload.getData());
-        data.put("notificationId", UUID.randomUUID().toString());
+        String notificationId = UUID.randomUUID().toString();
+        data.put("notificationId", notificationId);
         payload.setData(data);
         // 광고성(마케팅)은 야간(21~08 KST)이면 다음 08:00 으로 미뤄 큐잉(정보통신망법). 거래성은 즉시.
         OffsetDateTime nextAttemptAt = type.getCategory().isMarketing()
@@ -130,6 +291,43 @@ public class NotificationOutboxWriter {
                 .nextAttemptAt(nextAttemptAt)
                 .createdAt(now)
                 .build());
+
+        // 알림함 행 — 같은 트랜잭션. 푸시가 실패해도(토큰 없음 → outbox GAVE_UP) 이 행은 남는다.
+        // 여기 한 곳만 거치므로 모든 알림 타입이 자동으로 알림함에 적재된다(타입별 분기 불필요).
+        // data 는 위 맵을 그대로 저장한다 — 앱이 routeFromPush(row.data) 를 재조립 없이 부른다.
+        userNotificationRepo.save(UserNotification.builder()
+                .notificationId(notificationId)
+                .recipientAccountId(recipientId)
+                .type(type)
+                .title(truncate(payload.getTitle(), TITLE_MAX))
+                .body(truncate(payload.getBody(), BODY_MAX))
+                .data(serializeData(data))
+                .readAt(null)
+                .createdAt(now)
+                .build());
+    }
+
+    /**
+     * 알림함 컬럼 길이에 맞춰 자른다.
+     *
+     * <p>⚠️ 없으면 안 되는 이유: outbox payload 는 {@code @Lob} 이라 길이 제한이 없는데 알림함은
+     * {@code varchar} 다. 강사가 자유 입력하는 {@code LECTURE_NOTIFICATION} 본문이 길면
+     * {@code Data too long} 이 나고, <b>같은 트랜잭션이라 비즈니스 작업 전체가 롤백</b>된다
+     * (수강신청이 알림 때문에 실패하는 최악의 결합).
+     */
+    private String truncate(String s, int max) {
+        if (s == null) {
+            return "";
+        }
+        return s.length() > max ? s.substring(0, max) : s;
+    }
+
+    private String serializeData(Map<String, String> data) {
+        try {
+            return objectMapper.writeValueAsString(data);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Failed to serialize notification data", e);
+        }
     }
 
     private String serialize(NotificationPayload payload) {

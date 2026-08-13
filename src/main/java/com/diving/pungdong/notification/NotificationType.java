@@ -20,7 +20,39 @@ public enum NotificationType {
      *
      * <p>좋아요 알림은 만들지 않는다 — 빈도가 높아 소음이 되고 디자인 근거도 없다.
      */
-    COMMUNITY_COMMENT(NotificationCategory.NOTICE);
+    COMMUNITY_COMMENT(NotificationCategory.NOTICE),
+
+    // ── 수강(enrollment) 흐름 ──────────────────────────────────────────────
+    // 전부 기존 reservation 채널을 쓴다. 새 Android 채널을 만들면 그 알림이 앱 릴리스에 묶이기
+    // 때문(채널 생성은 앱 책임) — COMMUNITY_COMMENT 가 NOTICE 를 재사용한 것과 같은 이유.
+
+    /** 강사 수락 → 학생. 학생이 24h 시계를 들고 기다리던 답이라 최우선. */
+    ENROLLMENT_ACCEPTED(NotificationCategory.RESERVATION),
+    /** 강사 거절 → 학생. body 에 전액 환불 안내를 포함하므로 별도 환불 알림을 보내지 않는다. */
+    ENROLLMENT_REJECTED(NotificationCategory.RESERVATION),
+    /** 강사 일정 제안 → 학생. 제안엔 6h 만료가 걸려 있어 지연이 곧 실패다. */
+    ENROLLMENT_SLOTS_PROPOSED(NotificationCategory.RESERVATION),
+    /**
+     * TTL 만료 → 학생. 미결제 12h(환불 없음) / 결제완료 무응답 24h(전액 자동환불) 두 갈래를
+     * body 로 구분한다. 통보 없이 신청이 사라지는 걸 막는 게 목적.
+     */
+    ENROLLMENT_EXPIRED(NotificationCategory.RESERVATION),
+    /** 새 수강신청 → 강사. */
+    ENROLLMENT_SUBMITTED(NotificationCategory.RESERVATION),
+    /** 회차 완료 → 학생. 리뷰 유도 훅. */
+    ROUND_COMPLETED(NotificationCategory.RESERVATION),
+
+    // ── 결제(payment) 흐름 ────────────────────────────────────────────────
+    // payment 채널은 이미 앱에 생성돼 있는데 아무도 안 쓰던 빈 채널이다 — 신설이 아니라 첫 사용이라
+    // 앱 변경이 필요 없다.
+
+    /** 결제 완료 → 학생. */
+    PAYMENT_COMPLETED(NotificationCategory.PAYMENT),
+    /**
+     * 환불 완료 → 학생. <b>학생이 직접 요청한 환불에만</b> 발행한다 — 거절·만료로 인한 자동환불은
+     * 그쪽 알림 body 가 이미 환불을 안내하므로 2건이 연속으로 가면 소음이다(2026-08-14 사용자 결정).
+     */
+    REFUND_COMPLETED(NotificationCategory.PAYMENT);
 
     private final NotificationCategory category;
 

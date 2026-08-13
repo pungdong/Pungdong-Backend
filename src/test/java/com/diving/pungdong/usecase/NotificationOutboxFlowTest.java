@@ -12,8 +12,10 @@ import com.diving.pungdong.notification.event.ReservationCreatedEvent;
 import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.account.FirebaseTokenJpaRepo;
 import com.diving.pungdong.notification.NotificationOutboxJpaRepo;
+import com.diving.pungdong.notification.UserNotificationJpaRepo;
 import com.diving.pungdong.account.FirebaseTokenService;
 import com.diving.pungdong.notification.NotificationDeliveryWorker;
+import com.diving.pungdong.notification.NotificationDispatcher;
 import com.diving.pungdong.notification.fcm.FcmGateway;
 import com.diving.pungdong.notification.fcm.FcmGateway.SendResult;
 import org.junit.jupiter.api.AfterEach;
@@ -26,6 +28,9 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.support.TransactionTemplate;
+
+import javax.persistence.EntityManager;
+import javax.persistence.PersistenceContext;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -43,11 +48,13 @@ class NotificationOutboxFlowTest {
 
     @Autowired ApplicationEventPublisher eventPublisher;
     @Autowired NotificationOutboxJpaRepo outboxRepo;
+    @Autowired UserNotificationJpaRepo userNotificationRepo;
     @Autowired NotificationDeliveryWorker deliveryWorker;
     @Autowired FirebaseTokenService firebaseTokenService;
     @Autowired FirebaseTokenJpaRepo firebaseTokenRepo;
     @Autowired AccountJpaRepo accountRepo;
     @Autowired TransactionTemplate transactionTemplate;
+    @PersistenceContext EntityManager entityManager;
 
     @MockBean FcmGateway fcmGateway;
 
@@ -59,6 +66,8 @@ class NotificationOutboxFlowTest {
     @AfterEach
     void cleanUp() {
         outboxRepo.deleteAll();
+        // enqueue 가 outbox 와 알림함에 함께 쓰므로 여기도 지워야 테스트가 순서 독립이 된다.
+        userNotificationRepo.deleteAll();
         firebaseTokenRepo.deleteAll();
         accountRepo.deleteAll();
     }
@@ -222,6 +231,86 @@ class NotificationOutboxFlowTest {
                 .nextAttemptAt(createdAt)
                 .createdAt(createdAt)
                 .build();
+    }
+
+    /**
+     * 디스패처는 {@code @Profile("!test")} 라 테스트 컨텍스트에 빈이 없다. 스케줄러 없이 루프 로직만
+     * 검증하면 되므로 실제 워커 빈(프록시라 REQUIRES_NEW 가 살아 있다)을 물려 직접 만든다.
+     */
+    private NotificationDispatcher newDispatcher() {
+        return new NotificationDispatcher(outboxRepo, deliveryWorker);
+    }
+
+    /** payload 가 깨진 행 — {@code deliver()} 의 역직렬화가 IllegalStateException 을 던진다. */
+    private NotificationOutbox persistPoisonRow(Account recipient, OffsetDateTime createdAt) {
+        return outboxRepo.save(NotificationOutbox.builder()
+                .type(NotificationType.RESERVATION_CREATED)
+                .recipientAccountId(recipient.getId())
+                .payload("{ this is not valid json")
+                .status(NotificationStatus.PENDING)
+                .attempts(0)
+                .nextAttemptAt(createdAt)
+                .createdAt(createdAt)
+                .build());
+    }
+
+    @Test
+    @DisplayName("P1 발송 중 예외가 나도 그 행만 실패 처리되고 배치의 나머지 행은 계속 발송된다 (poison pill 방지)")
+    void dispatcher_continuesBatch_whenOneRowThrows() {
+        Account recipient = persistAccount("recipient@test.com");
+        firebaseTokenService.register(recipient, "token-ok", DeviceType.ANDROID);
+        OffsetDateTime past = OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(10);
+
+        // 깨진 행이 먼저 오게 한다 (픽업이 ORDER BY createdAt ASC 라 이게 선두).
+        NotificationOutbox poison = persistPoisonRow(recipient, past);
+        NotificationOutbox healthy = outboxRepo.save(buildOutbox(
+                recipient, NotificationStatus.PENDING, past.plusMinutes(1), "healthy"));
+
+        newDispatcher().dispatch();
+
+        // 깨진 행: 예외를 삼키고 실패로 기록 — attempts 가 올라야 언젠가 GAVE_UP 으로 수렴한다.
+        NotificationOutbox poisonAfter = outboxRepo.findById(poison.getId()).orElseThrow();
+        assertThat(poisonAfter.getStatus()).isEqualTo(NotificationStatus.FAILED);
+        assertThat(poisonAfter.getAttempts()).isEqualTo(1);
+
+        // 뒤 행: 정상 발송됨 — 예외가 루프를 끊지 않았다는 증거(이게 이 테스트의 핵심).
+        NotificationOutbox healthyAfter = outboxRepo.findById(healthy.getId()).orElseThrow();
+        assertThat(healthyAfter.getStatus()).isEqualTo(NotificationStatus.SENT);
+    }
+
+    @Test
+    @DisplayName("P2 발송 예외가 반복되면 attempts가 쌓여 결국 GAVE_UP 으로 떨어진다 (큐 영구 정지 방지)")
+    void dispatcher_eventuallyGivesUp_onRepeatedException() {
+        Account recipient = persistAccount("recipient@test.com");
+        firebaseTokenService.register(recipient, "token-ok", DeviceType.ANDROID);
+        NotificationOutbox poison = persistPoisonRow(
+                recipient, OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(10));
+        NotificationDispatcher dispatcher = newDispatcher();
+
+        // ⚠️ 백오프로 nextAttemptAt 이 미래로 밀리므로 매 회 과거로 되돌려 "다음 틱"을 흉내낸다.
+        // 되돌리는 건 nextAttemptAt <b>뿐</b>이다 — 예전엔 markFailedAndScheduleRetry 로 되돌렸는데
+        // 그 메서드가 attempts 를 직접 올려서, 디스패처가 아무 것도 안 해도 통과하는 vacuous 테스트였다.
+        // 이제 attempts 증가는 오직 dispatch() → recordDeliveryFailure 만이 만든다.
+        int ticks = 0;
+        while (outboxRepo.findById(poison.getId()).orElseThrow().getStatus() != NotificationStatus.GAVE_UP
+                && ticks++ < 15) { // MAX_ATTEMPTS(10) 보다 넉넉히 — 상수는 package-private 라 직접 참조 불가
+            rewindNextAttempt(poison.getId());
+            dispatcher.dispatch();
+        }
+
+        NotificationOutbox after = outboxRepo.findById(poison.getId()).orElseThrow();
+        assertThat(after.getStatus()).isEqualTo(NotificationStatus.GAVE_UP);
+        // 디스패처가 실제로 시도 횟수를 쌓았다는 증거(테스트가 대신 올린 게 아니다).
+        assertThat(after.getAttempts()).isGreaterThanOrEqualTo(10);
+    }
+
+    /** {@code nextAttemptAt} 만 과거로 되돌린다 — attempts·status 는 건드리지 않는다. */
+    private void rewindNextAttempt(Long outboxId) {
+        transactionTemplate.executeWithoutResult(s -> entityManager
+                .createQuery("update NotificationOutbox o set o.nextAttemptAt = :t where o.id = :id")
+                .setParameter("t", OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(1))
+                .setParameter("id", outboxId)
+                .executeUpdate());
     }
 
     @Test

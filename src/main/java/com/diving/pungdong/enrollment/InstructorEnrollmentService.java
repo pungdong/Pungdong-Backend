@@ -24,6 +24,10 @@ import com.diving.pungdong.enrollment.dto.InstructorScheduleHubResponse.StudentS
 import com.diving.pungdong.enrollment.dto.ProposeSlotsRequest.SlotProposal;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
+import com.diving.pungdong.notification.event.EnrollmentAcceptedEvent;
+import com.diving.pungdong.notification.event.EnrollmentRejectedEvent;
+import com.diving.pungdong.notification.event.EnrollmentSlotsProposedEvent;
+import com.diving.pungdong.notification.event.RoundCompletedEvent;
 import com.diving.pungdong.global.sitesettings.SiteSettingsProvider;
 import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
 import com.diving.pungdong.venue.VenueRefResolver;
@@ -276,6 +280,18 @@ public class InstructorEnrollmentService {
         r.setStatus(EnrollmentStatus.CONFIRMED);
         r.getProposedSlots().clear(); // 혹시 남은 제안 정리
         r.setRespondedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        // 학생은 24h 시계를 들고 기다리던 상태다 — 확정을 알린다.
+        EnrollmentRefs refs = EnrollmentRefs.of(r);
+        if (refs.canNotifyStudent()) {
+            events.publishEvent(EnrollmentAcceptedEvent.builder()
+                    .studentAccountId(refs.getStudentAccountId())
+                    .courseId(refs.getCourseId())
+                    .enrollmentId(refs.getEnrollmentId())
+                    .roundId(refs.getRoundId())
+                    .courseTitle(refs.courseTitleOrFallback())
+                    .instructorNickName(instructor.getNickName())
+                    .build());
+        }
         return InstructorEnrollmentResponse.of(r, venueName(r.getVenueRefId()));
     }
 
@@ -296,6 +312,20 @@ public class InstructorEnrollmentService {
         r.setRespondedAt(OffsetDateTime.now(ZoneOffset.UTC));
         // 학생이 이미 결제완료 → 전액 자동환불. 동기 이벤트라 환불 실패 시 이 트랜잭션(REJECTED)도 롤백된다.
         events.publishEvent(new EnrollmentRefundRequestedEvent(roundId, "강사 거절"));
+        // 알림도 같은 트랜잭션이라, 환불이 실패해 롤백되면 "거절됐고 환불됩니다" 알림도 함께 사라진다
+        // (거절이 취소됐는데 거절 알림만 나가는 모순이 구조적으로 불가능하다).
+        // body 에 환불 안내를 포함하므로 별도 REFUND_COMPLETED 는 보내지 않는다(사용자 결정).
+        EnrollmentRefs refs = EnrollmentRefs.of(r);
+        if (refs.canNotifyStudent()) {
+            events.publishEvent(EnrollmentRejectedEvent.builder()
+                    .studentAccountId(refs.getStudentAccountId())
+                    .courseId(refs.getCourseId())
+                    .enrollmentId(refs.getEnrollmentId())
+                    .roundId(refs.getRoundId())
+                    .courseTitle(refs.courseTitleOrFallback())
+                    .instructorNickName(instructor.getNickName())
+                    .build());
+        }
         InstructorEnrollmentResponse resp = InstructorEnrollmentResponse.of(r, venueName(r.getVenueRefId()));
         sessionCleaner.deleteIfEmpty(session);
         return resp;
@@ -365,6 +395,19 @@ public class InstructorEnrollmentService {
         r.getProposedSlots().clear();
         r.getProposedSlots().addAll(valid);
         r.setRespondedAt(now);
+        // 제안엔 proposalTtlHours(6h) 만료가 걸려 있어 지연이 곧 실패다 — 알림이 늦으면 학생은 고를
+        // 기회를 잃고 hold 된 좌석만 묶인다.
+        EnrollmentRefs refs = EnrollmentRefs.of(r);
+        if (refs.canNotifyStudent()) {
+            events.publishEvent(EnrollmentSlotsProposedEvent.builder()
+                    .studentAccountId(refs.getStudentAccountId())
+                    .courseId(refs.getCourseId())
+                    .enrollmentId(refs.getEnrollmentId())
+                    .roundId(refs.getRoundId())
+                    .courseTitle(refs.courseTitleOrFallback())
+                    .instructorNickName(instructor.getNickName())
+                    .build());
+        }
         return InstructorEnrollmentResponse.of(r, venueName(r.getVenueRefId()));
     }
 
@@ -380,6 +423,7 @@ public class InstructorEnrollmentService {
         }
         if (r.getDoneAt() == null) {
             r.setDoneAt(OffsetDateTime.now(ZoneOffset.UTC));
+            publishRoundCompleted(r); // doneAt 이 이미 있으면 발행 안 함 = 멱등
         }
         return InstructorEnrollmentResponse.of(r, venueName(r.getVenueRefId()));
     }
@@ -398,10 +442,29 @@ public class InstructorEnrollmentService {
                 sessionId, List.of(EnrollmentStatus.CONFIRMED))) {
             if (r.getDoneAt() == null) {
                 r.setDoneAt(OffsetDateTime.now(ZoneOffset.UTC));
+                publishRoundCompleted(r); // 세션에 여러 수강생이 있으면 각자에게 간다
                 done++;
             }
         }
         return done;
+    }
+
+    /**
+     * 회차 완료 알림 — <b>완료 경로가 둘</b>이라(여기 수동 + {@code EnrollmentExpiryService} 자동 sweep)
+     * 양쪽에서 불러야 한다. 호출부가 {@code doneAt == null} 일 때만 부르므로 중복 발행은 없다.
+     */
+    private void publishRoundCompleted(EnrollmentRound r) {
+        EnrollmentRefs refs = EnrollmentRefs.of(r);
+        if (!refs.canNotifyStudent()) {
+            return;
+        }
+        events.publishEvent(RoundCompletedEvent.builder()
+                .studentAccountId(refs.getStudentAccountId())
+                .courseId(refs.getCourseId())
+                .enrollmentId(refs.getEnrollmentId())
+                .roundId(refs.getRoundId())
+                .courseTitle(refs.courseTitleOrFallback())
+                .build());
     }
 
     /* ─── helpers ─── */

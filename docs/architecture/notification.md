@@ -169,6 +169,10 @@ stateDiagram-v2
 
 **재시도 백오프** (`NotificationDeliveryWorker` 내부): 30s → 1m → 2m → 4m → ... 최대 1h 캡. 시도 횟수 한도 초과 시 GAVE_UP.
 
+**poison-pill 방어** (`NotificationDispatcher.dispatch`): 루프가 **행 단위 try/catch** 로 감싸여 있고, `deliver()` 가 예외를 던지면 `deliveryWorker.recordDeliveryFailure(id, error)` 를 **별도 트랜잭션(REQUIRES_NEW)** 으로 호출해 실패를 기록한다.
+
+> **없으면 어떻게 되나**: `deliver()` 는 `REQUIRES_NEW` 라 예외 시 자기 트랜잭션이 롤백돼 상태·`attempts` 가 그대로 남는다. 픽업이 `ORDER BY createdAt ASC` 라 **다음 틱에도 같은 행이 선두로 재선택**되고, `attempts` 가 안 올라 `MAX_ATTEMPTS` → `GAVE_UP` 구제도 영영 발동하지 않는다. 즉 **깨진 행 하나가 알림 큐 전체를 영구 정지**시킨다(뒤 행은 전부 미발송). 예외 경로는 실재한다 — payload JSON 이 깨지면 `deserialize` 가 `IllegalStateException` 을 던진다. `firebase.enabled=false` 인 동안은 stub 이 예외를 안 던져 잠복해 있다가, **실전송 전환 순간 발현**한다. 회귀 테스트 = `NotificationOutboxFlowTest` 의 `P1`·`P2`.
+
 ---
 
 ## 흐름 3: Retention (Phase 2-D)
@@ -227,9 +231,34 @@ erDiagram
         string email
     }
 
+    USER_NOTIFICATION {
+        bigint id PK
+        varchar notification_id "UNIQUE — outbox payload 의 data.notificationId 와 동일(1:1 상관)"
+        bigint recipient_account_id "FK 아님 (outbox 와 같은 기조)"
+        NotificationType type
+        varchar title "255"
+        varchar body "500 — outbox 는 @Lob 이라 길이 차이 주의(enqueue 가 절단)"
+        TEXT data "푸시 data 맵과 동일한 JSON"
+        datetime read_at "NULL = 미읽음"
+        datetime created_at
+    }
+
     ACCOUNT ||--o{ FIREBASE_TOKEN : "여러 디바이스 등록 가능"
     NOTIFICATION_OUTBOX }o..|| ACCOUNT : "recipient_account_id<br/>(FK 제약 없음)"
+    USER_NOTIFICATION }o..|| ACCOUNT : "recipient_account_id<br/>(FK 제약 없음)"
+    NOTIFICATION_OUTBOX ||--|| USER_NOTIFICATION : "notification_id 로 1:1<br/>(같은 트랜잭션에서 함께 INSERT)"
 ```
+
+**`user_notification` = 인앱 알림함 (도메인 사실 원장).** outbox 와 **목적이 다르다**:
+
+| | `notification_outbox` | `user_notification` |
+|---|---|---|
+| 답하는 질문 | "단말에 밀어넣기 성공했나" (전송 시도 원장) | "이 유저에게 무슨 일이 있었나" (사실 원장) |
+| 보존 | SENT 30일 후 삭제 | **삭제 안 함** |
+| 토큰 없는 수신자 | `GAVE_UP` (실패로 기록) | 정상 행 (그대로 보임) |
+| 인덱스 | `(status, next_attempt_at)` — 워커용 | `(recipient, created_at)` · `(recipient, read_at)` — 조회용 |
+
+**왜 겸용하지 않았나**: outbox 는 디바이스 토큰이 없으면 `GAVE_UP` 이 되는데, **웹 사용자·앱 미설치 사용자가 정확히 그 경우**다. 그들이야말로 알림함이 가장 필요한 대상이라, 겸용하면 durability 라는 도입 목적 자체가 무너진다. 두 행은 `NotificationOutboxWriter.enqueue` 가 **같은 트랜잭션**에서 함께 쓰므로 비즈니스 롤백 시 둘 다 사라진다(유령 알림 방지).
 
 **의도된 설계**:
 
@@ -242,11 +271,31 @@ erDiagram
 
 ## 이벤트 타입 매트릭스
 
+**수강(enrollment) 흐름** — `data` 는 공통으로 `{courseId, enrollmentId, roundId}` (+결제계열 `orderId`). 전부 `reservation` 채널(결제계열만 `payment`).
+
+| 이벤트 | 발행 위치 | 수신자 | OutboxType |
+|---|---|---|---|
+| `EnrollmentSubmittedEvent` | `EnrollmentService.submit` | **강사** | `ENROLLMENT_SUBMITTED` |
+| `EnrollmentAcceptedEvent` | `InstructorEnrollmentService.accept` | 학생 | `ENROLLMENT_ACCEPTED` |
+| `EnrollmentRejectedEvent` | `InstructorEnrollmentService.reject` | 학생 | `ENROLLMENT_REJECTED` |
+| `EnrollmentSlotsProposedEvent` | `InstructorEnrollmentService.proposeSlots` | 학생 | `ENROLLMENT_SLOTS_PROPOSED` |
+| `EnrollmentExpiredEvent` | `EnrollmentExpiryService.expireOne` | 학생 | `ENROLLMENT_EXPIRED` |
+| `RoundCompletedEvent` | `InstructorEnrollmentService.completeRound`/`completeSession` **+** `EnrollmentExpiryService.markDone` | 학생 | `ROUND_COMPLETED` |
+| `PaymentCompletedEvent` | `PaymentService.applyConfirm` (FE confirm·이니시스 콜백 공통 코어) | 학생 | `PAYMENT_COMPLETED` |
+| `RefundCompletedEvent` | `RefundService.refundEnrollment` **(학생 직접 요청만)** | 학생 | `REFUND_COMPLETED` |
+
+⚠️ **발행 지점이 여러 개인 두 가지에 주의**:
+- `ROUND_COMPLETED` 는 완료 경로가 **둘**(강사 수동 + 세션일+24h 자동 sweep)이라 양쪽에 훅이 걸려 있다. 둘 다 `doneAt == null` 일 때만 발행해 멱등이다.
+- `REFUND_COMPLETED` 는 **자동환불 경로(`refundRoundFully`/`refundRoundPartially`)에 일부러 걸지 않았다.** 거절·만료 알림 body 가 이미 환불을 안내하므로 같은 사건에 알림이 2건 연속 가면 소음이다(2026-08-14 사용자 결정).
+
+**레거시 (사문화 — `/reservation` 도메인이 FE 계약에 없음)**
+
 | 이벤트 | 발행 위치 | 수신자 | 데이터 페이로드 | OutboxType |
 |---|---|---|---|---|
 | `ReservationCreatedEvent` | `ReservationService.saveReservation` | 강사 (instructorAccountId) | studentNickname, lectureTitle, scheduleId | `RESERVATION_CREATED` |
 | `ReservationCancelledEvent` | 예약 취소 흐름 | 강사 | 동일 | `RESERVATION_CANCELLED` |
 | `LectureNotificationEvent` | 강사가 강의 팔로워에게 직접 알림 | 팔로워 목록 (1:N) | lectureId, title, body | `LECTURE_NOTIFICATION` |
+| `CommunityCommentEvent` | `CommunityCommentService` | 글/댓글 작성자 | postId, commentId | `COMMUNITY_COMMENT` |
 
 **payload 예시** (JSON 으로 outbox 에 저장됨):
 
@@ -299,8 +348,14 @@ erDiagram
 |---|---|---|---|
 | `POST /me/devices` | 인증 필요 | any | 디바이스 토큰 등록(`{token, platform?}`). `DeviceController` → `FirebaseTokenService.register` upsert. 신분=`@CurrentUser`. |
 | `DELETE /me/devices/{token}` | 인증 필요 | any | 토큰 해제(로그아웃/탈퇴). `FirebaseTokenService.unregister`. |
+| `GET /me/notifications` | 인증 필요 | any | 인앱 알림함 목록. HAL `PagedModel`(`_embedded.notifications`), `?page=`0-based·`?size=`기본20/상한50, 정렬 서버고정(`createdAt DESC`), `?unreadOnly=`(기본 false, 서버 필터). |
+| `GET /me/notifications/unread-count` | 인증 필요 | any | 미읽음 개수(뱃지). `{count}`. 0 건도 200. |
+| `PATCH /me/notifications/{id}/read` | 인증 필요 | **본인 것만** | 단건 읽음. 멱등(`readAt` 최초값 유지). 남의 알림이면 **400 + 존재 숨김**(`ResourceNotFoundException`). |
+| `PATCH /me/notifications/read-all` | 인증 필요 | any | 전체 읽음(벌크 UPDATE, 미읽음만). |
 
-알림 도메인 자체는 외부에 노출된 발송 트리거 엔드포인트가 **없다** — 모든 알림은 비즈니스 흐름의 부수효과로 자동 발생.
+**시큐리티 매처는 추가하지 않는다** — `SecurityConfiguration` 의 `anyRequest().authenticated()` 가 `/me/**` 를 이미 덮는다(`/me/devices` 와 동일 방식).
+
+알림 도메인 자체는 외부에 노출된 **발송 트리거** 엔드포인트가 **없다** — 모든 알림은 비즈니스 흐름의 부수효과로 자동 발생. 위 알림함 API 는 전부 **읽기/읽음처리**다.
 
 `LectureNotificationEvent` 만 강사 UI 에서 직접 발행 (강의 관리 화면 → 강의 도메인 컨트롤러 경유 → 이벤트 발행). 이 트리거 엔드포인트는 **강의 도메인 문서**(예정) 에서 다룬다.
 

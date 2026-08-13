@@ -69,6 +69,7 @@ class RefundUseCaseTest {
     @Autowired PaymentOrderJpaRepo orderRepo;
     @Autowired RefundOrderJpaRepo refundRepo;
     @Autowired com.diving.pungdong.payment.PaymentApprovalJpaRepo approvalRepo;
+    @Autowired com.diving.pungdong.notification.UserNotificationJpaRepo userNotificationRepo;
     @Autowired com.diving.pungdong.enrollment.InstructorEnrollmentService instructorEnrollmentService;
     @Autowired com.diving.pungdong.enrollment.EnrollmentExpiryService expiryService;
     @Autowired com.diving.pungdong.payment.RefundService refundService;
@@ -87,6 +88,7 @@ class RefundUseCaseTest {
 
     @AfterEach
     void clean() {
+        userNotificationRepo.deleteAll(); // enqueue 가 남긴 알림함 행
         refundRepo.deleteAll();
         approvalRepo.deleteAll(); // payment_order FK — 주문 삭제 전
         orderRepo.deleteAll();
@@ -455,5 +457,51 @@ class RefundUseCaseTest {
         enrollmentRepo.save(e);
         order(r1, amount, key);
         return r1.getId();
+    }
+
+    /**
+     * 학생이 <b>결제완료 회차를 직접 취소</b>하면 자동환불이 돌고 <b>환불 완료 알림</b>이 간다.
+     *
+     * <p>거절·만료로 인한 자동환불은 그쪽 알림 body 가 환불을 안내하므로 알림을 안 보내지만,
+     * 이 경로엔 알려주는 알림이 <b>따로 없다</b> — 그래서 여기서만 보낸다({@code studentInitiated}).
+     * 금액은 <b>실제 반환액</b>이어야 한다(계획액을 쓰면 clamp/스킵 시 문구가 거짓이 된다).
+     */
+    @Test
+    @DisplayName("RF4 학생이 결제완료 회차를 직접 취소하면 자동환불 + 실제 환불액으로 REFUND_COMPLETED 알림이 간다")
+    void studentCancelNotifiesRefund() throws Exception {
+        Account stu = accountRepo.save(Account.builder().email("rf4@pd.com").password("x").nickName("학생4")
+                .roles(new HashSet<>(Set.of(Role.STUDENT))).build());
+        Account ins = accountRepo.save(Account.builder().email("rf4i@pd.com").password("x").nickName("강사4")
+                .roles(new HashSet<>(Set.of(Role.INSTRUCTOR))).build());
+        Course course = Course.builder().instructor(ins).title("취소될 과정")
+                .kind(CourseKind.CERTIFICATION).organizationCode("AIDA").disciplineCode("FREEDIVING")
+                .totalRounds(1).price(100000).status(CourseStatus.OPEN)
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
+        course.addRound(CourseRound.builder().roundKind(RoundKind.REGULAR).roundIndex(1).build());
+        courseRepo.save(course);
+
+        EnrollmentRound r = round(1, EnrollmentStatus.ACCEPT_PENDING, LocalDate.now().plusDays(10), false, 0);
+        Enrollment e = Enrollment.builder().student(stu).course(course).tuitionSnapshot(100000)
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
+        e.addRound(r);
+        enrollmentRepo.save(e);
+        order(r, 100000, "pk-rf4");
+
+        mockMvc.perform(post("/enrollments/{id}/cancel", r.getId())
+                        .header(HttpHeaders.AUTHORIZATION, token(stu)))
+                .andExpect(status().isOk());
+
+        // 환불이 실제로 나갔고
+        org.mockito.Mockito.verify(gateway)
+                .cancel(org.mockito.ArgumentMatchers.eq("pk-rf4"), org.mockito.ArgumentMatchers.eq(100000),
+                        org.mockito.ArgumentMatchers.eq(100000), org.mockito.ArgumentMatchers.anyString());
+        // 그 금액 그대로 알림이 갔다
+        var inbox = userNotificationRepo.findAll().stream()
+                .filter(n -> stu.getId().equals(n.getRecipientAccountId()))
+                .collect(java.util.stream.Collectors.toList());
+        assertThat(inbox).hasSize(1);
+        assertThat(inbox.get(0).getType())
+                .isEqualTo(com.diving.pungdong.notification.NotificationType.REFUND_COMPLETED);
+        assertThat(inbox.get(0).getBody()).contains("100,000원이 환불되었어요");
     }
 }

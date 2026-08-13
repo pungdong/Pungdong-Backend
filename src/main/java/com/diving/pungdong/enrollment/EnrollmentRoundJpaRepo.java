@@ -1,5 +1,6 @@
 package com.diving.pungdong.enrollment;
 
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Collection;
@@ -15,6 +16,11 @@ public interface EnrollmentRoundJpaRepo extends JpaRepository<EnrollmentRound, L
     int countByAvailabilitySessionIdAndStatusIn(Long sessionId, Collection<EnrollmentStatus> statuses);
 
     /** 한 일정의 상태 집합에 드는 회차들 — 활성 조회·삭제 판정. */
+    /**
+     * 세션 일괄 완료용. {@code @EntityGraph} 로 수강·코스·학생을 함께 당긴다 — 완료 시 회차마다
+     * 알림 좌표({@link EnrollmentRefs})를 뽑는데, LAZY 로 두면 수강생 수만큼 추가 쿼리가 나간다(N+1).
+     */
+    @EntityGraph(attributePaths = {"enrollment", "enrollment.course", "enrollment.student"})
     List<EnrollmentRound> findByAvailabilitySessionIdAndStatusIn(Long sessionId, Collection<EnrollmentStatus> statuses);
 
     /** 한 일정의 모든 회차(상태 무관) — 빈 일정 삭제 시 FK 끊기용. */

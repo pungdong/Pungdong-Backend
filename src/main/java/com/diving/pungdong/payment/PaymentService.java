@@ -11,10 +11,13 @@ import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ConcurrentRequestException;
 import com.diving.pungdong.global.advice.exception.PaymentGatewayException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
+import com.diving.pungdong.enrollment.EnrollmentRefs;
+import com.diving.pungdong.notification.event.PaymentCompletedEvent;
 import com.diving.pungdong.global.advice.exception.VenueChangeRequiresReapplyException;
 import com.diving.pungdong.payment.dto.PaymentConfirmResponse;
 import com.diving.pungdong.payment.dto.PaymentPrepareResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -54,11 +57,12 @@ public class PaymentService {
     private final EnrollmentService enrollmentService; // 슬롯 변경 검증·좌석 hold·적용(payment→enrollment)
     private final SiteSettingsProvider siteSettings;   // 차액 결제창 window = paymentTtlHours
     private final PaymentApprovalLedger approvalLedger; // 승인 시도 원장(REQUIRES_NEW) — 청구 사실 durable 기록
+    private final ApplicationEventPublisher events;     // 결제 완료 알림(notification outbox 가 수신)
 
     public PaymentService(PaymentOrderJpaRepo orderRepo, EnrollmentRoundJpaRepo roundRepo,
                           PaymentGatewayRegistry gateways, OrderNoFormatter orderNoFormatter,
                           EnrollmentService enrollmentService, SiteSettingsProvider siteSettings,
-                          PaymentApprovalLedger approvalLedger) {
+                          PaymentApprovalLedger approvalLedger, ApplicationEventPublisher events) {
         this.orderRepo = orderRepo;
         this.roundRepo = roundRepo;
         this.gateways = gateways;
@@ -66,6 +70,7 @@ public class PaymentService {
         this.enrollmentService = enrollmentService;
         this.siteSettings = siteSettings;
         this.approvalLedger = approvalLedger;
+        this.events = events;
     }
 
     /**
@@ -298,6 +303,18 @@ public class PaymentService {
         order.setMethod(method);
         order.setApprovedAt(approvedAt);
         order.setUpdatedAt(now);
+        // 결제 완료 알림 — FE confirm 과 이니시스 콜백이 모두 이 확정부를 타므로 여기 한 곳이면 양쪽이 덮인다.
+        // 차액 결제(아래 early return)도 실제로 돈이 나간 것이라 동일하게 알린다.
+        //
+        // 정확히 한 번만 나가는 근거 세 겹:
+        //  (1) 순차 재호출 — applyConfirm 초입의 "이미 DONE 이면 그대로 반환" 멱등 가드에서 걸러진다.
+        //  (2) 동시 재전송(콜백 중복 등) — 둘 다 가드를 통과할 수 있지만 PaymentOrder 의 @Version(#248)이
+        //      blind overwrite 를 막아 진 쪽이 OptimisticLockException 으로 롤백된다.
+        //  (3) 확정 롤백 후 재확정(#249 의 findApproved 경로) — 재청구 없이 이 지점에 다시 도달하는데,
+        //      직전 시도의 발행은 그 트랜잭션과 함께 롤백돼 있으므로 커밋되는 발행은 여전히 한 번이다.
+        // 셋 다 "알림 리스너가 MANDATORY 전파로 이 트랜잭션에 합류해 있다"는 사실에 기댄다 —
+        // 확정이 롤백되면 알림도 같이 사라진다(청구는 원장에 남지만 알림은 안 나간다).
+        publishPaymentCompleted(order, r);
         // 차액 결제 — 슬롯을 교체하고 강사 결정 대기로 되돌린다(학생이 고른 시간이라 강사 동의가 필요).
         if (order.isSlotChange()) {
             enrollmentService.applySlotChange(r.getId(), order.getId(),
@@ -314,6 +331,28 @@ public class PaymentService {
                 order.getOrderId(), order.getAmount(), order.getProvider(), r.getId(),
                 pgTransactionId, method, EnrollmentStatus.ACCEPT_PENDING);
         return response(order);
+    }
+
+    /**
+     * 결제 완료 알림 발행 — 돈이 계좌에서 나가는데 앱이 침묵하면 신뢰 문제가 된다.
+     *
+     * <p>수신자 좌표를 못 만들면 <b>발행을 건너뛴다</b>. 알림 리스너는 결제 트랜잭션에 합류하므로
+     * 여기서 실패하면 <b>승인된 결제가 롤백</b>된다 — 알림 때문에 결제가 깨지면 안 된다.
+     */
+    private void publishPaymentCompleted(PaymentOrder order, EnrollmentRound round) {
+        EnrollmentRefs refs = EnrollmentRefs.of(round);
+        if (!refs.canNotifyStudent()) {
+            return;
+        }
+        events.publishEvent(PaymentCompletedEvent.builder()
+                .studentAccountId(refs.getStudentAccountId())
+                .courseId(refs.getCourseId())
+                .enrollmentId(refs.getEnrollmentId())
+                .roundId(refs.getRoundId())
+                .orderId(order.getId())
+                .courseTitle(refs.courseTitleOrFallback())
+                .amount(order.getAmount())
+                .build());
     }
 
     /**

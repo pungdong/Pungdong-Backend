@@ -121,7 +121,10 @@ FE 핸드오프(PungDong `docs/features/push.md`)는 제안이고, 아래 3점�
 - ✅ **iOS `interruption-level`** — BE 가 카테고리별로 payload 설정(마케팅 passive/거래 time-sensitive/공지 active). 🟡 단 `time-sensitive` Focus-뚫기는 **네이티브 Time-Sensitive 엔타이틀먼트**(iOS 트랙, APNs `.p8` 와 함께) 필요 — 없으면 active.
 - ✅ **`LECTURE_NOTIFICATION` = `reservation`** (강사→예약 수강생 운영 메시지, 거래성 HIGH — 2026-06-30 확정).
 - 🟡 **앱 v2** — 권한·`getToken`·등록/해제·`onTokenRefresh`·foreground/background 핸들러·탭 라우팅·**채널 5개 생성** (FE).
-- 🟡 **인앱 알림함 (durable feed)** — [#132](https://github.com/pungdong/Pungdong-Backend/issues/132). 출시 후. dedup id 가 선결로 깔림.
+- ✅ **인앱 알림함 (durable feed)** — [#132](https://github.com/pungdong/Pungdong-Backend/issues/132) **구현 완료 (2026-08-14)**. `user_notification` **별도 테이블**(outbox 겸용 아님) + `GET/PATCH /me/notifications` 4종. 메커니즘은 [notification.md](../architecture/notification.md).
+  - **왜 별도 테이블인가**: outbox 는 "단말에 밀어넣기 성공했나"라서 **디바이스 토큰이 없으면 `GAVE_UP`** 이고 SENT 는 30일 뒤 삭제된다. **웹 사용자·앱 미설치 사용자가 정확히 그 경우**인데 그들이야말로 알림함이 가장 필요한 대상이라, 겸용하면 durability 라는 도입 목적 자체가 무너진다. 두 행은 `notificationId`(=푸시 dedup 키)로 1:1 상관되고 같은 트랜잭션에서 함께 쓰인다.
+  - **보존: 무기한**(2026-08-14 사용자 결정). 저빈도 도메인이라 행이 폭증하지 않고 수강 이력은 돌아볼 가치가 있다. outbox 의 30일 retention 은 전송 로그 청소지 사용자 데이터 청소가 아니라 목적이 다르다.
+  - **웹에는 푸시가 없으므로 이 API 가 웹의 유일한 알림 경로**다.
 - 🟢 **이벤트 카탈로그 확장** — 현재 예약생성/취소·강의공지 3종. 수강신청 수락·채팅 등은 해당 도메인 작업 시 ([notification.md §확장 자리](../architecture/notification.md)).
 - 🟢 **만료 토큰 정리** — 현재 무효 토큰은 발송 시 reactive 삭제만. last-seen 기반 정리는 검토(notification.md).
 

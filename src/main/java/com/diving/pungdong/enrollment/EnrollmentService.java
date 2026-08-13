@@ -25,6 +25,7 @@ import com.diving.pungdong.enrollment.event.EnrollmentPartialRefundRequestedEven
 import com.diving.pungdong.enrollment.event.EnrollmentRefundRequestedEvent;
 import com.diving.pungdong.global.advice.exception.AdditionalPaymentRequiredException;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
+import com.diving.pungdong.notification.event.EnrollmentSubmittedEvent;
 import com.diving.pungdong.global.advice.exception.IdentityVerificationRequiredException;
 import com.diving.pungdong.global.advice.exception.PreLaunchException;
 import com.diving.pungdong.global.advice.exception.ProposalExpiredException;
@@ -106,6 +107,16 @@ public class EnrollmentService {
         EnrollmentRound round = buildRound(instructor, round1, req, 0);
         enrollment.addRound(round);
         enrollmentRepo.save(enrollment); // cascade → round + 장비
+        // 강사에게 "새 신청" 알림. 수신자는 코스 소유자 = 이 신청을 수락/거절할 수 있는 계정과 동일하다.
+        // supersede 경로(위 early return)에서는 발행하지 않는다 — 같은 회차의 슬롯 교체라 새 신청이 아니다.
+        events.publishEvent(EnrollmentSubmittedEvent.builder()
+                .instructorAccountId(instructor.getId())
+                .courseId(course.getId())
+                .enrollmentId(enrollment.getId())
+                .roundId(round.getId())
+                .courseTitle(course.getTitle())
+                .studentNickName(student.getNickName())
+                .build());
         return EnrollmentResponse.of(round, venueName(round.getVenueRefId()), instructor.getNickName(), paymentExpiresInSeconds(round));
     }
 
@@ -564,7 +575,10 @@ public class EnrollmentService {
         round.setStatus(EnrollmentStatus.CANCELLED);
         round.setRespondedAt(OffsetDateTime.now(ZoneOffset.UTC));
         if (paid) {
-            events.publishEvent(new EnrollmentRefundRequestedEvent(roundId, "학생 취소"));
+            // studentInitiated=true — 학생이 스스로 한 취소라 환불 완료를 알린다(거절·만료와 달리
+            // 이 경로엔 "환불됩니다" 를 알려주는 다른 알림이 없다). 실제 반환액은 환불 실행부만
+            // 알기 때문에 알림도 거기서 발행한다(RefundService.refundRoundFully).
+            events.publishEvent(new EnrollmentRefundRequestedEvent(roundId, "학생 취소", true));
         }
         EnrollmentResponse resp = EnrollmentResponse.of(round, venueName(round.getVenueRefId()), instructorName(round), paymentExpiresInSeconds(round));
         sessionCleaner.deleteIfEmpty(session);

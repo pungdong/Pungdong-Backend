@@ -23,7 +23,7 @@ public class EnrollmentRefundListener {
 
     @EventListener
     public void onRefundRequested(EnrollmentRefundRequestedEvent event) {
-        refundService.refundRoundFully(event.roundId(), event.reason());
+        refundService.refundRoundFully(event.roundId(), event.reason(), event.studentInitiated());
     }
 
     @EventListener

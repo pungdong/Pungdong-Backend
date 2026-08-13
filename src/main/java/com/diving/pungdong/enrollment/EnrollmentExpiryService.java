@@ -5,6 +5,8 @@ import com.diving.pungdong.availability.AvailabilityHoldJpaRepo;
 import com.diving.pungdong.availability.AvailabilitySession;
 import com.diving.pungdong.availability.SessionCleaner;
 import com.diving.pungdong.enrollment.event.EnrollmentRefundRequestedEvent;
+import com.diving.pungdong.notification.event.EnrollmentExpiredEvent;
+import com.diving.pungdong.notification.event.RoundCompletedEvent;
 import com.diving.pungdong.global.sitesettings.SiteSettings;
 import com.diving.pungdong.global.sitesettings.SiteSettingsProvider;
 import lombok.extern.slf4j.Slf4j;
@@ -32,7 +34,8 @@ import java.util.stream.Collectors;
  *
  * <p>만료 = {@code CANCELLED} 로 전환 + 점유 0 이면 {@link SessionCleaner} 가 빈 일정 삭제(좌석 해제). 결제완료분(ACCEPT_PENDING)은 자동환불. TTL 값은
  * {@link SiteSettings}(Sanity, 런타임 config). 각 건은 자기 트랜잭션 — 한 건 실패가 배치를 막지 않는다.
- * (만료 알림 — 학생에게 "시간 초과 자동취소" 푸시 — 은 후속: enrollment→notification outbox 연동 필요.)
+ * <p>만료 시 학생에게 {@code ENROLLMENT_EXPIRED} 알림을 발행한다 — 통보 없이 신청이 사라지지 않게.
+ * 결제완료분은 자동환불이 함께 일어나므로 그 사실을 body 에 포함한다(별도 환불 알림은 보내지 않는다).
  */
 @Slf4j
 @Service
@@ -178,8 +181,21 @@ public class EnrollmentExpiryService {
         }
         r.setDoneAt(OffsetDateTime.now(ZoneOffset.UTC));
         roundRepo.save(r);
+        // 완료 경로는 둘이다 — 여기(세션일+24h 자동) 와 강사 수동(InstructorEnrollmentService).
+        // 위 :176 가드가 doneAt != null 이면 빠져나가므로 중복 발행은 없다.
+        EnrollmentRefs refs = EnrollmentRefs.of(r);
+        if (refs.canNotifyStudent()) {
+            events.publishEvent(RoundCompletedEvent.builder()
+                    .studentAccountId(refs.getStudentAccountId())
+                    .courseId(refs.getCourseId())
+                    .enrollmentId(refs.getEnrollmentId())
+                    .roundId(refs.getRoundId())
+                    .courseTitle(refs.courseTitleOrFallback())
+                    .build());
+        }
         return true;
     }
+
 
     private boolean expireOne(Long id, OffsetDateTime now) {
         EnrollmentRound r = roundRepo.findById(id).orElse(null);
@@ -195,6 +211,21 @@ public class EnrollmentExpiryService {
         if (wasPaid) {
             // 결제완료(ACCEPT_PENDING) 무응답 만료 → 전액 자동환불. 동기 이벤트라 환불 실패 시 이 트랜잭션(CANCELLED)까지 롤백 → 다음 sweep 재시도.
             events.publishEvent(new EnrollmentRefundRequestedEvent(id, "미응답 만료"));
+        }
+        // 통보 없이 신청이 사라지지 않게 학생에게 알린다. paid 갈래는 body 에 환불 안내가 붙으므로
+        // 별도 REFUND_COMPLETED 는 보내지 않는다(사용자 결정 — 같은 사건에 알림 2건은 소음).
+        // 위 :186-189 가드가 "그새 수락/결제/취소됨" 을 걸러내므로 sweep 재실행 시 중복 발행은 없다.
+        EnrollmentRefs refs = EnrollmentRefs.of(r);
+        if (refs.canNotifyStudent()) {
+            events.publishEvent(EnrollmentExpiredEvent.builder()
+                    .studentAccountId(refs.getStudentAccountId())
+                    .courseId(refs.getCourseId())
+                    .enrollmentId(refs.getEnrollmentId())
+                    .roundId(refs.getRoundId())
+                    .courseTitle(refs.courseTitleOrFallback())
+                    .instructorNickName(refs.instructorNickNameOrFallback())
+                    .paid(wasPaid)
+                    .build());
         }
         sessionCleaner.deleteIfEmpty(session); // 점유 0 이면 빈 일정 삭제(좌석 해제)
         return true;
