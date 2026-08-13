@@ -111,7 +111,9 @@ class NotificationCenterUseCaseTest {
                 .title("제목-" + suffix)
                 .body("본문-" + suffix)
                 .data("{\"type\":\"RESERVATION_CREATED\",\"lectureId\":\"1\"}")
-                .readAt(read ? OffsetDateTime.now(ZoneOffset.UTC) : null)
+                // 나노초(9자리)를 일부러 심는다 — 리눅스 CI 의 OffsetDateTime.now() 정밀도를 재현해
+                // "인메모리 값 vs DB 왕복 값" 비교 버그가 macOS 에서도 잡히게 한다(CI 에서만 깨지던 회귀).
+                .readAt(read ? OffsetDateTime.now(ZoneOffset.UTC).withNano(830_211_255) : null)
                 .createdAt(OffsetDateTime.now(ZoneOffset.UTC))
                 .build());
     }
@@ -213,7 +215,12 @@ class NotificationCenterUseCaseTest {
         Account me = persistAccount("me@test.com");
         UserNotification alreadyRead = persistNotification(me, "read", true);
         UserNotification unread = persistNotification(me, "unread", false);
-        OffsetDateTime originalReadAt = alreadyRead.getReadAt();
+        // ⚠️ 기준값은 <b>DB 에서 다시 읽는다</b> — 인메모리 값과 비교하면 안 된다.
+        // OffsetDateTime.now() 정밀도가 플랫폼마다 다르고(리눅스 나노초 / macOS 마이크로초) DB 왕복에서
+        // 잘리므로, 인메모리 값(9자리)과 DB 값(6자리)을 비교하면 리눅스에서만 깨진다.
+        // 실제로 로컬은 통과하고 CI 만 실패했던 원인이 이것이다.
+        OffsetDateTime originalReadAt = userNotificationRepo.findById(alreadyRead.getId())
+                .orElseThrow().getReadAt();
 
         mockMvc.perform(patch("/me/notifications/read-all")
                         .header(HttpHeaders.AUTHORIZATION, bearer(me)))
