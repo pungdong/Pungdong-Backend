@@ -2105,6 +2105,13 @@ export interface ScheduleCourse {
   levels: CertLevel[];
   instructorName: string | null;
   status: CourseScheduleStatus;
+  /**
+   * 이 수강으로 **자격증을 등록할 수 있는가**(정규 회차 전부 이수).
+   * ★ 자격증 등록 폼의 "강의 연결" 피커는 **이 값**으로 거른다 — `status === 'COMPLETED'` 로 거르면
+   *   정규를 다 끝낸 뒤 추가세션(EXTRA)을 잡은 동안 카드가 PROGRESS 로 돌아가면서 **이미 취득한
+   *   자격증의 강의가 피커에서 사라진다.** 표시용 상태와 자격 판정은 다른 질문이다.
+   */
+  certifiable: boolean;
   totalRounds: number;             // 정규 회차 총 수 — FE 가 미잡힌(locked) 회차 placeholder 렌더
   nextRoundIndex: number | null;   // 지금 신청 가능한 다음 정규 회차 번호(없으면 null)
   canScheduleExtra: boolean;       // 정규 끝나 추가세션(EXTRA) 신청 가능
@@ -2459,7 +2466,8 @@ export interface StudentCertificateCreateRequest {
   photoFileKey?: string;
   /**
    * (선택) 연결할 수강 id — 출처는 GET /enrollments/mine/schedule 의 `courses[].enrollmentId`
-   * (`status === 'COMPLETED'` 인 것만). 보내면 source=PUNGDONG 이 되고 강사·강의가 서버에서 박제된다.
+   * (**`certifiable === true`** 인 것만 — `status` 가 아니다, 위 ScheduleCourse.certifiable 주석 참고).
+   * 보내면 source=PUNGDONG 이 되고 강사·강의가 서버에서 박제된다.
    * ★ 소유·완료·종목 정합을 BE 가 검증한다: 남의 수강 = 404, 미완료 = 400, 종목 불일치 = 400.
    */
   enrollmentId?: number;

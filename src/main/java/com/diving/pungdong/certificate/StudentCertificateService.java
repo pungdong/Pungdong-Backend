@@ -15,12 +15,16 @@ import com.diving.pungdong.enrollment.EnrollmentRound;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.global.validation.ImageUploadPolicy;
+import com.diving.pungdong.identityverification.IdentityVerification;
 import com.diving.pungdong.identityverification.IdentityVerificationJpaRepo;
 import com.diving.pungdong.identityverification.IdentityVerificationStatus;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -52,7 +56,12 @@ public class StudentCertificateService {
 
     /* ─── 사진 업로드 (2-phase 1단계) ───────────────────────── */
 
-    @Transactional
+    /**
+     * ⚠️ {@code NOT_SUPPORTED} — 이 메서드는 DB 를 전혀 안 건드리는데, 클래스 레벨
+     * {@code @Transactional(readOnly=true)} 때문에 그냥 두면 최대 8MB S3 PUT 이 끝날 때까지
+     * Hikari 커넥션이 묶인다.
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public CertificatePhotoResult uploadPhoto(Account account, MultipartFile image) {
         // S3 를 건드리기 전에 막는다 — 빈 파일 / 타입 위조 / 8MB 초과.
         ImageUploadPolicy.validate(image);
@@ -129,8 +138,8 @@ public class StudentCertificateService {
                 .filter(e -> e.getStudent() != null && e.getStudent().getId().equals(account.getId()))
                 .orElseThrow(ResourceNotFoundException::new); // 없음/비소유 통일 — 존재 숨김
 
-        // 화면(hub 의 status=COMPLETED)과 같은 판정을 공유한다. 갈리면 FE 가 띄운 강의를 여기서 거절하게 된다.
-        if (!EnrollmentCompletion.isFullyCompleted(enrollment)) {
+        // hub 가 certifiable 로 노출하는 것과 **같은 판정**이다. 갈리면 FE 피커에 뜬 강의를 여기서 거절한다.
+        if (!EnrollmentCompletion.isCertifiable(enrollment)) {
             throw new BadRequestException("아직 수강이 끝나지 않은 강의예요.");
         }
 
@@ -171,11 +180,38 @@ public class StudentCertificateService {
         certificateRepo.delete(cert);
 
         if (StringUtils.hasText(photoKey)) {
-            try {
-                photoStorage.delete(photoKey);
-            } catch (RuntimeException e) {
-                log.warn("[certificate] {} 사진 삭제 실패(행은 삭제됨) key={}", id, photoKey, e);
+            deletePhotoAfterCommit(id, photoKey);
+        }
+    }
+
+    /**
+     * 사진 삭제를 <b>커밋 이후</b>로 미룬다.
+     *
+     * <p>{@code certificateRepo.delete()} 는 삭제를 <i>큐에 넣을</i> 뿐 실제 DELETE 는 커밋 시점에 나간다.
+     * 그래서 그 자리에서 S3 를 지우면 (a) 네트워크 왕복 동안 DB 트랜잭션·커넥션을 붙잡고, (b) 커밋이
+     * 실패하면 <b>행은 살아 있는데 사진만 사라져</b> {@code photoViewUrl} 이 404 나는 presigned 를
+     * 내주게 된다. 커밋 이후로 미루면 둘 다 사라진다.
+     *
+     * <p>실패는 삼킨다 — 이미 커밋된 삭제를 되돌릴 수 없고, 남는 건 고아 객체 1개다.
+     */
+    private void deletePhotoAfterCommit(Long id, String photoKey) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            doDeletePhoto(id, photoKey); // 트랜잭션 밖 호출(테스트 등) — 즉시 삭제
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                doDeletePhoto(id, photoKey);
             }
+        });
+    }
+
+    private void doDeletePhoto(Long id, String photoKey) {
+        try {
+            photoStorage.delete(photoKey);
+        } catch (RuntimeException e) {
+            log.warn("[certificate] {} 사진 삭제 실패(행은 삭제됨, 고아 객체 잔존) key={}", id, photoKey, e);
         }
     }
 
@@ -209,7 +245,7 @@ public class StudentCertificateService {
     private String resolveHolderName(Account account) {
         return identityVerificationRepo
                 .findTopByAccountIdAndStatusOrderByIdDesc(account.getId(), IdentityVerificationStatus.VERIFIED)
-                .map(v -> v.getRealName())
+                .map(IdentityVerification::getRealName)
                 .filter(StringUtils::hasText)
                 .orElse(account.getNickName());
     }

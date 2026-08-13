@@ -107,7 +107,14 @@ public class LocalStudentCertificatePhotoStorage implements StudentCertificatePh
             return null;
         }
         String relative = storedRef.substring(at + URL_PREFIX.length() + 1);
-        return baseDir.resolve(relative).normalize();
+        Path resolved = baseDir.resolve(relative).normalize();
+        // normalize 후 baseDir 밖으로 나가면 지우지 않는다 — 저장 참조는 사용자가 보낸 값이라
+        // `..` 이 섞이면 임의 파일 삭제가 된다(dev 한정이지만 한 줄이다). isOwnedBy 와 이중 방어.
+        if (!resolved.startsWith(baseDir.resolve(PHOTO_DIR))) {
+            log.warn("[storage-local] 경로 이탈 시도 무시 ref={}", storedRef);
+            return null;
+        }
+        return resolved;
     }
 
     private String extension(MultipartFile image) {

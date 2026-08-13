@@ -32,17 +32,25 @@ public final class EnrollmentCompletion {
     }
 
     /** 실제로 done 처리된 정규 회차 수. */
-    public static long doneRegularRounds(Enrollment enrollment) {
+    private static long doneRegularRounds(Enrollment enrollment) {
         return enrollment.getRounds().stream()
                 .filter(r -> r.getRoundKind() == RoundKind.REGULAR && r.isDone())
                 .count();
     }
 
     /**
-     * 정규 회차를 전부 이수했는가. 코스에 정규 회차가 0개면 <b>완료로 보지 않는다</b>
-     * (데이터 이상 — 0 == 0 으로 통과시키면 빈 코스가 자격증 발급 근거가 된다).
+     * <b>자격증을 낼 수 있는 수강인가</b> — 정규 회차를 전부 이수했는가.
+     *
+     * <p>코스에 정규 회차가 0개면 완료로 보지 않는다(데이터 이상 — 0 == 0 으로 통과시키면 빈 코스가
+     * 자격증 발급 근거가 된다).
+     *
+     * <p>⚠️ <b>hub 카드의 {@code COMPLETED} 와 같지 않다.</b> 정규를 다 끝낸 뒤 <b>추가세션(EXTRA)</b> 을
+     * 잡으면 그 회차가 결제대기/수락대기라 카드 상태는 {@code PROGRESS} 로 돌아가지만, <b>자격증은 이미
+     * 취득한 것</b>이라 등록을 막으면 안 된다. 두 질문이 실제로 다르므로 하나로 합치지 않는다 —
+     * 대신 hub 응답이 이 값을 {@code certifiable} 로 <b>따로 노출</b>해서, FE 피커가 표시용 상태
+     * ({@code status === 'COMPLETED'})를 대신 읽는 일이 없게 한다.
      */
-    public static boolean isFullyCompleted(Enrollment enrollment) {
+    public static boolean isCertifiable(Enrollment enrollment) {
         int total = totalRegularRounds(enrollment);
         return total > 0 && doneRegularRounds(enrollment) >= total;
     }

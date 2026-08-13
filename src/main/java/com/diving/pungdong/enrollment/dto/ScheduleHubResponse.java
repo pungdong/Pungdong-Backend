@@ -46,6 +46,13 @@ public class ScheduleHubResponse {
         private final List<CertLevel> levels;
         private final String instructorName;
         private final CourseScheduleStatus status;
+        /**
+         * 이 수강으로 <b>자격증을 등록할 수 있는가</b>(정규 회차 전부 이수). 자격증 등록 폼의 "강의 연결"
+         * 피커는 <b>이 값</b>으로 거른다 — {@code status === 'COMPLETED'} 로 거르면 정규를 다 끝낸 뒤
+         * 추가세션(EXTRA)을 잡은 동안 카드가 {@code PROGRESS} 로 돌아가면서 <b>이미 취득한 자격증의
+         * 강의가 피커에서 사라진다</b>. 표시용 상태와 자격 판정은 다른 질문이다.
+         */
+        private final boolean certifiable;
         /** 정규 회차 총 수. FE 가 미잡힌(locked) 회차 placeholder 를 그릴 기준. */
         private final int totalRounds;
         /** 지금 신청 가능한 다음 정규 회차 번호(없으면 null — 직전 미확정/전부 완료). */

@@ -67,7 +67,10 @@ public class StudentCertificateController {
                                       BindingResult result) {
         if (result.hasErrors()) {
             // 어느 필드가 왜 틀렸는지 그대로 노출 — 형식 규칙은 공개 정보라 숨길 이득이 없다(레포 규약).
-            throw new BadRequestException(result.getFieldError().getDefaultMessage());
+            // 클래스 레벨 제약이 생기면 getFieldError() 가 null 이라 NPE→500 이 된다(지금은 필드 제약뿐이지만 방어).
+            throw new BadRequestException(java.util.Optional.ofNullable(result.getFieldError())
+                    .map(org.springframework.validation.FieldError::getDefaultMessage)
+                    .orElse("입력값을 확인해주세요."));
         }
         StudentCertificateResponse created = certificateService.register(account, request);
 

@@ -35,9 +35,12 @@ CREATE TABLE IF NOT EXISTS student_certificate (
     KEY idx_student_certificate_owner (account_id),
     CONSTRAINT fk_student_certificate_account
         FOREIGN KEY (account_id) REFERENCES account (id)
+-- ⚠️ collation 은 스키마 전체와 반드시 같아야 한다(utf8mb4_unicode_ci).
+--    다르면 discipline_code → discipline.code 같은 조인이 "Illegal mix of collations" 로 죽고,
+--    출시 후엔 커지는 PII 테이블에 ALTER … CONVERT TO 를 걸어야 한다.
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
-  COLLATE = utf8mb4_general_ci;
+  COLLATE = utf8mb4_unicode_ci;
 
 -- enrollment_id 는 의도적으로 FK 를 걸지 않는다 — 연결한 수강이 나중에 정리돼도
 -- 자격증(사용자 자산)은 남아야 한다. 값은 등록 시점 스냅샷의 출처 표시일 뿐이다.

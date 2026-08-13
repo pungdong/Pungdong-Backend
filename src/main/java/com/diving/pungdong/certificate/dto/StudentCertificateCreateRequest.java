@@ -10,6 +10,8 @@ import lombok.Setter;
 import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.NotNull;
 import javax.validation.constraints.PastOrPresent;
+import javax.validation.constraints.Pattern;
+import javax.validation.constraints.Positive;
 import javax.validation.constraints.Size;
 import java.time.LocalDate;
 
@@ -37,6 +39,7 @@ public class StudentCertificateCreateRequest {
 
     @NotBlank(message = "자격 단체를 선택해주세요.")
     @Size(max = 50)
+    @Pattern(regexp = "[A-Za-z0-9_-]{1,50}", message = "자격 단체 코드 형식이 올바르지 않아요.")
     private String organizationCode;
 
     /** 표시명 스냅샷(선택) — Sanity 에서 고른 값. 없으면 FE 가 코드로 폴백한다. */
@@ -70,5 +73,6 @@ public class StudentCertificateCreateRequest {
     private String photoFileKey;
 
     /** 연결할 수강 id — 있으면 {@code source=PUNGDONG} 이 되고 강사·강의가 박제된다. */
+    @Positive(message = "잘못된 강의 정보예요.")
     private Long enrollmentId;
 }

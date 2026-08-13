@@ -148,10 +148,14 @@ sequenceDiagram
 | # | 검증 | 실패 |
 |---|---|---|
 | 1 | `enrollment.student == me` | **404**(-1009, 존재 숨김) |
-| 2 | `EnrollmentCompletion.isFullyCompleted` | 400 |
+| 2 | `EnrollmentCompletion.isCertifiable` | 400 |
 | 3 | `course.disciplineCode == request.disciplineCode` | 400 |
 
-> 🔴 **완료 판정은 `EnrollmentCompletion` 을 공유한다.** 강의일정 hub 가 카드를 `COMPLETED` 로 내릴 때와 같은 식이어야 한다 — 갈리면 **FE 피커에 뜬 강의를 BE 가 400 으로 거절**한다. `CourseScheduleStatus.derive()` 단독은 부족하다("잡힌 회차"만 보므로 3회차 중 1회차만 듣고 끝낸 수강도 완료로 본다).
+> 🔴 **판정은 `EnrollmentCompletion.isCertifiable` 하나이고, hub 가 그 값을 `certifiable` 로 노출한다.** FE 피커는 그 필드로 거른다.
+>
+> ⚠️ **`status === 'COMPLETED'` 로 거르면 안 된다 — 다른 질문이다.** 정규를 다 끝낸 뒤 추가세션(EXTRA)을 잡으면 카드 상태는 `PROGRESS` 로 돌아가지만 자격증은 이미 취득한 것이다. 표시용 상태로 판정하면 그 동안 강의가 피커에서 사라진다. 두 값은 일부러 분리돼 있다.
+>
+> `CourseScheduleStatus.derive()` 단독도 부족하다("잡힌 회차"만 보므로 3회차 중 1회차만 듣고 끝낸 수강도 완료로 본다).
 
 **단체 정합은 검사하지 않는다** — 코스의 `organizationCode` 는 "목표 단체"라 실제 발급 단체가 다를 여지가 있다(제휴 발급). 종목처럼 구조적 모순이 아니다.
 
@@ -198,7 +202,7 @@ presigned URL 은 **경로에 객체 key 를 담는다.** URL 이 한 번 새면
 |---|---|
 | `discipline` | `getActiveByCode` 로 종목 검증. **테이블이라 배포 없이 행이 는다**(FE 는 미지 코드 폴백 필수) |
 | `course` | **`CertLevel` enum 재사용**. 옮기지 말 것 — Sanity ↔ enum ↔ `types.ts` 3자 계약의 일부 |
-| `enrollment` | `EnrollmentCompletion` 완료 판정 공유 + 강사·강의 스냅샷 출처 |
+| `enrollment` | `EnrollmentCompletion.isCertifiable` 공유(hub 가 `certifiable` 로 노출) + 강사·강의 스냅샷 출처 |
 | `identityverification` | `holderName` 파생(최신 VERIFIED 실명) |
 | `account` | 소유자. `AccountAnonymizedEvent` 로 탈퇴 파기 수신(**단방향** — account 는 이 패키지를 모른다) |
 | Sanity | 단체·자격 카탈로그. **BE 는 읽지 않는다** — FE 가 등록 시 고른 표시명을 보내고 BE 는 스냅샷 저장만 |

@@ -50,6 +50,14 @@ public interface StudentCertificatePhotoStorage {
      * {@code 7} 과 {@code 71} 은 안 섞인다.
      */
     static boolean isOwnedBy(String storedRef, Long ownerId) {
-        return storedRef != null && ownerId != null && storedRef.contains(ownerPrefix(ownerId));
+        if (storedRef == null || ownerId == null) {
+            return false;
+        }
+        // `..` 을 먼저 잘라낸다 — 이 검사가 유일한 보안 경계라고 문서가 약속하므로, prefix 만 맞으면
+        // `studentCertificate/{내 id}/../../etc/x` 가 통과해 로컬 구현의 경로 이탈로 이어진다.
+        if (storedRef.contains("..")) {
+            return false;
+        }
+        return storedRef.contains(ownerPrefix(ownerId));
     }
 }

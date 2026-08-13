@@ -30,7 +30,7 @@ import java.time.OffsetDateTime;
 @Table(name = "student_certificate", indexes = {
         @Index(name = "idx_student_certificate_owner", columnList = "account_id")
 })
-@Getter @Setter
+@Getter
 @Builder
 @NoArgsConstructor @AllArgsConstructor
 @EqualsAndHashCode(of = "id")

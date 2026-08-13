@@ -274,6 +274,30 @@ class StudentCertificateUseCaseTest {
                 .andExpect(jsonPath("$.photoViewUrl").isNotEmpty());
     }
 
+    @Test
+    @DisplayName("S7: 정규 회차를 다 끝낸 뒤 추가세션을 잡아도 자격증은 등록된다 (카드는 PROGRESS 로 돌아가지만 자격은 취득했다)")
+    void register_allowedWhileExtraRoundInProgress() throws Exception {
+        Account instructor = account("c-s7i@test.com", "강사S7", Role.INSTRUCTOR);
+        Account student = account("c-s7@test.com", "diverS7", Role.STUDENT);
+        Course course = course(instructor, "FREEDIVING", "AIDA");
+        Enrollment e = enrollment(student, course, true, LocalDate.now().minusDays(5));
+
+        // 정규를 다 끝낸 뒤 추가세션(EXTRA)을 잡은 상태 — 미결제라 hub 카드는 PROGRESS 로 되돌아간다.
+        e.addRound(EnrollmentRound.builder()
+                .roundKind(RoundKind.EXTRA).date(LocalDate.now().plusDays(3))
+                .status(EnrollmentStatus.PENDING)
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
+        enrollmentRepo.save(e);
+
+        Map<String, Object> payload = body("FREEDIVING", "AIDA", "LEVEL_2", "EXTRA-OK", "2024-11-02");
+        payload.put("enrollmentId", e.getId());
+        register(student, payload);
+
+        // hub 표시 상태(PROGRESS)로 판정했다면 여기서 400 이 났을 것이다.
+        // hub 가 같은 값을 certifiable 로 노출하는지는 ScheduleHubUseCaseTest SH6 이 검증한다.
+        assertThat(certificateRepo.findAll().get(0).getSource()).isEqualTo(CertificateSource.PUNGDONG);
+    }
+
     /* ════════════════ V — 검증 거절 ════════════════ */
 
     @Test
@@ -349,6 +373,22 @@ class StudentCertificateUseCaseTest {
         payload.put("photoFileKey", victimKey);
 
         mockMvc.perform(post("/certificates").header(HttpHeaders.AUTHORIZATION, token(attacker))
+                        .contentType(MediaType.APPLICATION_JSON).content(write(payload)))
+                .andExpect(status().isBadRequest());
+
+        assertThat(certificateRepo.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("V7: 저장 참조에 `..` 이 섞인 photoFileKey 는 400 — 경로 이탈로 남의 파일을 지울 수 없다")
+    void register_rejectsPathTraversalPhotoKey() throws Exception {
+        Account student = account("c-v7@test.com", "diverV7", Role.STUDENT);
+        Map<String, Object> payload = body("FREEDIVING", "AIDA", "LEVEL_2", "TRAVERSAL", "2024-11-02");
+        // prefix 는 내 것이지만 `..` 로 baseDir 를 벗어난다 — contains 검사만으론 통과하던 형태.
+        payload.put("photoFileKey",
+                "http://localhost:8080/local-uploads/studentCertificate/" + student.getId() + "/../../../etc/passwd");
+
+        mockMvc.perform(post("/certificates").header(HttpHeaders.AUTHORIZATION, token(student))
                         .contentType(MediaType.APPLICATION_JSON).content(write(payload)))
                 .andExpect(status().isBadRequest());
 

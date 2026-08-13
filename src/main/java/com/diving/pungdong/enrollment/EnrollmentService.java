@@ -656,8 +656,8 @@ public class EnrollmentService {
         Course course = e.getCourse();
         int totalRounds = EnrollmentCompletion.totalRegularRounds(e);
         // COMPLETED 는 모든 정규회차가 잡혀 done 일 때만 — 아직 안 잡은 회차가 남으면 진행중.
-        // 판정은 EnrollmentCompletion 이 소유한다(자격증 도메인의 "연결 가능한 수강" 검사와 공유).
-        if (status == CourseScheduleStatus.COMPLETED && !EnrollmentCompletion.isFullyCompleted(e)) {
+        boolean certifiable = EnrollmentCompletion.isCertifiable(e);
+        if (status == CourseScheduleStatus.COMPLETED && !certifiable) {
             status = CourseScheduleStatus.PROGRESS;
         }
         CourseRound next = course == null ? null : RoundGate.nextSchedulable(e);
@@ -673,6 +673,7 @@ public class EnrollmentService {
                 .instructorName(course == null || course.getInstructor() == null
                         ? null : course.getInstructor().getNickName())
                 .status(status)
+                .certifiable(certifiable)
                 .totalRounds(totalRounds)
                 .nextRoundIndex(nextRoundIndex)
                 .canScheduleExtra(canScheduleExtra)
