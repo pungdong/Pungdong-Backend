@@ -80,32 +80,33 @@ public class RealPortOneIdentityVerifier implements IdentityVerifier {
                 + "\"identityNumber\":\"" + esc(toIdentityNumber(c)) + "\"},"
                 + "\"method\":\"" + esc(c.method().name()) + "\","
                 + "\"operator\":\"" + esc(c.carrier().name()) + "\"}";
-        postExpectOk(String.format(SEND_URL, c.portoneVerificationId()), body, "send");
+        postExpectOk(String.format(SEND_URL, c.portoneVerificationId()), body, "send", c.portoneVerificationId());
         // 다날 SMS OTP 유효시간(관행상 3~5분). 실제 만료는 포트원/다날이 confirm 시 강제 — 여기선 표시값.
         return new SendResult(java.time.OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(5));
     }
 
     @Override
     public SendResult resend(String portoneVerificationId) {
-        postExpectOk(String.format(RESEND_URL, portoneVerificationId), "{" + trimTrailingComma(storeIdField()) + "}", "resend");
+        postExpectOk(String.format(RESEND_URL, portoneVerificationId),
+                "{" + trimTrailingComma(storeIdField()) + "}", "resend", portoneVerificationId);
         return new SendResult(java.time.OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(5));
     }
 
     @Override
     public ConfirmResult confirm(String portoneVerificationId, String otp) {
         String body = "{" + storeIdField() + "\"otp\":\"" + esc(otp) + "\"}";
-        HttpResponse<String> res = post(String.format(CONFIRM_URL, portoneVerificationId), body, "confirm");
+        HttpResponse<String> res = post(String.format(CONFIRM_URL, portoneVerificationId), body, "confirm", portoneVerificationId);
         JsonNode json = readJson(res.body());
         if (res.statusCode() / 100 != 2) {
             // OTP 불일치/만료/시도초과 — 포트원 에러. type/message 로 최대한 판별(개통 후 보정 대상).
-            log.warn("[identity-portone] confirm 실패 HTTP {} type={} msg={}", res.statusCode(),
-                    json.path("type").asText(""), json.path("message").asText(""));
+            log.warn("[identity-portone] confirm 실패 id={} HTTP {} type={} msg={}", portoneVerificationId,
+                    res.statusCode(), json.path("type").asText(""), json.path("message").asText(""));
             return ConfirmResult.failed(mapOtpError(json.path("type").asText("") + " " + json.path("message").asText("")));
         }
         JsonNode iv = json.has("identityVerification") ? json.path("identityVerification") : json;
         String status = iv.path("status").asText("");
         if (!"VERIFIED".equals(status)) {
-            log.warn("[identity-portone] confirm 2xx 이나 status={} — 실패 처리", status);
+            log.warn("[identity-portone] confirm 2xx 이나 status={} — 실패 처리 id={}", status, portoneVerificationId);
             return ConfirmResult.failed(IdentityVerificationErrorCode.OTP_MISMATCH);
         }
         JsonNode vc = iv.path("verifiedCustomer");
@@ -117,15 +118,21 @@ public class RealPortOneIdentityVerifier implements IdentityVerifier {
                 parseCarrier(vc.path("operator").asText("")));
         // 응답 경로(verifiedCustomer.*) 검증용 — 값은 절대 남기지 않는다(CI/DI = 고유식별정보, 이름/번호 = PII).
         // 존재 여부만 불리언으로. ci/di 가 false 로 찍히면 응답 경로가 어긋난 것(체크리스트 (d)).
-        log.info("[identity-portone] confirm VERIFIED ci={} di={} name={} phone={} operator={}",
-                customer.ci() != null, customer.di() != null, customer.realName() != null,
-                customer.phoneNumber() != null, customer.carrier());
+        log.info("[identity-portone] confirm VERIFIED id={} ci={} di={} name={} phone={} operator={}",
+                portoneVerificationId, customer.ci() != null, customer.di() != null,
+                customer.realName() != null, customer.phoneNumber() != null, customer.carrier());
         return ConfirmResult.verified(customer);
     }
 
     /* ─── 내부 ─────────────────────────────────────────── */
 
-    private HttpResponse<String> post(String url, String body, String op) {
+    /**
+     * 모든 로그 라인에 {@code id}(우리가 발급한 portoneVerificationId, PII 아님)를 싣는다 —
+     * 알림을 받고 로그 ↔ DB 레코드 ↔ 포트원 콘솔을 한 키로 추적하기 위한 상관관계 ID.
+     * 전송 실패(timeout·연결 불가 = 포트원 미도달)도 여기서 태그를 남겨야
+     * {@code [identity-portone]} 메트릭 필터에 잡힌다(안 남기면 일반 500 예외로만 빠짐).
+     */
+    private HttpResponse<String> post(String url, String body, String op, String id) {
         HttpRequest req = HttpRequest.newBuilder(URI.create(url))
                 .timeout(Duration.ofSeconds(15))
                 .header("Authorization", authHeader)
@@ -136,19 +143,22 @@ public class RealPortOneIdentityVerifier implements IdentityVerifier {
             return httpClient.send(req, HttpResponse.BodyHandlers.ofString());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            log.warn("[identity-portone] {} 전송 중단(interrupted) id={}", op, id);
             throw new IllegalStateException("portone " + op + " interrupted", e);
         } catch (java.io.IOException e) {
+            log.warn("[identity-portone] {} 전송 실패(포트원 미도달) id={} cause={}", op, id, e.toString());
             throw new IllegalStateException("portone " + op + " transport error", e);
         }
     }
 
-    /** 발송/재발송 — 2xx 아니면 SMS_SEND_FAILED = 인프라 장애 → 400. */
-    private void postExpectOk(String url, String body, String op) {
-        HttpResponse<String> res = post(url, body, op);
+    /** 발송/재발송 — 2xx 아니면 SMS_SEND_FAILED = 인프라 장애 → 400. 성공 INFO 는 실패율의 분모. */
+    private void postExpectOk(String url, String body, String op, String id) {
+        HttpResponse<String> res = post(url, body, op, id);
         if (res.statusCode() / 100 != 2) {
-            log.warn("[identity-portone] {} 실패 HTTP {} body={}", op, res.statusCode(), res.body());
+            log.warn("[identity-portone] {} 실패 id={} HTTP {} body={}", op, id, res.statusCode(), res.body());
             throw new BadRequestException("본인확인 문자 발송에 실패했습니다. 잠시 후 다시 시도해주세요.");
         }
+        log.info("[identity-portone] {} OK id={}", op, id);
     }
 
     private String storeIdField() {
