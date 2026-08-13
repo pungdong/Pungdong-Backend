@@ -190,6 +190,18 @@ public class ExceptionAdvice {
                 Integer.parseInt(getMessage("concurrentModification.code")), getMessage("concurrentModification.msg"));
     }
 
+    /**
+     * 환불을 지금 처리할 수 없어 상태 전이(거절·취소·만료)를 확정하지 못함(C2) — 앞선 결과 미확인 환불 시도가
+     * 대사되면 재시도로 흐른다. 발행자 트랜잭션은 이미 롤백됐고, 사용자에겐 잠시 후 재시도/문의를 안내한다.
+     */
+    @ExceptionHandler(RefundBlockedException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public CommonResult refundBlocked(RefundBlockedException e) {
+        log.error("[payment] 환불 처리 불가로 상태 전이 롤백 — {}", e.getMessage());
+        return responseService.getFailResult(
+                Integer.parseInt(getMessage("refundBlocked.code")), getMessage("refundBlocked.msg"));
+    }
+
     @ExceptionHandler(EmailDuplicationException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public CommonResult emailDuplication(EmailDuplicationException e) {

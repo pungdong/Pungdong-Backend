@@ -15,6 +15,7 @@ import com.diving.pungdong.enrollment.EnrollmentRound;
 import com.diving.pungdong.enrollment.EnrollmentRoundJpaRepo;
 import com.diving.pungdong.enrollment.EnrollmentStatus;
 import com.diving.pungdong.global.advice.exception.PaymentGatewayException;
+import com.diving.pungdong.global.advice.exception.RefundBlockedException;
 import com.diving.pungdong.global.security.JwtTokenProvider;
 import com.diving.pungdong.payment.PaymentOrder;
 import com.diving.pungdong.payment.PaymentOrderJpaRepo;
@@ -75,7 +76,7 @@ class RefundUseCaseTest {
     @Autowired com.diving.pungdong.payment.RefundService refundService;
 
     // 레지스트리를 mock — 어댑터 3개가 모두 빈이라 PaymentGateway 타입 mock 은 주입이 모호해진다.
-    // cancel 에 넘어가는 인자와 "어느 PG 로 갔는지"를 검증하기 위해(반환값은 서비스가 쓰지 않는다).
+    // cancel 인자·"어느 PG 로 갔는지" 검증 + 이제 반환값(canceled)도 서비스가 본다(H-2) → 기본 stub 로 확정 취소.
     @MockBean com.diving.pungdong.payment.PaymentGatewayRegistry gateways;
     final com.diving.pungdong.payment.PaymentGateway gateway =
             org.mockito.Mockito.mock(com.diving.pungdong.payment.PaymentGateway.class);
@@ -84,6 +85,9 @@ class RefundUseCaseTest {
     void routeToMock() {
         org.mockito.BDDMockito.given(gateways.active()).willReturn(gateway);
         org.mockito.BDDMockito.given(gateways.forOrder(org.mockito.ArgumentMatchers.any())).willReturn(gateway);
+        // 기본 — PG 취소는 확정 성공. 미확정/거절 시나리오는 각 테스트가 override.
+        org.mockito.BDDMockito.given(gateway.cancel(anyString(), anyInt(), anyInt(), anyString()))
+                .willReturn(new com.diving.pungdong.payment.PaymentGateway.CancelResult(true, "CANCELED", OffsetDateTime.now()));
     }
 
     @AfterEach
@@ -234,6 +238,8 @@ class RefundUseCaseTest {
         var inicis = org.mockito.Mockito.mock(com.diving.pungdong.payment.PaymentGateway.class);
         org.mockito.BDDMockito.given(gateways.active()).willReturn(toss);
         org.mockito.BDDMockito.given(gateways.forOrder(com.diving.pungdong.payment.PaymentProvider.INICIS)).willReturn(inicis);
+        org.mockito.BDDMockito.given(inicis.cancel(anyString(), anyInt(), anyInt(), anyString()))
+                .willReturn(new com.diving.pungdong.payment.PaymentGateway.CancelResult(true, "CANCELED", OffsetDateTime.now()));
 
         mockMvc.perform(post("/enrollments/{id}/refund", f.enrollmentId).header(HttpHeaders.AUTHORIZATION, token(f.student)))
                 .andExpect(status().isOk());
@@ -361,7 +367,7 @@ class RefundUseCaseTest {
     }
 
     @Test
-    @DisplayName("RF10 결과를 모르는 시도(REQUESTED 잔존)가 있으면 자동 환불을 건너뛴다 — 이중환불 방지, 대사 대상")
+    @DisplayName("RF10 결과 미확인 시도(REQUESTED 잔존)면 자동 환불을 막고 RefundBlockedException — PG 재호출·새 시도 없음")
     void unresolvedAttemptBlocksAutoRefund() {
         Account stu = accountRepo.save(Account.builder().email("rf10@pd.com").password("x").nickName("학생10")
                 .roles(new HashSet<>(Set.of(Role.STUDENT))).build());
@@ -374,12 +380,55 @@ class RefundUseCaseTest {
                 .paymentOrder(order).amount(30000).reason("이전 시도")
                 .status(RefundStatus.REQUESTED).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
 
-        refundService.refundRoundFully(roundId, "강사 거절");
+        // 옛 동작(조용히 return 0)은 발행자를 커밋시켜 돈만 남겼다 → 이제 던져서 발행자까지 롤백시킨다(C2).
+        assertThatThrownBy(() -> refundService.refundRoundFully(roundId, "강사 거절"))
+                .isInstanceOf(RefundBlockedException.class);
 
         // PG 를 다시 부르지 않는다 — 이미 취소됐을 수 있으므로 사람이 대사해야 한다
         verify(gateway, org.mockito.Mockito.never()).cancel(eq("pkU"), anyInt(), anyInt(), anyString());
         assertThat(orderRepo.findByOrderId("ord-pkU").orElseThrow().getRefundedAmount()).isZero();
         assertThat(refundRepo.findAll()).hasSize(1); // 새 시도 행도 안 생김
+    }
+
+    @Test
+    @DisplayName("RF14 PG 가 취소를 확정하지 않으면(canceled=false) DONE 으로 기록하지 않고 FAILED + 롤백 (H-2)")
+    void unconfirmedCancelNotRecordedDone() {
+        Account stu = accountRepo.save(Account.builder().email("rf14@pd.com").password("x").nickName("학생14")
+                .roles(new HashSet<>(Set.of(Role.STUDENT))).build());
+        Account ins = accountRepo.save(Account.builder().email("rfi14@pd.com").password("x").nickName("강사14")
+                .roles(new HashSet<>(Set.of(Role.INSTRUCTOR))).build());
+        Long roundId = paidSingleRound(stu, ins, EnrollmentStatus.ACCEPT_PENDING, 30000, "pkNC");
+        // PG 가 2xx 를 주지만 취소를 확정하지 않은 상태(canceled=false) — 예: 비동기·미지원 상태
+        org.mockito.BDDMockito.given(gateway.cancel(anyString(), anyInt(), anyInt(), anyString()))
+                .willReturn(new com.diving.pungdong.payment.PaymentGateway.CancelResult(false, "IN_PROGRESS", OffsetDateTime.now()));
+
+        assertThatThrownBy(() -> refundService.refundRoundFully(roundId, "강사 거절"))
+                .isInstanceOf(PaymentGatewayException.class);
+
+        // DONE 으로 기록되지 않는다 — 잔액 그대로, 이력은 FAILED(대사 대상)
+        assertThat(orderRepo.findByOrderId("ord-pkNC").orElseThrow().getRefundedAmount()).isZero();
+        assertThat(refundRepo.findAll()).allMatch(r -> r.getStatus() == RefundStatus.FAILED);
+    }
+
+    @Test
+    @DisplayName("RF15 결과 미확인 시도가 있으면 강사 거절이 롤백된다 — 회차가 REJECTED 로 확정되지 않는다 (C2)")
+    void rejectRollsBackWhenRefundBlocked() {
+        Account stu = accountRepo.save(Account.builder().email("rf15@pd.com").password("x").nickName("학생15")
+                .roles(new HashSet<>(Set.of(Role.STUDENT))).build());
+        Account ins = accountRepo.save(Account.builder().email("rfi15@pd.com").password("x").nickName("강사15")
+                .roles(new HashSet<>(Set.of(Role.INSTRUCTOR))).build());
+        Long roundId = paidSingleRound(stu, ins, EnrollmentStatus.ACCEPT_PENDING, 30000, "pkRB");
+        PaymentOrder order = orderRepo.findByOrderId("ord-pkRB").orElseThrow();
+        refundRepo.save(com.diving.pungdong.payment.RefundOrder.builder()
+                .paymentOrder(order).amount(30000).reason("이전 시도")
+                .status(RefundStatus.REQUESTED).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
+
+        // 거절 → 동기 이벤트 → refundRoundFully 가 막힘 → 거절 트랜잭션 전체 롤백
+        assertThatThrownBy(() -> instructorEnrollmentService.reject(ins, roundId, "거절 사유"))
+                .isInstanceOf(RefundBlockedException.class);
+
+        // 회차는 REJECTED 로 확정되지 않고 ACCEPT_PENDING 유지(돈만 남는 상태를 막음)
+        assertThat(roundRepo.findById(roundId).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.ACCEPT_PENDING);
     }
 
     @Test

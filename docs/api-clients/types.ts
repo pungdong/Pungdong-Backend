@@ -2472,6 +2472,12 @@ export const ErrorCode = {
    * 나오는 곳: 결제 승인/취소·일정 변경·취소 등 상태 전이 엔드포인트 전반.
    */
   CONCURRENT_MODIFICATION: -1021,
+  /**
+   * 환불을 지금 처리할 수 없어 그에 딸린 상태 전이(취소·거절)를 확정하지 못함 (HTTP 409).
+   * ★ 앞선 결과 미확인 환불 시도가 대사돼야 흐른다 — 사용자에겐 "잠시 후 재시도/고객센터 문의" 안내.
+   * 나오는 곳: 수강 환불(POST /enrollments/{id}/refund)·취소 등 환불이 걸린 상태 전이.
+   */
+  REFUND_BLOCKED: -1022,
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];

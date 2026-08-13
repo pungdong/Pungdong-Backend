@@ -101,6 +101,12 @@ class MultiRoundProgressUseCaseTest {
         org.mockito.BDDMockito.given(gateway.confirm(org.mockito.ArgumentMatchers.any()))
                 .willReturn(new com.diving.pungdong.payment.PaymentGateway.ConfirmResult(
                         true, "DONE", "간편결제", OffsetDateTime.now(ZoneOffset.UTC), null, "pk_test_1"));
+        // 환불 취소는 확정 성공(H-2 — 서비스가 canceled 를 본다).
+        org.mockito.BDDMockito.given(gateway.cancel(org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt(),
+                        org.mockito.ArgumentMatchers.anyString()))
+                .willReturn(new com.diving.pungdong.payment.PaymentGateway.CancelResult(
+                        true, "CANCELED", OffsetDateTime.now(ZoneOffset.UTC)));
     }
 
     @AfterEach
