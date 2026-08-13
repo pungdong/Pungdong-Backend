@@ -35,6 +35,12 @@ jobs:
       - name: Run tests
         run: ./gradlew test --no-daemon
 
+      # 실 MySQL(Testcontainers) 동시성 검증 — H-1 이중환불·H-4 좌석 overbooking. H2 로는 SELECT FOR UPDATE·
+      # REPEATABLE READ 스냅샷 의미를 못 재현해 기본 test 로는 못 잡는다. GitHub 러너엔 Docker 가 있어 실행되고
+      # (OrbStack 소켓 없음 → 표준 /var/run/docker.sock 자동 감지), 로컬 Docker 없는 환경은 disabledWithoutDocker 로 skip.
+      - name: Run MySQL concurrency tests (Testcontainers)
+        run: ./gradlew mysqlTest --no-daemon
+
       # 테스트 실패 시 HTML 리포트 / XML 결과를 artifact 로 업로드 — 디버깅 용
       - name: Upload test report on failure
         if: failure()
@@ -43,5 +49,5 @@ jobs:
           name: test-report
           path: |
             build/reports/tests/
-            build/test-results/test/
+            build/test-results/
           retention-days: 7

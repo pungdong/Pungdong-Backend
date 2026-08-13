@@ -55,6 +55,11 @@ dependencies {
     annotationProcessor 'org.projectlombok:lombok'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'com.h2database:h2'
+    // 동시성(락) 테스트 — H2 는 SELECT FOR UPDATE 를 제대로 못 다뤄(락 타임아웃) 이중환불·오버부킹을 검증 못 한다.
+    // Testcontainers 로 실 MySQL 을 띄워 Flyway 마이그레이션까지 돌린 뒤 두 스레드로 race 를 재현한다.
+    testImplementation platform('org.testcontainers:testcontainers-bom:1.20.6')
+    testImplementation 'org.testcontainers:mysql'
+    testImplementation 'org.testcontainers:junit-jupiter'
     testImplementation 'org.springframework.restdocs:spring-restdocs-mockmvc'
     testImplementation 'org.springframework.security:spring-security-test'
     implementation 'org.springframework.boot:spring-boot-starter-mail'
@@ -68,10 +73,43 @@ dependencies {
     implementation 'org.flywaydb:flyway-mysql'
 }
 
+// OrbStack(Docker 29+)은 최소 API 1.40 을 요구하는데 docker-java 가 기본 1.32 로 붙어 400(too old).
+// Test worker(포크 JVM)는 셸 env 를 상속하지 않으므로 여기서 직접 넣는다. 소켓이 있을 때만 = 로컬 OrbStack;
+// CI(표준 /var/run/docker.sock)엔 이 파일이 없어 아무것도 안 하고 기본 감지를 쓴다(포터블).
+def configureOrbStackDocker = { Test t ->
+    def orbSock = "${System.getProperty('user.home')}/.orbstack/run/docker.sock"
+    if (file(orbSock).exists()) {
+        t.environment 'DOCKER_HOST', "unix://${orbSock}"
+        t.environment 'TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE', '/var/run/docker.sock'
+        t.environment 'TESTCONTAINERS_RYUK_DISABLED', 'true'
+        // docker-java 는 env DOCKER_API_VERSION 이 아니라 system property `api.version` 으로 버전을 읽는다 → 둘 다 고정.
+        t.environment 'DOCKER_API_VERSION', '1.41'
+        t.systemProperty 'api.version', '1.41'
+    }
+}
+
 test {
     maxHeapSize = "1g"
     outputs.dir snippetsDir
-    useJUnitPlatform()
+    // 기본 스위트는 hermetic(H2·외부 무의존, testing.md). @Tag("mysql")(실 MySQL Testcontainers 동시성 테스트)은
+    // 제외 — H2 컨텍스트 캐시와 섞이면 축출로 공유 mem DB 스키마가 깨진다. 그건 아래 mysqlTest 가 Docker 로 돌린다.
+    useJUnitPlatform {
+        excludeTags 'mysql'
+    }
+}
+
+// 실 MySQL 동시성 검증(H-1 이중환불·H-4 좌석 overbooking) — Testcontainers(Docker 필요). H2 가 SELECT FOR UPDATE·
+// REPEATABLE READ 스냅샷 의미를 재현 못 해 기본 스위트로는 못 잡는 것만 격리해서 돈다. Docker 없으면 클래스가
+// disabledWithoutDocker 로 skip. CI 는 Docker 가 있으니 별도 스텝으로 실행(ci.yml).
+tasks.register('mysqlTest', Test) {
+    description = '실 MySQL(Testcontainers) 동시성 테스트 — @Tag("mysql")'
+    group = 'verification'
+    maxHeapSize = "1g"
+    useJUnitPlatform {
+        includeTags 'mysql'
+    }
+    shouldRunAfter test
+    configureOrbStackDocker(it)
 }
 
 asciidoctor {
