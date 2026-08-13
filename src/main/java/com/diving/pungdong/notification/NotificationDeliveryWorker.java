@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -77,18 +78,40 @@ public class NotificationDeliveryWorker {
         if (anySuccess) {
             row.markSent();
         } else if (anyTransient) {
-            int nextAttempt = row.getAttempts() + 1;
-            Duration delay = backoff(nextAttempt);
-            // 마케팅 재시도가 야간으로 넘어가면 다음 08:00 KST 로 클램프(야간 광고 금지 유지).
-            OffsetDateTime retryAt = category.isMarketing()
-                    ? MarketingSendWindow.clamp(java.time.Instant.now().plus(delay))
-                    : OffsetDateTime.now(ZoneOffset.UTC).plus(delay);
-            row.markFailedAndScheduleRetry("transient FCM failure on all tokens", retryAt);
+            row.markFailedAndScheduleRetry("transient FCM failure on all tokens", nextRetryAt(row));
         } else {
             row.markGaveUp("all tokens permanent failure");
             log.warn("Notification {} gave up: all {} tokens returned permanent failure",
                     row.getId(), tokens.size());
         }
+    }
+
+    /**
+     * {@link #deliver(Long)} 가 예외로 죽었을 때 <b>디스패처가</b> 호출하는 실패 기록 경로.
+     *
+     * <p>deliver 는 {@code REQUIRES_NEW} 라 예외 시 자기 트랜잭션이 통째로 롤백된다 — 즉 상태도
+     * {@code attempts} 도 그대로 남는다. 그대로 두면 픽업 쿼리가 {@code ORDER BY createdAt ASC} 라
+     * <b>다음 틱에도 같은 행이 선두로 재선택</b>되어 큐 전체가 영구 정지하고({@code poison pill}),
+     * {@code attempts} 가 안 올라 {@code MAX_ATTEMPTS} 초과 → {@code GAVE_UP} 구제도 영영 발동하지 않는다.
+     * 그래서 <b>새 트랜잭션</b>으로 실패를 기록해 백오프를 태운다.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordDeliveryFailure(Long id, String error) {
+        NotificationOutbox row = outboxRepo.findById(id).orElse(null);
+        if (row == null
+                || row.getStatus() == NotificationStatus.SENT
+                || row.getStatus() == NotificationStatus.GAVE_UP) {
+            return; // 그새 처리됨 — 멱등
+        }
+        row.markFailedAndScheduleRetry(error, nextRetryAt(row));
+    }
+
+    /** 다음 재시도 시각. 마케팅은 야간(21~08 KST) 밖으로 클램프한다(정보통신망법 §50). */
+    private OffsetDateTime nextRetryAt(NotificationOutbox row) {
+        Duration delay = backoff(row.getAttempts() + 1);
+        return row.getType().getCategory().isMarketing()
+                ? MarketingSendWindow.clamp(Instant.now().plus(delay))
+                : OffsetDateTime.now(ZoneOffset.UTC).plus(delay);
     }
 
     private Duration backoff(int attempts) {
