@@ -31,7 +31,9 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -87,22 +89,34 @@ class NotificationEventCatalogTest {
         transactionTemplate.executeWithoutResult(s -> eventPublisher.publishEvent(event));
     }
 
-    /** 발행된 단 한 건의 outbox 행. */
-    private NotificationOutbox onlyOutbox() {
-        assertThat(outboxRepo.findAll()).hasSize(1);
-        return outboxRepo.findAll().get(0);
+    /**
+     * 이 테스트가 만든 계정 앞으로 발행된 단 한 건의 outbox 행.
+     *
+     * <p>⚠️ <b>전체 행 수로 단언하지 않는다.</b> 이제 수강신청·수락·결제 등 다른 use-case 테스트도
+     * 알림을 발행하므로, 같은 컨텍스트를 공유하는 앞선 테스트 클래스가 남긴 행이 있으면 전역
+     * 카운트가 흔들린다. 수신자로 좁혀 이 테스트를 순서 독립으로 만든다.
+     */
+    private NotificationOutbox onlyOutbox(Account recipient) {
+        List<NotificationOutbox> mine = outboxRepo.findAll().stream()
+                .filter(r -> recipient.getId().equals(r.getRecipientAccountId()))
+                .collect(Collectors.toList());
+        assertThat(mine).hasSize(1);
+        return mine.get(0);
     }
 
-    /** 발행된 단 한 건의 알림함 행. */
-    private UserNotification onlyInbox() {
-        assertThat(userNotificationRepo.findAll()).hasSize(1);
-        return userNotificationRepo.findAll().get(0);
+    /** 같은 이유로 수신자 기준. */
+    private UserNotification onlyInbox(Account recipient) {
+        List<UserNotification> mine = userNotificationRepo.findAll().stream()
+                .filter(r -> recipient.getId().equals(r.getRecipientAccountId()))
+                .collect(Collectors.toList());
+        assertThat(mine).hasSize(1);
+        return mine.get(0);
     }
 
     /** outbox payload 와 알림함 data 가 같은 라우팅 좌표를 담고 있는지. */
-    private void assertRoutingData(String... expectedFragments) {
-        String payload = onlyOutbox().getPayload();
-        String inboxData = onlyInbox().getData();
+    private void assertRoutingData(Account recipient, String... expectedFragments) {
+        String payload = onlyOutbox(recipient).getPayload();
+        String inboxData = onlyInbox(recipient).getData();
         for (String fragment : expectedFragments) {
             assertThat(payload).contains(fragment);
             assertThat(inboxData).contains(fragment);
@@ -120,12 +134,12 @@ class NotificationEventCatalogTest {
                 .courseTitle("프리다이빙 입문").instructorNickName("김강사")
                 .build());
 
-        NotificationOutbox row = onlyOutbox();
+        NotificationOutbox row = onlyOutbox(student);
         assertThat(row.getType()).isEqualTo(NotificationType.ENROLLMENT_ACCEPTED);
         assertThat(row.getType().getCategory()).isEqualTo(NotificationCategory.RESERVATION);
         assertThat(row.getRecipientAccountId()).isEqualTo(student.getId());
         assertThat(row.getPayload()).contains("김강사님이 프리다이빙 입문 신청을 수락했어요");
-        assertRoutingData("\"type\":\"ENROLLMENT_ACCEPTED\"",
+        assertRoutingData(student, "\"type\":\"ENROLLMENT_ACCEPTED\"",
                 "\"courseId\":\"7\"", "\"enrollmentId\":\"12\"", "\"roundId\":\"34\"");
     }
 
@@ -140,8 +154,8 @@ class NotificationEventCatalogTest {
                 .courseTitle("프리다이빙 입문").instructorNickName("김강사")
                 .build());
 
-        assertThat(onlyOutbox().getType()).isEqualTo(NotificationType.ENROLLMENT_REJECTED);
-        assertThat(onlyOutbox().getPayload()).contains("전액 환불됩니다");
+        assertThat(onlyOutbox(student).getType()).isEqualTo(NotificationType.ENROLLMENT_REJECTED);
+        assertThat(onlyOutbox(student).getPayload()).contains("전액 환불됩니다");
     }
 
     @Test
@@ -155,8 +169,8 @@ class NotificationEventCatalogTest {
                 .courseTitle("프리다이빙 입문").instructorNickName("김강사")
                 .build());
 
-        assertThat(onlyOutbox().getType()).isEqualTo(NotificationType.ENROLLMENT_SLOTS_PROPOSED);
-        assertThat(onlyOutbox().getPayload()).contains("확인하고 선택해 주세요");
+        assertThat(onlyOutbox(student).getType()).isEqualTo(NotificationType.ENROLLMENT_SLOTS_PROPOSED);
+        assertThat(onlyOutbox(student).getPayload()).contains("확인하고 선택해 주세요");
     }
 
     @Test
@@ -171,9 +185,9 @@ class NotificationEventCatalogTest {
                 .paid(false)
                 .build());
 
-        assertThat(onlyOutbox().getType()).isEqualTo(NotificationType.ENROLLMENT_EXPIRED);
-        assertThat(onlyOutbox().getPayload()).contains("결제 기한이 지나");
-        assertThat(onlyOutbox().getPayload()).doesNotContain("환불되었어요");
+        assertThat(onlyOutbox(student).getType()).isEqualTo(NotificationType.ENROLLMENT_EXPIRED);
+        assertThat(onlyOutbox(student).getPayload()).contains("결제 기한이 지나");
+        assertThat(onlyOutbox(student).getPayload()).doesNotContain("환불되었어요");
     }
 
     @Test
@@ -188,7 +202,7 @@ class NotificationEventCatalogTest {
                 .paid(true)
                 .build());
 
-        assertThat(onlyOutbox().getPayload()).contains("전액 환불되었어요");
+        assertThat(onlyOutbox(student).getPayload()).contains("전액 환불되었어요");
     }
 
     @Test
@@ -202,7 +216,7 @@ class NotificationEventCatalogTest {
                 .courseTitle("프리다이빙 입문").studentNickName("이학생")
                 .build());
 
-        NotificationOutbox row = onlyOutbox();
+        NotificationOutbox row = onlyOutbox(instructor);
         assertThat(row.getType()).isEqualTo(NotificationType.ENROLLMENT_SUBMITTED);
         assertThat(row.getRecipientAccountId()).isEqualTo(instructor.getId());
         assertThat(row.getPayload()).contains("이학생님이 프리다이빙 입문을 신청했어요");
@@ -219,8 +233,8 @@ class NotificationEventCatalogTest {
                 .courseTitle("프리다이빙 입문")
                 .build());
 
-        assertThat(onlyOutbox().getType()).isEqualTo(NotificationType.ROUND_COMPLETED);
-        assertThat(onlyOutbox().getPayload()).contains("후기를 남겨주세요");
+        assertThat(onlyOutbox(student).getType()).isEqualTo(NotificationType.ROUND_COMPLETED);
+        assertThat(onlyOutbox(student).getPayload()).contains("후기를 남겨주세요");
     }
 
     @Test
@@ -234,12 +248,12 @@ class NotificationEventCatalogTest {
                 .courseTitle("프리다이빙 입문").amount(1234567)
                 .build());
 
-        NotificationOutbox row = onlyOutbox();
+        NotificationOutbox row = onlyOutbox(student);
         assertThat(row.getType()).isEqualTo(NotificationType.PAYMENT_COMPLETED);
         // payment 채널은 앱에 이미 만들어져 있던 빈 채널이다 — 신설이 아니라 첫 사용이라 앱 변경이 필요 없다.
         assertThat(row.getType().getCategory()).isEqualTo(NotificationCategory.PAYMENT);
         assertThat(row.getPayload()).contains("1,234,567원 결제가 완료되었어요");
-        assertRoutingData("\"orderId\":\"56\"");
+        assertRoutingData(student, "\"orderId\":\"56\"");
     }
 
     @Test
@@ -253,7 +267,7 @@ class NotificationEventCatalogTest {
                 .courseTitle("프리다이빙 입문").amount(50000)
                 .build());
 
-        NotificationOutbox row = onlyOutbox();
+        NotificationOutbox row = onlyOutbox(student);
         assertThat(row.getType()).isEqualTo(NotificationType.REFUND_COMPLETED);
         assertThat(row.getType().getCategory()).isEqualTo(NotificationCategory.PAYMENT);
         assertThat(row.getPayload()).contains("50,000원이 환불되었어요");
@@ -270,8 +284,8 @@ class NotificationEventCatalogTest {
                 .courseTitle("프리다이빙 입문")
                 .build());
 
-        assertThat(onlyInbox().getData()).doesNotContain("null");
-        assertThat(onlyInbox().getData()).contains("\"roundId\":\"34\"");
+        assertThat(onlyInbox(student).getData()).doesNotContain("null");
+        assertThat(onlyInbox(student).getData()).contains("\"roundId\":\"34\"");
     }
 
     @Test
