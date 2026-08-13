@@ -158,7 +158,9 @@ pungdong:
   # staging/prod 만 실연동: PAYMENT_MODE=toss + 시크릿/클라이언트 키. 시크릿 키는 BE 밖으로 안 나간다
   # (승인은 BE 가 /v1/payments/confirm 으로). FE 엔 client-key(공개)만 내려간다.
   payment:
-    mode: ${PAYMENT_MODE:stub}                    # stub | toss | kcp | inicis  (부팅 시 하나만 활성)
+    # ⚠️ 기본값(:stub) 의도적으로 없음 — 미설정 시 부팅 실패시켜 "PAYMENT_MODE 누락 → 전 결제 무료 승인" 을 막는다.
+    # 로컬은 .env.local 에서 PAYMENT_MODE=stub, 테스트는 application-test.yml 이 직접 stub 로 핀. staging/prod 는 SSM 필수.
+    mode: ${PAYMENT_MODE}                          # stub | toss | inicis  (부팅 시 하나만 활성 · 필수)
     toss:
       secret-key: ${TOSS_SECRET_KEY:}             # 결제 승인 Basic 인증 (BE 전용, 노출 금지)
       client-key: ${TOSS_CLIENT_KEY:}             # 위젯 클라이언트 키 (FE 노출용 공개값)
