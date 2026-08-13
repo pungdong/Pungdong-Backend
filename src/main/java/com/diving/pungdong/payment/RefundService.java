@@ -17,7 +17,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.List;
@@ -38,12 +40,23 @@ import java.util.Objects;
 @Transactional(readOnly = true)
 public class RefundService {
 
+    // 환불율은 세션일까지 남은 '일수'로 갈린다 — 세션일은 KST 운영 캘린더 기준이라 오늘 날짜도 KST 로 잡는다.
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+
     private final EnrollmentJpaRepo enrollmentRepo;
     private final PaymentOrderJpaRepo orderRepo;
     private final RefundLedger ledger; // 시도/결과 기록 — 별도 트랜잭션(REQUIRES_NEW)
     private final RefundCalculator calculator;
     private final PaymentGatewayRegistry gateways;
     private final SessionCleaner sessionCleaner;
+
+    /**
+     * 환불율 기준 '오늘' — 세션일이 KST 운영 캘린더라 instant 를 KST 날짜로 환산한다.
+     * UTC 날짜로 쓰면 KST 00~09시 취소가 하루 밀려 환불 단계가 한 칸 유리해진다(당일 0% 가 전날 50% 로).
+     */
+    static LocalDate businessToday(OffsetDateTime instant) {
+        return instant.atZoneSameInstant(KST).toLocalDate();
+    }
 
     @Transactional
     public RefundQuote refundEnrollment(Account student, Long enrollmentId) {
@@ -57,7 +70,8 @@ public class RefundService {
         }
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-        RefundQuote quote = calculator.quote(e, now.toLocalDate(), now);
+        // now(instant) 는 UTC 로 두되(그레이스 창은 절대시각 비교라 무관), 환불율의 기준 '오늘'은 KST 날짜다.
+        RefundQuote quote = calculator.quote(e, businessToday(now), now);
 
         // 주문별 취소액 집계 — 수강료 몫 전부는 1회차 주문, 부대 몫은 각 회차 주문.
         Map<Long, Integer> orderRefund = new HashMap<>();

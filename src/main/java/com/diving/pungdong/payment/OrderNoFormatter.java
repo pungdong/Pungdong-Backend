@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 
 /**
@@ -22,6 +23,7 @@ public class OrderNoFormatter {
     private static final String ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // 0 O 1 I L 제외
     private static final int MIN_LENGTH = 8;
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("yyMMdd");
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul"); // 주문일 표시는 KST 기준(createdAt 은 UTC 저장)
 
     private final Hashids hashids;
 
@@ -35,7 +37,8 @@ public class OrderNoFormatter {
             return null;
         }
         String code = hashids.encode(id);
-        return createdAt == null ? PREFIX + code : PREFIX + createdAt.format(DATE) + "-" + code;
+        // createdAt 이 UTC 라 그대로 포맷하면 KST 00~09시 주문이 전날 날짜로 찍힌다 → KST 로 환산해 표시.
+        return createdAt == null ? PREFIX + code : PREFIX + createdAt.atZoneSameInstant(KST).format(DATE) + "-" + code;
     }
 
     /** {@code PD-YYMMDD-코드}(또는 {@code PD-코드}) → id. 형식/디코드 실패면 null. CS 가 주문번호로 조회할 때. */
