@@ -101,51 +101,23 @@ class ReservationControllerTest {
     }
 
     @Test
-    @DisplayName("강의 예약")
-    public void createReservation() throws Exception {
+    @DisplayName("레거시 예약 생성(POST /reservation)은 은퇴 — denyAll 로 403 (선결제로 대체)")
+    public void createReservationRetired() throws Exception {
         Account account = createAccount(Role.STUDENT);
         String accessToken = jwtTokenProvider.createAccessToken(String.valueOf(account.getId()), Set.of(Role.STUDENT));
-
-        List<RentEquipmentInfo> rentEquipmentInfos = new ArrayList<>();
-        RentEquipmentInfo equipmentInfo = RentEquipmentInfo.builder()
-                .scheduleEquipmentStockId(1L)
-                .rentNumber(4)
-                .build();
-        rentEquipmentInfos.add(equipmentInfo);
 
         ReservationCreateInfo reservationCreateInfo = ReservationCreateInfo.builder()
                 .scheduleId(1L)
                 .numberOfPeople(4)
-                .rentEquipmentInfos(rentEquipmentInfos)
                 .build();
 
-        given(reservationService.saveReservation(any(), any())).willReturn(Reservation.builder().id(1L).build());
-
+        // 검증 무력(@Valid 없음)·좌석 소모·PG 없는 Payment 행 생성 가능 → SecurityConfiguration 이 denyAll 로 차단.
         mockMvc.perform(post("/reservation")
                 .header(HttpHeaders.AUTHORIZATION, accessToken)
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .content(objectMapper.writeValueAsString(reservationCreateInfo)))
                 .andDo(print())
-                .andExpect(status().isCreated())
-                .andDo(document("reservation-create",
-                        requestHeaders(
-                                headerWithName(HttpHeaders.CONTENT_TYPE).description("application json 타입"),
-                                headerWithName(HttpHeaders.AUTHORIZATION).description("access token 값")
-                        ),
-                        requestFields(
-                                fieldWithPath("scheduleId").description("강의 일정 식별자 값"),
-                                fieldWithPath("numberOfPeople").description("강의 예약 인원 수"),
-                                fieldWithPath("rentEquipmentInfos[].scheduleEquipmentStockId").description("대여 장비 재고 식별자 값"),
-                                fieldWithPath("rentEquipmentInfos[].rentNumber").description("대여 장비 수")
-                        ),
-                        responseHeaders(
-                                headerWithName(HttpHeaders.CONTENT_TYPE).description("HAL JSON 타입")
-                        ),
-                        responseFields(
-                                fieldWithPath("reservationId").description("강의 예약 식별자"),
-                                fieldWithPath("_links.self.href").description("해당 API URL")
-                        )
-                ));
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -567,8 +539,8 @@ class ReservationControllerTest {
     }
 
     @Test
-    @DisplayName("강의 예약자에게 전달한 공지사항 생성")
-    public void createNotification() throws Exception {
+    @DisplayName("레거시 예약자 공지 생성(POST .../notification)은 은퇴 — denyAll 로 403")
+    public void createNotificationRetired() throws Exception {
         Long scheduleId = 1L;
 
         Account account = createAccount(Role.STUDENT);
@@ -584,19 +556,6 @@ class ReservationControllerTest {
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .content(objectMapper.writeValueAsString(notification)))
                 .andDo(print())
-                .andExpect(status().isNoContent())
-                .andDo(document("reservation-create-notification",
-                        pathParameters(
-                                parameterWithName("id").description("강의 일정 식별자 값")
-                        ),
-                        requestHeaders(
-                                headerWithName(HttpHeaders.CONTENT_TYPE).description("application json 타입"),
-                                headerWithName(HttpHeaders.AUTHORIZATION).description("access token 값")
-                        ),
-                        requestFields(
-                                fieldWithPath("title").description("공지사항 제목"),
-                                fieldWithPath("body").description("공지사항 내용")
-                        )
-                ));
+                .andExpect(status().isForbidden());
     }
 }
