@@ -114,6 +114,19 @@ FE 핸드오프(PungDong `docs/features/push.md`)는 제안이고, 아래 3점�
 
 ## 미해결 / 확장
 
+> ### 🔴 현황 한 줄: **prod 는 아직 stub 이다 (2026-08-14)**
+>
+> `infra/envs/production/main.tf` 가 `FIREBASE_ENABLED = "false"` → prod 는 `LoggingFcmGateway`. 이 stub 은 **로그만 찍고 `SUCCESS` 를 반환**하므로 워커가 outbox 를 `SENT` 로 마킹한다 — **DB 상으론 정상 발송인데 단말엔 안 간다(무증상 실패).** 즉 **prod 에서 푸시가 안 오는 건 현재 정상**이고, 실발송 검증은 **staging 에서만** 된다.
+>
+> **prod 전환 = terraform 에 4개를 한 번에** (`FIREBASE_ENABLED` 만 켜면 자격증명이 없어 깨진다). staging(`infra/envs/staging/main.tf`)에서 그대로 복사:
+> ```hcl
+> FIREBASE_ENABLED                   = "true"
+> FIREBASE_WIF_AUDIENCE              = "//iam.googleapis.com/projects/956872568873/locations/global/workloadIdentityPools/aws-pool/providers/aws-provider"
+> FIREBASE_WIF_SERVICE_ACCOUNT_EMAIL = "firebase-adminsdk-fbsvc@plop-5997b.iam.gserviceaccount.com"
+> GOOGLE_CLOUD_PROJECT               = "plop-5997b"
+> ```
+> ⚠️ **적용 전 GCP 쪽 확인 1건**: prod ECS task role 이 SA 를 가장할 수 있게 **바인딩이 prod 에도 돼 있는지** `gcloud` 로 실확인(문서엔 "staging·prod" 로 적혀 있으나 미검증. task role ARN 이 env 마다 다르다).
+
 - 🟢 **WIF 신뢰 설정 + staging 실송신 검증 완료 (2026-06-29).** GCP 측(pool `aws-pool`/`aws-provider`/SA 바인딩 staging·prod) + BE shim [PR #134](https://github.com/pungdong/Pungdong-Backend/pull/134) + project id env [PR #136](https://github.com/pungdong/Pungdong-Backend/pull/136). staging 에서 시드 행으로 실송신 → `INVALID_ARGUMENT`(가짜 토큰) = **FCM 인증 도달 = WIF 키리스 동작 확인**. 🔴 **남은 건 prod env(WIF 한 벌 + `GOOGLE_CLOUD_PROJECT`) 적용 + `FIREBASE_ENABLED=true`** (staging 검증됐으니 그대로).
 - ✅ **BE 코드 (푸시 v2) 완료** — `account/DeviceController`(`POST/DELETE /me/devices`, platform 캡처), `NotificationOutboxWriter` 의 `data.notificationId`(UUID), types.ts 갱신, 마이그레이션 불필요(`deviceType` 컬럼 기존재). 옛 `/sign/firebase-token` 제거.
 - ✅ **채널 라우팅 + priority + 마케팅 야간윈도우** — `NotificationCategory`(type→channelId/priority/marketing), `MarketingSendWindow`(08~21 KST 클램프). FE 채널 5개 생성 전제.
@@ -122,10 +135,12 @@ FE 핸드오프(PungDong `docs/features/push.md`)는 제안이고, 아래 3점�
 - ✅ **`LECTURE_NOTIFICATION` = `reservation`** (강사→예약 수강생 운영 메시지, 거래성 HIGH — 2026-06-30 확정).
 - 🟡 **앱 v2** — 권한·`getToken`·등록/해제·`onTokenRefresh`·foreground/background 핸들러·탭 라우팅·**채널 5개 생성** (FE).
 - ✅ **인앱 알림함 (durable feed)** — [#132](https://github.com/pungdong/Pungdong-Backend/issues/132) **구현 완료 (2026-08-14)**. `user_notification` **별도 테이블**(outbox 겸용 아님) + `GET/PATCH /me/notifications` 4종. 메커니즘은 [notification.md](../architecture/notification.md).
-  - **왜 별도 테이블인가**: outbox 는 "단말에 밀어넣기 성공했나"라서 **디바이스 토큰이 없으면 `GAVE_UP`** 이고 SENT 는 30일 뒤 삭제된다. **웹 사용자·앱 미설치 사용자가 정확히 그 경우**인데 그들이야말로 알림함이 가장 필요한 대상이라, 겸용하면 durability 라는 도입 목적 자체가 무너진다. 두 행은 `notificationId`(=푸시 dedup 키)로 1:1 상관되고 같은 트랜잭션에서 함께 쓰인다.
+  - **왜 별도 테이블인가**: outbox 는 "단말에 밀어넣기 성공했나"라서 **디바이스 토큰이 없으면 `GAVE_UP`** 이고 SENT 는 30일 뒤 삭제된다. **웹 사용자·앱 미설치 사용자가 정확히 그 경우**인데 그들이야말로 알림함이 가장 필요한 대상이라, 겸용하면 durability 라는 도입 목적 자체가 무너진다. 두 행은 `notificationId`(=푸시 dedup 키)로 상관되고 같은 트랜잭션에서 함께 쓰인다 — 단 **retention 이 outbox 만 지우므로 오래된 알림함 행은 짝이 없다**(1:1 아님).
   - **보존: 무기한**(2026-08-14 사용자 결정). 저빈도 도메인이라 행이 폭증하지 않고 수강 이력은 돌아볼 가치가 있다. outbox 의 30일 retention 은 전송 로그 청소지 사용자 데이터 청소가 아니라 목적이 다르다.
   - **웹에는 푸시가 없으므로 이 API 가 웹의 유일한 알림 경로**다.
-- 🟢 **이벤트 카탈로그 확장** — 현재 예약생성/취소·강의공지 3종. 수강신청 수락·채팅 등은 해당 도메인 작업 시 ([notification.md §확장 자리](../architecture/notification.md)).
+- ✅ **이벤트 카탈로그 — 12종 구현 완료 (2026-08-14).** 수강 6종(신청·수락·거절·일정제안·만료·회차완료) + 결제 2종(결제완료·환불완료) + 커뮤니티 1종 + 레거시 3종(사문화). **상황별 문구·수신자·`data` 키·멱등 근거는 [notification.md §상황별 알림 카탈로그](../architecture/notification.md) 가 단일 출처.**
+  - 🟡 **2순위 강사 알림 5종은 미구현**(사용자 결정, 백로그). 없는 게 버그가 아니다 — 다만 강사 수신분은 **강사가 모르면 24h 무응답 TTL 로 자동취소 + 전액 자동환불**이 되므로 재고 근거가 있다(카탈로그 §미구현).
+  - **채널은 기존 5개 밖으로 나가지 않는다** — 채널 생성은 앱 책임이라 새 채널을 쓰면 그 알림이 앱 릴리스에 묶인다. `payment` 는 이미 있던 빈 채널의 첫 사용이었다.
 - 🟢 **만료 토큰 정리** — 현재 무효 토큰은 발송 시 reactive 삭제만. last-seen 기반 정리는 검토(notification.md).
 
 ## 관련 메모리
