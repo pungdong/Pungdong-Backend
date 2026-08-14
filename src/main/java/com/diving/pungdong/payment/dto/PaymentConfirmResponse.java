@@ -29,6 +29,14 @@ public class PaymentConfirmResponse {
     private OffsetDateTime approvedAt;
 
     /**
+     * 이 주문에서 <b>지금까지 환불된 누적액</b>(원). {@code status} 로는 환불 여부만 알 뿐 얼마가 돌아갔는지는
+     * 안 보였다(감사 M5) — 부분환불(차액 조정)이면 {@code DONE} 인 채 이 값만 오른다. FE 가 "N원 환불됨"·잔액을
+     * 표시할 근거. {@code refundableAmount = amount − refundedAmount}(취소가능 잔액)도 같이 내려 계산을 FE 에 안 미룬다.
+     */
+    private int refundedAmount;
+    private int refundableAmount;
+
+    /**
      * <b>회차(EnrollmentRound) id</b>. 옛 이름은 {@code enrollmentId} 였는데 담는 값은 회차 id 라
      * 이름이 거짓말을 하고 있었다 — 환불 경로({@code POST /enrollments/{enrollmentId}/refund})의
      * {@code enrollmentId} 는 <b>수강(Enrollment) id</b> 라 둘이 헷갈리는데 타입이 둘 다 number 라
@@ -72,6 +80,8 @@ public class PaymentConfirmResponse {
                 .status(order.getStatus())
                 .amount(order.getAmount())
                 .approvedAt(order.getApprovedAt())
+                .refundedAmount(order.getRefundedAmount())
+                .refundableAmount(order.refundableAmount())
                 .roundId(order.getEnrollmentRound() == null ? null : order.getEnrollmentRound().getId())
                 .currentEnrollmentStatus(order.getEnrollmentRound() == null ? null : order.getEnrollmentRound().getStatus())
                 .scheduleChange(order.isSlotChange())

@@ -523,7 +523,10 @@ class PaymentUseCaseTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("DONE"))
                 .andExpect(jsonPath("$.amount").value(EXPECTED_AMOUNT))
-                .andExpect(jsonPath("$.currentEnrollmentStatus").value("ACCEPT_PENDING"));
+                .andExpect(jsonPath("$.currentEnrollmentStatus").value("ACCEPT_PENDING"))
+                // M5 — 환불액 노출: 아직 환불 없으니 0, 취소가능 잔액은 승인액 전부
+                .andExpect(jsonPath("$.refundedAmount").value(0))
+                .andExpect(jsonPath("$.refundableAmount").value(EXPECTED_AMOUNT));
     }
 
     @Test
