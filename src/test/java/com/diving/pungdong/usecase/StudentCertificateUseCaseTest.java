@@ -342,6 +342,37 @@ class StudentCertificateUseCaseTest {
         assertThat(certificateRepo.findAll().get(0).getEnrollmentId()).isEqualTo(e.getId());
     }
 
+    @Test
+    @DisplayName("S10: 표시명 스냅샷은 슬래시·악센트·괄호·한글이 섞여도 그대로 왕복한다 (Sanity 실데이터)")
+    void register_preservesDisplayNamesWithSpecialCharacters() throws Exception {
+        Account student = account("c-s10@test.com", "diverS10", Role.STUDENT);
+
+        // ⚠️ 지어낸 값이 아니다 — certs-mobile 이 Sanity CDN 을 쳐서 뽑은 실측 최장값이다.
+        //    organizationCode 에는 @Pattern 을 걸었지만 **표시명 3종엔 걸면 안 된다**:
+        //    걸면 CMAS(악센트+괄호+한글)와 SDI 프리다이빙 자격(슬래시)이 통째로 400 이 된다.
+        String fullName = "Confédération Mondiale des Activités Subaquatiques (세계수중연맹)";
+        String certName = "Basic Freediver / Pool Freediver";
+
+        Map<String, Object> payload = body("FREEDIVING", "CMAS", "LEVEL_1", "CMAS-1", "2024-11-02");
+        payload.put("organizationName", "CMAS");
+        payload.put("organizationFullName", fullName);
+        payload.put("certificationDisplayName", certName);
+        register(student, payload);
+
+        StudentCertificate saved = certificateRepo.findAll().get(0);
+        assertThat(saved.getOrganizationFullName()).isEqualTo(fullName);
+        assertThat(saved.getCertificationDisplayName()).isEqualTo(certName);
+
+        // 응답까지 온전히 나가는지(직렬화·charset 포함) 확인 — 저장만 되고 깨져 나가면 소용없다.
+        MvcResult res = mockMvc.perform(get("/certificates/mine").header(HttpHeaders.AUTHORIZATION, token(student)))
+                .andExpect(status().isOk()).andReturn();
+        JsonNode item = objectMapper.readTree(
+                        res.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8))
+                .get("_embedded").get("certificates").get(0);
+        assertThat(item.get("organizationFullName").asText()).isEqualTo(fullName);
+        assertThat(item.get("certificationDisplayName").asText()).isEqualTo(certName);
+    }
+
     /* ════════════════ V — 검증 거절 ════════════════ */
 
     @Test
