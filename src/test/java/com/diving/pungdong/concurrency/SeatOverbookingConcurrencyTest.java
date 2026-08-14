@@ -44,6 +44,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -149,6 +150,57 @@ class SeatOverbookingConcurrencyTest extends MySqlConcurrencyTestBase {
         assertThat(rejected.get()).as("나머지 1건은 만석으로 거절").isEqualTo(1);
     }
 
+    @Test
+    @DisplayName("H-4b 정원 1 브랜뉴 슬롯에 8명이 동시에 처음 신청 → 세션 1개만 생성·정확히 1명 성사 (생성 경합에도 overbooking 없음)")
+    void concurrentCreateSameNewSlotDoesNotOverbook() throws Exception {
+        Account instructor = verifiedInstructor("h4b-ins@pd.com", "H4b강사", 1); // 정원 1
+        Object[] fx = setup(instructor);
+        Course course = (Course) fx[0];
+        String venueRef = (String) fx[1];
+        String ticketRef = (String) fx[2];
+
+        int n = 8; // 스레드 수는 무관 — 세션행 FOR UPDATE / 자연키 UNIQUE 가 몇이든 직렬화한다. 8이면 경합 재현 충분.
+        List<Account> racers = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            racers.add(verifiedStudent("h4b-racer-" + i + "@pd.com", "레이서" + i));
+        }
+
+        ExecutorService pool = Executors.newFixedThreadPool(n);
+        CountDownLatch ready = new CountDownLatch(n);
+        CountDownLatch startGate = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(n);
+        AtomicInteger succeeded = new AtomicInteger(0);
+        AtomicInteger failed = new AtomicInteger(0);
+
+        for (Account racer : racers) {
+            pool.submit(() -> {
+                ready.countDown();
+                try {
+                    startGate.await();
+                    enrollmentService.submit(racer, req(course.getId(), venueRef, ticketRef));
+                    succeeded.incrementAndGet();
+                } catch (Exception e) {
+                    failed.incrementAndGet(); // 만석(BadRequest) 또는 세션 생성 유니크 위반 — 어느 쪽이든 좌석 못 얻음
+                } finally {
+                    done.countDown();
+                }
+            });
+        }
+        ready.await(5, TimeUnit.SECONDS);
+        startGate.countDown();
+        assertThat(done.await(30, TimeUnit.SECONDS)).as("모든 스레드 종료").isTrue();
+        pool.shutdownNow();
+
+        // 세션은 자연키 UNIQUE(V12)로 최대 1개만 생성된다(동시 생성 경합 차단).
+        assertThat(sessionRepo.findAll()).as("생성된 세션 1개").hasSize(1);
+        Long sessionId = sessionRepo.findAll().get(0).getId();
+        // 핵심 불변식 — 정원 1 을 절대 안 넘는다.
+        assertThat(roundRepo.countByAvailabilitySessionIdAndStatusIn(sessionId, EnrollmentStatus.ACTIVE))
+                .as("점유 = 1, overbooking 없음").isEqualTo(1);
+        assertThat(succeeded.get()).as("성사된 신청은 정확히 1건").isEqualTo(1);
+        assertThat(failed.get()).as("나머지는 전부 실패(좌석 못 얻음)").isEqualTo(n - 1);
+    }
+
     /* ─── fixtures (EnrollmentUseCaseTest 에서 발췌 — 실 submit 게이트를 통과하는 최소 세트) ─── */
 
     private Account verifiedStudent(String email, String nick) {
@@ -161,8 +213,12 @@ class SeatOverbookingConcurrencyTest extends MySqlConcurrencyTestBase {
     }
 
     private Account verifiedInstructor() {
-        Account ins = verifiedStudent("h4-ins@pd.com", "H4강사");
-        ins.setDefaultCapacity(CAP);
+        return verifiedInstructor("h4-ins@pd.com", "H4강사", CAP);
+    }
+
+    private Account verifiedInstructor(String email, String nick, int cap) {
+        Account ins = verifiedStudent(email, nick);
+        ins.setDefaultCapacity(cap);
         accountRepo.save(ins);
         applicationRepo.save(InstructorApplication.builder()
                 .account(ins).disciplineCode("FREEDIVING").status(InstructorApplicationStatus.SUBMITTED)
