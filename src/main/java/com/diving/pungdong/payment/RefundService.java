@@ -302,7 +302,7 @@ public class RefundService {
             throw new RefundBlockedException("결과 미확인 환불 시도가 있어 환불을 진행할 수 없음 order=" + order.getOrderId());
         }
         // 위 가드는 락 없는 pre-check 라 near-simultaneous 두 환불이 둘 다 통과할 수 있다(H-1). 실제 원자 차단은
-        // uk_refund_order_inflight(V25) — 주문당 REQUESTED 1개. 동시 두 번째 recordAttempt 는 유니크 위반으로
+        // uk_refund_order_inflight(V26) — 주문당 REQUESTED 1개. 동시 두 번째 recordAttempt 는 유니크 위반으로
         // 여기서 걸러 PG 취소까지 못 가고 발행자를 롤백시킨다(가드가 던지는 것과 같은 결과 — 이중환불 방지).
         Long attemptId;
         try {
