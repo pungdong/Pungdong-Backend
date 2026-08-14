@@ -2353,6 +2353,10 @@ export interface PaymentConfirmResponse {
   status: PaymentStatus;          // 성공 = 'DONE'
   amount: number;
   approvedAt: string | null;      // ISO-8601 offset
+  /** ★ 이 주문에서 지금까지 환불된 누적액(원). `status` 로는 환불 여부만 알 뿐 얼마가 돌아갔는지는 안 보였다(M5).
+   *  부분환불(차액 조정)이면 `status` 는 'DONE' 인 채 이 값만 오른다. "N원 환불됨"·잔액 표시용. */
+  refundedAmount: number;
+  refundableAmount: number;       // amount − refundedAmount (취소가능 잔액 — 계산 안 미루게 서버가 내려줌)
   /** ★ 회차(EnrollmentRound) id. 옛 이름 `enrollmentId` 에서 개명(2026-08-11) — 담는 값이 회차 id 인데
    *  환불 경로 `POST /enrollments/{enrollmentId}/refund` 의 것은 **수강 id** 라 헷갈렸고 둘 다 number 라
    *  타입으로도 안 잡혔다. */
