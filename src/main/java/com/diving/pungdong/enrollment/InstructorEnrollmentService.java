@@ -310,6 +310,10 @@ public class InstructorEnrollmentService {
         r.setStatus(EnrollmentStatus.REJECTED);
         r.setRejectionReason(StringUtils.hasText(reason) ? reason.trim() : null);
         r.setRespondedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        // 강사 제안 hold 를 회수한다(H4) — 강사가 앞서 이 회차에 낸 제안 슬롯 좌석이다. 안 풀면 거절된 회차가
+        // 그 자리를 최대 proposalTtlHours(6h) 동안 붙들어 남의 신청을 막는다(스윕이 결국 풀지만 늦다). 빈 일정 정리 포함.
+        releaseProposalHolds(r);
+        r.getProposedSlots().clear();
         // 학생이 이미 결제완료 → 전액 자동환불. 동기 이벤트라 환불 실패 시 이 트랜잭션(REJECTED)도 롤백된다.
         events.publishEvent(new EnrollmentRefundRequestedEvent(roundId, "강사 거절"));
         // 알림도 같은 트랜잭션이라, 환불이 실패해 롤백되면 "거절됐고 환불됩니다" 알림도 함께 사라진다

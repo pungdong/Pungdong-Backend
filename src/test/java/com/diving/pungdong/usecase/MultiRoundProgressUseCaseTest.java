@@ -649,6 +649,56 @@ class MultiRoundProgressUseCaseTest {
     }
 
     @Test
+    @DisplayName("H4-1 제안받은 회차를 학생이 취소하면 제안 hold 가 회수된다 — 고아 hold 로 좌석이 6h 막히지 않는다")
+    void cancelReleasesProposalHold() throws Exception {
+        Account ins = instructor("ins-h4a@pd.com", "강사H4a", 4);
+        Venue v = venueWithNightTicket(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String dayTicket = v.getTickets().get(0).getRef();
+        String nightTicket = v.getTickets().get(1).getRef();
+        Course course = twoTicketCourse(ins, ref, dayTicket, nightTicket);
+        openCoverageIncludingNight(ins, D1); openCoverageIncludingNight(ins, D2);
+        Account stu = account("stu-h4a@pd.com", "학생H4a", Role.STUDENT);
+
+        applyRound1(stu, course, ref, dayTicket, D1).andExpect(status().isCreated());
+        EnrollmentRound r1 = paid(roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).get(0));
+        propose(ins, r1.getId(), List.of(slot(D2, nightTicket, NIGHT_START, NIGHT_END))).andExpect(status().isOk());
+        assertThat(holdRepo.findByProposalRoundId(r1.getId())).hasSize(1); // 제안 hold 생성됨
+
+        mockMvc.perform(post("/enrollments/{id}/cancel", r1.getId()).header(HttpHeaders.AUTHORIZATION, token(stu)))
+                .andExpect(status().isOk());
+
+        assertThat(holdRepo.findByProposalRoundId(r1.getId())).isEmpty(); // 취소가 제안 hold 를 회수(고아 방지)
+        assertThat(roundRepo.findById(r1.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.CANCELLED);
+    }
+
+    @Test
+    @DisplayName("H4-2 제안한 회차를 강사가 거절하면 제안 hold 가 회수된다")
+    void rejectReleasesProposalHold() throws Exception {
+        Account ins = instructor("ins-h4b@pd.com", "강사H4b", 4);
+        Venue v = venueWithNightTicket(ins);
+        String ref = VenueScope.token(VenueScope.CUSTOM, String.valueOf(v.getId()));
+        String dayTicket = v.getTickets().get(0).getRef();
+        String nightTicket = v.getTickets().get(1).getRef();
+        Course course = twoTicketCourse(ins, ref, dayTicket, nightTicket);
+        openCoverageIncludingNight(ins, D1); openCoverageIncludingNight(ins, D2);
+        Account stu = account("stu-h4b@pd.com", "학생H4b", Role.STUDENT);
+
+        applyRound1(stu, course, ref, dayTicket, D1).andExpect(status().isCreated());
+        EnrollmentRound r1 = paid(roundRepo.findByEnrollment_Student_IdOrderByIdDesc(stu.getId()).get(0));
+        propose(ins, r1.getId(), List.of(slot(D2, nightTicket, NIGHT_START, NIGHT_END))).andExpect(status().isOk());
+        assertThat(holdRepo.findByProposalRoundId(r1.getId())).hasSize(1);
+
+        mockMvc.perform(post("/instructor/enrollments/{id}/reject", r1.getId())
+                        .header(HttpHeaders.AUTHORIZATION, token(ins))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"일정이 안 맞아요\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(holdRepo.findByProposalRoundId(r1.getId())).isEmpty(); // 거절이 제안 hold 를 회수
+        assertThat(roundRepo.findById(r1.getId()).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.REJECTED);
+    }
+
+    @Test
     @DisplayName("C1-2 정원 1에서도 제안→(-1018)→차액 결제가 이어진다 — 자기 제안 hold 에 자기가 막히지 않는다")
     void pickSlotDiffPaymentNotBlockedByOwnProposalHold() throws Exception {
         Account ins = instructor("ins-c12@pd.com", "강사C12", 1); // 정원 1 — hold 하나로 만석
