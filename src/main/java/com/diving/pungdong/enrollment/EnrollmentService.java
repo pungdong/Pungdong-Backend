@@ -797,7 +797,10 @@ public class EnrollmentService {
      */
     private void requireSeat(AvailabilitySession session, Long ignoreProposalRoundId) {
         AvailabilitySession locked = sessionRepo.lockById(session.getId()).orElse(session);
-        int occupied = roundRepo.countByAvailabilitySessionIdAndStatusIn(locked.getId(), EnrollmentStatus.ACTIVE);
+        // ⚠️ 점유 count 는 <b>잠금 조회</b>여야 한다 — plain count 는 REPEATABLE READ 스냅샷(이 트랜잭션의 앞선
+        // course/coverage 조회 시점에 고정)을 읽어 동시 신청이 방금 커밋한 자리를 못 봐 overbooking 이 났다(H-4).
+        // lockOccupyingRoundIds 는 스냅샷을 우회해 최신 커밋을 읽으므로 세션 락(위) 뒤의 이 count 가 정확하다.
+        int occupied = roundRepo.lockOccupyingRoundIds(locked.getId(), EnrollmentStatus.ACTIVE).size();
         int held = locked.getHolds().stream()
                 .filter(h -> ignoreProposalRoundId == null
                         || !ignoreProposalRoundId.equals(h.getProposalRoundId()))

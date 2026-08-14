@@ -2,7 +2,11 @@ package com.diving.pungdong.enrollment;
 
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
+import javax.persistence.LockModeType;
 import java.util.Collection;
 import java.util.List;
 
@@ -14,6 +18,20 @@ public interface EnrollmentRoundJpaRepo extends JpaRepository<EnrollmentRound, L
 
     /** 한 일정의 상태 집합에 드는 회차 수 — 점유(결제대기+확정, {@link EnrollmentStatus#OCCUPYING}) 합산용. */
     int countByAvailabilitySessionIdAndStatusIn(Long sessionId, Collection<EnrollmentStatus> statuses);
+
+    /**
+     * 만석 판정용 <b>점유 회차 잠금 조회</b>(id 목록, 크기가 점유 수). 왜 plain count 가 아니라 이건가 —
+     * {@code EnrollmentService.requireSeat} 는 세션 행을 {@code FOR UPDATE} 로 잡아 동시 신청을 직렬화하는데,
+     * MySQL <b>REPEATABLE READ</b> 에선 그 앞서 실행된 course/coverage 조회가 트랜잭션 스냅샷을 이미 고정해버려,
+     * 뒤이은 <b>plain count 는 상대가 방금 커밋한 신청을 못 본다</b>(락은 상호배제만, 가시성은 안 줌) → 두 신청이
+     * 각자 "안 참"을 읽고 둘 다 통과 = overbooking(H-4). 잠금 조회는 스냅샷을 우회해 <b>최신 커밋</b>을 읽으므로
+     * 세션 락 뒤의 이 count 가 상대의 신청을 본다. (세션 락으로 이미 직렬화된 구간이라 추가 락 경합은 없다.)
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r.id from EnrollmentRound r "
+            + "where r.availabilitySession.id = :sessionId and r.status in :statuses")
+    List<Long> lockOccupyingRoundIds(@Param("sessionId") Long sessionId,
+                                     @Param("statuses") Collection<EnrollmentStatus> statuses);
 
     /** 한 일정의 상태 집합에 드는 회차들 — 활성 조회·삭제 판정. */
     /**
