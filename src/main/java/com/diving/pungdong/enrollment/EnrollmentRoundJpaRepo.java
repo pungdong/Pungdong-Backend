@@ -70,4 +70,12 @@ public interface EnrollmentRoundJpaRepo extends JpaRepository<EnrollmentRound, L
 
     /** 자동 완료 스위프 — 세션 날짜가 cutoff 이전(지남)이고 아직 done 안 된 확정(CONFIRMED) 회차들. */
     List<EnrollmentRound> findByStatusAndDoneAtIsNullAndDateBefore(EnrollmentStatus status, java.time.LocalDate cutoff);
+
+    /**
+     * 금액 대사(M1) — 결제완료/확정 상태이고 respondedAt 이 cutoff 이전인 회차들. 순액==chargeTotal 검증 대상.
+     * {@code enrollment} 를 함께 당긴다(chargeTotal 이 1회차 수강료를 부모에서 읽어 N+1 방지).
+     */
+    @EntityGraph(attributePaths = {"enrollment"})
+    List<EnrollmentRound> findByStatusInAndRespondedAtBefore(Collection<EnrollmentStatus> statuses,
+                                                             java.time.OffsetDateTime cutoff);
 }
