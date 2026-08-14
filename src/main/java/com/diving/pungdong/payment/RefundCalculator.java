@@ -12,6 +12,7 @@ import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -20,13 +21,18 @@ import java.util.Objects;
  * <ul>
  *   <li>수강 완료(done) 회차 — <b>0</b>(이미 들음).</li>
  *   <li>아직 일정 안 잡은 정규회차 — <b>수강료/N × 100%</b>(부대 0, 패널티 0 — 약속·지출 없음).</li>
- *   <li>일정 잡힌(배정) 회차 취소 — <b>(수강료/N + 부대) × 환불율</b>. 부대는 결제 완료(CONFIRMED)분만.</li>
- *   <li>EXTRA — 수강료 몫 없음(정규 다 들음). 부대만 × 환불율.</li>
+ *   <li>강사 <b>미수락</b>(ACCEPT_PENDING)·미결제(PENDING) 배정회차 취소 — <b>(수강료/N + 부대) × 100%</b>.
+ *       날짜 페널티 없음 — 페널티는 "강사가 풀을 예약한 뒤 코앞 취소" 손해를 물리는 것이라 <b>미수락 = 풀 미예약 = 명분 없음</b>.
+ *       (같은 회차를 {@code cancel(roundId)} 로 취소하면 100% 전액환불되는 것과 일치시킨다.)</li>
+ *   <li><b>확정(CONFIRMED)</b> 배정회차 취소 — <b>(수강료/N + 부대) × 환불율</b>. 날짜 페널티는 여기서만.</li>
+ *   <li>EXTRA — 수강료 몫 없음(정규 다 들음). 부대만 × (CONFIRMED면 환불율, 미수락이면 100%).</li>
  * </ul>
  *
- * <p>환불율(세션일까지 남은 일수): <b>당일 0 / 전날 50 / 2일전 70 / 3일전+ 100</b>, 단 <b>신청 1시간 내</b> 취소는
- * 날짜 무관 100. 수강료는 1회차에 전액 냈으므로 정규회차 몫(수강료/N)은 미배정·배정 모두 여기서 계산(실행 시 1회차
- * 주문 부분취소). ⚠️ 환불율 상수는 추후 SiteSettings(런타임) 이전 후보(지금은 코드 상수).
+ * <p>환불율(세션일까지 남은 일수, <b>CONFIRMED 한정</b>): <b>당일 0 / 전날 50 / 2일전 70 / 3일전+ 100</b>, 단
+ * <b>결제완료 1시간 내</b>(그레이스) 취소는 날짜 무관 100. 그레이스 기준은 <b>결제완료 시각</b>({@code PaymentOrder.approvedAt}
+ * 중 그 회차 최솟값) — 불변이라 강사 수락·일정변경으로 리셋되지 않는다(옛 respondedAt 기준의 "늦은 수락→당일 100%" 버그 제거).
+ * 수강료는 1회차에 전액 냈으므로 정규회차 몫(수강료/N)은 미배정·배정 모두 여기서 계산. 나눗셈 나머지는 <b>마지막 정규회차</b>에
+ * 얹어 환불 합계가 원금과 어긋나지 않게 한다(버려서 사업자에 남기지 않음). ⚠️ 환불율 상수는 추후 SiteSettings 이전 후보.
  */
 @Component
 public class RefundCalculator {
@@ -37,17 +43,25 @@ public class RefundCalculator {
     private static final int TWO_DAY_PCT = 70;
     private static final int THREE_DAY_PLUS_PCT = 100;
 
-    public RefundQuote quote(Enrollment enrollment, LocalDate today, OffsetDateTime now) {
+    /**
+     * @param paidAtByRoundId 회차 id → 그 회차의 <b>결제완료 시각</b>(승인 주문 {@code approvedAt} 중 최소, 불변).
+     *                        그레이스(결제 1h 내 100%) 기준. 없으면 회차 {@code createdAt} 로 폴백(보수적).
+     */
+    public RefundQuote quote(Enrollment enrollment, LocalDate today, OffsetDateTime now,
+                             Map<Long, OffsetDateTime> paidAtByRoundId) {
         int totalRegular = enrollment.getCourse() == null ? 0 : (int) enrollment.getCourse().getRounds().stream()
                 .filter(cr -> cr.getRoundKind() == RoundKind.REGULAR).count();
         int tuition = enrollment.getTuitionSnapshot();
         int tuitionPerRound = totalRegular == 0 ? 0 : tuition / totalRegular;
+        // 정수 나눗셈 나머지(0..N-1원)는 마지막 정규회차 몫에 얹는다 — 버리면 그만큼 환불 합계 < 원금(학생 불리, 대사 어긋남).
+        int tuitionRemainder = tuition - tuitionPerRound * totalRegular;
 
         List<RefundQuote.Line> lines = new ArrayList<>();
         int total = 0;
 
         // 정규 회차 1..N
         for (int idx = 1; idx <= totalRegular; idx++) {
+            int tuitionBase = tuitionPerRound + (idx == totalRegular ? tuitionRemainder : 0);
             EnrollmentRound r = currentRegularRound(enrollment, idx);
             if (r != null && r.isDone()) {
                 lines.add(new RefundQuote.Line(idx, r.getId(), 0, 0, 0, "수강 완료"));
@@ -55,23 +69,24 @@ public class RefundCalculator {
             }
             if (r == null) {
                 // 미배정 — 수강료 몫만 100% (부대·패널티 없음)
-                lines.add(new RefundQuote.Line(idx, null, tuitionPerRound, 0, 100, "미배정 수강료"));
-                total += tuitionPerRound;
+                lines.add(new RefundQuote.Line(idx, null, tuitionBase, 0, 100, "미배정 수강료"));
+                total += tuitionBase;
                 continue;
             }
-            int rate = ratePct(r, today, now);
-            int tuitionPart = tuitionPerRound * rate / 100;
+            // 날짜 페널티는 CONFIRMED(강사 수락 = 풀 예약)에만. 미수락(ACCEPT_PENDING)·미결제(PENDING)는 100%.
+            int rate = r.getStatus() == EnrollmentStatus.CONFIRMED ? ratePct(r, today, now, paidAtByRoundId) : 100;
+            int tuitionPart = tuitionBase * rate / 100;
             int extraPart = paidExtras(r) * rate / 100;
             lines.add(new RefundQuote.Line(idx, r.getId(), tuitionPart, extraPart, rate, "배정취소(" + rate + "%)"));
             total += tuitionPart + extraPart;
         }
 
-        // EXTRA 회차 — 수강료 몫 없음, 결제완료 부대만 × 환불율
+        // EXTRA 회차 — 수강료 몫 없음, 결제완료 부대만 × (CONFIRMED면 환불율, 미수락이면 100%)
         for (EnrollmentRound r : enrollment.getRounds()) {
             if (r.getRoundKind() != RoundKind.EXTRA || !r.getStatus().isActive() || r.isDone()) {
                 continue;
             }
-            int rate = ratePct(r, today, now);
+            int rate = r.getStatus() == EnrollmentStatus.CONFIRMED ? ratePct(r, today, now, paidAtByRoundId) : 100;
             int extraPart = paidExtras(r) * rate / 100;
             lines.add(new RefundQuote.Line(null, r.getId(), 0, extraPart, rate, "추가세션 취소(" + rate + "%)"));
             total += extraPart;
@@ -97,11 +112,17 @@ public class RefundCalculator {
                 .findFirst().orElse(null);
     }
 
-    /** 환불율(%) — 신청 1h 내 100, 아니면 세션일까지 남은 일수로(당일0/전날50/2일전70/3일전+100). */
-    private int ratePct(EnrollmentRound r, LocalDate today, OffsetDateTime now) {
-        OffsetDateTime committedAt = r.getRespondedAt() != null ? r.getRespondedAt() : r.getCreatedAt();
+    /**
+     * 환불율(%) — <b>결제완료 1h 내</b>(그레이스) 100, 아니면 세션일까지 남은 일수로(당일0/전날50/2일전70/3일전+100).
+     * CONFIRMED 회차에만 불린다. 그레이스 기준은 <b>결제완료 시각</b>(불변) — respondedAt 을 쓰면 강사 수락·일정변경
+     * 때마다 리셋돼 "당일인데 100%" 가 나왔다. 결제완료 시각을 모르면(legacy) 회차 createdAt 으로 보수적 폴백.
+     */
+    private int ratePct(EnrollmentRound r, LocalDate today, OffsetDateTime now,
+                        Map<Long, OffsetDateTime> paidAtByRoundId) {
+        OffsetDateTime paidAt = paidAtByRoundId.get(r.getId());
+        OffsetDateTime committedAt = paidAt != null ? paidAt : r.getCreatedAt();
         if (committedAt != null && committedAt.isAfter(now.minusHours(GRACE_HOURS))) {
-            return 100; // 신청 1시간 내 무조건 100
+            return 100; // 결제완료 1시간 내 무조건 100
         }
         if (r.getDate() == null) {
             return THREE_DAY_PLUS_PCT;

@@ -187,6 +187,32 @@ class RefundUseCaseTest {
         assertThat(refundRepo.findAll()).hasSize(2); // 첫 환불분만 — 두 번째로 늘지 않는다
     }
 
+    @Test
+    @DisplayName("RF4 강사 미수락(ACCEPT_PENDING) 회차는 수강종료 시 당일 세션이어도 100% — 날짜 페널티는 CONFIRMED만")
+    void acceptPendingFullRefundEvenSameDay() throws Exception {
+        Account stu = accountRepo.save(Account.builder().email("rf4@pd.com").password("x").nickName("학생4")
+                .roles(new HashSet<>(Set.of(Role.STUDENT))).build());
+        Account ins = accountRepo.save(Account.builder().email("rfi4@pd.com").password("x").nickName("강사4")
+                .roles(new HashSet<>(Set.of(Role.INSTRUCTOR))).build());
+        Course course = Course.builder().instructor(ins).title("1회차 과정")
+                .kind(CourseKind.CERTIFICATION).organizationCode("AIDA").disciplineCode("FREEDIVING")
+                .totalRounds(1).price(100000).status(CourseStatus.OPEN).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
+        course.addRound(CourseRound.builder().roundKind(RoundKind.REGULAR).roundIndex(1).build());
+        courseRepo.save(course);
+
+        // 강사 미수락(ACCEPT_PENDING) + 세션이 바로 오늘(당일) — CONFIRMED 였으면 0% 였을 조건.
+        EnrollmentRound r1 = round(1, EnrollmentStatus.ACCEPT_PENDING, LocalDate.now(), false, 20000);
+        Enrollment e = Enrollment.builder().student(stu).course(course).tuitionSnapshot(100000)
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
+        e.addRound(r1);
+        enrollmentRepo.save(e);
+        order(r1, 120000, "pk-ap"); // 수강료 100,000 + 부대 20,000
+
+        mockMvc.perform(post("/enrollments/{id}/refund", e.getId()).header(HttpHeaders.AUTHORIZATION, token(stu)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(120000)); // 당일이지만 미수락 → 전액. cancel(roundId) 경로와 일치.
+    }
+
     /* ─── fixture ─── */
 
     private static class Fixture {

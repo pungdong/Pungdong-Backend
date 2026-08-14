@@ -77,13 +77,16 @@
 | 2026-08-10 | **주문 잔액을 행에서 읽히게** — `payment_order.refunded_amount` 비정규화(V14) + 전액환불 시 `status=CANCELED`(부분은 `DONE` 유지) | 승인 사실인 `status` 는 환불해도 `DONE` 이라 "이 주문 환불됐나/얼마 남았나"를 매번 `refund_order` 집계로만 알 수 있었다 — **CS·회계에서 테이블을 눈으로 못 읽는 게 실질 비용**. 회차당 주문이 N개가 되는 차액 결제(#204) 뒤엔 더 안 보인다. `refund_order`(원장)와 같은 트랜잭션에서 갱신되는 캐시이며, 환불 실행부를 `applyCancel` 한 곳으로 모아 clamp·멱등을 보장 |
 | 2026-08-09 | **전 회차 통일** — `PAYMENT_PENDING` 제거, 결제 전이는 항상 `PENDING→ACCEPT_PENDING`. 강사 거절은 전 회차, 결제 후 학생 취소=전액환불, 결제 후 슬롯 변경은 금액 증가 금지·감소는 차액 환불 | 1회차만 바꾼 상태가 상태기계를 반쪽으로 만들어 2회차 강사 수락이 400 으로 막히는 seam 이 있었다. 결제가 앞으로 당겨졌으므로 강사 "일정조정 제안"도 결제 후 시점이 되고, 그러면 학생은 결제가 아니라 ㅇㅋ/ㄴㄴ만 하면 돼 사전승인용 상태값이 아예 불필요해진다. 잔존 행은 Flyway `V13` 이 `PENDING` 으로 이관(enum 파싱 폭발 방지) |
 | 2026-08-10 | **이니시스 콜백 CORS 제외** — `/payments/inicis/return` 만 전역 origin allowlist 밖도 허용(FE 핑퐁) | 앱 WebView 결제완료 후 콜백 단계에서 `Invalid CORS request`(403). 콜백은 결제창(`paypro.inicis.com`)·WebView 가 하는 **cross-origin form POST(navigation)** 라 CORS(브라우저 JS/fetch 보호장치)의 대상이 아니고, 진위는 `P_AUTH_TID`+서버승인이 보장 → **CORS 는 이 경로의 보안 경계가 아니다**. FE 가 WebView `document.origin` 을 웹 도메인으로 위장(origin 스푸핑)하던 야매를 근본에서 제거 — `corsConfigurationSource()` 가 콜백만 `allowedOriginPattern("*")`(+`allowCredentials=false`)로 `/**` 보다 먼저 등록해 CORS 검사에서 뺀다. 전역 allowlist 는 유지(다른 경로는 여전히 restrictive). 구현: [docs/architecture/payment.md](../architecture/payment.md) §5 |
+| 2026-08-14 | **환불 정합성 3종**(요구사항 재점검) — ① 날짜 페널티는 CONFIRMED 회차에만(미수락=100%) ② 그레이스 기준 결제완료 시각(approvedAt, 불변) ③ 정수 나눗셈 나머지 마지막 회차 배분 | 재점검에서 발견: ① 미수락(ACCEPT_PENDING) 회차가 `cancel`은 100%인데 `refundEnrollment`(수강종료)는 날짜 rate 를 맞아 갈렸다 — 페널티는 "강사가 풀 예약 후 코앞 취소" 손해를 무는 것이라 **미수락=풀 미예약=명분 없음**. 강사 늦은 수락은 학생에게 100% 취소 구간을 더 벌어줄 뿐 불리하지 않다. ② 그레이스가 respondedAt(가변) 기준이라 강사 수락·일정변경마다 리셋돼 "당일인데 100%"·재개방 악용 여지 → 학생이 직접 한 **결제 시점**으로 고정(회계상 DONE 인데 approvedAt=null 이면 안 되므로 finalizeApproval 에서 null 보정+warn). ③ 절사분이 사업자에 남아 환불 합계<원금(대사 어긋남) → 마지막 회차에 얹어 합계=원금. **강사 재제안 24h 무한연기는 현행 유지**(학생은 미수락 상태에서 언제든 100% 취소 가능해 돈 손실 없음). 정책 논의: 메모리 `project_payment_hardening` |
 
 ### 환불 — 수강 종료(남은 회차 환불) (2026-06-28 구현)
 
 진행 중 학생의 "환불신청" = 수강 종료. `POST /enrollments/{enrollmentId}/refund` → 활성·미완료 회차를 전부 취소하고 회차별로 환불.
 
-- **회차별 산정**(`RefundCalculator`): 수강 완료(done)=0 / 미배정 회차=수강료÷N(100%, 부대·패널티 0) / 배정취소=(수강료÷N + 부대)×환불율. EXTRA=부대만. 부대는 결제 완료분만.
-- **환불율**: 당일 0 / 전날 50 / 2일전 70 / 3일전+ 100, **신청 1h 내 100**. (코드 상수 — SiteSettings 이전은 튜닝 필요 시.)
+- **회차별 산정**(`RefundCalculator`): 수강 완료(done)=0 / 미배정 회차=수강료÷N(100%, 부대·패널티 0) / **강사 미수락(ACCEPT_PENDING)·미결제(PENDING) 배정취소=(수강료÷N + 부대)×100%** / **확정(CONFIRMED) 배정취소=(수강료÷N + 부대)×환불율**. EXTRA=부대만. 부대는 결제 완료분만.
+- **날짜 페널티는 CONFIRMED(강사 수락=풀 예약)에만**(2026-08-14). 강사가 아직 수락 안 한 회차는 풀 미예약이라 페널티 명분이 없어 취소 경로 무관 100% — `cancel(roundId)`(전액환불)와 `refundEnrollment`(수강종료)가 갈리던 것을 일치시킴.
+- **환불율**(CONFIRMED 한정): 당일 0 / 전날 50 / 2일전 70 / 3일전+ 100, 단 **결제완료 1h 내 100**(그레이스). 그레이스 기준은 **결제완료 시각**(`PaymentOrder.approvedAt` 중 회차 최소, 불변) — respondedAt(가변)을 쓰면 강사 수락·일정변경마다 리셋돼 "늦은 수락→당일 100%"·"reschedule 로 그레이스 재개방"이 났다. (코드 상수 — SiteSettings 이전은 튜닝 필요 시.)
+- **정수 나눗셈 나머지**: 수강료÷N 절사분(0..N-1원)은 **마지막 정규회차 몫**에 얹어 환불 합계=원금(버려서 사업자에 남기지 않음 — 학생 납입분이므로). 실환불은 주문 잔액 clamp라 원금 초과 불가.
 - **실행**: **수강료는 1회차 결제주문에 전액** 있으므로 수강료 몫 합 = 1회차 주문 **부분취소**, 부대 몫 = 각 회차 주문 부분취소. PG 부분취소(토스 `cancelAmount` / 이니시스 `partialRefund` + `price`·`confirmPrice`[취소 후 잔액]). `RefundOrder` 주문별 기록. stub/실연동은 결제와 동일.
 - 응답 `RefundQuote{total, lines[]}` — 미리보기와 실행이 같은 값.
 
