@@ -24,11 +24,18 @@ public class PaymentReconciliationScheduler {
 
     @Scheduled(fixedDelayString = "${pungdong.payment.reconciliation-sweep-ms:600000}")
     public void sweep() {
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        // 전송 성공 직후의 정상 시도/전이를 오탐하지 않도록 15분 넘게 정착된 것만 본다. 두 대사는 서로 독립이라
+        // 각각 try/catch — 하나가 죽어도 나머지는 돈다.
         try {
-            // 전송 성공 직후의 정상 시도를 오탐하지 않도록 15분 넘게 미확정인 것만 본다.
-            reconciliation.reportStuck(OffsetDateTime.now(ZoneOffset.UTC), 15);
+            reconciliation.reportStuck(now, 15); // 결과 미확인 시도(승인 ATTEMPTED·환불 REQUESTED)
         } catch (RuntimeException e) {
-            log.error("[reconciliation] 대사 스윕 실패", e);
+            log.error("[reconciliation] 미확인 시도 대사 실패", e);
+        }
+        try {
+            reconciliation.reportAmountMismatch(now, 15); // 순액 ≠ chargeTotal 드리프트(M1)
+        } catch (RuntimeException e) {
+            log.error("[reconciliation] 금액 정합 대사 실패", e);
         }
     }
 }
