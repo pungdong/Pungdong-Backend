@@ -1,4 +1,4 @@
--- V25 — refund_order: 한 주문당 in-flight(REQUESTED) 환불 시도 최대 1개 (동시 이중환불 방지, H-1).
+-- V26 — refund_order: 한 주문당 in-flight(REQUESTED) 환불 시도 최대 1개 (동시 이중환불 방지, H-1).
 --
 -- 왜: applyCancel 은 refundable 조회 → hasUnresolvedAttempt 가드 → recordAttempt(REQUESTED) 인 락 없는
 -- check-then-insert 다. 두 환불 발행자(학생 취소·강사 거절·만료 스윕)가 near-simultaneous 로 들어오면 둘 다
@@ -42,7 +42,7 @@ BEGIN
       ) dup ON dup.id = ro.id
       SET ro.status = 'FAILED',
           ro.failure_code = 'DEDUP',
-          ro.failure_message = 'V25 중복 REQUESTED 정리 — PG 원장 대사 필요';
+          ro.failure_message = 'V26 중복 REQUESTED 정리 — PG 원장 대사 필요';
 
     ALTER TABLE `refund_order`
       ADD UNIQUE INDEX `uk_refund_order_inflight` (`inflight_payment_order_id`);
