@@ -654,15 +654,11 @@ public class EnrollmentService {
                 .map(ScheduleHubResponse.ScheduleRound::getStatus).collect(Collectors.toList()));
 
         Course course = e.getCourse();
-        int totalRounds = course == null ? 0 : (int) course.getRounds().stream()
-                .filter(cr -> cr.getRoundKind() == RoundKind.REGULAR).count();
+        int totalRounds = EnrollmentCompletion.totalRegularRounds(e);
         // COMPLETED 는 모든 정규회차가 잡혀 done 일 때만 — 아직 안 잡은 회차가 남으면 진행중.
-        if (status == CourseScheduleStatus.COMPLETED) {
-            long doneRegular = e.getRounds().stream()
-                    .filter(r -> r.getRoundKind() == RoundKind.REGULAR && r.isDone()).count();
-            if (doneRegular < totalRounds) {
-                status = CourseScheduleStatus.PROGRESS;
-            }
+        boolean certifiable = EnrollmentCompletion.isCertifiable(e);
+        if (status == CourseScheduleStatus.COMPLETED && !certifiable) {
+            status = CourseScheduleStatus.PROGRESS;
         }
         CourseRound next = course == null ? null : RoundGate.nextSchedulable(e);
         Integer nextRoundIndex = next != null && next.getRoundKind() == RoundKind.REGULAR ? next.getRoundIndex() : null;
@@ -677,6 +673,7 @@ public class EnrollmentService {
                 .instructorName(course == null || course.getInstructor() == null
                         ? null : course.getInstructor().getNickName())
                 .status(status)
+                .certifiable(certifiable)
                 .totalRounds(totalRounds)
                 .nextRoundIndex(nextRoundIndex)
                 .canScheduleExtra(canScheduleExtra)

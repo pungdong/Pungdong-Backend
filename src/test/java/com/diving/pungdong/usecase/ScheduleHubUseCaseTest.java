@@ -7,6 +7,7 @@ import com.diving.pungdong.course.CertLevel;
 import com.diving.pungdong.course.Course;
 import com.diving.pungdong.course.CourseJpaRepo;
 import com.diving.pungdong.course.CourseKind;
+import com.diving.pungdong.course.CourseRound;
 import com.diving.pungdong.course.CourseStatus;
 import com.diving.pungdong.course.RoundKind;
 import com.diving.pungdong.enrollment.Enrollment;
@@ -144,6 +145,37 @@ class ScheduleHubUseCaseTest {
                 .andExpect(jsonPath("$.filters[3].count").value(0))
                 .andExpect(jsonPath("$.filters[4].id").value("PROGRESS"))
                 .andExpect(jsonPath("$.filters[4].count").value(1));
+    }
+
+    @Test
+    @DisplayName("SH6 정규를 다 끝낸 뒤 추가세션을 잡으면 카드는 PROGRESS 로 돌아가지만 certifiable 은 true 로 남는다")
+    void certifiable_staysTrue_whileExtraRoundInProgress() throws Exception {
+        Account student = account("sh6@pd.com", "학생6");
+        Account instructor = account("sh6i@pd.com", "강사6");
+
+        // 정규 1회차짜리 코스 — CourseRound 를 실제로 달아야 totalRegularRounds 가 1 이 된다.
+        Course c = Course.builder()
+                .instructor(instructor).title("AIDA1 자격 과정")
+                .kind(CourseKind.CERTIFICATION).organizationCode("AIDA").disciplineCode("FREEDIVING")
+                .levels(new HashSet<>(Set.of(CertLevel.LEVEL_1)))
+                .totalRounds(1).price(300000).status(CourseStatus.OPEN)
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
+        c.addRound(CourseRound.builder().roundKind(RoundKind.REGULAR).roundIndex(1).build());
+        c = courseRepo.save(c);
+
+        EnrollmentRound done = roundOf(1, EnrollmentStatus.CONFIRMED);
+        done.setDoneAt(OffsetDateTime.now(ZoneOffset.UTC));      // 정규 1/1 이수 완료
+        EnrollmentRound extra = roundOf(2, EnrollmentStatus.PENDING);
+        extra.setRoundKind(RoundKind.EXTRA);
+        extra.setRoundIndex(null);                                // EXTRA 는 정규 번호가 없다
+        enroll(student, c, 300000, done, extra);
+
+        mockMvc.perform(get("/enrollments/mine/schedule").header(HttpHeaders.AUTHORIZATION, token(student)))
+                .andExpect(status().isOk())
+                // 추가세션이 미결제라 카드 표시 상태는 되돌아간다 — 이건 의도된 동작이다.
+                .andExpect(jsonPath("$.courses[0].status").value("PAYMENT_DUE"))
+                // ★ 그래도 자격증은 이미 취득했다. 자격증 등록 피커는 status 가 아니라 이 값을 봐야 한다.
+                .andExpect(jsonPath("$.courses[0].certifiable").value(true));
     }
 
     @Test

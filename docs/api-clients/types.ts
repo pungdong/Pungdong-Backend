@@ -2105,6 +2105,13 @@ export interface ScheduleCourse {
   levels: CertLevel[];
   instructorName: string | null;
   status: CourseScheduleStatus;
+  /**
+   * 이 수강으로 **자격증을 등록할 수 있는가**(정규 회차 전부 이수).
+   * ★ 자격증 등록 폼의 "강의 연결" 피커는 **이 값**으로 거른다 — `status === 'COMPLETED'` 로 거르면
+   *   정규를 다 끝낸 뒤 추가세션(EXTRA)을 잡은 동안 카드가 PROGRESS 로 돌아가면서 **이미 취득한
+   *   자격증의 강의가 피커에서 사라진다.** 표시용 상태와 자격 판정은 다른 질문이다.
+   */
+  certifiable: boolean;
   totalRounds: number;             // 정규 회차 총 수 — FE 가 미잡힌(locked) 회차 placeholder 렌더
   nextRoundIndex: number | null;   // 지금 신청 가능한 다음 정규 회차 번호(없으면 null)
   canScheduleExtra: boolean;       // 정규 끝나 추가세션(EXTRA) 신청 가능
@@ -2406,6 +2413,108 @@ export interface RefundLine {
   ratePct: number;           // 적용 환불율 0~100
   reason: string;            // "수강 완료" | "미배정 수강료" | "배정취소(50%)" 등
 }
+
+// ============================================================
+// 학생 보유 자격증 (certificate 도메인) — 프로필 탭 > 내 자격증
+// docs/architecture/certificate.md 참고
+// ============================================================
+// ★ 강사 신청의 자격증(ApplicationCertificate)과 **다른 리소스**다. 저쪽은 강사 전환 심사 자료,
+//   이쪽은 본인이 보유를 기록하는 자산. 경로도 /certificates/** 로 갈린다.
+// ★ role 게이트 없음 — 강사도 개인 자격으로 보유한다.
+//
+// 흐름: (선택) 사진 업로드 → fileKey 받기 → 등록 JSON 에 photoFileKey 로 참조.
+//
+// ⚠️ 표시명(organizationName·organizationFullName·certificationDisplayName)은 **등록 시점 Sanity
+//    스냅샷**이다. 자격증은 불변 credential 이라 카탈로그가 나중에 이름을 바꿔도 그대로 남는다
+//    (Enrollment.tuitionSnapshot 과 같은 철학). 조회 때 Sanity 를 다시 읽지 않아도 된다.
+// ⚠️ 미지 코드가 올 수 있다 — disciplineCode 는 DB 테이블이라 배포 없이 늘고(MERMAID 존재),
+//    CertLevel 도 3자 계약(Sanity ↔ enum ↔ 이 파일)으로 늘 수 있다. 맵 직접 인덱싱 금지, 폴백 필수.
+
+export type CertificateSource = 'PUNGDONG' | 'EXTERNAL';
+
+/**
+ * POST /certificates/photos 응답 (2-phase 1단계). 요청은 multipart/form-data, 파트 이름 `image`.
+ * 강사 자격증 업로드와 파트명·필드명이 동일 — FE 업로드 코드를 재사용하라고 맞춘 것.
+ *
+ * 반환값이 URL 이 아니라 **key** 인 이유: 자격증 사진은 PII 라 비공개 버킷에 올라가고 영구 공개 URL 이
+ * 없다. 등록 전 미리보기는 로컬 파일로, 등록 후 표시는 조회 응답의 photoViewUrl(presigned)로.
+ */
+export interface CertificatePhotoResponse extends HalLinks {
+  fileKey: string;
+}
+
+/** POST /certificates (인증). 성공 = 201 + StudentCertificate 단건. */
+export interface StudentCertificateCreateRequest {
+  /** GET /disciplines 의 code. BE 가 검증한다(없는 코드 → 400). */
+  disciplineCode: string;
+  /** Sanity certOrganization.code. BE 는 카탈로그를 소유하지 않아 값 대조는 하지 않는다. */
+  organizationCode: string;
+  /** (선택) Sanity `name` — 카드 모노그램용 짧은 표시명. code 와 다를 수 있다(SDI/TDI). */
+  organizationName?: string;
+  /** (선택) Sanity `fullName` — 상세 "자격 단체" 행. */
+  organizationFullName?: string;
+  level: CertLevel;
+  /** (선택) Sanity `displayName` — 예 "AIDA 2". */
+  certificationDisplayName?: string;
+  /** 단체마다 형식이 달라 **정규식 없음**. 최대 100자. */
+  certificateNumber: string;
+  /** ISO `yyyy-MM-dd` (civil date — new Date() 로 TZ 변환하지 말 것). **미래 날짜는 400**. */
+  acquiredAt: string;
+  /** (선택) 외부 발급 기관. 최대 100자. */
+  issuer?: string;
+  /** (선택) 업로드 응답의 fileKey 를 그대로. ★ **본인이 올린 것**이어야 한다 — 남의 key 는 400. */
+  photoFileKey?: string;
+  /**
+   * (선택) 연결할 수강 id — 출처는 GET /enrollments/mine/schedule 의 `courses[].enrollmentId`
+   * (**`certifiable === true`** 인 것만 — `status` 가 아니다, 위 ScheduleCourse.certifiable 주석 참고).
+   * 보내면 source=PUNGDONG 이 되고 강사·강의가 서버에서 박제된다.
+   * ★ 소유·완료·종목 정합을 BE 가 검증한다: 남의 수강 = 404, 미완료 = 400, 종목 불일치 = 400.
+   */
+  enrollmentId?: number;
+}
+
+/**
+ * 자격증 1건. 목록은 GET /certificates/mine → `_embedded.certificates` (CollectionModel).
+ * **빈 목록이면 `_embedded` 자체가 없다** → `_embedded?.certificates ?? []` 로 읽을 것.
+ *
+ * 단건 GET /certificates/{id} 는 상세 진입용 — photoViewUrl 을 **새로** 발급한다(TTL 3분이라
+ * 목록에서 받은 값이 만료됐을 수 있다). 없거나 남의 것이면 -1009.
+ *
+ * null 은 생략하지 않고 명시적으로 내려온다.
+ */
+export interface StudentCertificate extends HalLinks {
+  id: number;
+  disciplineCode: string;
+  /** 저장·비교의 키. **화면에 쓰지 말 것** — 모노그램은 organizationName. */
+  organizationCode: string;
+  organizationName: string | null;
+  organizationFullName: string | null;
+  level: CertLevel;
+  certificationDisplayName: string | null;
+  /** 서버 파생(본인확인 실명 → 없으면 닉네임). 요청 필드가 아니다. */
+  holderName: string;
+  certificateNumber: string;
+  /** ISO `yyyy-MM-dd` (civil date). */
+  acquiredAt: string;
+  /** 서버 파생 — enrollmentId 유무. 클라이언트가 고를 수 없다(강사 없는 풍덩 발급 방지). */
+  source: CertificateSource;
+  issuer: string | null;
+  enrollmentId: number | null;
+  courseId: number | null;
+  courseTitle: string | null;
+  /** ISO `yyyy-MM-dd` — 마지막 정규 회차 날짜(civil date). */
+  courseCompletedAt: string | null;
+  /** 발급 강사 닉네임 스냅샷. 이니셜은 FE 파생. */
+  instructorName: string | null;
+  /** 표시용 **한시** URL(presigned, TTL 3분). 저장값이 아니라 조회 시점 발급. 사진 없으면 null. */
+  photoViewUrl: string | null;
+  /** instant (offset 포함). */
+  createdAt: string;
+}
+
+// DELETE /certificates/{id} (인증·본인) — 하드 삭제(DB 행 + 사진 객체). 성공 = 204 No Content.
+//   자기 신고 데이터라 법정 보존 대상이 아니다. 없거나 남의 것이면 -1009.
+// ⚠️ 수정(PUT/PATCH)은 **없다** — FE 에 편집 화면이 없어서 의도적으로 안 만들었다. 화면이 생기면 추가.
 
 // ============================================================
 // 인증 실패 응답 코드 (참고용)

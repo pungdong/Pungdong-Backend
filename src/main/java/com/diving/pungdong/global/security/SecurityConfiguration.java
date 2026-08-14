@@ -83,6 +83,8 @@ public class SecurityConfiguration {
                         // ADMIN 검사가 실제로 걸린다(먼저 매치되는 매처가 이긴다).
                         .antMatchers("/admin/community/reports/**").hasRole("ADMIN")
                         .antMatchers("/instructor-applications/**").authenticated()
+                        // 학생 보유 자격증(프로필 > 내 자격증) — 강사도 개인 자격으로 쓰므로 hasRole 로 막지 않는다.
+                        .antMatchers("/certificates/**").authenticated()
                         .antMatchers("/identity-verifications/**").authenticated()
                         .antMatchers("/consents/**").authenticated()
                         .antMatchers("/venues/**").authenticated()
