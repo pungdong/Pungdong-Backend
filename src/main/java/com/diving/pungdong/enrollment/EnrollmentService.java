@@ -574,6 +574,11 @@ public class EnrollmentService {
         AvailabilitySession session = round.getAvailabilitySession();
         round.setStatus(EnrollmentStatus.CANCELLED);
         round.setRespondedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        // 강사 제안 hold 를 회수한다(H4) — 이 회차를 위해 다른 일정에 잡아둔 좌석이다. 안 풀면 취소된 회차가
+        // 그 자리를 최대 proposalTtlHours(6h) 동안 붙들어 남의 신청을 막는다(스윕이 결국 풀지만 늦다).
+        // 터미널 회차라 제안 슬롯도 비운다. (pick/swap/applySlotChange 는 이미 하던 것을 종료 경로에도 맞춤.)
+        List<AvailabilitySession> heldSessions = releaseProposalHolds(round);
+        round.getProposedSlots().clear();
         if (paid) {
             // studentInitiated=true — 학생이 스스로 한 취소라 환불 완료를 알린다(거절·만료와 달리
             // 이 경로엔 "환불됩니다" 를 알려주는 다른 알림이 없다). 실제 반환액은 환불 실행부만
@@ -582,6 +587,11 @@ public class EnrollmentService {
         }
         EnrollmentResponse resp = EnrollmentResponse.of(round, venueName(round.getVenueRefId()), instructorName(round), paymentExpiresInSeconds(round));
         sessionCleaner.deleteIfEmpty(session);
+        for (AvailabilitySession held : heldSessions) {
+            if (session == null || !held.getId().equals(session.getId())) {
+                sessionCleaner.deleteIfEmpty(held); // 회수로 비워진 제안 자리 정리
+            }
+        }
         return resp;
     }
 
