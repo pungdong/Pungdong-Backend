@@ -301,7 +301,13 @@ public class PaymentService {
         order.setStatus(PaymentStatus.DONE);
         order.setPaymentKey(pgTransactionId); // PG 거래 식별자(토스 paymentKey / 이니시스 P_TID) — 취소에 쓴다
         order.setMethod(method);
-        order.setApprovedAt(approvedAt);
+        // 회계 불변식: DONE 인데 approvedAt=null 이면 안 된다(대사 불가). PG 가 승인시각을 주면 그걸(정확),
+        // 안 주면 우리 승인처리 시각(now)으로 보정하고 warn — PG 원장과 크로스체크할 대상임을 표면화한다.
+        if (approvedAt == null) {
+            log.warn("[payment] PG 가 승인시각 미제공 order={} tid={} — 처리시각(now)으로 보정, PG 원장 대사 필요",
+                    order.getOrderId(), pgTransactionId);
+        }
+        order.setApprovedAt(approvedAt != null ? approvedAt : now);
         order.setUpdatedAt(now);
         // 결제 완료 알림 — FE confirm 과 이니시스 콜백이 모두 이 확정부를 타므로 여기 한 곳이면 양쪽이 덮인다.
         // 차액 결제(아래 early return)도 실제로 돈이 나간 것이라 동일하게 알린다.
