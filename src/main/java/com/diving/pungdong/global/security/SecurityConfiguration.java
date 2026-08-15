@@ -76,6 +76,8 @@ public class SecurityConfiguration {
                         // 신고 처리 큐 — 어드민 전용. /community/** 의 authenticated 매처보다 앞에 둬야
                         // ADMIN 검사가 실제로 걸린다(먼저 매치되는 매처가 이긴다).
                         .antMatchers("/admin/community/reports/**").hasRole("ADMIN")
+                        // 결제 주문 수동 환불(운영 보정) — 어드민 전용. /payments/** 매처와 경로가 다르지만 명시.
+                        .antMatchers("/admin/payments/**").hasRole("ADMIN")
                         .antMatchers("/instructor-applications/**").authenticated()
                         // 학생 보유 자격증(프로필 > 내 자격증) — 강사도 개인 자격으로 쓰므로 hasRole 로 막지 않는다.
                         .antMatchers("/certificates/**").authenticated()

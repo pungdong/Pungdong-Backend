@@ -246,6 +246,96 @@ class RefundUseCaseTest {
                 .andExpect(jsonPath("$.total").value(120000)); // 결제 시각 기준이었으면 당일 0% 로 0 이 나왔을 것
     }
 
+    /* ─── 어드민 수동 환불 (운영 보정 — PG 콘솔 대신 코드로, 원장에 남게) ─── */
+
+    private Account admin(String mail) {
+        return accountRepo.save(Account.builder().email(mail).password("x").nickName(mail.split("@")[0])
+                .roles(new HashSet<>(Set.of(Role.ADMIN))).build());
+    }
+
+    private Fixture cancelledWithLeftover() {
+        // staging 2026-08-15 재현: 정책 오산정으로 부분환불된 뒤 회차는 CANCELLED, 주문엔 잔액이 남아 있다.
+        Fixture f = fixture();
+        var order = orderRepo.findByOrderId("ord-pk1").orElseThrow();
+        order.setRefundedAmount(233334); // 427,000 결제 · 233,334 환불 → 잔액 193,666
+        order.setAmount(427000);
+        orderRepo.save(order);
+        return f;
+    }
+
+    @Test
+    @DisplayName("RF17 어드민 수동 환불 — 주문 잔액 전액(amount 생략) 을 PG 취소하고 RefundOrder 원장 + 잔액에 남긴다")
+    void adminManualRefundRemaining() throws Exception {
+        Fixture f = cancelledWithLeftover();
+        var order = orderRepo.findByOrderId("ord-pk1").orElseThrow();
+        Account admin = admin("adm17@pd.com");
+
+        mockMvc.perform(post("/admin/payments/orders/{orderId}/refund", order.getOrderId())
+                        .header(HttpHeaders.AUTHORIZATION, token(admin))
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"그레이스 정책 오산정 보정\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.refunded").value(193666))
+                .andExpect(jsonPath("$.refundedTotal").value(427000))
+                .andExpect(jsonPath("$.refundable").value(0));
+
+        // PG 엔 잔액 전액 취소 + 취소가능잔액이 그대로 전달됐다.
+        org.mockito.Mockito.verify(gateway).cancel(org.mockito.ArgumentMatchers.eq(order.getPaymentKey()),
+                org.mockito.ArgumentMatchers.eq(193666), org.mockito.ArgumentMatchers.eq(193666), anyString());
+        // 원장: DONE 한 줄, 사유 접두 "운영자 수동 환불: ", 주문은 전액환불이라 CANCELED.
+        var rows = refundRepo.findAll();
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).getAmount()).isEqualTo(193666);
+        assertThat(rows.get(0).getReason()).startsWith("운영자 수동 환불: ");
+        assertThat(orderRepo.findById(order.getId()).orElseThrow().getRefundedAmount()).isEqualTo(427000);
+        assertThat(orderRepo.findById(order.getId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.CANCELED);
+    }
+
+    @Test
+    @DisplayName("RF18 어드민 수동 환불 — 잔액을 넘는 금액은 400(clamp 하지 않음), 사유 없으면 400, 이미 전액 환불이면 400")
+    void adminManualRefundRejectsBadAmounts() throws Exception {
+        Fixture f = cancelledWithLeftover();
+        var order = orderRepo.findByOrderId("ord-pk1").orElseThrow();
+        Account admin = admin("adm18@pd.com");
+
+        mockMvc.perform(post("/admin/payments/orders/{orderId}/refund", order.getOrderId())
+                        .header(HttpHeaders.AUTHORIZATION, token(admin))
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":193667,\"reason\":\"초과\"}"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(post("/admin/payments/orders/{orderId}/refund", order.getOrderId())
+                        .header(HttpHeaders.AUTHORIZATION, token(admin))
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":1000}"))
+                .andExpect(status().isBadRequest());
+        assertThat(refundRepo.findAll()).isEmpty(); // 아무것도 안 나감
+
+        // 일부(1,000) → 성공, 그 뒤 잔액 0 이 되면 400
+        mockMvc.perform(post("/admin/payments/orders/{orderId}/refund", order.getOrderId())
+                        .header(HttpHeaders.AUTHORIZATION, token(admin))
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":193666,\"reason\":\"전액\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/admin/payments/orders/{orderId}/refund", order.getOrderId())
+                        .header(HttpHeaders.AUTHORIZATION, token(admin))
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"또\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("RF19 어드민 수동 환불은 ADMIN 만 — 학생·강사 토큰은 403, 원장에 아무것도 안 남는다")
+    void adminManualRefundForbiddenForNonAdmin() throws Exception {
+        Fixture f = cancelledWithLeftover();
+        var order = orderRepo.findByOrderId("ord-pk1").orElseThrow();
+        mockMvc.perform(post("/admin/payments/orders/{orderId}/refund", order.getOrderId())
+                        .header(HttpHeaders.AUTHORIZATION, token(f.student))
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"내 돈\"}"))
+                .andExpect(status().isForbidden());
+        assertThat(refundRepo.findAll()).isEmpty();
+    }
+
     /* ─── fixture ─── */
 
     private static class Fixture {
