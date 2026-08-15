@@ -12,8 +12,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 공개 둘러보기 동적 쿼리 — repo 규약대로 {@code JpaSpecificationExecutor} + 이 sibling 유틸(legacy
- * {@code LectureSpecifications} 패턴). ES 안 씀(Phase 3 제거 대상). 항상 OPEN 만 노출.
+ * 공개 둘러보기 동적 쿼리 — repo 규약대로 {@code JpaSpecificationExecutor} + 이 sibling 유틸.
+ * (원래 v1 {@code LectureSpecifications} 에서 온 패턴 — 그쪽은 레거시 청산으로 삭제됐다.)
+ * ES 안 씀(Phase 3 제거 완료). 항상 OPEN 만 노출.
  *
  * <p><b>필터의 종류·레벨은 평탄화 멀티칩(OR)</b> — 시안 필터 시트는 [체험·L1·L2·L3·트레이닝]을 한 줄로
  * 펼쳐 멀티선택시키고({@code home-data.jsx} 의 {@code FILTER_LEVELS}), 결과는 그 칩들의 합집합이다.
