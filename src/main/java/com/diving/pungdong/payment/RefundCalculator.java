@@ -12,7 +12,6 @@ import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -29,8 +28,10 @@ import java.util.Objects;
  * </ul>
  *
  * <p>환불율(세션일까지 남은 일수, <b>CONFIRMED 한정</b>): <b>당일 0 / 전날 50 / 2일전 70 / 3일전+ 100</b>, 단
- * <b>결제완료 1시간 내</b>(그레이스) 취소는 날짜 무관 100. 그레이스 기준은 <b>결제완료 시각</b>({@code PaymentOrder.approvedAt}
- * 중 그 회차 최솟값) — 불변이라 강사 수락·일정변경으로 리셋되지 않는다(옛 respondedAt 기준의 "늦은 수락→당일 100%" 버그 제거).
+ * <b>강사 수락(확정) 1시간 내</b>(그레이스) 취소는 날짜 무관 100. 그레이스 기준은 <b>확정 시각</b>(CONFIRMED 회차의
+ * {@code respondedAt} = 수락·pick-slot·재수락 순간). 페널티 명분이 "강사가 수락 후 풀을 예약했다"이므로 시계도 수락에서
+ * 돈다 — 결제 시각 기준(#258)은 강사가 늦게 수락할수록 학생이 확정 직후 취소해도 페널티를 맞는 소비자 기만이었다.
+ * 강사의 늦은 수락은 학생의 무료취소 구간을 늘릴 뿐이고(미수락 = 100%), 확정 뒤 취소할 사람은 그 1시간에 하면 된다.
  * 수강료는 1회차에 전액 냈으므로 정규회차 몫(수강료/N)은 미배정·배정 모두 여기서 계산. 나눗셈 나머지는 <b>마지막 정규회차</b>에
  * 얹어 환불 합계가 원금과 어긋나지 않게 한다(버려서 사업자에 남기지 않음). ⚠️ 환불율 상수는 추후 SiteSettings 이전 후보.
  */
@@ -43,12 +44,7 @@ public class RefundCalculator {
     private static final int TWO_DAY_PCT = 70;
     private static final int THREE_DAY_PLUS_PCT = 100;
 
-    /**
-     * @param paidAtByRoundId 회차 id → 그 회차의 <b>결제완료 시각</b>(승인 주문 {@code approvedAt} 중 최소, 불변).
-     *                        그레이스(결제 1h 내 100%) 기준. 없으면 회차 {@code createdAt} 로 폴백(보수적).
-     */
-    public RefundQuote quote(Enrollment enrollment, LocalDate today, OffsetDateTime now,
-                             Map<Long, OffsetDateTime> paidAtByRoundId) {
+    public RefundQuote quote(Enrollment enrollment, LocalDate today, OffsetDateTime now) {
         int totalRegular = enrollment.getCourse() == null ? 0 : (int) enrollment.getCourse().getRounds().stream()
                 .filter(cr -> cr.getRoundKind() == RoundKind.REGULAR).count();
         int tuition = enrollment.getTuitionSnapshot();
@@ -74,7 +70,7 @@ public class RefundCalculator {
                 continue;
             }
             // 날짜 페널티는 CONFIRMED(강사 수락 = 풀 예약)에만. 미수락(ACCEPT_PENDING)·미결제(PENDING)는 100%.
-            int rate = r.getStatus() == EnrollmentStatus.CONFIRMED ? ratePct(r, today, now, paidAtByRoundId) : 100;
+            int rate = r.getStatus() == EnrollmentStatus.CONFIRMED ? ratePct(r, today, now) : 100;
             int tuitionPart = tuitionBase * rate / 100;
             int extraPart = paidExtras(r) * rate / 100;
             lines.add(new RefundQuote.Line(idx, r.getId(), tuitionPart, extraPart, rate, "배정취소(" + rate + "%)"));
@@ -86,7 +82,7 @@ public class RefundCalculator {
             if (r.getRoundKind() != RoundKind.EXTRA || !r.getStatus().isActive() || r.isDone()) {
                 continue;
             }
-            int rate = r.getStatus() == EnrollmentStatus.CONFIRMED ? ratePct(r, today, now, paidAtByRoundId) : 100;
+            int rate = r.getStatus() == EnrollmentStatus.CONFIRMED ? ratePct(r, today, now) : 100;
             int extraPart = paidExtras(r) * rate / 100;
             lines.add(new RefundQuote.Line(null, r.getId(), 0, extraPart, rate, "추가세션 취소(" + rate + "%)"));
             total += extraPart;
@@ -113,16 +109,16 @@ public class RefundCalculator {
     }
 
     /**
-     * 환불율(%) — <b>결제완료 1h 내</b>(그레이스) 100, 아니면 세션일까지 남은 일수로(당일0/전날50/2일전70/3일전+100).
-     * CONFIRMED 회차에만 불린다. 그레이스 기준은 <b>결제완료 시각</b>(불변) — respondedAt 을 쓰면 강사 수락·일정변경
-     * 때마다 리셋돼 "당일인데 100%" 가 나왔다. 결제완료 시각을 모르면(legacy) 회차 createdAt 으로 보수적 폴백.
+     * 환불율(%) — <b>강사 수락(확정) 1h 내</b>(그레이스) 100, 아니면 세션일까지 남은 일수로(당일0/전날50/2일전70/3일전+100).
+     * CONFIRMED 회차에만 불린다. 그레이스 앵커 = CONFIRMED 회차의 {@code respondedAt}: 수락(accept)·학생 pick-slot·
+     * 일정변경 재수락 모두 "확정된 순간"에 찍힌다. 확정 후엔 respondedAt 을 갱신하는 경로가 없어(제안·재요청은
+     * ACCEPT_PENDING 으로 되돌아간 뒤에만 가능, 그 상태는 100%) 그레이스가 조용히 재개방되지 않는다.
+     * respondedAt 이 없으면(legacy) 회차 createdAt 으로 보수적 폴백.
      */
-    private int ratePct(EnrollmentRound r, LocalDate today, OffsetDateTime now,
-                        Map<Long, OffsetDateTime> paidAtByRoundId) {
-        OffsetDateTime paidAt = paidAtByRoundId.get(r.getId());
-        OffsetDateTime committedAt = paidAt != null ? paidAt : r.getCreatedAt();
-        if (committedAt != null && committedAt.isAfter(now.minusHours(GRACE_HOURS))) {
-            return 100; // 결제완료 1시간 내 무조건 100
+    private int ratePct(EnrollmentRound r, LocalDate today, OffsetDateTime now) {
+        OffsetDateTime confirmedAt = r.getRespondedAt() != null ? r.getRespondedAt() : r.getCreatedAt();
+        if (confirmedAt != null && confirmedAt.isAfter(now.minusHours(GRACE_HOURS))) {
+            return 100; // 강사 수락 1시간 내 무조건 100
         }
         if (r.getDate() == null) {
             return THREE_DAY_PLUS_PCT;

@@ -213,6 +213,39 @@ class RefundUseCaseTest {
                 .andExpect(jsonPath("$.total").value(120000)); // 당일이지만 미수락 → 전액. cancel(roundId) 경로와 일치.
     }
 
+    @Test
+    @DisplayName("RF16 강사 수락 직후(1h 내) 당일 세션 수강종료는 100% — 그레이스는 수락 시각에서 센다(결제가 몇 시간 전이어도)")
+    void graceRunsFromAcceptanceNotPayment() throws Exception {
+        // staging 2026-08-15 재현: 신청·결제 5h 전 → 강사 수락 2분 전 → 곧장 환불. 세션은 오늘(당일=0% 조건).
+        Account stu = accountRepo.save(Account.builder().email("rf16@pd.com").password("x").nickName("학생16")
+                .roles(new HashSet<>(Set.of(Role.STUDENT))).build());
+        Account ins = accountRepo.save(Account.builder().email("rfi16@pd.com").password("x").nickName("강사16")
+                .roles(new HashSet<>(Set.of(Role.INSTRUCTOR))).build());
+        Course course = Course.builder().instructor(ins).title("1회차 과정")
+                .kind(CourseKind.CERTIFICATION).organizationCode("AIDA").disciplineCode("FREEDIVING")
+                .totalRounds(1).price(100000).status(CourseStatus.OPEN).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
+        course.addRound(CourseRound.builder().roundKind(RoundKind.REGULAR).roundIndex(1).build());
+        courseRepo.save(course);
+
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        EnrollmentRound r1 = round(1, EnrollmentStatus.CONFIRMED, LocalDate.now(), false, 20000);
+        r1.setCreatedAt(now.minusHours(5));    // 신청·결제 5시간 전
+        r1.setRespondedAt(now.minusMinutes(2)); // 강사 수락 2분 전 = 확정 시각
+        Enrollment e = Enrollment.builder().student(stu).course(course).tuitionSnapshot(100000)
+                .createdAt(now.minusHours(5)).build();
+        e.addRound(r1);
+        enrollmentRepo.save(e);
+        order(r1, 120000, "pk-grace"); // 수강료 100,000 + 부대 20,000
+        orderRepo.findAll().stream().filter(o -> "pk-grace".equals(o.getPaymentKey())).forEach(o -> {
+            o.setApprovedAt(now.minusHours(5)); // 결제완료 5시간 전 — 이걸 앵커로 쓰면(#258) 그레이스 만료였다
+            orderRepo.save(o);
+        });
+
+        mockMvc.perform(post("/enrollments/{id}/refund", e.getId()).header(HttpHeaders.AUTHORIZATION, token(stu)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(120000)); // 결제 시각 기준이었으면 당일 0% 로 0 이 나왔을 것
+    }
+
     /* ─── fixture ─── */
 
     private static class Fixture {

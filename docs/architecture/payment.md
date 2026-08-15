@@ -275,7 +275,7 @@ applyConfirm (PaymentService.java:235)
 
 `RefundCalculator` 의 메커니즘 세 가지만 여기 적는다(왜/정책 히스토리는 피처 문서 소유):
 
-1. **그레이스(결제 1h 내 100%) 앵커 = 결제완료 시각** — 회차별 승인 주문 `PaymentOrder.approvedAt` 의 최솟값(**불변**, `RefundService.java:82-90`). 옛 앵커 `respondedAt` 은 강사 수락·일정변경마다 리셋되는 가변값이라 "세션 당일인데 100%" 버그가 났다(`RefundCalculatorTest` N2). 모르면(legacy) 회차 `createdAt` 폴백(보수적). 이 앵커가 성립하려면 "DONE 인데 `approvedAt=null`" 이 없어야 하므로 `finalizeApproval` 이 null 이면 처리시각으로 보정+warn 한다.
+1. **그레이스(강사 수락 1h 내 100%) 앵커 = 확정 시각** — CONFIRMED 회차의 `respondedAt`(수락·pick-slot·재수락 순간, `RefundCalculator.ratePct`). 확정 후 `respondedAt` 을 갱신하는 경로는 없다(제안·일정변경요청은 ACCEPT_PENDING 상태에서만 가능하고 그 상태는 100%) — 그래서 "그레이스 재개방" 우려는 성립하지 않는다(`RefundCalculatorTest` F3/N2, `RefundUseCaseTest` RF16). 없으면(legacy) 회차 `createdAt` 폴백(보수적). (2026-08-14 #258 은 결제완료 `approvedAt` 을 앵커로 썼다가 2026-08-15 되돌림 — 왜는 피처 문서.) `finalizeApproval` 의 `approvedAt` null 보정+warn 은 원장 정합용으로 유지.
 2. **날짜 페널티(당일 0/전날 50/2일전 70/3일전+ 100)는 `CONFIRMED` 회차에만** — 페널티는 "강사가 풀을 예약한 뒤 코앞 취소" 손해를 물리는 것이라 미수락(`ACCEPT_PENDING`)·미결제는 명분이 없어 100%(`RefundCalculator.java:76-77`). `cancel(roundId)` 경로(전액환불)와 `refundEnrollment` 경로의 결과가 일치하게 된다.
 3. **수강료/N 의 정수 나눗셈 나머지는 마지막 정규회차에 배분** — 버리면 환불 합계 < 원금(학생 불리, 대사 어긋남)(`RefundCalculator.java:56-57`).
 
@@ -309,7 +309,7 @@ applyConfirm (PaymentService.java:235)
 - 🟢 **이니시스 실 왕복 검증 완료** (2026-08-07, staging 테스트 MID `INIpayTest`) — **실카드**로 결제창→승인(payAppl)→DONE→CONFIRMED→**환불(iniapi)**→CANCELLED **전 사이클 성공**(카드 승인·취소 문자까지 수신). 저장한 tid 로 환불이 승인돼 **환불 tid 필드 OK**(P_TID 우선·P_APPL_TID 폴백 정상), hashData 바이트동일성·전액취소(type=refund) 정상. 검증법: raw JWT(Bearer 안 붙임) → `GET /enrollments/mine` → `POST /enrollments/{id}/refund`. prod MID(`plopol1192`)는 카드사심사 flip 때 재확인.
 - 🔴 **webhook 미연동** — 비동기 상태(취소·부분취소 통보)를 받지 못한다. v1 은 콜백 승인 + 환불 API 동기 응답만. 카드+간편결제만 받아 가상계좌 입금통보는 불필요. → PG webhook 엔드포인트 + 서명 검증 후속(`venue/sync/SanityWebhookVerifier` 패턴 참고). (2026-08 하드닝의 콜백 수신 원장·대사 스윕이 **관측 공백**은 메웠지만, 비동기 통보 자체를 받는 건 여전히 후속.)
 - 🟢 **결제 하드닝 스윕 반영 완료** (2026-08-12~13, #245·#248·#249·#251·#252·#253 + #261) — 감사에서 나온 돈-정합 간극을 일괄 해소: **승인 원장**(orphan charge 차단, §4)·**콜백 수신 원장**(§3)·**대사 스윕 2종**(결과 미확인 + 금액 드리프트 M1, §4)·**낙관락 `@Version`**(V20)·**READY 조건부 유니크**(V21)·**환불 in-flight 유니크**(V26, H-1)·**좌석 잠금 count**(H-4)·**환불 미확정 시 상태 전이 롤백**(C2, `-1022`)·**취소 미확정 FAILED 처리**(H-2). 동시성 의미는 실 MySQL 하네스(`./gradlew mysqlTest`)가 지킨다 — §4 "동시성 방어".
-- 🟢 **환불 정합성 정책 정리 완료** (#258) — 그레이스 앵커를 `approvedAt`(불변)로, 날짜 페널티를 `CONFIRMED` 한정으로, 나눗셈 나머지를 마지막 회차 배분으로. §4 "환불 정합성" + [features/payment.md](../features/payment.md).
+- 🟢 **환불 정합성 정책 정리 완료** (#258) — 그레이스 앵커 정리(→ 2026-08-15 수락 시각으로 확정), 날짜 페널티를 `CONFIRMED` 한정으로, 나눗셈 나머지를 마지막 회차 배분으로. §4 "환불 정합성" + [features/payment.md](../features/payment.md).
 - 🟢 **환불액 노출 완료** (#262, M5) — `PaymentConfirmResponse`(confirm·`GET /payments/orders/{id}` 공용)에 `refundedAmount`(누적 환불액)·`refundableAmount`(취소가능 잔액) 추가. `status` 만으론 부분환불 금액이 안 보였다 — FE 가 "N원 환불됨"·잔액을 계산 없이 표시한다.
 - 🟢 **환불 clientIp 등록 불요** (2026-08-07 검증) — 환불 전문의 `clientIp`(기본값·변동 egress)로 이니시스 환불이 통과했다. 즉 **고정 egress(fck-nat) 불필요** — 환불 자동화에 인프라 부담 0. (KCP 8012 취소-IP 제약과 달리 이니시스는 IP 대조를 안 하는 것으로 확인. prod MID 에서 재확인 권장이나 강신호. 만약 prod 에서 IP 제약이 나타나면 fck-nat/나노 NAT ~$7/월 옵션 — 히스토리는 git.)
 - 🟢 **결제 미완 만료 + 거절/무응답 자동환불 구현** (2026-08-07 선결제 전환) — 선결제 1회차: 미결제(PENDING) 12h 만료(슬롯 해제·환불 없음), 결제완료(ACCEPT_PENDING) 강사 무응답 24h 만료 + **전액 자동환불**, 강사 거절 시 **전액 자동환불**. enrollment 이벤트(`EnrollmentRefundRequestedEvent`) → `EnrollmentRefundListener` → `RefundService.refundRoundFully`(동기·롤백 안전). 상태기계는 [enrollment.md](enrollment.md) §3-2.
@@ -351,7 +351,7 @@ applyConfirm (PaymentService.java:235)
 - `InicisPaymentTransmissionTest`(K/M/V) — 이니시스 전문·서명·hashData 바이트동일성·SSRF(외부 호출 0, 자격증명 불요)
 - `RefundUseCaseTest` `RF4` — PG 스왑 후 과거 주문은 결제 당시 PG(이니시스)로 환불, 새 active(토스)로 안 나간다 / `RF5` 강사 거절→REJECTED+전액 자동환불(cancel 호출·환불기록) / `RF6` 무응답 만료→CANCELLED+환불
 - `RefundUseCaseTest` 하드닝·다주문: `RF7` 부분환불 누적·clamp / `RF8` 전액→CANCELED·이후 no-op / `RF9` PG 거절 시 상태전이 롤백+FAILED 이력 / `RF10` REQUESTED 잔존 시 `RefundBlockedException`(재호출 없음) / `RF15` 그 경우 강사 거절까지 롤백(C2) / `RF14` canceled=false 는 DONE 기록 안 함(H-2) / `RF11`~`RF13` 다주문 전액·최신 주문 우선 차감·순액 상한
-- `RefundCalculatorTest`(F/N) — 환불율표·`F3`/`N2` 그레이스 앵커=결제완료 paidAt(respondedAt 로 재개방 안 됨)·`N1` 날짜 페널티 CONFIRMED 한정·`N3` 나머지 마지막 회차 배분(합계=원금)
+- `RefundCalculatorTest`(F/N) — 환불율표·`F3`/`N2` 그레이스 앵커=강사 수락(확정) 시각 respondedAt(결제 시각 무관)·`N1` 날짜 페널티 CONFIRMED 한정·`N3` 나머지 마지막 회차 배분(합계=원금)
 - `PaymentReconciliationTest`(RC1~RC4) — 유예 지난 미확정만 카운트·순액==chargeTotal 정합·드리프트 표면화·REQUESTED in-flight 회차 제외
 - `PaymentOrderConcurrencyTest`(VL1~VL2) — `@Version` 0 시작·증가, stale 저장 시 낙관락 충돌(먼저 커밋한 쪽이 이김)
 - **실 MySQL 동시성**(`./gradlew mysqlTest`, Testcontainers·H2 로는 재현 불가): `H-1` 8스레드 동시 환불에도 PG 취소 1회(이중환불 없음) / `H-4`·`H-4b` 동시 신청·동시 세션 생성에도 overbooking 없음
