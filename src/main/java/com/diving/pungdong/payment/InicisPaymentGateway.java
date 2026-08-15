@@ -184,16 +184,12 @@ public class InicisPaymentGateway implements PaymentGateway {
     }
 
     @Override
-    public CancelResult cancel(String pgTransactionId, int cancelAmount, int remainingAmount, String reason) {
+    public CancelResult cancel(String pgTransactionId, int cancelAmount, int remainingAmount, int originalAmount, String reason) {
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("이니시스 환불 API 키가 설정되지 않았습니다(pungdong.payment.inicis.api-key)");
         }
-        String type = refundType(cancelAmount, remainingAmount);
-        String url = "partialRefund".equals(type) ? PARTIAL_REFUND_URL : REFUND_URL;
-        String timestamp = LocalDateTime.now(INICIS_ZONE).format(REFUND_TIME);
-        Map<String, Object> data = refundData(pgTransactionId, cancelAmount, remainingAmount, reason);
-
-        JsonNode json = postJson(url, refundBody(apiKey, mid, clientIp, timestamp, type, data, objectMapper), "refund");
+        String type = refundType(cancelAmount, remainingAmount, originalAmount);
+        JsonNode json = postRefund(type, pgTransactionId, cancelAmount, remainingAmount, reason);
         String resultCode = json.path("resultCode").asText("");
         if (!OK.equals(resultCode)) {
             String resultMsg = json.path("resultMsg").asText("");
@@ -204,6 +200,13 @@ public class InicisPaymentGateway implements PaymentGateway {
         log.info("[payment-inicis] 환불 완료 tid={} type={} 취소액={} resultCode={}",
                 pgTransactionId, type, cancelAmount, resultCode);
         return new CancelResult(true, resultCode, refundTime(json));
+    }
+
+    private JsonNode postRefund(String type, String tid, int cancelAmount, int remainingAmount, String reason) {
+        String url = PARTIAL_REFUND.equals(type) ? PARTIAL_REFUND_URL : REFUND_URL;
+        String timestamp = LocalDateTime.now(INICIS_ZONE).format(REFUND_TIME);
+        Map<String, Object> data = refundData(tid, cancelAmount, remainingAmount, reason, PARTIAL_REFUND.equals(type));
+        return postJson(url, refundBody(apiKey, mid, clientIp, timestamp, type, data, objectMapper), "refund");
     }
 
     /* ─── 전문(request body) 생성 — 네트워크 없이 검증 가능하도록 분리(package-private) ─── */
@@ -225,22 +228,41 @@ public class InicisPaymentGateway implements PaymentGateway {
                 + "&P_CHARSET=UTF-8";
     }
 
-    /** 취소 타입 — 잔액 일부면 부분취소(partialRefund), 잔액 전부(이상)면 전체취소(refund). */
-    static String refundType(int cancelAmount, int remainingAmount) {
-        return cancelAmount < remainingAmount ? "partialRefund" : "refund";
+    static final String REFUND = "refund";
+    static final String PARTIAL_REFUND = "partialRefund";
+
+    /**
+     * 취소 타입. 이니시스는 <b>전체취소(refund)</b>를 "한 번도 취소된 적 없는 거래를 통째로"에만 허용한다 — 부분취소 이력이
+     * 있는 거래는 잔액 전액이라도 refund 가 500624("부분취소 원거래 취소불가")로 거절되고, <b>부분취소(partialRefund,
+     * confirmPrice=취소 후 잔액=0)</b>로 보내야 한다. 그래서:
+     * <ul>
+     *   <li>{@code cancelAmount == remainingAmount == originalAmount}(취소 이력 없음 + 전액) → {@code refund}</li>
+     *   <li>그 외 전부(일부 취소, 또는 이력 있는 거래의 잔액 전액) → {@code partialRefund}</li>
+     * </ul>
+     * 취소 이력 여부는 우리 원장({@code PaymentOrder.amount} vs 잔액)이 아는 사실 — PG 거절 코드로 되짚지 않는다.
+     */
+    static String refundType(int cancelAmount, int remainingAmount, int originalAmount) {
+        boolean untouched = remainingAmount >= originalAmount;
+        return untouched && cancelAmount >= remainingAmount ? REFUND : PARTIAL_REFUND;
+    }
+
+    /** 이전 시그니처 호환 — 타입 판정과 같은 규칙으로 부분/전체를 고른다. */
+    static Map<String, Object> refundData(String tid, int cancelAmount, int remainingAmount, String reason) {
+        return refundData(tid, cancelAmount, remainingAmount, reason, cancelAmount < remainingAmount);
     }
 
     /**
      * 환불 {@code data} 객체. 부분취소면 {@code price}(취소액)+{@code confirmPrice}(<b>취소 후</b> 잔액)가 필수 —
      * 포트의 {@code remainingAmount} 는 취소 <b>직전</b> 잔액이므로 {@code remainingAmount - cancelAmount}로 변환한다.
+     * {@code partial=true} 이면 잔액 전부(confirmPrice=0)라도 부분취소 전문으로 만든다(부분취소 이력 있는 원거래용).
      */
-    static Map<String, Object> refundData(String tid, int cancelAmount, int remainingAmount, String reason) {
+    static Map<String, Object> refundData(String tid, int cancelAmount, int remainingAmount, String reason, boolean partial) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("tid", tid);
         data.put("msg", sanitize(reason));
-        if (cancelAmount < remainingAmount) {
+        if (partial) {
             data.put("price", String.valueOf(cancelAmount));
-            data.put("confirmPrice", String.valueOf(remainingAmount - cancelAmount));
+            data.put("confirmPrice", String.valueOf(Math.max(0, remainingAmount - cancelAmount)));
             data.put("currency", "WON");
             data.put("tax", "0");
             data.put("taxfree", "0");

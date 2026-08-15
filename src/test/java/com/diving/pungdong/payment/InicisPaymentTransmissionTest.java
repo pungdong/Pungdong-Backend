@@ -96,10 +96,24 @@ class InicisPaymentTransmissionTest {
     }
 
     @Test
-    @DisplayName("K5 취소 타입 판정 — 잔액 전부면 refund, 일부면 partialRefund")
+    @DisplayName("K7 부분취소 이력 있는 원거래의 잔액 전액 — 우리 원장(원금>잔액)으로 판별해 partialRefund(price=잔액, confirmPrice=0) 전문 (refund 는 500624 거절)")
+    void forcedPartialForRemainingAfterPriorPartial() throws Exception {
+        // staging 2026-08-15: 427,000 결제 → 233,334 부분취소 → 잔액 193,666 을 refund(전체취소)로 보내니 500624
+        // "부분취소 원거래 취소불가". 원금(427,000) > 잔액(193,666) = 취소 이력 있음 → 처음부터 partialRefund 로.
+        assertThat(InicisPaymentGateway.refundType(193_666, 193_666, 427_000)).isEqualTo("partialRefund");
+        var data = InicisPaymentGateway.refundData("INIproCARDINIpayTest20260815140435526715", 193_666, 193_666, "운영자 수동 환불", true);
+        String body = InicisPaymentGateway.refundBody(API_KEY, MID, CLIENT_IP, "20260815205100", "partialRefund", data, MAPPER);
+        assertThat(body).contains("\"type\":\"partialRefund\"")
+                .contains("\"price\":\"193666\"")
+                .contains("\"confirmPrice\":\"0\"");
+    }
+
+    @Test
+    @DisplayName("K5 취소 타입 판정 — 취소 이력 없는 거래의 전액만 refund, 일부·이력 있는 거래의 잔액 전액은 partialRefund")
     void refundTypeBoundary() {
-        assertThat(InicisPaymentGateway.refundType(365_000, 365_000)).isEqualTo("refund");   // 전액
-        assertThat(InicisPaymentGateway.refundType(100_000, 365_000)).isEqualTo("partialRefund"); // 일부
+        assertThat(InicisPaymentGateway.refundType(365_000, 365_000, 365_000)).isEqualTo("refund");        // 이력 없음 + 전액
+        assertThat(InicisPaymentGateway.refundType(100_000, 365_000, 365_000)).isEqualTo("partialRefund"); // 일부
+        assertThat(InicisPaymentGateway.refundType(265_000, 265_000, 365_000)).isEqualTo("partialRefund"); // 이력 있음 + 잔액 전액
     }
 
     /* ─── K* 승인 응답 검증(verifyApproval) — 승인엔 서명이 없어 금액 대조가 유일한 방어선 ─── */

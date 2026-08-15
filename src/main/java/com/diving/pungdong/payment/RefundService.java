@@ -341,7 +341,7 @@ public class RefundService {
                 order.getOrderId(), order.getProvider(), amount, refundable, order.getPaymentKey(), reason, attemptId);
         PaymentGateway.CancelResult result;
         try {
-            result = gateways.forOrder(order.getProvider()).cancel(order.getPaymentKey(), amount, refundable, reason);
+            result = gateways.forOrder(order.getProvider()).cancel(order.getPaymentKey(), amount, refundable, order.getAmount(), reason);
         } catch (PaymentGatewayException e) {
             ledger.markFailed(attemptId, e.getCode(), e.getDetail(), OffsetDateTime.now(ZoneOffset.UTC));
             throw e;
