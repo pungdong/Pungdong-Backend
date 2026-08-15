@@ -9,7 +9,7 @@
 도메인 이벤트 → Outbox → FCM 전송 파이프라인 전부:
 - **이벤트**: `event/ReservationCreatedEvent`, `ReservationCancelledEvent`, `LectureNotificationEvent` — 도메인에서 `ApplicationEventPublisher` 로 발행
 - **Outbox**: `NotificationOutboxWriter`(리스너, PENDING 행 기록), `NotificationOutbox` 엔티티, `NotificationStatus`(PENDING/FAILED/SENT/GAVE_UP), `NotificationType`
-- **워커**: `NotificationDeliveryWorker`(@Scheduled, PENDING/FAILED 픽업 → 전송 → 상태전이, exp backoff 10회 → GAVE_UP), `NotificationDispatcher`, `NotificationPayload`
+- **워커**: **`NotificationDispatcher`** 가 `@Scheduled`(기본 3초, `@Profile("!test")`) 로 PENDING/FAILED 를 batch 50 픽업하고, **`NotificationDeliveryWorker`** 가 건별 `@Transactional(REQUIRES_NEW)` 로 전송·상태전이(exp backoff 10회 → GAVE_UP). ⚠️ **`@Scheduled` 는 워커가 아니라 디스패처에 있다.** `NotificationPayload` 는 payload DTO.
 - **FCM**: `fcm/FcmGateway`(인터페이스), `FirebaseFcmGateway`(실전송 + UNREGISTERED/INVALID/NOT_FOUND 시 토큰 행 삭제), `LoggingFcmGateway`(로컬/스텁). **둘은 `firebase.enabled` 프로퍼티로 상호배타 키잉**(true=Firebase, false/미설정=Logging) — `@ConditionalOnMissingBean`/`@ConditionalOnBean` 으로 바꾸지 말 것(↓ 결정 히스토리).
 - **retention**: `NotificationOutboxRetention`(@Scheduled 매일 4am, SENT 30일↑ 삭제. FAILED/GAVE_UP 영구보존)
 - **알림함(인앱 수신함)**: `UserNotification`(엔티티) · `UserNotificationJpaRepo` · `UserNotificationService` · `UserNotificationController`(`/me/notifications` 목록/미읽음수/읽음/전체읽음) · `dto/UserNotificationResponse`(`@Relation("notifications")`) · `dto/UnreadCountResponse` · `NotificationPaging`(size 상한 50, 클라 정렬 무시)
@@ -19,7 +19,8 @@
 
 ## 작업 전 반드시 읽기
 
-- **[docs/architecture/notification.md](../../../../../../../docs/architecture/notification.md)** — 이벤트→outbox→FCM 흐름, 상태 머신, retention
+- **[docs/architecture/notification.md](../../../../../../../docs/architecture/notification.md)** — **여기부터.** 이벤트→outbox+알림함 이중 INSERT→디스패처→FCM 흐름, 상태 머신, retention, 그리고 **§상황별 알림 카탈로그**(어떤 상황에 어떤 알림이 어떤 문구·`data` 로 나가는가 = 단일 출처. 미구현 5종도 "왜 없는지"와 함께 명시돼 있다).
+- **[docs/features/push.md](../../../../../../../docs/features/push.md)** — 정책·계약(FE SoT)·결정 히스토리. **🔴 prod 는 아직 `FIREBASE_ENABLED=false`(stub)** 라 실발송은 staging 에서만 된다 — 그 현황도 여기.
 - memory `project_simplification_plan` (Phase 2 설계: outbox 상태/흐름, FirebaseToken 설계)
 
 ## 결정 히스토리 (왜 이렇게 됐나)
