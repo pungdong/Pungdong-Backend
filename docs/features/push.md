@@ -72,7 +72,7 @@ DELETE /me/devices/{token}    Authorization: Bearer <atk>
 | `marketing` | 혜택·이벤트 | LOW | NORMAL | 광고성 | **08~21 KST + 별도 수신동의** |
 
 - **채널 5개는 앱(FE)이 생성** — 채널 importance·소리·유저 토글은 앱/OS 소유. **BE 는 메시지에 `channelId`(+priority)만 지정**해 라우팅(`FirebaseFcmGateway`).
-- **iOS 는 채널 개념 없음** — 앱당 알림 권한 하나뿐. 카테고리별 opt-out(마케팅만 끄기)을 OS 가 못 줘서 → **인앱 마케팅 동의 토글 + BE 게이팅**이 그 역할(크로스플랫폼으로 이게 더 중요). prominence 는 APNs **`interruption-level`** 로 — **BE 가 이미 payload 에 카테고리별로 설정**(마케팅=`passive` 소리없이 목록만 / 거래=`time-sensitive` / 공지=`active`, `FirebaseFcmGateway`). passive 는 즉시 효과(엔타이틀먼트 불필요); `time-sensitive` 의 Focus-뚫기 효과만 **네이티브 iOS Time-Sensitive 엔타이틀먼트** 필요(없으면 active 로 graceful 강등). iOS 비활성 동안엔 휴면.
+- **iOS 는 채널 개념 없음** — 앱당 알림 권한 하나뿐. 카테고리별 opt-out(마케팅만 끄기)을 OS 가 못 줘서 → **인앱 마케팅 동의 토글 + BE 게이팅**이 그 역할(크로스플랫폼으로 이게 더 중요). prominence 는 APNs **`interruption-level`** 로 — **BE 가 이미 payload 에 카테고리별로 설정**(마케팅=`passive` 소리없이 목록만 / 거래=`time-sensitive` / 공지=`active`, `FirebaseFcmGateway`). passive 는 즉시 효과(엔타이틀먼트 불필요); `time-sensitive` 의 Focus-뚫기 효과만 **네이티브 iOS Time-Sensitive 엔타이틀먼트** 필요(없으면 active 로 graceful 강등). (2026-08-15 APNs 키 등록으로 iOS 실발송 활성.)
 - **마케팅 야간제한** = 정보통신망법 제50조(광고성 21~익일08 전송 시 별도 야간동의 필요). 야간동의 안 받으므로 **08~21 KST만**. 야간 생성 마케팅 알림은 BE 가 outbox `nextAttemptAt` 을 다음 08:00 으로 클램프 → 시간 되면 순차 발송(`MarketingSendWindow`). 발신자가 밤에 잘못 눌러도 자동 연기. 재시도가 야간으로 넘어가도 동일 클램프.
 - **마케팅 수신동의** = 토글 1개(인앱, `/consents` 이력). **야간 동의는 안 받음**(08~21 제한이 대신). 발송은 동의자에게만(게이트는 마케팅 발송 피처 붙을 때 — 현재 마케팅 타입 없음).
 - 현재 NotificationType → 카테고리: 예약 2종 + `LECTURE_NOTIFICATION` → **`reservation`**. (`LECTURE_NOTIFICATION` = 강사가 그 회차 예약 수강생들에게 보내는 운영 메시지 — 장소·준비물·"현장 오렌지 모자" 등. 거래성 HIGH, 마케팅 아님.) payment/chat/marketing 타입은 해당 피처 붙을 때 추가.
@@ -95,7 +95,7 @@ FE 핸드오프(PungDong `docs/features/push.md`)는 제안이고, 아래 3점�
 | `POST/DELETE /me/devices` (제안) | **확정** — 동일 결론(벤더 비종속). 바디 `{token, platform}`. |
 | `data { type, targetId }` | `data` 키는 BE 정의: `notificationId`(신규) + `type` + 도메인 id(`lectureId`/`scheduleId`). |
 | "BE repo `docs/architecture/push.md` 미러" | 슬러그는 같되 **이 파일(`docs/features/push.md`)** 이 BE SoT(교차·정책 문서라 features). FE 링크는 여기로. |
-| (없음) APNs `.p8` 선결 | **유지** — 정확. iOS 무음실패 방지. FE/Apple 계정 일, BE 무관. |
+| (없음) APNs `.p8` 선결 | **유지 → 2026-08-15 등록 완료.** 미등록이면 iOS 무음실패(코드 없는 401, 아래 진단 기록). |
 
 ## 결정 히스토리
 
@@ -111,6 +111,7 @@ FE 핸드오프(PungDong `docs/features/push.md`)는 제안이고, 아래 3점�
 | 2026-06-29 | staging 실송신 검증 → `Project ID is required` 발견(WIF 자격엔 project id 없음) → `GOOGLE_CLOUD_PROJECT` env 추가 후 `INVALID_ARGUMENT` 확인 = **WIF 키리스 동작 검증 완료** | [PR #136](https://github.com/pungdong/Pungdong-Backend/pull/136) |
 | 2026-06-30 | Android e2e 전부 검증(트레이·포그라운드 배너·dedup·탭 라우팅) | 실단말 |
 | 2026-06-30 | FE 채널 분류표 확정 → 카테고리(채널 라우팅 + priority) + 마케팅 야간윈도우(08~21 KST) 구현. iOS 는 채널 없어 동의토글+게이팅 | 정보통신망법 §50 |
+| 2026-08-15 | **iOS 푸시 실동작** — Firebase(`plop-5997b`) iOS 앱에 **APNs 인증 키(.p8, Sandbox & Production, Team Scoped)** 등록(개발·프로덕션 슬롯 동일 키). 등록 즉시 재시도 중이던 outbox 행이 도달(재시작 불필요). 진단 기록은 아래 §APNs 미등록 401 | 이 문서 |
 
 ## 미해결 / 확장
 
@@ -131,7 +132,7 @@ FE 핸드오프(PungDong `docs/features/push.md`)는 제안이고, 아래 3점�
 - ✅ **BE 코드 (푸시 v2) 완료** — `account/DeviceController`(`POST/DELETE /me/devices`, platform 캡처), `NotificationOutboxWriter` 의 `data.notificationId`(UUID), types.ts 갱신, 마이그레이션 불필요(`deviceType` 컬럼 기존재). 옛 `/sign/firebase-token` 제거.
 - ✅ **채널 라우팅 + priority + 마케팅 야간윈도우** — `NotificationCategory`(type→channelId/priority/marketing), `MarketingSendWindow`(08~21 KST 클램프). FE 채널 5개 생성 전제.
 - 🟡 **마케팅 수신동의 게이트** — 마케팅 *발송* 피처 붙을 때 "동의자에게만" 게이트 추가(현재 마케팅 타입 없어 게이트할 대상 없음). consent 도메인.
-- ✅ **iOS `interruption-level`** — BE 가 카테고리별로 payload 설정(마케팅 passive/거래 time-sensitive/공지 active). 🟡 단 `time-sensitive` Focus-뚫기는 **네이티브 Time-Sensitive 엔타이틀먼트**(iOS 트랙, APNs `.p8` 와 함께) 필요 — 없으면 active.
+- ✅ **iOS 실발송 (2026-08-15)** — APNs `.p8` Firebase 등록 완료, staging 실단말(iPhone) 도달 확인. 🟡 `time-sensitive` Focus-뚫기는 **네이티브 Time-Sensitive 엔타이틀먼트**(iOS 트랙) 필요 — 없으면 active 로 강등(interruption-level 은 BE 가 이미 카테고리별 설정: 마케팅 passive/거래 time-sensitive/공지 active).
 - ✅ **`LECTURE_NOTIFICATION` = `reservation`** (강사→예약 수강생 운영 메시지, 거래성 HIGH — 2026-06-30 확정).
 - 🟡 **앱 v2** — 권한·`getToken`·등록/해제·`onTokenRefresh`·foreground/background 핸들러·탭 라우팅·**채널 5개 생성** (FE).
 - ✅ **인앱 알림함 (durable feed)** — [#132](https://github.com/pungdong/Pungdong-Backend/issues/132) **구현 완료 (2026-08-14)**. `user_notification` **별도 테이블**(outbox 겸용 아님) + `GET/PATCH /me/notifications` 4종. 메커니즘은 [notification.md](../architecture/notification.md).
@@ -142,6 +143,20 @@ FE 핸드오프(PungDong `docs/features/push.md`)는 제안이고, 아래 3점�
   - 🟡 **2순위 강사 알림 5종은 미구현**(사용자 결정, 백로그). 없는 게 버그가 아니다 — 다만 강사 수신분은 **강사가 모르면 24h 무응답 TTL 로 자동취소 + 전액 자동환불**이 되므로 재고 근거가 있다(카탈로그 §미구현).
   - **채널은 기존 5개 밖으로 나가지 않는다** — 채널 생성은 앱 책임이라 새 채널을 쓰면 그 알림이 앱 릴리스에 묶인다. `payment` 는 이미 있던 빈 채널의 첫 사용이었다.
 - 🟢 **만료 토큰 정리** — 현재 무효 토큰은 발송 시 reactive 삭제만. last-seen 기반 정리는 검토(notification.md).
+
+### APNs 미등록 401 — "코드 없는 401" 진단 기록 (2026-08-15)
+
+**증상**: staging 에서 수강신청 푸시가 강사(iPhone)에게 안 옴. 로그는 `FirebaseFcmGateway : FCM send failed without error code: Unexpected HTTP response with status: 401` + 본문 `null`, 워커는 TRANSIENT 로 10회 재시도 후 GAVE_UP. Android 수신자는 같은 프로세스에서 정상 도달.
+
+**원인**: Firebase 프로젝트에 **APNs 인증 키가 없어서** iOS 토큰 전송이 FCM 에서 `401 THIRD_PARTY_AUTH_ERROR` 로 거부됨. 그런데 **JDK `HttpURLConnection` 은 스트리밍 POST + 401 조합에서 응답 본문을 버린다**(로컬 재현: 아무 무효 Bearer 토큰으로도 `401\nnull` + 토큰 refresh 6회) → firebase-admin 이 `MessagingErrorCode` 를 못 읽어 "코드 없는 401" 로 위장 → 서버 자격증명(WIF) 문제처럼 보였다.
+
+**배제된 것(전부 정상 확인)**: WIF pool/provider·SA·IAM 바인딩·FCM API, STS→SA 가장 토큰 발급(감사로그 granted — `principalEmail=SA` 로 찍히는 게 WIF 가장의 정상 표기), 가장 SA 토큰의 FCM 인증(직접 호출 400=인증 OK), staging task role 로 띄운 일회성 진단 태스크의 SDK 전체 경로(`INVALID_ARGUMENT`=인증 OK). 즉 **가짜 디바이스 토큰으로는 APNs 단계 전에 끝나서 "정상" 으로 보인다** — 실 iOS 토큰이어야 재현.
+
+**교훈 / 적용**
+- FCM **401 + 에러코드 null** 이면 **수신 토큰 플랫폼(iOS?) → APNs 키부터** 의심. 서버 자격증명은 그 다음.
+- `THIRD_PARTY_AUTH_ERROR` 는 프로젝트 설정 문제라 **토큰 삭제 대상이 아니다** — `FirebaseFcmGateway.classify` 가 TRANSIENT 로 분류(이 PR). 지금은 본문 유실로 그 코드가 사실상 안 잡히지만, SDK/JDK 가 바뀌어 잡히기 시작하면 PERMANENT 분기가 iOS 토큰 전부를 지웠을 것.
+- staging 일회성 진단은 `run-task` command 오버라이드로 안 된다 — 이미지 ENTRYPOINT 가 `sh -c "exec java -jar app.jar"` 라 인자가 무시돼 **앱이 한 번 더 뜬다**. 별도 family 태스크정의(entrypoint 교체)로 띄우고 끝나면 deregister. 컨테이너 오버라이드 8KB 한도.
+- Apple 측: 팀당 APNs 키 최대 2개, `.p8` 은 최초 1회만 다운로드. Firebase 콘솔의 개발/프로덕션 슬롯은 APNs *환경*(앱 빌드 종류) 구분이지 BE staging/prod 가 아니다 — 하나의 `Sandbox & Production` 키를 두 슬롯에 올림.
 
 ## 관련 메모리
 

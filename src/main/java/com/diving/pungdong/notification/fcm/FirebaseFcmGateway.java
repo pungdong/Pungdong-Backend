@@ -75,16 +75,24 @@ public class FirebaseFcmGateway implements FcmGateway {
     private SendResult classify(FirebaseMessagingException e) {
         MessagingErrorCode code = e.getMessagingErrorCode();
         if (code == null) {
-            log.warn("FCM send failed without error code: {}", e.getMessage());
+            // ⚠️ 401 은 여기로 온다. JDK HttpURLConnection 이 스트리밍 POST + 401 조합에서 응답 본문을 버려
+            // SDK 가 에러코드를 못 읽는다(2026-08-15 staging 재현). 서버 자격증명(WIF)보다 먼저 "수신 토큰이 iOS 인데
+            // Firebase 에 APNs 키가 없나"(= 본래 THIRD_PARTY_AUTH_ERROR)를 의심할 것 — docs/features/push.md.
+            log.warn("FCM send failed without error code (HTTP {}): {}",
+                    e.getHttpResponse() == null ? "?" : e.getHttpResponse().getStatusCode(), e.getMessage());
             return SendResult.TRANSIENT_FAILURE;
         }
         switch (code) {
             case UNREGISTERED:
             case INVALID_ARGUMENT:
             case SENDER_ID_MISMATCH:
-            case THIRD_PARTY_AUTH_ERROR:
                 log.info("FCM permanent failure ({}): {}", code, e.getMessage());
                 return SendResult.PERMANENT_FAILURE;
+            case THIRD_PARTY_AUTH_ERROR:
+                // APNs 키/인증서 미등록 등 *Firebase 프로젝트 설정* 문제 — 토큰이 죽은 게 아니다. PERMANENT 로 두면
+                // 워커가 iOS 토큰을 전부 삭제해 버리므로(설정 고치면 도달할 알림들까지 유실) 재시도로 남긴다.
+                log.warn("FCM third-party auth failure (APNs/Web push 자격 확인 필요) ({}): {}", code, e.getMessage());
+                return SendResult.TRANSIENT_FAILURE;
             case INTERNAL:
             case UNAVAILABLE:
             case QUOTA_EXCEEDED:
