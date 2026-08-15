@@ -2419,6 +2419,24 @@ export interface RefundLine {
   reason: string;            // "수강 완료" | "미배정 수강료" | "배정취소(50%)" 등
 }
 
+/**
+ * [ADMIN] 결제 주문 수동 환불 — POST /admin/payments/orders/{orderId}/refund (hasRole ADMIN).
+ * 정책 오산정·CS 보정으로 남은 잔액(또는 일부)을 돌려줄 때 PG 콘솔이 아니라 이걸로 — 우리 원장(RefundOrder·잔액)에
+ * 기록이 남고 PG 라우팅·이중환불 가드가 그대로 적용된다. 돈만 만진다(회차/수강 상태 불변).
+ * amount 생략(null) = 취소가능 잔액 전액. 잔액 초과·0 이하·이미 전액환불·미승인 주문 = 400(clamp 안 함).
+ */
+export interface ManualRefundRequest {
+  amount?: number | null;   // 원. 생략 = 잔액 전액
+  reason: string;           // 필수, ≤200자. 원장에 "운영자 수동 환불: <reason>" 으로 기록
+}
+export interface ManualRefundResult {
+  orderId: string;
+  refunded: number;         // 이번에 취소된 금액
+  orderAmount: number;      // 주문 원금
+  refundedTotal: number;    // 누적 환불액(이번 포함)
+  refundable: number;       // 남은 취소가능 잔액
+}
+
 // ============================================================
 // 학생 보유 자격증 (certificate 도메인) — 프로필 탭 > 내 자격증
 // docs/architecture/certificate.md 참고

@@ -287,6 +287,7 @@ applyConfirm (PaymentService.java:235)
 | `POST /payments/prepare` (**차액**, `target*` 동반) | authenticated | 내 회차 + 상태 **`ACCEPT_PENDING`**(결제완료·강사 결정 대기) | 목표가 안 비싸면 400 · `targetVenueRefId` 가 현재 위치와 다르면 **-1019**(주문·hold 생성 전) |
 | `POST /payments/confirm` | authenticated | order.enrollment.student == 나 | **TOSS/STUB 전용**. amount 불일치 = 400, 멱등(이미 DONE = 200) |
 | `GET /payments/orders/{orderId}` | authenticated | order.enrollment.student == 나 | 성공화면·재진입 조회. 비소유 = 400 |
+| `POST /admin/payments/orders/{orderId}/refund` | **hasRole(ADMIN)** | (운영자 — 소유권 무관) | **수동 환불**(운영 보정). 잔액 전액/일부를 `applyCancel` 로 — `RefundOrder` 원장·잔액·PG 라우팅·이중환불 가드 동일. 돈만 만지고 회차 상태 불변. 잔액 초과·이미 전액환불 = 400 |
 | `POST /payments/inicis/return` | **permitAll** + **CORS 제외** | (P_AUTH_TID + 서버 권위 금액 대조가 방어) | 이니시스 결제창 form POST. 승인 후 302 리다이렉트(성패·web/app). `/payments/**` 보다 먼저 매칭. cross-origin form POST 라 CORS 검사에서 뺌(아래) |
 
 **이니시스는 confirm 주체가 BE**: 앱 WebView 가 결제창의 form POST 본문을 못 읽어, `P_NEXT_URL` 을 BE(`/payments/inicis/return`)로 두고 서버가 승인 후 GET 리다이렉트(주문에 박제된 `client` 로 web URL/`plop://` 선택, 고정 allowlist=오픈리다이렉트 방지). TOSS/STUB 는 FE 가 confirm. 세션리스 승인은 소유권 대신 **`P_AUTH_TID`(우리 콜백에만 옴) + 승인 전문의 서버 권위 금액 대조**가 방어(승인엔 서명이 없음).

@@ -259,6 +259,42 @@ public class RefundService {
     }
 
     /**
+     * <b>운영자 수동 환불</b>(어드민) — 정책 오산정·CS 보정 등으로 특정 주문의 남은 잔액(또는 일부)을 사람이 직접
+     * 환불한다. PG 관리자 콘솔에서 취소하면 우리 원장({@code RefundOrder}·{@code refundedAmount})과 어긋나므로
+     * <b>반드시 이 경로</b>로 — 같은 {@link #applyCancel} 을 타서 시도 원장·잔액·PG 라우팅·대사 가드가 그대로 적용된다.
+     *
+     * <p><b>돈만 만진다</b> — 회차/수강 상태는 건드리지 않는다(이미 취소된 건의 사후 보정이 주 용도. 상태 정정이 필요하면
+     * 별도 조치). {@code amount == null} 이면 취소가능 잔액 전액. 잔액 0(이미 전액 환불)·미승인 주문은 400.
+     *
+     * @return 실제 취소된 금액
+     */
+    @Transactional
+    public ManualRefundResult refundOrderManually(String orderId, Integer amount, String reason) {
+        PaymentOrder order = orderRepo.findByOrderId(orderId).orElseThrow(ResourceNotFoundException::new);
+        if (order.getPaymentKey() == null || order.refundableAmount() <= 0) {
+            throw new BadRequestException(); // 미승인 주문이거나 이미 전액 환불됨
+        }
+        int requested = amount == null ? order.refundableAmount() : amount;
+        if (requested <= 0 || requested > order.refundableAmount()) {
+            throw new BadRequestException(); // 잔액을 넘는 요청은 clamp 하지 않고 거부 — 운영자가 숫자를 확인하게
+        }
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        int refundedBefore = order.getRefundedAmount();
+        int refunded = applyCancel(order, requested, "운영자 수동 환불: " + reason, now);
+        // 잔액 반영은 RefundLedger.markDone(REQUIRES_NEW) 이 별도 트랜잭션에서 했으므로 이 영속성 컨텍스트의
+        // order 는 stale — 응답은 산술로 만든다(before + 이번 취소액).
+        int refundedTotal = refundedBefore + refunded;
+        int refundable = order.getAmount() - refundedTotal;
+        log.info("[payment] 운영자 수동 환불 order={} 취소액={} 누적환불={} 잔액(후)={} 사유={}",
+                order.getOrderId(), refunded, refundedTotal, refundable, reason);
+        return new ManualRefundResult(order.getOrderId(), refunded, order.getAmount(), refundedTotal, refundable);
+    }
+
+    /** 수동 환불 결과 — 이번 취소액 + 주문 원금/누적환불/남은 잔액. */
+    public record ManualRefundResult(String orderId, int refunded, int orderAmount, int refundedTotal, int refundable) {
+    }
+
+    /**
      * 환불 실행부 — 세 경로(수강 종료·회차 전액·차액)가 공유한다.
      * <b>시도 선기록 → PG 취소 → 결과 확정</b> 순으로, 기록은 모두 {@link RefundLedger}(별도 트랜잭션)가 맡는다.
      *
