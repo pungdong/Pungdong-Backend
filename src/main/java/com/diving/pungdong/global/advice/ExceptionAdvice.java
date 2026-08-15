@@ -25,12 +25,6 @@ public class ExceptionAdvice {
 
     private final MessageSource messageSource;
 
-    @ExceptionHandler(ForbiddenTokenException.class)
-    @ResponseStatus(HttpStatus.FORBIDDEN)
-    protected CommonResult invalidToken(ForbiddenTokenException e) {
-        return responseService.getFailResult(Integer.parseInt(getMessage("forbiddenToken.code")), getMessage("forbiddenToken.msg"));
-    }
-
     @ExceptionHandler(ExpiredRefreshTokenException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     protected CommonResult expiredRefreshToken(ExpiredRefreshTokenException e) {
@@ -55,11 +49,9 @@ public class ExceptionAdvice {
         return responseService.getFailResult(Integer.parseInt(getMessage("emailSigninFailed.code")), getMessage("emailSigninFailed.msg"));
     }
 
-    @ExceptionHandler(CAuthenticationEntryPointException.class)
-    @ResponseStatus(HttpStatus.UNAUTHORIZED)
-    public CommonResult authenticationEntryPointException(HttpServletRequest request, CAuthenticationEntryPointException e) {
-        return responseService.getFailResult(Integer.parseInt(getMessage("entryPointException.code")), getMessage("entryPointException.msg"));
-    }
+    // 참고: entryPointException(-1002) 은 이 advice 가 아니라 CustomAuthenticationEntryPoint 가
+    // 직접 401 JSON 으로 발행한다. 아무도 던지지 않던 CAuthenticationEntryPointException 과 그 핸들러는
+    // 제거했지만 코드/i18n 키는 그대로 살아 있다.
 
     @ExceptionHandler(AccessDeniedException.class)
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
@@ -80,12 +72,6 @@ public class ExceptionAdvice {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public CommonResult resourceNotFound(ResourceNotFoundException e) {
         return responseService.getFailResult(Integer.parseInt(getMessage("resourceNotFound.code")), getMessage("resourceNotFound.msg"));
-    }
-
-    @ExceptionHandler(ReservationFullException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public CommonResult reservationFull(ReservationFullException e) {
-        return responseService.getFailResult(Integer.parseInt(getMessage("reservationFull.code")), getMessage("reservationFull.msg"));
     }
 
     @ExceptionHandler(CoverageHasSessionException.class)
@@ -206,12 +192,6 @@ public class ExceptionAdvice {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public CommonResult emailDuplication(EmailDuplicationException e) {
         return responseService.getFailResult(Integer.parseInt(getMessage("emailDuplication.code")), getMessage("emailDuplication.msg"));
-    }
-
-    @ExceptionHandler(ClosedLectureException.class)
-    @ResponseStatus(HttpStatus.FORBIDDEN)
-    public CommonResult closedLectureException(ClosedLectureException e) {
-        return responseService.getFailResult(Integer.parseInt(getMessage("closedLecture.code")), getMessage("closedLecture.msg"));
     }
 
     private String getMessage(String code) {
