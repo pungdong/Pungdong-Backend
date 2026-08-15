@@ -4,8 +4,15 @@
 -- 삭제했다(별도 PR). 그 엔티티들이 쓰던 테이블 16개가 DB 에만 남아 있고, 어떤 엔티티도 매핑하지
 -- 않는 고아 테이블 6개 + 고아 컬럼 1개도 함께 정리한다.
 --
--- ⚠️ 이 마이그레이션은 **되돌릴 수 없다**(DROP TABLE). 머지 전에 각 환경에서 row count 를 확인하는
---    게이트를 통과할 것 — 확인 쿼리는 이 PR 본문 / scratchpad ROWCOUNT.sql 참고.
+-- ⚠️ 게이트 1 — 이 마이그레이션은 **되돌릴 수 없다**(DROP TABLE). 머지 전에 각 환경에서 row count 를
+--    확인할 것. 확인 쿼리는 이 PR 본문 / scratchpad ROWCOUNT.sql 참고.
+--
+-- ⚠️ 게이트 2 — **배포 순서: 코드 삭제 PR 을 먼저 완전히 롤아웃한 뒤에 이 마이그레이션을 배포한다.**
+--    ECS production-deploy 는 롤링 교체라 새 태스크가 부팅하며 Flyway 를 도는 동안 **옛 태스크가
+--    아직 트래픽을 받는다.** 두 PR 을 한 번에 배포하면 그 창에서 옛 태스크의
+--    AccountService.deleteAccount → lectureService.closeAllLecture → SELECT ... FROM lecture 가
+--    MySQL 1146(Table doesn't exist)을 맞아 **라이브 v2 엔드포인트 DELETE /account 가 500** 이 되고
+--    탈퇴가 롤백된다. 순서: (1) 코드 PR 이미지 배포 → 안정화 확인 → (2) 이 PR 이미지 배포.
 --
 -- 멱등성(루트 CLAUDE.md "Migrations MUST be idempotent"): ECS 가 실패한 태스크를 빨리 재시작해
 -- 같은 마이그레이션이 동시/재시도 실행될 수 있다. DROP TABLE IF EXISTS 는 그 자체로 멱등이고,
@@ -133,5 +140,6 @@ DROP TABLE IF EXISTS payment;
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 5. 헬퍼 정리
 -- ─────────────────────────────────────────────────────────────────────────────
-DROP PROCEDURE pd_v27_drop_col;
-DROP PROCEDURE pd_v27_drop_fk_on_col;
+-- IF EXISTS — 이 파일의 전제(동시/재시도 실행)와 일관되게. 헬퍼가 이미 정리된 상태로 재실행돼도 무해.
+DROP PROCEDURE IF EXISTS pd_v27_drop_col;
+DROP PROCEDURE IF EXISTS pd_v27_drop_fk_on_col;
