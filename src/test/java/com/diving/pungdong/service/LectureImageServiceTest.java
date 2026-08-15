@@ -1,7 +1,7 @@
 package com.diving.pungdong.service;
 
 import com.diving.pungdong.repo.LectureImageJpaRepo;
-import com.diving.pungdong.service.image.S3Uploader;
+import com.diving.pungdong.global.storage.S3Uploader;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;

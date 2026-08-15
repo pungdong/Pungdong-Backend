@@ -8,7 +8,7 @@ import com.diving.pungdong.dto.review.image.create.ReviewImageInfo;
 import com.diving.pungdong.global.validation.ImageUploadPolicy;
 import com.diving.pungdong.repo.ReviewImageJpaRepo;
 import com.diving.pungdong.service.ReviewService;
-import com.diving.pungdong.service.image.S3Uploader;
+import com.diving.pungdong.global.storage.S3Uploader;
 import com.diving.pungdong.service.reservation.ReservationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;

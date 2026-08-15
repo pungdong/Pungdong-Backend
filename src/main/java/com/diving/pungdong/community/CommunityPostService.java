@@ -16,7 +16,7 @@ import com.diving.pungdong.global.validation.PublicMediaUrlPolicy;
 import com.diving.pungdong.instructorapplication.InstructorApplication;
 import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
 import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
-import com.diving.pungdong.service.image.S3Uploader;
+import com.diving.pungdong.global.storage.S3Uploader;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.*;

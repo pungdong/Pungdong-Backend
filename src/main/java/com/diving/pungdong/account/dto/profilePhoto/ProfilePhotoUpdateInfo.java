@@ -1,4 +1,4 @@
-package com.diving.pungdong.dto.profilePhoto;
+package com.diving.pungdong.account.dto.profilePhoto;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -7,7 +7,7 @@ import lombok.Data;
 @Data
 @AllArgsConstructor
 @Builder
-public class ProfilePhotoInfo {
+public class ProfilePhotoUpdateInfo {
     private Long profilePhotoId;
-    private String imageUrl;
+    private String url;
 }

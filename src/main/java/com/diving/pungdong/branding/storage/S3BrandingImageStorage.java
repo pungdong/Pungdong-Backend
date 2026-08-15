@@ -1,6 +1,6 @@
 package com.diving.pungdong.branding.storage;
 
-import com.diving.pungdong.service.image.S3Uploader;
+import com.diving.pungdong.global.storage.S3Uploader;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;

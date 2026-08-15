@@ -24,7 +24,7 @@ import com.diving.pungdong.dto.lecture.update.LectureUpdateInfo;
 import com.diving.pungdong.dto.lectureMark.LectureMarkModel;
 import com.diving.pungdong.service.LectureMarkService;
 import com.diving.pungdong.service.LectureService;
-import com.diving.pungdong.service.image.S3Uploader;
+import com.diving.pungdong.global.storage.S3Uploader;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;

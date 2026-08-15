@@ -37,7 +37,7 @@ flowchart TB
 
     subgraph Shared["크로스 도메인 (단방향 의존)"]
         Account["account.Account / Role / AccountJpaRepo"]
-        S3up["service.image.S3Uploader → AWS S3"]
+        S3up["global.storage.S3Uploader → AWS S3"]
     end
 
     Sanity["Sanity 카탈로그<br/>(단체 목록 · 폼 안내문구)<br/>FE 가 직접 fetch"]

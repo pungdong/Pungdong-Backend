@@ -7,7 +7,7 @@ import com.diving.pungdong.dto.lectureImage.LectureImageInfo;
 import com.diving.pungdong.dto.lectureImage.LectureImageUrl;
 import com.diving.pungdong.dto.lectureImage.delete.LectureImageDeleteInfo;
 import com.diving.pungdong.repo.LectureImageJpaRepo;
-import com.diving.pungdong.service.image.S3Uploader;
+import com.diving.pungdong.global.storage.S3Uploader;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

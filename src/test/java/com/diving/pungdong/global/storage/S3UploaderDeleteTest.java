@@ -1,4 +1,4 @@
-package com.diving.pungdong.service.image;
+package com.diving.pungdong.global.storage;
 
 import com.amazonaws.services.s3.AmazonS3Client;
 import com.amazonaws.services.s3.model.DeleteObjectRequest;

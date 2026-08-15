@@ -1,7 +1,7 @@
 package com.diving.pungdong.account;
 
 import com.diving.pungdong.account.event.AccountAnonymizedEvent;
-import com.diving.pungdong.service.image.S3Uploader;
+import com.diving.pungdong.global.storage.S3Uploader;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;

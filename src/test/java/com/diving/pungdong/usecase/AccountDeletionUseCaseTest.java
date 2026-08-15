@@ -11,7 +11,7 @@ import com.diving.pungdong.account.Role;
 import com.diving.pungdong.global.security.JwtTokenProvider;
 import com.diving.pungdong.service.LectureService;
 import com.diving.pungdong.instructorapplication.storage.CertificateImageStorage;
-import com.diving.pungdong.service.image.S3Uploader;
+import com.diving.pungdong.global.storage.S3Uploader;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
