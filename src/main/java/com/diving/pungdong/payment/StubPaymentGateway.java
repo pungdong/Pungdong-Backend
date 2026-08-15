@@ -41,7 +41,7 @@ public class StubPaymentGateway implements PaymentGateway {
     }
 
     @Override
-    public CancelResult cancel(String pgTransactionId, int cancelAmount, int remainingAmount, String reason) {
+    public CancelResult cancel(String pgTransactionId, int cancelAmount, int remainingAmount, int originalAmount, String reason) {
         log.info("[payment-stub] cancel pgTransactionId={} amount={}/잔액={} → 취소(고정)",
                 pgTransactionId, cancelAmount, remainingAmount);
         return new CancelResult(true, "CANCELED", OffsetDateTime.now());

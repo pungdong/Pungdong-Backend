@@ -103,7 +103,7 @@ class MultiRoundProgressUseCaseTest {
                         true, "DONE", "간편결제", OffsetDateTime.now(ZoneOffset.UTC), null, "pk_test_1"));
         // 환불 취소는 확정 성공(H-2 — 서비스가 canceled 를 본다).
         org.mockito.BDDMockito.given(gateway.cancel(org.mockito.ArgumentMatchers.anyString(),
-                        org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt(),
+                        org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt(),
                         org.mockito.ArgumentMatchers.anyString()))
                 .willReturn(new com.diving.pungdong.payment.PaymentGateway.CancelResult(
                         true, "CANCELED", OffsetDateTime.now(ZoneOffset.UTC)));
@@ -985,10 +985,10 @@ class MultiRoundProgressUseCaseTest {
 
         // 그 회차의 승인 주문을 모두 환불 — 원결제도 차액도(회차 단위 집계, #203)
         org.mockito.Mockito.verify(gateway).cancel(org.mockito.ArgumentMatchers.eq("pkBase"),
-                org.mockito.ArgumentMatchers.eq(315000), org.mockito.ArgumentMatchers.eq(315000),
+                org.mockito.ArgumentMatchers.eq(315000), org.mockito.ArgumentMatchers.eq(315000), org.mockito.ArgumentMatchers.anyInt(),
                 org.mockito.ArgumentMatchers.anyString());
         org.mockito.Mockito.verify(gateway).cancel(org.mockito.ArgumentMatchers.eq("pk_test_1"),
-                org.mockito.ArgumentMatchers.eq(10000), org.mockito.ArgumentMatchers.eq(10000),
+                org.mockito.ArgumentMatchers.eq(10000), org.mockito.ArgumentMatchers.eq(10000), org.mockito.ArgumentMatchers.anyInt(),
                 org.mockito.ArgumentMatchers.anyString());
     }
 

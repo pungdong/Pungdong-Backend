@@ -86,7 +86,7 @@ class RefundUseCaseTest {
         org.mockito.BDDMockito.given(gateways.active()).willReturn(gateway);
         org.mockito.BDDMockito.given(gateways.forOrder(org.mockito.ArgumentMatchers.any())).willReturn(gateway);
         // 기본 — PG 취소는 확정 성공. 미확정/거절 시나리오는 각 테스트가 override.
-        org.mockito.BDDMockito.given(gateway.cancel(anyString(), anyInt(), anyInt(), anyString()))
+        org.mockito.BDDMockito.given(gateway.cancel(anyString(), anyInt(), anyInt(), org.mockito.ArgumentMatchers.anyInt(), anyString()))
                 .willReturn(new com.diving.pungdong.payment.PaymentGateway.CancelResult(true, "CANCELED", OffsetDateTime.now()));
     }
 
@@ -169,9 +169,9 @@ class RefundUseCaseTest {
                 .andExpect(status().isOk());
 
         // 1회차 주문(220,000) 중 100,000 만 취소 → 취소액 < 잔액 = 부분취소 경로.
-        verify(gateway).cancel(eq("pk1"), eq(100_000), eq(220_000), anyString());
+        verify(gateway).cancel(eq("pk1"), eq(100_000), eq(220_000), org.mockito.ArgumentMatchers.anyInt(), anyString());
         // 2회차 주문(20,000) 전액 취소 → 취소액 == 잔액 = 전체취소 경로.
-        verify(gateway).cancel(eq("pk2"), eq(20_000), eq(20_000), anyString());
+        verify(gateway).cancel(eq("pk2"), eq(20_000), eq(20_000), org.mockito.ArgumentMatchers.anyInt(), anyString());
     }
 
     @Test
@@ -281,7 +281,7 @@ class RefundUseCaseTest {
 
         // PG 엔 잔액 전액 취소 + 취소가능잔액이 그대로 전달됐다.
         org.mockito.Mockito.verify(gateway).cancel(org.mockito.ArgumentMatchers.eq(order.getPaymentKey()),
-                org.mockito.ArgumentMatchers.eq(193666), org.mockito.ArgumentMatchers.eq(193666), anyString());
+                org.mockito.ArgumentMatchers.eq(193666), org.mockito.ArgumentMatchers.eq(193666), org.mockito.ArgumentMatchers.anyInt(), anyString());
         // 원장: DONE 한 줄, 사유 접두 "운영자 수동 환불: ", 주문은 전액환불이라 CANCELED.
         var rows = refundRepo.findAll();
         assertThat(rows).hasSize(1);
@@ -387,15 +387,15 @@ class RefundUseCaseTest {
         var inicis = org.mockito.Mockito.mock(com.diving.pungdong.payment.PaymentGateway.class);
         org.mockito.BDDMockito.given(gateways.active()).willReturn(toss);
         org.mockito.BDDMockito.given(gateways.forOrder(com.diving.pungdong.payment.PaymentProvider.INICIS)).willReturn(inicis);
-        org.mockito.BDDMockito.given(inicis.cancel(anyString(), anyInt(), anyInt(), anyString()))
+        org.mockito.BDDMockito.given(inicis.cancel(anyString(), anyInt(), anyInt(), org.mockito.ArgumentMatchers.anyInt(), anyString()))
                 .willReturn(new com.diving.pungdong.payment.PaymentGateway.CancelResult(true, "CANCELED", OffsetDateTime.now()));
 
         mockMvc.perform(post("/enrollments/{id}/refund", f.enrollmentId).header(HttpHeaders.AUTHORIZATION, token(f.student)))
                 .andExpect(status().isOk());
 
         // 취소는 전부 이니시스로. 토스로 한 건이라도 나가면 "존재하지 않는 거래" 취소라 돈은 받고 환불은 실패한다.
-        verify(inicis).cancel(eq("pk1"), eq(100_000), eq(220_000), anyString());
-        verify(inicis).cancel(eq("pk2"), eq(20_000), eq(20_000), anyString());
+        verify(inicis).cancel(eq("pk1"), eq(100_000), eq(220_000), org.mockito.ArgumentMatchers.anyInt(), anyString());
+        verify(inicis).cancel(eq("pk2"), eq(20_000), eq(20_000), org.mockito.ArgumentMatchers.anyInt(), anyString());
         org.mockito.Mockito.verifyNoInteractions(toss);
     }
 
@@ -414,7 +414,7 @@ class RefundUseCaseTest {
 
         assertThat(roundRepo.findById(roundId).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.REJECTED);
         // 결제 당시 PG 로 전액 취소(cancelAmount == 잔액 == 결제액).
-        verify(gateway).cancel(eq("pkR"), eq(350000), eq(350000), anyString());
+        verify(gateway).cancel(eq("pkR"), eq(350000), eq(350000), org.mockito.ArgumentMatchers.anyInt(), anyString());
         assertThat(refundRepo.findAll()).hasSize(1);
         assertThat(refundRepo.findAll().get(0).getAmount()).isEqualTo(350000);
     }
@@ -433,7 +433,7 @@ class RefundUseCaseTest {
 
         assertThat(expired).isEqualTo(1);
         assertThat(roundRepo.findById(roundId).orElseThrow().getStatus()).isEqualTo(EnrollmentStatus.CANCELLED);
-        verify(gateway).cancel(eq("pkE"), eq(350000), eq(350000), anyString());
+        verify(gateway).cancel(eq("pkE"), eq(350000), eq(350000), org.mockito.ArgumentMatchers.anyInt(), anyString());
         assertThat(refundRepo.findAll()).hasSize(1);
     }
 
@@ -462,7 +462,7 @@ class RefundUseCaseTest {
         PaymentOrder after3 = orderRepo.findByOrderId("ord-pkP").orElseThrow();
         assertThat(after3.getRefundedAmount()).isEqualTo(20000);
         assertThat(after3.refundableAmount()).isZero();
-        verify(gateway).cancel(eq("pkP"), eq(15000), eq(15000), anyString()); // 초과분이 아니라 잔액만
+        verify(gateway).cancel(eq("pkP"), eq(15000), eq(15000), org.mockito.ArgumentMatchers.anyInt(), anyString()); // 초과분이 아니라 잔액만
         assertThat(refundRepo.findAll()).hasSize(3); // 이력은 3행 그대로 남는다(원장)
     }
 
@@ -483,7 +483,7 @@ class RefundUseCaseTest {
         // 다시 호출해도 PG 를 두 번 부르지 않는다(잔액 0 → no-op)
         refundService.refundRoundFully(roundId, "중복 호출");
         refundService.refundRoundPartially(roundId, 1000, "중복 호출");
-        verify(gateway, org.mockito.Mockito.times(1)).cancel(eq("pkF"), anyInt(), anyInt(), anyString());
+        verify(gateway, org.mockito.Mockito.times(1)).cancel(eq("pkF"), anyInt(), anyInt(), org.mockito.ArgumentMatchers.anyInt(), anyString());
         assertThat(refundRepo.findAll()).hasSize(1);
     }
 
@@ -497,7 +497,7 @@ class RefundUseCaseTest {
         Long roundId = paidSingleRound(stu, ins, EnrollmentStatus.ACCEPT_PENDING, 30000, "pkX");
         // PG 가 거절 — 어댑터는 진단정보를 실은 PaymentGatewayException 을 던진다.
         org.mockito.BDDMockito.willThrow(new PaymentGatewayException("9001", "잔액 부족"))
-                .given(gateway).cancel(eq("pkX"), anyInt(), anyInt(), anyString());
+                .given(gateway).cancel(eq("pkX"), anyInt(), anyInt(), org.mockito.ArgumentMatchers.anyInt(), anyString());
 
         assertThatThrownBy(() -> instructorEnrollmentService.reject(ins, roundId, "일정 안 맞음"))
                 .isInstanceOf(PaymentGatewayException.class);
@@ -534,7 +534,7 @@ class RefundUseCaseTest {
                 .isInstanceOf(RefundBlockedException.class);
 
         // PG 를 다시 부르지 않는다 — 이미 취소됐을 수 있으므로 사람이 대사해야 한다
-        verify(gateway, org.mockito.Mockito.never()).cancel(eq("pkU"), anyInt(), anyInt(), anyString());
+        verify(gateway, org.mockito.Mockito.never()).cancel(eq("pkU"), anyInt(), anyInt(), org.mockito.ArgumentMatchers.anyInt(), anyString());
         assertThat(orderRepo.findByOrderId("ord-pkU").orElseThrow().getRefundedAmount()).isZero();
         assertThat(refundRepo.findAll()).hasSize(1); // 새 시도 행도 안 생김
     }
@@ -548,7 +548,7 @@ class RefundUseCaseTest {
                 .roles(new HashSet<>(Set.of(Role.INSTRUCTOR))).build());
         Long roundId = paidSingleRound(stu, ins, EnrollmentStatus.ACCEPT_PENDING, 30000, "pkNC");
         // PG 가 2xx 를 주지만 취소를 확정하지 않은 상태(canceled=false) — 예: 비동기·미지원 상태
-        org.mockito.BDDMockito.given(gateway.cancel(anyString(), anyInt(), anyInt(), anyString()))
+        org.mockito.BDDMockito.given(gateway.cancel(anyString(), anyInt(), anyInt(), org.mockito.ArgumentMatchers.anyInt(), anyString()))
                 .willReturn(new com.diving.pungdong.payment.PaymentGateway.CancelResult(false, "IN_PROGRESS", OffsetDateTime.now()));
 
         assertThatThrownBy(() -> refundService.refundRoundFully(roundId, "강사 거절"))
@@ -594,8 +594,8 @@ class RefundUseCaseTest {
         refundService.refundRoundFully(roundId, "강사 거절");
 
         // 주문 단위로 각각 취소된다(PG 취소 전문은 그 주문의 tid 를 실어야 하므로)
-        verify(gateway).cancel(eq("pkA"), eq(20000), eq(20000), anyString());
-        verify(gateway).cancel(eq("pkB"), eq(5000), eq(5000), anyString());
+        verify(gateway).cancel(eq("pkA"), eq(20000), eq(20000), org.mockito.ArgumentMatchers.anyInt(), anyString());
+        verify(gateway).cancel(eq("pkB"), eq(5000), eq(5000), org.mockito.ArgumentMatchers.anyInt(), anyString());
         assertThat(orderRepo.findByOrderId("ord-pkA").orElseThrow().getStatus()).isEqualTo(PaymentStatus.CANCELED);
         assertThat(orderRepo.findByOrderId("ord-pkB").orElseThrow().getStatus()).isEqualTo(PaymentStatus.CANCELED);
         assertThat(refundRepo.findAll()).hasSize(2);
@@ -614,8 +614,8 @@ class RefundUseCaseTest {
 
         refundService.refundRoundPartially(roundId, 3000, "일정 변경 차액");
 
-        verify(gateway).cancel(eq("pkD"), eq(3000), eq(5000), anyString());   // 차액 주문에서만
-        verify(gateway, org.mockito.Mockito.never()).cancel(eq("pkC"), anyInt(), anyInt(), anyString());
+        verify(gateway).cancel(eq("pkD"), eq(3000), eq(5000), org.mockito.ArgumentMatchers.anyInt(), anyString());   // 차액 주문에서만
+        verify(gateway, org.mockito.Mockito.never()).cancel(eq("pkC"), anyInt(), anyInt(), org.mockito.ArgumentMatchers.anyInt(), anyString());
         assertThat(orderRepo.findByOrderId("ord-pkC").orElseThrow().getRefundedAmount()).isZero();
         assertThat(orderRepo.findByOrderId("ord-pkD").orElseThrow().getRefundedAmount()).isEqualTo(3000);
     }
@@ -634,8 +634,8 @@ class RefundUseCaseTest {
         refundService.refundRoundPartially(roundId, 999999, "과다 요청");
 
         // 최신(5,000) 먼저 → 남은 20,000 을 원결제에서. 회차 순액 25,000 을 넘지 않는다.
-        verify(gateway).cancel(eq("pkF2"), eq(5000), eq(5000), anyString());
-        verify(gateway).cancel(eq("pkE2"), eq(20000), eq(20000), anyString());
+        verify(gateway).cancel(eq("pkF2"), eq(5000), eq(5000), org.mockito.ArgumentMatchers.anyInt(), anyString());
+        verify(gateway).cancel(eq("pkE2"), eq(20000), eq(20000), org.mockito.ArgumentMatchers.anyInt(), anyString());
         assertThat(orderRepo.findByOrderId("ord-pkE2").orElseThrow().getRefundedAmount()).isEqualTo(20000);
         assertThat(orderRepo.findByOrderId("ord-pkF2").orElseThrow().getRefundedAmount()).isEqualTo(5000);
     }
@@ -692,7 +692,7 @@ class RefundUseCaseTest {
         // 환불이 실제로 나갔고
         org.mockito.Mockito.verify(gateway)
                 .cancel(org.mockito.ArgumentMatchers.eq("pk-rf4"), org.mockito.ArgumentMatchers.eq(100000),
-                        org.mockito.ArgumentMatchers.eq(100000), org.mockito.ArgumentMatchers.anyString());
+                        org.mockito.ArgumentMatchers.eq(100000), org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyString());
         // 그 금액 그대로 알림이 갔다
         var inbox = userNotificationRepo.findAll().stream()
                 .filter(n -> stu.getId().equals(n.getRecipientAccountId()))

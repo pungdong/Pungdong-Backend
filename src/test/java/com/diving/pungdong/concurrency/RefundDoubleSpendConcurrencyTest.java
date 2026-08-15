@@ -81,7 +81,7 @@ class RefundDoubleSpendConcurrencyTest extends MySqlConcurrencyTestBase {
     void routeToMock() {
         org.mockito.BDDMockito.given(gateways.forOrder(org.mockito.ArgumentMatchers.any())).willReturn(gateway);
         org.mockito.BDDMockito.given(gateways.active()).willReturn(gateway);
-        org.mockito.BDDMockito.given(gateway.cancel(anyString(), anyInt(), anyInt(), anyString()))
+        org.mockito.BDDMockito.given(gateway.cancel(anyString(), anyInt(), anyInt(), org.mockito.ArgumentMatchers.anyInt(), anyString()))
                 .willAnswer(inv -> {
                     cancelCount.incrementAndGet();
                     return new PaymentGateway.CancelResult(true, "CANCELED", OffsetDateTime.now());

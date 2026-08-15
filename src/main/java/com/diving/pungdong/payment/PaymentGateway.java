@@ -52,8 +52,12 @@ public interface PaymentGateway {
      *
      * @param remainingAmount 이 취소 <b>직전</b>의 취소가능잔액(= 승인액 − 기취소액). 이니시스 부분취소는 이 값에서
      *                        {@code cancelAmount} 를 뺀 "취소 후 잔액"({@code confirmPrice})으로 변환해 쓴다. 토스는 무시한다.
+     * @param originalAmount  이 거래의 <b>승인액(원금)</b>. {@code remainingAmount < originalAmount} 면 이미 부분취소 이력이
+     *                        있는 거래다 — 이니시스는 그런 거래에 전체취소(refund)를 거부하므로(500624) 잔액 전액이라도
+     *                        부분취소(partialRefund, confirmPrice=0)로 보내야 한다. 우리 원장이 아는 사실을 어댑터에
+     *                        넘겨 전문을 처음부터 맞게 고른다(PG 거절로 알아내지 않는다). 토스/스텁은 무시한다.
      */
-    CancelResult cancel(String pgTransactionId, int cancelAmount, int remainingAmount, String reason);
+    CancelResult cancel(String pgTransactionId, int cancelAmount, int remainingAmount, int originalAmount, String reason);
 
     /* ─── 명령/결과 ─── */
 
