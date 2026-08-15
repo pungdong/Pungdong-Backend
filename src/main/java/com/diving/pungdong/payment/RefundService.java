@@ -27,7 +27,6 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -79,17 +78,9 @@ public class RefundService {
         }
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-        // 그레이스(결제 1h 내 100%) 기준 = 회차별 결제완료 시각(승인 주문 approvedAt 중 최소, 불변).
-        // respondedAt(가변)이 아니라 이걸 써야 강사 수락·일정변경으로 그레이스가 리셋되지 않는다.
-        Map<Long, OffsetDateTime> paidAtByRound = new HashMap<>();
-        for (EnrollmentRound r : e.getRounds()) {
-            paidOrders(r.getId()).stream()
-                    .map(PaymentOrder::getApprovedAt).filter(Objects::nonNull)
-                    .min(Comparator.naturalOrder())
-                    .ifPresent(min -> paidAtByRound.put(r.getId(), min));
-        }
+        // 그레이스(강사 수락 1h 내 100%) 앵커는 회차 respondedAt(확정 시각) — RefundCalculator 참조.
         // now(instant) 는 UTC 로 두되(그레이스 창은 절대시각 비교라 무관), 환불율의 기준 '오늘'은 KST 날짜다.
-        RefundQuote quote = calculator.quote(e, businessToday(now), now, paidAtByRound);
+        RefundQuote quote = calculator.quote(e, businessToday(now), now);
 
         // 주문별 취소액 집계 — 수강료 몫 전부는 1회차 주문, 부대 몫은 각 회차 주문.
         Map<Long, Integer> orderRefund = new HashMap<>();

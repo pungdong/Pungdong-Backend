@@ -14,7 +14,6 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -42,8 +41,7 @@ class RefundCalculatorTest {
         return c;
     }
 
-    // committedAt = 그레이스 폴백(createdAt)로 들어간다 — 이제 그레이스 1차 기준은 paidAtByRoundId(결제완료 시각).
-    // id 를 박아 그 map 을 회차별로 지정할 수 있게 한다(순수 단위라 영속 id 가 없어 수동 부여).
+    // committedAt = 그레이스 앵커(CONFIRMED 회차의 respondedAt = 확정 시각; 폴백 createdAt).
     private EnrollmentRound round(int idx, EnrollmentStatus status, LocalDate date,
                                   OffsetDateTime committedAt, boolean done, int entry, int equip) {
         return EnrollmentRound.builder()
@@ -69,7 +67,7 @@ class RefundCalculatorTest {
         EnrollmentRound r2 = round(2, EnrollmentStatus.CONFIRMED, TODAY.plusDays(5), NOW.minusDays(2), false, 15000, 5000);
         Enrollment e = enrollment(course3Regular(), 300000, r1, r2); // 3회차는 미배정
 
-        RefundQuote q = calc.quote(e, TODAY, NOW, Map.of());
+        RefundQuote q = calc.quote(e, TODAY, NOW);
 
         // r1 done 0 / r2 (100000+20000)*100% / 3회차 미배정 100000
         assertThat(q.getTotal()).isEqualTo(120000 + 100000);
@@ -86,27 +84,28 @@ class RefundCalculatorTest {
         // 전날(D+1) 50%: (100000+20000)*50% = 60000, 3회차 미배정 100000
         Enrollment dayBefore = enrollment(course3Regular(), 300000,
                 round(1, EnrollmentStatus.CONFIRMED, TODAY.plusDays(1), NOW.minusDays(2), false, 15000, 5000));
-        assertThat(calc.quote(dayBefore, TODAY, NOW, Map.of()).getLines().get(0).getAmount()).isEqualTo(60000);
+        assertThat(calc.quote(dayBefore, TODAY, NOW).getLines().get(0).getAmount()).isEqualTo(60000);
 
         // 2일전(D+2) 70%: 120000*70% = 84000
         Enrollment twoBefore = enrollment(course3Regular(), 300000,
                 round(1, EnrollmentStatus.CONFIRMED, TODAY.plusDays(2), NOW.minusDays(2), false, 15000, 5000));
-        assertThat(calc.quote(twoBefore, TODAY, NOW, Map.of()).getLines().get(0).getAmount()).isEqualTo(84000);
+        assertThat(calc.quote(twoBefore, TODAY, NOW).getLines().get(0).getAmount()).isEqualTo(84000);
 
         // 당일(D) 0%
         Enrollment sameDay = enrollment(course3Regular(), 300000,
                 round(1, EnrollmentStatus.CONFIRMED, TODAY, NOW.minusDays(2), false, 15000, 5000));
-        assertThat(calc.quote(sameDay, TODAY, NOW, Map.of()).getLines().get(0).getAmount()).isZero();
+        assertThat(calc.quote(sameDay, TODAY, NOW).getLines().get(0).getAmount()).isZero();
     }
 
     @Test
-    @DisplayName("F3 결제완료 1시간 내 취소는 날짜 무관 100% (그레이스 기준 = 결제완료 paidAt, 회차 createdAt 아님)")
-    void graceFromPaidAt() {
-        // 당일 세션 + createdAt 은 이틀 전(그레이스 만료)인데, 결제완료(paidAt)가 30분 전이면 → 100%.
-        Enrollment e = enrollment(course3Regular(), 300000,
-                round(1, EnrollmentStatus.CONFIRMED, TODAY, NOW.minusDays(2), false, 15000, 5000));
-        Map<Long, OffsetDateTime> paidAt = Map.of(1L, NOW.minusMinutes(30));
-        assertThat(calc.quote(e, TODAY, NOW, paidAt).getLines().get(0).getAmount()).isEqualTo(120000);
+    @DisplayName("F3 강사 수락(확정) 1시간 내 취소는 날짜 무관 100% (그레이스 앵커 = 확정 시각 respondedAt, 신청/결제 시각 아님)")
+    void graceFromConfirmedAt() {
+        // 당일 세션 + 신청(createdAt)은 이틀 전인데, 강사 수락(respondedAt)이 30분 전이면 → 100%.
+        // (staging 2026-08-15 재현: 결제 14:04 → 수락 19:02 → 환불 19:04 인데 당일 0% 가 매겨진 건이 이 케이스.)
+        EnrollmentRound r = round(1, EnrollmentStatus.CONFIRMED, TODAY, NOW.minusDays(2), false, 15000, 5000);
+        r.setRespondedAt(NOW.minusMinutes(30));
+        Enrollment e = enrollment(course3Regular(), 300000, r);
+        assertThat(calc.quote(e, TODAY, NOW).getLines().get(0).getAmount()).isEqualTo(120000);
     }
 
     @Test
@@ -115,7 +114,7 @@ class RefundCalculatorTest {
         // PENDING(미결제), 3일전+ → 수강료 몫 100000*100%만(부대 미납 0)
         Enrollment e = enrollment(course3Regular(), 300000,
                 round(1, EnrollmentStatus.PENDING, TODAY.plusDays(5), NOW.minusDays(2), false, 15000, 5000));
-        assertThat(calc.quote(e, TODAY, NOW, Map.of()).getLines().get(0).getAmount()).isEqualTo(100000);
+        assertThat(calc.quote(e, TODAY, NOW).getLines().get(0).getAmount()).isEqualTo(100000);
     }
 
     @Test
@@ -124,7 +123,7 @@ class RefundCalculatorTest {
         // 선결제: 확정(CONFIRMED) 전이라도 결제는 끝났다 → 부대 20,000 도 환불 대상. 3일전+ 100%
         Enrollment e = enrollment(course3Regular(), 300000,
                 round(1, EnrollmentStatus.ACCEPT_PENDING, TODAY.plusDays(5), NOW.minusDays(2), false, 15000, 5000));
-        assertThat(calc.quote(e, TODAY, NOW, Map.of()).getLines().get(0).getAmount()).isEqualTo(120000);
+        assertThat(calc.quote(e, TODAY, NOW).getLines().get(0).getAmount()).isEqualTo(120000);
     }
 
     @Test
@@ -135,7 +134,7 @@ class RefundCalculatorTest {
         EnrollmentRound booked2 = round(2, EnrollmentStatus.CONFIRMED, TODAY.plusDays(2), NOW.minusDays(2), false, 10000, 0);
         Enrollment e = enrollment(course3Regular(), 300000, done1, booked2); // 3회차는 미예약
 
-        RefundQuote q = calc.quote(e, TODAY, NOW, Map.of());
+        RefundQuote q = calc.quote(e, TODAY, NOW);
 
         assertThat(q.getLines().get(0).getAmount()).isZero();             // 1회차 완료
         assertThat(q.getLines().get(1).getAmount()).isEqualTo(77000);    // 2회차 (100000+10000)×70%
@@ -150,7 +149,7 @@ class RefundCalculatorTest {
         EnrollmentRound r1 = round(1, EnrollmentStatus.CONFIRMED, TODAY.plusDays(1), NOW.minusDays(2), false, 20000, 0);
         Enrollment e = enrollment(course1Regular(), 150000, r1);
 
-        RefundQuote q = calc.quote(e, TODAY, NOW, Map.of());
+        RefundQuote q = calc.quote(e, TODAY, NOW);
 
         assertThat(q.getLines().get(0).getAmount()).isEqualTo(85000);    // (150000+20000)×50%
         assertThat(q.getTotal()).isEqualTo(85000);
@@ -163,18 +162,16 @@ class RefundCalculatorTest {
         // = 같은 회차를 cancel(roundId) 로 취소하면 전액환불되는 것과 일치.
         Enrollment e = enrollment(course3Regular(), 300000,
                 round(1, EnrollmentStatus.ACCEPT_PENDING, TODAY, NOW.minusDays(2), false, 15000, 5000));
-        assertThat(calc.quote(e, TODAY, NOW, Map.of()).getLines().get(0).getAmount()).isEqualTo(120000);
+        assertThat(calc.quote(e, TODAY, NOW).getLines().get(0).getAmount()).isEqualTo(120000);
     }
 
     @Test
-    @DisplayName("N2 그레이스는 respondedAt 이 최근이어도 재개방 안 된다 — paidAt(결제완료)이 옛날이면 당일 0%")
-    void graceNotReopenedByRespondedAt() {
-        // 회차 respondedAt/createdAt 은 지금(방금 강사 수락/일정변경) 이지만, 결제완료(paidAt)는 이틀 전.
-        // 옛 코드(respondedAt 기준)면 "1시간 내"로 100% 였을 것 — paidAt 기준이라 그레이스 만료 → 당일 0%.
+    @DisplayName("N2 강사 수락 후 1시간이 지난 당일 세션 취소는 0% — 결제가 최근이어도 그레이스는 수락 시각에서만 센다")
+    void graceCountsFromAcceptanceOnly() {
+        // 강사 수락(respondedAt)이 2시간 전이면 그 뒤 취소는 날짜 페널티(당일 0%). 결제 시각은 무관하다.
         Enrollment e = enrollment(course3Regular(), 300000,
-                round(1, EnrollmentStatus.CONFIRMED, TODAY, NOW, false, 15000, 5000));
-        Map<Long, OffsetDateTime> paidAt = Map.of(1L, NOW.minusDays(2));
-        assertThat(calc.quote(e, TODAY, NOW, paidAt).getLines().get(0).getAmount()).isZero();
+                round(1, EnrollmentStatus.CONFIRMED, TODAY, NOW.minusHours(2), false, 15000, 5000));
+        assertThat(calc.quote(e, TODAY, NOW).getLines().get(0).getAmount()).isZero();
     }
 
     @Test
@@ -182,7 +179,7 @@ class RefundCalculatorTest {
     void remainderGoesToLastRound() {
         // 수강료 100,000 / 3회차 = 33,333 (나머지 1원). 3회차 전부 미배정 100% → 합계 100,000(=원금), 99,999 아님.
         Enrollment e = enrollment(course3Regular(), 100000); // 회차 없음 → 정규 3개 전부 미배정
-        RefundQuote q = calc.quote(e, TODAY, NOW, Map.of());
+        RefundQuote q = calc.quote(e, TODAY, NOW);
         assertThat(q.getLines()).hasSize(3);
         assertThat(q.getLines().get(0).getAmount()).isEqualTo(33333);
         assertThat(q.getLines().get(1).getAmount()).isEqualTo(33333);
