@@ -1,9 +1,7 @@
 package com.diving.pungdong.account;
 
 import com.diving.pungdong.global.security.CurrentUser;
-import com.diving.pungdong.controller.lecture.LectureController;
 import com.diving.pungdong.account.Account;
-import com.diving.pungdong.dto.lecture.delete.LectureDeleteRes;
 import com.diving.pungdong.account.dto.profilePhoto.ProfilePhotoInfo;
 import com.diving.pungdong.account.dto.profilePhoto.ProfilePhotoUpdateInfo;
 import com.diving.pungdong.account.ProfilePhotoService;

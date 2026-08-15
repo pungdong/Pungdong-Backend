@@ -9,7 +9,6 @@ import com.diving.pungdong.account.ProfilePhoto;
 import com.diving.pungdong.account.ProfilePhotoJpaRepo;
 import com.diving.pungdong.account.Role;
 import com.diving.pungdong.global.security.JwtTokenProvider;
-import com.diving.pungdong.service.LectureService;
 import com.diving.pungdong.instructorapplication.storage.CertificateImageStorage;
 import com.diving.pungdong.global.storage.S3Uploader;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -69,7 +68,6 @@ class AccountDeletionUseCaseTest {
     @Autowired AccountAnonymizationService anonymizationService;
 
     // 진짜 외부 경계만 모킹 — 탈퇴 시 강의 일괄 close, 익명화 시 S3 삭제.
-    @MockBean LectureService lectureService;
     @MockBean S3Uploader s3Uploader;
     /** 자격증 이미지 저장소 — 익명화가 여기까지 파기를 전파하는지 검증하려고 경계를 잡는다. */
     @MockBean CertificateImageStorage certificateImageStorage;

@@ -6,7 +6,6 @@ import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.AuthProvider;
 import com.diving.pungdong.account.ProfilePhoto;
 import com.diving.pungdong.account.Role;
-import com.diving.pungdong.domain.lecture.Lecture;
 import com.diving.pungdong.account.dto.emailCheck.EmailResult;
 import com.diving.pungdong.account.dto.nickNameCheck.NickNameResult;
 import com.diving.pungdong.account.dto.restore.AccountRestoreInfo;
@@ -21,7 +20,6 @@ import com.diving.pungdong.global.model.SuccessResult;
 import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.account.EmailService;
 import com.diving.pungdong.account.dto.read.AccountBasicInfo;
-import com.diving.pungdong.service.LectureService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -49,7 +47,6 @@ public class AccountService implements UserDetailsService {
     private final EmailService emailService;
     private final PasswordEncoder passwordEncoder;
     private final ProfilePhotoService profilePhotoService;
-    private final LectureService lectureService;
 
     @Override
     public UserDetails loadUserByUsername(String id) throws UsernameNotFoundException {
@@ -169,9 +166,7 @@ public class AccountService implements UserDetailsService {
     public void deleteAccount(Account account) {
         account.setIsDeleted(true);
         account.setDeletedAt(OffsetDateTime.now(ZoneOffset.UTC));
-        Account updatedAccount = accountJpaRepo.save(account);
-
-        lectureService.closeAllLecture(updatedAccount);
+        accountJpaRepo.save(account);
     }
 
     public Account updateAccountDeleted(AccountRestoreInfo accountRestoreInfo) {

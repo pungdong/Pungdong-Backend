@@ -6,7 +6,6 @@ import com.diving.pungdong.global.security.UserAccount;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.Gender;
 import com.diving.pungdong.account.Role;
-import com.diving.pungdong.domain.lecture.Organization;
 import com.diving.pungdong.account.dto.instructor.certificate.InstructorCertificateInfo;
 import com.diving.pungdong.account.dto.restore.AccountRestoreInfo;
 import com.diving.pungdong.account.dto.update.AccountUpdateInfo;

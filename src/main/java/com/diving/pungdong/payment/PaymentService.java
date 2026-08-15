@@ -43,8 +43,9 @@ import java.util.UUID;
  * <p><b>권위 금액</b> = (첫 만남 회차면 수강료) + 부대비용(입장료+장비+추가세션비). 수강료는 enrollment 스냅샷
  * 고정(2026-06-28 — 환불 정산을 위해 라이브 재계산 폐기), 1회차에 전액, 2회차~ 는 부대비용만.
  */
-// 명시적 빈 이름 — 레거시 com.diving.pungdong.service.PaymentService(죽은 예약 플로우)와 단순명이 같아
-// 컴포넌트 스캔 시 기본 빈 이름("paymentService")이 충돌하기 때문. 주입은 타입으로(둘은 다른 타입).
+// 명시적 빈 이름 — 원래는 레거시 com.diving.pungdong.service.PaymentService(죽은 예약 플로우)와 단순명이
+// 같아 컴포넌트 스캔의 기본 빈 이름("paymentService")이 충돌했기 때문. 그 레거시 클래스는 v1 청산으로
+// 제거됐으나(2026-08-15), 빈 이름을 지금 바꿀 이유가 없어 그대로 둔다(주입은 전부 타입 기반).
 @Slf4j
 @Service("enrollmentPaymentService")
 @Transactional(readOnly = true)
