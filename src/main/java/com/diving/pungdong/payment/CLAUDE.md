@@ -24,7 +24,7 @@
   - `PaymentPrepareRequest.targetVenueRefId` — **가드**(기능 아님). 보내온 값이 회차의 현재 위치와 다르면 `-1019`. 안 보내면 대조를 못 해 방어가 꺼진다. `targetBlockStart/End` 는 `@JsonFormat` 을 떼서 `"18:00"`·`"18:00:00"` 둘 다 받는다.
 - **`OrderNoFormatter`**: 순차 `PaymentOrder` id → **Hashids 난독화 코드**(`PD-YYMMDD-XXXXXXXX`, 날짜+가역·혼동문자 제외). PG `orderId`(멱등키, 내부)와 별개의 표시값 — 누적 주문 수 유추 방지. salt=`pungdong.hashids.salt`(키, 노출 금지). ⚠️ account/course 등 **다른 외부 id 난독화**는 별도 "공개 식별자 전략" 안건(아직 X).
 
-레거시 `domain/payment/Payment` 는 **건드리지 않는다**(옛 예약 플로우 전용, PG 필드 없음).
+(과거 주의사항이던 레거시 `domain/payment/Payment` 는 레거시 청산으로 **클래스가 삭제**됐다 — 2026-08-15. 테이블 `payment` 도 V27 에서 드롭 대상이나, 전자상거래법 보존 가능성 때문에 row 가 있으면 남긴다.)
 
 ## 핵심 불변식
 

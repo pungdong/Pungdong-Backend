@@ -1,5 +1,15 @@
 # 강의 (lecture)
 
+> # 🗑️ 삭제됨 (2026-08-15)
+>
+> **이 도메인은 코드에서 제거됐다.** v1 layered 스택(`com.diving.pungdong.{controller,service,repo,domain,dto}`)
+> 전체가 v2 로 대체되어 삭제됐고, 여기 적힌 클래스·엔드포인트·테이블은 **더 이상 존재하지 않는다.**
+>
+> **후신:** [course.md](course.md) (강의 = 코스)
+>
+> 아래 본문은 **삭제 시점의 상태를 남긴 기록**이다 — 왜 이렇게 동작했는지, 어떤 간극 때문에
+> 재설계했는지를 되짚을 때만 읽는다. 현재 동작의 근거로 인용하지 말 것.
+
 ## 한 줄 요약
 
 플랫폼의 핵심 상품. 강사(`INSTRUCTOR` 역할 Account) 가 만들고, 학생이 [예약](reservation.md) 한다. **MySQL 이 단일 진실** — 검색(필터·키워드)은 모두 `JpaSpecificationExecutor` + `LectureSpecifications` 동적 쿼리로 처리한다. (Phase 3 에서 Elasticsearch 와 그 동기화 코드를 전부 제거하고 키워드 검색을 MySQL `LIKE` 로 치환 — 결정 근거는 [observability.md](observability.md) "왜 Elasticsearch 가 아닌가".)

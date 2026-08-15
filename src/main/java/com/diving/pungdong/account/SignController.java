@@ -16,7 +16,6 @@ import com.diving.pungdong.account.dto.auth.AuthToken;
 import com.diving.pungdong.account.dto.auth.RefreshRequest;
 import com.diving.pungdong.global.model.SuccessResult;
 import com.diving.pungdong.account.AccountService;
-import com.diving.pungdong.account.InstructorCertificateService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.*;

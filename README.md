@@ -174,7 +174,7 @@ docker run --rm -p 8080:8080 --network pungdong-backend_default \
 ✅ Phase 1  외부 Auth Server 흡수, SecurityFilterChain, 시크릿 외부화 (+ 이메일 인증/토큰 정책 완성)
 ✅ Phase 2  Kafka → Spring Events + Outbox + FCM (2-A~D 완료)
 ✅ Phase 3  Elasticsearch 제거 (검색 = MySQL JpaSpecification 으로 치환)
-   구조    layered → domain-based(package-by-feature) 전환 중 (account/notification 완료)
+   구조    domain-based(package-by-feature) — 전환 완료 (2026-08-15 v1 레거시 layered 스택 삭제)
 🔨 Phase 4  배포 재설계 (Docker / ECS / WIF 등) — 진행 중: Dockerfile ✅, 다음 = Terraform/ECS
    Phase 5  CI/CD 재설계 (staging/prod 분리)
    Phase 6  Boot 3 + JDK 21 (jakarta 마이그레이션)

@@ -23,8 +23,8 @@ JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew build
 
 Single test class / method:
 ```
-JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew test --tests com.diving.pungdong.controller.account.AccountControllerTest
-JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew test --tests com.diving.pungdong.controller.account.AccountControllerTest.<methodName>
+JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew test --tests com.diving.pungdong.account.AccountControllerTest
+JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew test --tests com.diving.pungdong.account.AccountControllerTest.<methodName>
 ```
 
 Run locally (one-time setup of Docker dependencies + yml files — see Runtime configuration):
@@ -72,13 +72,13 @@ The local Docker stack (`docker compose up -d`) provides MySQL **8.4** (port 330
 
 - Active profile: `test` (`@ActiveProfiles("test")`) — loads `src/test/resources/application-test.yml` which switches the datasource to in-memory H2 (the prod `MySQL5InnoDBDialect` is overridden to `H2Dialect` here). It also pins `pungdong.payment.mode: stub` so the PG client never goes real even if `PAYMENT_MODE=toss` leaks from direnv (see testing.md).
 - Redis: tests use an **embedded Redis server** (`com.github.codemonstur:embedded-redis:1.4.3`, the maintained arm64-compatible fork) started by `EmbeddedRedisConfig` on a **dedicated port 16379** — deliberately separate from the docker Redis (6379) so `./gradlew test` never touches the local dev cache. `application-test.yml`'s `spring.redis.port` and `EmbeddedRedisConfig.TEST_REDIS_PORT` are kept in sync at 16379. (Earlier this used a random free port via `System.setProperty`, but that static block applied *after* `RedisAutoConfiguration` bound `spring.redis.port`, so tests fell back to yml's 6379 = docker Redis and leaked stub venue caches into dev.) **Redis 인프라 전반(용도·운영·이 격리 원칙)은 [docs/architecture/redis.md](docs/architecture/redis.md); config 작업 시 [global/config/CLAUDE.md](src/main/java/com/diving/pungdong/global/config/CLAUDE.md) 가 자동 로드된다.**
-- Elasticsearch: **removed in Phase 3** (2026-06-24). The former `@Profile("!test")` gate, the three Boot ES auto-config excludes in `application-test.yml`, and the `TestElasticSearchConfig` Mockito scaffold are all gone. Search is now MySQL `JpaSpecification` (`LectureSpecifications.keywordMatch` — title/instructor `LIKE`), so there is nothing to mock.
+- Elasticsearch: **removed in Phase 3** (2026-06-24). The former `@Profile("!test")` gate, the three Boot ES auto-config excludes in `application-test.yml`, and the `TestElasticSearchConfig` Mockito scaffold are all gone. Search is now MySQL `JpaSpecification` (`course/CourseSpecifications` — 제목/강사 `LIKE`; the v1 `LectureSpecifications` went away with the legacy sweep), so there is nothing to mock.
 - Controller tests follow the pattern `@SpringBootTest + @AutoConfigureMockMvc + @AutoConfigureRestDocs + @Import(RestDocsConfiguration.class) [+ EmbeddedRedisConfig.class]` with services replaced via `@MockBean`. They emit REST Docs snippets — when adding a new controller test, include `document(...)` calls so the generated documentation in `src/docs/asciidoc/api.adoc` stays complete.
 - The `AuthUseCaseTest` (`src/test/java/com/diving/pungdong/usecase/`) is a Phase 1 safety net of use-case scenarios that run against the real Spring Security filter chain (no `@MockBean` for auth). When changing anything in `JwtTokenProvider`, `JwtAuthenticationFilter`, `SecurityConfiguration`, or auth flow controllers, **expect this test to catch regressions**. `JwtAuthenticationFilter` rejects blacklisted tokens (the Redis `"false"` marker written by `/sign/logout`), and `L1`/`L2` verify that logout invalidates the access and refresh tokens (401 JSON). (All earlier carry-overs are now resolved — the logout no-op, the `RestDocsConfiguration` context-cache hack, and the ES test scaffold removed in Phase 3; see memory `phase_0_deferred_items`.)
 
 ## Code layout
 
-**Mid-transition: layered → domain-based (package-by-feature).** Decided 2026-06-03 (memory `architecture-package-by-feature`). Spring is package-structure-agnostic — `@SpringBootApplication` at `com.diving.pungdong` scans everything beneath it regardless of layout. New/rewritten domains are organized **by feature** (one package holds that domain's controller + service + repo + entity + dto + a domain `CLAUDE.md`). Legacy domains still sit in the old layered packages until they're rewritten.
+**Domain-based (package-by-feature) — transition complete as of 2026-08-15.** Decided 2026-06-03 (memory `architecture-package-by-feature`); the last layered packages were deleted with the v1 sweep. Spring is package-structure-agnostic — `@SpringBootApplication` at `com.diving.pungdong` scans everything beneath it regardless of layout. Every domain is organized **by feature** (one package holds that domain's controller + service + repo + entity + dto + a domain `CLAUDE.md`).
 
 Settled feature packages (each auto-loads its own `CLAUDE.md` when you work in it):
 - `account/` — auth/계정 (sign/email/account/profilePhoto controllers, AccountService etc., Account + Role/Gender/AuthProvider/DeviceType/FirebaseToken/ProfilePhoto/InstructorCertificate entities, `dto/`). Auth **infra** (`JwtTokenProvider`, `SecurityConfiguration`, `@CurrentUser`, `UserAccount`) lives in `global/security/`, not here — it's cross-cutting.
@@ -91,18 +91,15 @@ Settled feature packages (each auto-loads its own `CLAUDE.md` when you work in i
 - `course/` · `branding/` · `consent/` · `discipline/` · `identityverification/` · `instructorapplication/` · `legal/` · `profile/` — 각자 `CLAUDE.md` 보유.
 - `global/` — domain-agnostic shared: `global/config/`, `global/sitesettings/`(Sanity 런타임 설정 — TTL 등), `global/security/`, `global/advice/`, `global/model/` (CommonResult envelope), `global/validation/`, `global/ResponseService`.
 
-> 위 목록이 곧 "이미 feature 패키지로 옮겨진 도메인" 이다 — `src/main/java/**/CLAUDE.md` 가 있는 곳이 기준. 레거시 layered 에 남은 건 아래 §Legacy 목록뿐.
+> 위 목록이 곧 전체 도메인이다 — `src/main/java/**/CLAUDE.md` 가 있는 곳이 기준. 레거시 layered 패키지는 남아 있지 않다.
 
-Cross-domain coupling is expected in this monolith — e.g. `Account` is imported by ~35 files in other domains (lecture/reservation reference it as creator/applicant). That's fine; just keep the dependency direction one-way (account doesn't import lecture).
+Cross-domain coupling is expected in this monolith — e.g. `Account` is imported by many files in other domains (course/enrollment/payment reference it as instructor/applicant). That's fine; just keep the dependency direction one-way (account doesn't import course).
 
-**Legacy layered packages** (`controller/ service/ repo/ domain/ dto/`) — still hold lecture/reservation/schedule/review/equipment/location/lectureImage. These get folded into feature packages as each is rewritten (lecture/reservation are pending a 기획 redesign). Old description of the layered layout below still applies to these:
+**The legacy layered packages are gone (2026-08-15).** `com.diving.pungdong.{controller,service,repo,domain,dto}` held the 2년 전 MVP(v1) — lecture / reservation / schedule / review / equipment / location / lectureImage (131 파일, 엔드포인트 48개) — and were deleted wholesale once v2 (`course` / `enrollment` / `availability` / `venue` / `payment`) replaced every feature and the only client (모바일 앱 `src/legacy/`) was removed in the same sweep. **The transition is complete: every domain now lives in a feature package.** Don't recreate a top-level `controller/`, `service/`, `repo/`, `domain/`, or `dto/` package — new code goes in its feature package (or `global/` if truly domain-agnostic).
 
-- `controller/` — REST endpoints, organized by feature (`account/`, `lecture/`, `schedule/`, `reservation/`, `review/`, `equipment/`, `location/`, `lectureImage/`, `profilePhoto/`, `sign/`).
-- `service/` — business logic, mirroring controller features. Sub-packages exist for cross-cutting concerns: `service/image/` (S3 upload via AWS SDK v1). (`service/kafka/` was removed in Phase 2; `service/elasticSearch/` in Phase 3.)
-- `repo/` — Spring Data JPA repositories. Dynamic queries use **`JpaSpecificationExecutor` + a sibling `*Specifications` utility class** (e.g. `LectureSpecifications` — `matching` for filters, `keywordMatch` for keyword search); QueryDSL was removed in Phase 0.4.
-- `domain/` — JPA entities grouped by aggregate (`account/`, `lecture/`, `schedule/`, `reservation/`, `payment/`, `review/`, `equipment/`, `location/`).
-- `dto/` — request/response DTOs. **Convention**: `dto/<feature>/<operation>/` (e.g. `dto/lecture/create/`, `dto/account/signUp/`). Add new DTOs to the matching operation folder; create a new one if needed.
-> ⚠️ The three items below (`config/`, `advice/`, `model/`) are **not** top-level packages — they live under `global/` (see the `global/` bullet above). They are listed here because the legacy layered code still routes through them.
+Two classes were rescued from those packages because live v2 code uses them: `service/image/S3Uploader` → **`global/storage/S3Uploader`** (S3 업로드 게이트, 전 도메인 공용) and `dto/profilePhoto/*` → **`account/dto/profilePhoto/`**.
+
+`global/` sub-packages (these are **not** top-level packages):
 
 - `global/config/` — Spring `@Configuration` beans (Redis, email, HTTP client, i18n message source, `global/sitesettings/` = the Sanity-backed runtime `SiteSettings`). **Auth infra is `global/security/`**: `SecurityConfiguration`, `JwtTokenProvider`, `JwtAuthenticationFilter`, `CurrentUser` (custom `@AuthenticationPrincipal`), `UserAccount` (`UserDetails` wrapper). `SecurityConfiguration` is a **`SecurityFilterChain` bean** — the `WebSecurityConfigurerAdapter` migration is **done**, don't look for `configure(...)` methods.
 - `global/advice/` — `@RestControllerAdvice` exception handling. Custom exceptions live in `global/advice/exception/`; user-facing messages are looked up via `MessageSource` against `src/main/resources/i18n/exception*.yml` (configured via `yaml-resource-bundle`). Each exception maps to a numeric code via an i18n key (`<key>.code` / `<key>.msg`) — **adding a code means touching the exception class, the yml, `ExceptionAdvice`, and `docs/api-clients/types.ts`'s `ErrorCode`.**
@@ -125,9 +122,9 @@ Cross-domain coupling is expected in this monolith — e.g. `Account` is importe
 
 ## Security model
 
-JWT-based, stateless (`SessionCreationPolicy.STATELESS`). `JwtAuthenticationFilter` runs before `UsernamePasswordAuthenticationFilter`. URL → role mapping is centralized in the `SecurityConfiguration.filterChain(HttpSecurity)` **bean** — when adding a new endpoint, update the matchers there. Roles: `ADMIN`, `INSTRUCTOR`, `STUDENT` (the default for new sign-ups). Several public endpoints (lecture browsing, sign-up/login, email code, password reset, exception lookup) are explicitly `permitAll`. Inject the current user via `@CurrentUser Account` rather than reading from `SecurityContextHolder` directly.
+JWT-based, stateless (`SessionCreationPolicy.STATELESS`). `JwtAuthenticationFilter` runs before `UsernamePasswordAuthenticationFilter`. URL → role mapping is centralized in the `SecurityConfiguration.filterChain(HttpSecurity)` **bean** — when adding a new endpoint, update the matchers there. Roles: `ADMIN`, `INSTRUCTOR`, `STUDENT` (the default for new sign-ups). Several public endpoints (course browsing, 공개 브랜딩·커뮤니티 읽기, sign-up/login, email code, password reset, 법적고지) are explicitly `permitAll`. Inject the current user via `@CurrentUser Account` rather than reading from `SecurityContextHolder` directly.
 
-Auth failures return **JSON `401`** directly via `CustomAuthenticationEntryPoint`; access denials return **JSON `403`** via `CustomAccessDeniedHandler` (both wired in `SecurityConfiguration.exceptionHandling`; bodies are the `CommonResult` `{success:false, code, msg}` envelope, code/msg from `MessageSource`). This replaced the old 302-redirect-to-`/exception/*` scheme (done in PR #19). `ExceptionController` now only exposes a **vestigial** `GET /exception/forbiddenToken` (throws `ForbiddenTokenException` → `ExceptionAdvice`) — it is not wired into the auth flow anymore and is a cleanup candidate.
+Auth failures return **JSON `401`** directly via `CustomAuthenticationEntryPoint`; access denials return **JSON `403`** via `CustomAccessDeniedHandler` (both wired in `SecurityConfiguration.exceptionHandling`; bodies are the `CommonResult` `{success:false, code, msg}` envelope, code/msg from `MessageSource`). This replaced the old 302-redirect-to-`/exception/*` scheme (done in PR #19); the vestigial `ExceptionController` (`GET /exception/forbiddenToken`) and its `ForbiddenTokenException` were removed with the v1 sweep (2026-08-15).
 
 ### Client-supplied identity & object-level authorization (don't trust the client)
 
@@ -181,9 +178,9 @@ REST Docs source: `src/docs/asciidoc/api.adoc` (Korean). The `bootJar` task copi
 
 **CI (tests only)**: `.github/workflows/ci.yml` runs `./gradlew test` on every PR and on push to `master`. Uses JDK 17 / Temurin + gradle dependency caching. Test reports are uploaded as artifacts on failure. The workflow is **light** — no build / asciidoctor / bootJar, just tests (since asciidoctor is fixed but slower).
 
-**No auto-deploy workflow yet.** The original `.github/workflows/deploy.yml` (S3 + CodeDeploy + EC2 `nohup java -jar`) was removed in PR #1 because the target infrastructure is offline and will be replaced in Phase 4 (AWS ECS Fargate per `phase_4_deployment_decisions.md` memory). `master` pushes only trigger CI tests, not deploy. Deploy workflow will be introduced when the deploy target exists.
+**Deploy = manual-button workflow on ECS Fargate.** `.github/workflows/deploy.yml` is a `workflow_dispatch` with three actions — `staging-up` / `staging-down` (Terraform apply/destroy of `infra/envs/staging`, staging is torn down to $0 when idle) and `production-deploy` (ECS task-definition image swap on `plop-prod-svc`, rolling, then an `/actuator/health` check). `.github/workflows/build.yml` builds and pushes the image to ECR. `master` pushes trigger CI tests + build, never a deploy — production is always a deliberate button press with a pinned image tag. The `/deploy` skill (`.claude/skills/deploy/`) drives all of this; read it before deploying. Strategy and rationale: [docs/architecture/deployment.md](docs/architecture/deployment.md).
 
-`scripts/deploy.sh` and `appspec.yml` are leftover from the old deploy and are not currently invoked by anything; don't rely on them as a guide.
+The old EC2 + CodeDeploy path (`appspec.yml`, `scripts/deploy.sh`, `scripts/restart-codedeploy-agent.sh`) was deleted on 2026-08-15 — don't look for it.
 
 ## Workflow & conventions
 

@@ -1,5 +1,15 @@
 # 예약 (reservation)
 
+> # 🗑️ 삭제됨 (2026-08-15)
+>
+> **이 도메인은 코드에서 제거됐다.** v1 layered 스택(`com.diving.pungdong.{controller,service,repo,domain,dto}`)
+> 전체가 v2 로 대체되어 삭제됐고, 여기 적힌 클래스·엔드포인트·테이블은 **더 이상 존재하지 않는다.**
+>
+> **후신:** [enrollment.md](enrollment.md) (예약 = 수강신청) + [payment.md](payment.md)
+>
+> 아래 본문은 **삭제 시점의 상태를 남긴 기록**이다 — 왜 이렇게 동작했는지, 어떤 간극 때문에
+> 재설계했는지를 되짚을 때만 읽는다. 현재 동작의 근거로 인용하지 말 것.
+
 ## 한 줄 요약
 
 학생이 강의 일정을 선택해 예약 → 인원 / 장비 / 결제 합산하여 `reservation` 행 생성 → 강사에게 `ReservationCreatedEvent` 발행. 취소는 **첫 일정 당일 전까지만** 가능. 상태 enum 없이 **존재(CREATED) / 삭제(CANCELLED)** 두 가지만 다루는 단순 설계 — 결제 / 환불 / 출석 같은 중간 상태는 의도적으로 부재.

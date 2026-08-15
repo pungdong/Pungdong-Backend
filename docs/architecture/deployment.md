@@ -200,7 +200,7 @@ prod 에 Flyway 이미지를 처음 배포하며 3가지가 연쇄로 터졌다 
 | ② | forward 마이그레이션 불가 → **wipe + V1 baseline** 으로 결정 | 옛 변경들이 hbm2ddl=update 로 만들어져 **마이그레이션 히스토리가 없음**. baseline(V1)에 맞춰 새로 = 표준 Flyway 도입 절차(데이터는 버려도 되는 데모) |
 | ③ | wipe 후 V1 이 **`table already exists`(1050)** 로 실패 → 실패 기록이 이후 부팅 전부 차단 | **circuit breaker OFF** 라 실패 태스크가 무한 재시도(churn) → V1 **동시 실행** → 충돌. V1 이 idempotent 아니었음(로컬은 `mysql` 직접/baseline 이라 Flyway 실행 버그를 못 봄) |
 
-**해결**: V1 을 `CREATE TABLE IF NOT EXISTS` 로 **idempotent 화**(#121) → 빈 DB 에 새 이미지 배포 + wipe → 동시/재시도에도 안전하게 62테이블 생성 → validate 통과.
+**해결**: V1 을 `CREATE TABLE IF NOT EXISTS` 로 **idempotent 화**(#121) → 빈 DB 에 새 이미지 배포 + wipe → 동시/재시도에도 안전하게 전 테이블 생성 → validate 통과. (당시 62개. V27 의 레거시 드롭 이후는 40개.)
 
 **방지 (→ 이슈 트래킹)**:
 - **마이그레이션은 항상 idempotent** (CLAUDE.md 규약 박음). 동시 실행/재시도가 흔한 분산 환경의 기본기.

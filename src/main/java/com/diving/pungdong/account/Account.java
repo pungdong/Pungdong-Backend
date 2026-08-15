@@ -1,8 +1,5 @@
 package com.diving.pungdong.account;
 
-import com.diving.pungdong.domain.LectureMark;
-import com.diving.pungdong.domain.lecture.Lecture;
-import com.diving.pungdong.domain.review.Review;
 import lombok.*;
 
 import javax.persistence.*;
@@ -59,9 +56,10 @@ public class Account {
     private String phoneNumber;
 
     /**
-     * 강사 자기소개. 현재는 강의 상세(LectureCreatorInfo)에서 읽기만 한다 — 이 값을 쓰던 레거시
-     * 강사정보 입력(/sign/instructor/info)이 제거되어 신규로는 채워지지 않는다. lecture 도메인
-     * 재설계 시 함께 정리 예정.
+     * 강사 자기소개. 이 값을 쓰던 레거시 강사정보 입력(/sign/instructor/info)과 유일한 읽기처였던
+     * 레거시 강의 상세(LectureCreatorInfo)가 모두 제거되어 <b>현재는 쓰이지 않는다</b>(컬럼만 잔존).
+     * 강사 프로필/브랜딩 쪽에서 자기소개를 다시 쓰게 되면 그때 이 필드를 재사용할지, 컬럼째 드롭할지
+     * 결정한다 — 드롭은 마이그레이션이 필요하므로 이번 레거시 청산 스윕 범위 밖.
      */
     @Lob
     private String selfIntroduction;
@@ -92,16 +90,7 @@ public class Account {
     private Integer defaultCapacity;
 
     @OneToMany(mappedBy = "instructor", fetch = FetchType.LAZY)
-    private List<Lecture> lectureList;
-
-    @OneToMany(mappedBy = "instructor", fetch = FetchType.LAZY)
     private List<InstructorCertificate> instructorCertificates;
-
-    @OneToMany(mappedBy = "account", fetch = FetchType.LAZY)
-    private List<LectureMark> lectureMarks;
-
-    @OneToMany(mappedBy = "writer", fetch = FetchType.LAZY)
-    private List<Review> reviews;
 
     @PrePersist
     public void prePersist() {

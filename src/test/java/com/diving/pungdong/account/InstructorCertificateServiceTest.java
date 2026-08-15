@@ -5,7 +5,7 @@ import com.diving.pungdong.account.Gender;
 import com.diving.pungdong.account.InstructorImgCategory;
 import com.diving.pungdong.account.Role;
 import com.diving.pungdong.account.InstructorCertificateJpaRepo;
-import com.diving.pungdong.service.image.S3Uploader;
+import com.diving.pungdong.global.storage.S3Uploader;
 import org.assertj.core.util.Sets;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

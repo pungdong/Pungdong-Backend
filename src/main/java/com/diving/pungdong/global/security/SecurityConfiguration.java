@@ -46,14 +46,8 @@ public class SecurityConfiguration {
                 .authorizeHttpRequests(auth -> auth
                         .antMatchers("/sign/sign-up", "/sign/login", "/sign/check/**", "/sign/refresh",
                                 "/email/code/**").permitAll()
-                        .antMatchers("/lecture/detail", "/lecture/list", "/lecture/new/list", "/lecture/popular/list",
-                                "/lecture/list/search/**", "/lecture/instructor/info/creator", "/lecture/*/like").permitAll()
-                        .antMatchers(HttpMethod.GET, "/lecture", "/location", "/review/list", "/equipment/list").permitAll()
-                        .antMatchers(HttpMethod.GET, "/schedule", "/schedule/equipments").permitAll()
                         .antMatchers(HttpMethod.PATCH, "/account/deleted-state").permitAll()
                         .antMatchers(HttpMethod.PUT, "/account/forgot-password").permitAll()
-                        .antMatchers("/lectureImage/list").permitAll()
-                        .antMatchers(HttpMethod.GET, "/exception/**").permitAll()
                         .antMatchers(HttpMethod.GET, "/disciplines").permitAll()
                         .antMatchers(HttpMethod.GET, "/instructors/public").permitAll()
                         // 공개 브랜딩 페이지 — 위 리터럴보다 반드시 뒤에 온다(그래야 /instructors/public 이 목록으로 간다).
@@ -103,11 +97,9 @@ public class SecurityConfiguration {
                         .antMatchers("/courses/**").authenticated()
                         .antMatchers("/address-search", "/geocode").authenticated()
                         .antMatchers("/account/instructor/**").hasRole("INSTRUCTOR")
-                        .antMatchers("/lecture/create", "/lecture/update", "/lecture/delete", "/lecture/manage/list",
-                                "/location/create", "/lectureImage/create/list", "/equipment/create/list").authenticated()
-                        // 레거시 예약 흐름 은퇴 — 선결제(enrollment/payment)로 대체됨. 쓰기 경로는 검증이 무력(@Valid 없음)해
-                        // 좌석 소모·PG 없는 Payment 행·FCM 스팸이 가능하므로 차단한다. 읽기(GET)는 옛 화면 대비 유지.
-                        .antMatchers(HttpMethod.POST, "/reservation", "/reservation/schedule/*/notification").denyAll()
+                        // 레거시 v1 매처(/lecture·/location·/review/list·/equipment·/schedule·/lectureImage·/exception·
+                        // /reservation)는 해당 컨트롤러와 함께 제거됨(2026-08-15). 남은 요청은 아래 anyRequest 가 받고,
+                        // 매핑이 없으므로 인증된 호출엔 404, 미인증 호출엔 401(CustomAuthenticationEntryPoint)로 끝난다.
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(exception -> exception

@@ -8,7 +8,7 @@
 
 ## 작업 단위 = 한 도메인 = 한 파일
 
-`<domain>.md` 1개 파일에 그 도메인의 모든 내용. sub-doc 없음. 별도 도메인은 별도 파일. 보조 엔티티 (예: Lecture 도메인의 Equipment / Location / LectureImage / LectureMark) 는 같이 묶어서 다룸 — 분리하면 컨텍스트 단절.
+`<domain>.md` 1개 파일에 그 도메인의 모든 내용. sub-doc 없음. 별도 도메인은 별도 파일. 보조 엔티티 (예: venue 도메인의 VenueTicket / VenueClosure / VenueEquipment*) 는 같이 묶어서 다룸 — 분리하면 컨텍스트 단절.
 
 ## 7-섹션 템플릿
 

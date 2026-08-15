@@ -271,9 +271,9 @@ export interface RegisterDeviceRequest {
 /**
  * 알림 종류. 앱은 이 값(= 푸시 data.type)으로 딥링크 화면을 고른다.
  *
- * 레거시 3종(RESERVATION_*, LECTURE_NOTIFICATION)은 사문화된 /reservation 도메인에서만
- * 발행되므로 신규 클라이언트가 새로 처리할 일은 없다 — 과거 알림함 행 표시용으로만 남는다.
- * 모르는 type 은 no-op 해도 안전하다(forward-compat).
+ * 레거시 3종(RESERVATION_*, LECTURE_NOTIFICATION)은 **발행처가 사라졌다** — 유일한 발행처였던
+ * v1 /reservation 도메인이 제거됐다(2026-08-15). 신규로는 절대 생기지 않고, 과거 알림함 행을
+ * 읽을 때만 나타나므로 union 에는 남겨둔다. 모르는 type 은 no-op 해도 안전하다(forward-compat).
  */
 export type NotificationType =
   // 수강(enrollment) — data: { courseId, enrollmentId, roundId }
@@ -2536,10 +2536,7 @@ export const ErrorCode = {
   AUTH_ENTRY_POINT: -1002,
   ACCESS_DENIED: -1003,
   SIGN_IN_INPUT: -1004,
-  /** @deprecated BE 가 발행하지 않는다 — 대응하는 예외·i18n 키가 없음. 분기에 쓰지 말 것. */
-  EXPIRED_ACCESS_TOKEN: -1005,
   EXPIRED_REFRESH_TOKEN: -1006,
-  FORBIDDEN_TOKEN: -1007,
   PRE_LAUNCH: -1016, // 정식 런칭 전 수강신청 시도(POST /enrollments, 403). FE 는 "런칭 대기" 안내로 분기
   // 본인인증 미완료 상태로 선행-조건 동작 시도(403). FE 는 본인인증(POST /identity-verifications) 화면으로 분기.
   //   · POST /enrollments (수강신청 전 선행) — 세션 계정으로 조회, 최신 VERIFIED 없으면.
@@ -2550,11 +2547,9 @@ export const ErrorCode = {
   // ── 도메인 코드 (아래는 전부 HTTP 400) ──
   NO_PERMISSIONS: -1008,
   RESOURCE_NOT_FOUND: -1009, // 없음/비소유 통일(존재 숨김)
-  RESERVATION_FULL: -1010,
   /** 범용 400. reschedule/prepare 등에서 여러 실패 사유가 이 코드를 공유하니 이걸로 사유를 가리지 말 것. */
   BAD_REQUEST: -1011,
   EMAIL_DUPLICATION: -1012,
-  CLOSED_LECTURE: -1013,
   COVERAGE_HAS_SESSION: -1014,
   /** 그 시간에 강사의 다른 일정이 있음. 일정 추가/신청/일정변경(reschedule·pick-slot) 공통. */
   SESSION_TIME_OVERLAP: -1015,

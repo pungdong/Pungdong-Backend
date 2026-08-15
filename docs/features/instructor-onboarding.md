@@ -77,7 +77,7 @@
 
 - 🔴 **실 본인확인기관 연동** — CI/DI 암호화 저장 + 비동기 푸시/재발송/검증 흐름. 사업자등록 + 기관 계약 후. (QA 에서 stub↔실연동 차이 이슈 다수 예상)
 - 🟡 **자격 레벨/등급** — 자격증 `ratingCode` + 강의 생성 레벨 게이트. lecture 재설계와 함께.
-- 🟡 **강의 ↔ 종목 연결** — 현재 `Lecture.classKind`(느슨한 string) → `disciplineCode` 정리. lecture 재설계 때.
+- ~~🟡 **강의 ↔ 종목 연결**~~ — ✅ 해소(2026-08-15). `Lecture.classKind` 는 v1 삭제로 사라졌고, Course 는 처음부터 `disciplineCode` 를 쓴다.
 - 🟡 **어드민 종목 관리 (배포 없는 확장)** — `POST/PUT /admin/disciplines` (추가 · active · 순서 · 이름). **종목 확장이 잦을 예정이라 우선순위 ↑.** 현재는 `DisciplineSeeder`(코드+배포)/SQL. 종목은 계속 BE 테이블(비즈룰·쿼리 유지), 관리 surface 만 추가 — Sanity 로 옮기는 게 아님.
 
 ---

@@ -31,7 +31,7 @@ flowchart TB
     Level["course.CertLevel<br/>(레벨 enum — 재사용)"]
     Enroll["enrollment.EnrollmentCompletion<br/>(완료 판정 공유)"]
     Ident["identityverification<br/>(holderName 파생)"]
-    Uploader["service.image.S3Uploader"]
+    Uploader["global.storage.S3Uploader"]
 
     Ctl --> Svc
     Svc --> Repo --> Entity

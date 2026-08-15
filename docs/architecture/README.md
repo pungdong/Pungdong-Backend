@@ -20,10 +20,10 @@
 |---|---|---|
 | 회원가입 + 로그인 (sign-up) | [sign-up.md](sign-up.md) | ✅ |
 | 알림 (notification outbox + FCM) | [notification.md](notification.md) | ✅ |
-| 강의 (lecture) | [lecture.md](lecture.md) | ✅ (baseline — 폐쇄/삭제 정책 간극 · 검색 ES→MySQL Specification) |
-| 일정 (schedule) | [schedule.md](schedule.md) | ✅ (baseline — 동시성 / 시간 충돌 / 수정 API 부재) |
-| 예약 (reservation) | [reservation.md](reservation.md) | ✅ (baseline — 알려진 간극 다수) |
-| 후기 (review) | [review.md](review.md) | ✅ (baseline — 통계 갱신 버그) |
+| ~~강의 (lecture)~~ | [lecture.md](lecture.md) | 🗑️ **삭제됨 (2026-08-15)** — v1 스택 제거. 후신 [course.md](course.md). 문서는 기록으로만 보존 |
+| ~~일정 (schedule)~~ | [schedule.md](schedule.md) | 🗑️ **삭제됨 (2026-08-15)** — 후신 [availability.md](availability.md) + [enrollment.md](enrollment.md) |
+| ~~예약 (reservation)~~ | [reservation.md](reservation.md) | 🗑️ **삭제됨 (2026-08-15)** — 후신 [enrollment.md](enrollment.md) + [payment.md](payment.md) |
+| ~~후기 (review)~~ | [review.md](review.md) | 🗑️ **삭제됨 (2026-08-15)** — v2 후신 **없음**(후기 기능 미재구현, 백로그) |
 | 본인확인 (identity-verification) | [identity-verification.md](identity-verification.md) | ✅ (계정 공유 자산 · 휴대폰 SMS 2단계, 포트원/다날 · 실 라이브는 CPID 개통 후) |
 | 종목 (discipline) | [discipline.md](discipline.md) | ✅ (BE 테이블 · requiresCertification) |
 | 강사 신청 (instructor-application) | [instructor-application.md](instructor-application.md) | ✅ (본인확인은 identity-verification 도메인 참조) |
@@ -44,7 +44,9 @@
 | **보안 원칙 (크로스커팅)** | [security.md](security.md) | ✅ (도메인 아님 — 신원=세션·객체단위 인가 anti-IDOR·비순차 식별자) |
 | **테스트 아키텍처 (크로스커팅)** | [testing.md](testing.md) | ✅ (도메인 아님 — hermetic 원칙·외부 경계 격리 A:stub핀/B:@MockBean·env 누출·새 외부서비스 체크리스트) |
 
-> 검색은 별도 도메인이 아니다 — Phase 3 에서 Elasticsearch 를 제거하고 lecture 도메인의 **MySQL `JpaSpecification`**(제목·강사명 LIKE) 으로 흡수했다. course 도메인도 Specification 기반. 결정 근거는 [observability.md](observability.md) "왜 Elasticsearch 가 아닌가".
+> 🗑️ 표시된 4개 문서(lecture · schedule · reservation · review)는 **v1 레거시 청산(2026-08-15)** 으로 코드가 사라진 도메인이다. 삭제하지 않고 남긴 이유는 "왜 그렇게 만들었고 어떤 간극 때문에 재설계했는지"의 기록이기 때문 — 각 문서 상단에 삭제 배너와 후신 링크가 있다. **현재 동작의 근거로 인용하지 말 것.**
+
+> 검색은 별도 도메인이 아니다 — Phase 3 에서 Elasticsearch 를 제거하고 **MySQL `JpaSpecification`**(제목·강사명 LIKE) 으로 흡수했다. 당시 대상이던 lecture 도메인은 v1 청산으로 사라졌고, 지금은 course 도메인의 `CourseSpecifications` 가 그 역할을 한다. 결정 근거는 [observability.md](observability.md) "왜 Elasticsearch 가 아닌가".
 
 ## 갱신 규칙
 

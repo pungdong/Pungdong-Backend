@@ -14,7 +14,7 @@
 | payment | [features/payment.md](payment.md) | 결제 대기/완료·금액 | ✅ 결제, ✅ 선결제 만료/거절 자동환불(2026-08-07) |
 | availability | [architecture/availability.md](../architecture/availability.md) | 회차=session(위치·시간) | ✅ 있음 |
 | course | [architecture/course.md](../architecture/course.md) | 강의 정체성(title·org·level·회차정의) | ✅ 있음 |
-| review | [architecture/review.md](../architecture/review.md) | 완료 후 리뷰 | ⚠️ **레거시(Lecture/Reservation), enrollment 미연결** |
+| ~~review~~ | [architecture/review.md](../architecture/review.md) | 완료 후 리뷰 | 🗑️ **기능 없음** — v1 Review 는 2026-08-15 삭제, Course/Enrollment 기반 재구현은 백로그 |
 | certificate | [architecture/certificate.md](../architecture/certificate.md) | 완료 후 자격증 등록 | ✅ 도메인 신설(2026-08-14) — 조회·등록·삭제·사진. 연결 소스가 이 hub 의 `COMPLETED` |
 
 ## ★ 설계 ↔ BE 상태 매핑 + 갭 (핵심)
@@ -61,7 +61,7 @@
 - ~~**일정 변경(reschedule) 요청**~~ ✅ shipped — `reschedule`·`propose-slots`·`pick-slot`. 더 비싼 슬롯은 차액 결제(`-1018`), 위치까지 바뀌면 `-1019`, 제안 만료는 `-1020`.
 - ~~**환불(refund)**~~ ✅ shipped — `RefundService`·`RefundCalculator`·`RefundOrder`(V15 원장)·`POST /enrollments/{id}/refund`. 거절·취소·무응답 만료는 자동 전액환불.
 - ~~**결제 만료**~~ ✅ 선결제 전환(2026-08-07)으로 구현 — 미결제 PENDING 12h·결제완료 ACCEPT_PENDING 24h(+자동환불) 자동 만료(전 회차 동일)(`EnrollmentExpiryService`). CANCELLED 로 통합(별도 status 없음).
-- **리뷰 ↔ 완료 enrollment 연결** — Review 는 레거시 `Lecture/Reservation` 에 묶임, `Course/Enrollment` 미연결.
+- **후기 기능 자체가 없다** — v1 Review(`Lecture/Reservation` 종속)가 삭제됐고 `Course/Enrollment` 기반 재구현은 아직. `ROUND_COMPLETED` 알림이 후기를 유도하지만 착지할 화면이 없다.
 - ~~**자격증 등록**~~ ✅ shipped — `certificate` 도메인([architecture/certificate.md](../architecture/certificate.md)). 이 hub 의 `status === 'COMPLETED'` 인 `courses[].enrollmentId` 가 연결 소스다. **신규 조회 엔드포인트 없이** 기존 hub 로 파생된다.
 - ~~**다회차 진행(2회차+)**~~ ✅ shipped(2026-06-28) — `POST /enrollments/{id}/rounds` + `RoundGate` 순차 게이트.
 
@@ -82,7 +82,7 @@
 - 🟢 ~~결제 만료·환불 상태기계~~ ✅ shipped. 남은 건 PG **webhook**(비동기 취소 통보) — [payment.md](payment.md).
 - 🟢 ~~일정 변경(reschedule)~~ ✅ shipped(강사측 hub 와 함께).
 - 🟡 **세션 채팅** — 회차별 단체채팅(done=read-only).
-- 🟢 **강사 메모(회차별)** · **리뷰 enrollment 연결**(레거시 Review→Course 이관). ~~자격증 등록 도메인~~ ✅ shipped.
+- 🟢 **강사 메모(회차별)** · **후기 기능 신규 구현**(Course/Enrollment 기반 — 이관이 아니라 신규. 레거시 Review 는 삭제됨). ~~자격증 등록 도메인~~ ✅ shipped.
 - 🟢 **다회차 진행** — roundIndex 2+ 신청.
 
 ## 관련 메모리

@@ -1,5 +1,15 @@
 # 일정 (schedule)
 
+> # 🗑️ 삭제됨 (2026-08-15)
+>
+> **이 도메인은 코드에서 제거됐다.** v1 layered 스택(`com.diving.pungdong.{controller,service,repo,domain,dto}`)
+> 전체가 v2 로 대체되어 삭제됐고, 여기 적힌 클래스·엔드포인트·테이블은 **더 이상 존재하지 않는다.**
+>
+> **후신:** [availability.md](availability.md) (강사 가용시간·session) + [enrollment.md](enrollment.md) (회차)
+>
+> 아래 본문은 **삭제 시점의 상태를 남긴 기록**이다 — 왜 이렇게 동작했는지, 어떤 간극 때문에
+> 재설계했는지를 되짚을 때만 읽는다. 현재 동작의 근거로 인용하지 말 것.
+
 ## 한 줄 요약
 
 **[lecture](lecture.md) 과 [reservation](reservation.md) 을 잇는 중간 도메인.** 강사가 강의 생성 후 별도로 일정 (날짜+시간 N개 + 렌탈 가능 장비 스냅샷) 을 만들면, 학생이 그 일정을 골라 예약한다. **`Schedule.currentNumber` 와 `ScheduleEquipmentStock.totalRentNumber` 가 모든 예약 흐름의 중심**이고, 이 둘에 대한 동시성 보호가 없어서 reservation 도메인의 race condition 도 사실은 이 도메인 책임.

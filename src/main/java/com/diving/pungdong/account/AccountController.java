@@ -4,7 +4,6 @@ import com.diving.pungdong.global.advice.ValidationErrors;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.security.CurrentUser;
 import com.diving.pungdong.global.security.JwtTokenProvider;
-import com.diving.pungdong.controller.lectureImage.LectureImageController;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.InstructorCertificate;
 import com.diving.pungdong.account.dto.instructor.certificate.InstructorCertificateInfo;

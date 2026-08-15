@@ -5,7 +5,7 @@ import com.diving.pungdong.account.InstructorCertificate;
 import com.diving.pungdong.account.InstructorImgCategory;
 import com.diving.pungdong.account.dto.instructor.certificate.InstructorCertificateInfo;
 import com.diving.pungdong.account.InstructorCertificateJpaRepo;
-import com.diving.pungdong.service.image.S3Uploader;
+import com.diving.pungdong.global.storage.S3Uploader;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
