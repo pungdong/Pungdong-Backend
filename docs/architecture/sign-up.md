@@ -250,7 +250,7 @@ erDiagram
         string birth "예약 시점에 채움 (가입 시 null)"
         Gender gender "예약 시점에 채움 (가입 시 null)"
         string phoneNumber "예약 시점에 채움 (가입 시 null)"
-        string selfIntroduction "레거시 (강의 상세 표시용, 신규 미사용 — lecture 재설계 시 정리)"
+        string selfIntroduction "미사용 컬럼 (v1 강의 상세가 유일한 읽기처였고 2026-08-15 삭제됨 — 재사용/드롭 미정)"
         bool isCertified "강사 승인 여부 (instructor-application 도메인이 설정)"
         bool isDeleted "default false"
         bigint profilePhoto_id FK

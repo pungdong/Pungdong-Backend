@@ -13,7 +13,7 @@
 
 > ⚠️ **local을 절대시각처럼 다루면 조용히 틀린다.** 서울 14:00 수업을 뷰어 TZ로 변환하면 뉴욕에서 새벽 1시로 보인다. 이런 필드는 UTC/offset을 **붙이면 안 된다.**
 
-예외 1건: legacy `Review.writeDate`(`LocalDate`) — 의미는 instant("작성 시각")인데 날짜만 있어 offset 불가 → local 표시용으로 두거나 엔티티를 `LocalDateTime`으로 승격 후 instant 처리(legacy, 우선순위 낮음).
+~~예외 1건: legacy `Review.writeDate`(`LocalDate`)~~ — **해소됨(2026-08-15).** v1 Review 엔티티가 레거시 청산으로 삭제되어 이 예외는 더 이상 없다. 후기 기능을 재구현할 때 작성 시각은 처음부터 `OffsetDateTime`(UTC)으로 둘 것.
 
 ## 2. 저장/직렬화 결정 (BE)
 
@@ -22,7 +22,7 @@
   - `application.yml`: `spring.jpa.properties.hibernate.jdbc.time_zone: UTC`
   - datasource URL: `serverTimezone=Asia/Seoul` → **`connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true`**
   - ★검증(빈 docker MySQL): `otpExpiresAt` API=`...Z`, raw DB=**UTC-wall**(KST 아님). 이 config 쌍이 조용한 9h 밀림을 막는 핵심.
-- **`setDefault(KST)`는 유지** — account/notification/availability 등 변환 대상 + **레거시(`domain/`,`repo/` lecture·reservation)의 잔여 `LocalDateTime.now()`** 보호. instant는 이제 `OffsetDateTime.now(UTC)`라 setDefault 무관하지만, 잔여 LocalDateTime이 남아 있어 제거는 별도 정리(후속).
+- **`setDefault(KST)`는 유지** — account/notification/availability 등 변환 대상 보호용. ⚠️ 원래 근거의 절반이던 **레거시(`domain/`,`repo/` lecture·reservation)의 잔여 `LocalDateTime.now()`** 는 v1 청산(2026-08-15)으로 사라졌다. 현재 유지 근거는 본인확인 쪽(`identityverification/CLAUDE.md`)과 남은 local 변환뿐이므로, 제거 가능 여부를 재평가할 수 있다(후속).
 - **직렬화**: `OffsetDateTime` → Jackson ISO-8601+offset(`...Z`) → FE `new Date()` 자동. (설정 무변경 — 기본값.)
 - **기존 데이터 주의**: 옛 config(serverTimezone=Asia/Seoul)로 쓰인 prod/dev 데이터는 KST-wall인데 새 config는 UTC로 읽음 → **배포 후 옛 row는 9h 밀려 보임.** pre-launch + 데모라 수용(또는 reseed). 정밀 마이그레이션은 과함.
 

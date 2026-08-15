@@ -21,7 +21,7 @@ flowchart TB
         PaySvc["PaymentService<br/>finalizeApproval"]
         RefundSvc["RefundService<br/>refundEnrollment · refundRoundFully"]
         CommunitySvc["CommunityCommentService"]
-        LegacySvc["(레거시) ReservationService<br/>— FE 계약에 없음"]
+        LegacySvc["(삭제됨) v1 ReservationService<br/>— 2026-08-15 제거, 발행처 없음"]
     end
 
     subgraph Inbox["notification 도메인 — 기록 측 (publisher 트랜잭션 안)"]
@@ -348,11 +348,13 @@ erDiagram
 
 | # | Type | 트리거 | 상태 |
 |---|---|---|---|
-| 10 | `RESERVATION_CREATED` | `ReservationService.saveReservation` | 발행처가 `/reservation` 레거시 도메인. **FE 계약(`types.ts`)에 없어 호출 경로가 없다** |
-| 11 | `RESERVATION_CANCELLED` | 예약 취소 흐름 | 동일 |
-| 12 | `LECTURE_NOTIFICATION` | 강사→강의 수강생 운영 메시지 | 동일 |
+| 10 | `RESERVATION_CREATED` | ~~`ReservationService.saveReservation`~~ | **발행처 삭제됨(2026-08-15)** — v1 `/reservation` 도메인이 제거되어 신규 발행이 불가능하다 |
+| 11 | `RESERVATION_CANCELLED` | ~~예약 취소 흐름~~ | 동일 |
+| 12 | `LECTURE_NOTIFICATION` | ~~강사→강의 수강생 운영 메시지~~ | 동일 |
 
-**enum 에서 지우지 않는다** — 과거 outbox/알림함 행이 `varchar` 로 그 이름을 들고 있어 역직렬화가 깨진다. 신규 코드에서 안 쓸 뿐이다.
+**enum 에서 지우지 않는다** — 과거 outbox/알림함 행이 `varchar` 로 그 이름을 들고 있어 역직렬화가 깨진다. 신규로는 생기지 않을 뿐이다.
+
+⚠️ `NotificationOutboxWriter` 의 대응 `@EventListener` 3개(`onReservationCreated`·`onReservationCancelled`·`onLectureNotification`)와 `event/` 의 이벤트 클래스도 남아 있지만 **프로덕션 발행처가 없다.** `NotificationOutboxFlowTest`·`NotificationCenterUseCaseTest` 가 이 경로를 계속 태우므로, 두 테스트가 초록이라는 사실이 "프로덕션 알림 파이프라인이 동작한다"의 증거는 **아니다** — 실동작 증거는 수강·결제·커뮤니티 이벤트 쪽 시나리오다. 리스너·이벤트 클래스 제거는 백로그.
 
 ### 발행 조건 · 멱등 근거 (읽지 않으면 중복/누락을 만든다)
 

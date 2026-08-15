@@ -7,7 +7,7 @@
 ## 무엇이 들어있나
 
 도메인 이벤트 → Outbox → FCM 전송 파이프라인 전부:
-- **이벤트**: `event/ReservationCreatedEvent`, `ReservationCancelledEvent`, `LectureNotificationEvent` — 도메인에서 `ApplicationEventPublisher` 로 발행
+- **이벤트**: `event/` 아래. ⚠️ `ReservationCreatedEvent`·`ReservationCancelledEvent`·`LectureNotificationEvent` **3종은 발행처가 없다** — 유일한 발행처였던 v1 `service/reservation/ReservationService`·`service/LectureService` 가 레거시 청산(2026-08-15)으로 삭제됐다. 클래스와 `NotificationOutboxWriter` 의 리스너, `NotificationType` enum 값은 남겼다(과거 `user_notification` 행이 그 type 문자열을 갖고 있어 enum 을 지우면 옛 알림 조회가 깨진다). 두 use-case 테스트가 이 경로를 계속 태우지만 **프로덕션에서는 발생하지 않는 경로**임에 유의. 나머지 이벤트(수강·결제·커뮤니티)는 각 도메인에서 `ApplicationEventPublisher` 로 발행된다.
 - **Outbox**: `NotificationOutboxWriter`(리스너, PENDING 행 기록), `NotificationOutbox` 엔티티, `NotificationStatus`(PENDING/FAILED/SENT/GAVE_UP), `NotificationType`
 - **워커**: **`NotificationDispatcher`** 가 `@Scheduled`(기본 3초, `@Profile("!test")`) 로 PENDING/FAILED 를 batch 50 픽업하고, **`NotificationDeliveryWorker`** 가 건별 `@Transactional(REQUIRES_NEW)` 로 전송·상태전이(exp backoff 10회 → GAVE_UP). ⚠️ **`@Scheduled` 는 워커가 아니라 디스패처에 있다.** `NotificationPayload` 는 payload DTO.
 - **FCM**: `fcm/FcmGateway`(인터페이스), `FirebaseFcmGateway`(실전송 + UNREGISTERED/INVALID/NOT_FOUND 시 토큰 행 삭제), `LoggingFcmGateway`(로컬/스텁). **둘은 `firebase.enabled` 프로퍼티로 상호배타 키잉**(true=Firebase, false/미설정=Logging) — `@ConditionalOnMissingBean`/`@ConditionalOnBean` 으로 바꾸지 말 것(↓ 결정 히스토리).

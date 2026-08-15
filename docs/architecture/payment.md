@@ -4,7 +4,7 @@
 
 수강신청(`enrollment` = `PENDING` 미결제)의 **결제**를 책임지는 도메인. **선결제**라 신청 직후가 결제 시점이다(전 회차 동일). **PG 중립**(포트-어댑터/Strategy) — FE 결제창이 결제하고 **승인은 서버가** 호출한다. 실제 PG 는 `PaymentGateway` 뒤에서 교체된다(토스/이니시스/stub). **토스↔이니시스는 `PAYMENT_MODE` 환경변수로 갈아끼우는 플러그식 스왑**이고, **신규 주문**은 전역 설정(`pungdong.payment.mode`)이 PG 를 고르지만 그 PG 를 **주문에 박제**(`PaymentOrder.provider`)해서 **기존 주문의 승인·환불은 결제 당시 PG 로** 간다(`PaymentGatewayRegistry`) — PG 를 갈아탄 뒤 과거 주문 환불이 엉뚱한 PG 로 나가 실패하는 것을 막는다. 핵심 invariant 세 개: **(1) 금액은 서버 권위값** — 클라이언트가 보낸 amount 를 신뢰하지 않고 주문에 박힌 금액과 대조하며, PG 에도 **주문에 박힌 금액**을 보내 결제창 결제액과 다르면 PG 가 거절, **(2) 결제 완료 = 전이** — 승인 성공만이 enrollment 를 다음 상태로 넘긴다(**전 회차** `PENDING→ACCEPT_PENDING`·강사 결정 대기), **(3) 롤백 안 되는 외부 부수효과는 시도부터 원장에** — 승인(`payment_approval`)·환불(`refund_order`)·콜백 수신(`payment_callback_log`) 모두 발행자 트랜잭션 밖(`REQUIRES_NEW`)에서 선기록하고, 10분 주기 대사 스윕이 결과 미확인·금액 드리프트를 ERROR 로 표면화한다(§4). 강사 거절·학생 취소·무응답 만료 시 enrollment 이벤트로 **전액 자동환불**(더 싼 슬롯으로 일정이 바뀌면 **차액만** 환불)(payment→enrollment 방향, [enrollment.md](enrollment.md) §3-2). 시크릿(토스 시크릿키 / 이니시스 hashKey·apiKey)은 BE 밖으로 안 나간다(juso 승인키 기조).
 
-> 레거시 `domain/payment/Payment`(옛 예약 플로우의 가격 산술 전용, PG 필드 없음)와 무관 — 새 `payment/` feature 패키지가 enrollment 옆에서 결제를 1급으로 소유.
+> 옛 예약 플로우의 `domain/payment/Payment`(가격 산술 전용, PG 필드 없음)와 무관했고, 그 클래스는 2026-08-15 레거시 청산으로 **삭제**됐다 — `payment/` feature 패키지가 enrollment 옆에서 결제를 1급으로 소유한다. (테이블 `payment` 는 V27 드롭 대상이나 row 가 있으면 보존.)
 
 ## 2. 컴포넌트 지도
 

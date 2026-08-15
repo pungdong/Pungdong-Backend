@@ -188,10 +188,10 @@ flowchart TB
 
 **핵심 관계**
 
-- **`account` = 중심 허브.** ~35개 파일이 creator/applicant 로 참조. 단, 의존은 단방향 — account 는 lecture/course 를 모름.
+- **`account` = 중심 허브.** 많은 파일이 instructor/applicant 로 참조. 단, 의존은 단방향 — account 는 course/enrollment 를 모름.
 - **강사 온보딩 게이트.** 강사가 되려면 `instructorapplication` (종목 + 본인확인 보유) 통과. 단 *심사 대기 중에도* draft 강의·커스텀 위치·프로필 준비는 허용 (게이트 = 승인이 아니라 "그 종목 신청 보유").
 - **예약의 교집합 모델.** 학생 선택지 = **강사 `availability` (coverage) ∩ `venue` 시간대 ∩ `course`**. 첫 신청이 (위치, 시간블록) session 을 만들고 같은 슬롯은 join.
-- **레거시 전환 중.** `lecture·reservation·schedule·review·equipment·location` 은 아직 옛 레이어드 패키지에 있고, 각각 `course·enrollment·availability·venue` 로 흡수되는 중.
+- **레거시 전환 완료 (2026-08-15).** `lecture·reservation·schedule·review·equipment·location` 의 v1 레이어드 패키지는 **삭제**됐고, 기능은 `course·enrollment·availability·venue·payment` 로 흡수됐다(후기만 미재구현 — 백로그). 테이블도 V27 에서 드롭.
 
 ---
 
@@ -247,7 +247,7 @@ sequenceDiagram
 ```mermaid
 flowchart LR
     subgraph Tx["비즈니스 트랜잭션 (동기·같은 트랜잭션)"]
-        Biz["ReservationService /<br/>CourseService"]
+        Biz["EnrollmentService / PaymentService /<br/>CourseService / CommunityCommentService"]
         Writer["OutboxWriter<br/>@EventListener<br/>@Transactional(MANDATORY)"]
         Biz -->|publishEvent| Writer
     end

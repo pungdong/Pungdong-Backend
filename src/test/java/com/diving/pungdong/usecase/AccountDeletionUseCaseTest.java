@@ -67,7 +67,8 @@ class AccountDeletionUseCaseTest {
     @Autowired FirebaseTokenJpaRepo firebaseTokenJpaRepo;
     @Autowired AccountAnonymizationService anonymizationService;
 
-    // 진짜 외부 경계만 모킹 — 탈퇴 시 강의 일괄 close, 익명화 시 S3 삭제.
+    // 진짜 외부 경계만 모킹 — 익명화 시 S3 삭제.
+    // (v1 청산 전에는 탈퇴가 LectureService.closeAllLecture 도 불렀으나, 그 경로는 제거됐다.)
     @MockBean S3Uploader s3Uploader;
     /** 자격증 이미지 저장소 — 익명화가 여기까지 파기를 전파하는지 검증하려고 경계를 잡는다. */
     @MockBean CertificateImageStorage certificateImageStorage;
