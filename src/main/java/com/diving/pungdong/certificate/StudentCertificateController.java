@@ -62,7 +62,10 @@ public class StudentCertificateController {
         return ResponseEntity.ok().body(model);
     }
 
-    /** 등록. 사진은 {@code POST /certificates/photos} 로 먼저 올리고 {@code photoFileKey} 로 참조한다. */
+    /**
+     * 등록. 사진은 <b>필수</b>다 — {@code POST /certificates/photos} 로 먼저 올리고
+     * {@code photoFileKey} 로 참조한다("사진이 진실": 실제 확인은 수영장 입장 때 사진 제시로 이뤄진다).
+     */
     @PostMapping
     public ResponseEntity<?> register(@CurrentUser Account account,
                                       @Valid @RequestBody StudentCertificateCreateRequest request,
@@ -80,7 +83,8 @@ public class StudentCertificateController {
      * 수정 — 본인 소유만, <b>전면 교체</b>. 없거나 남의 것이면 404(존재 숨김, 등록 외 다른 경로와 동일).
      *
      * <p>사진은 {@code photoFileKey} 를 <b>비워 보내면 기존 것을 유지</b>하고, 새 key 를 보내면 교체하며
-     * 옛 객체를 파기한다. {@code enrollmentId} 를 빼면 강의 연결이 해제된다({@code source=EXTERNAL}).
+     * 옛 객체를 파기한다. 단 <b>기존 사진도 없으면 400</b>(사진은 필수 — 사진 없이 등록된 옛 행은 수정
+     * 시 붙여야 한다). {@code enrollmentId} 를 빼면 강의 연결이 해제된다({@code source=EXTERNAL}).
      */
     @PutMapping("/{id}")
     public ResponseEntity<?> update(@CurrentUser Account account, @PathVariable Long id,

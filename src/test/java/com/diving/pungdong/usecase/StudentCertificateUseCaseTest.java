@@ -52,6 +52,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p><b>읽는 법</b>: {@code @DisplayName} 을 위에서 아래로 = 사양.
  * S* 성공 / V* 검증거절 / R* 권한 / A* 탈퇴 파기.
  *
+ * <p>사진은 <b>필수</b>라(2026-08-16) {@code register} 헬퍼가 payload 에 {@code photoFileKey} 가 없으면
+ * 실제 업로드를 태워 붙인다 — 사진이 주제가 아닌 시나리오의 잡음을 줄인다. 사진 유무 자체를 검증하는
+ * 시나리오(V11·V12·V13)는 헬퍼를 우회해 직접 {@code perform} 한다.
+ *
  * <p>실 H2 + 실 시큐리티 체인 + <b>실제 로컬 스토리지</b>(S3 미접속, mock 아님 — test 프로파일은
  * {@code pungdong.storage.s3.enabled} 미설정이라 local stub 이 활성). 수강 픽스처는 예약 HTTP 플로우
  * (venue·coverage·본인확인)를 태우지 않고 repo 로 직접 만든다 — 검증 대상이 자격증이지 예약이 아니다.
@@ -138,11 +142,37 @@ class StudentCertificateUseCaseTest {
         }
     }
 
+    /**
+     * 등록. <b>사진이 필수</b>라, payload 에 {@code photoFileKey} 가 없으면 실제 업로드를 태워 붙인다 —
+     * 사진 자체가 주제가 아닌 시나리오(정렬·스냅샷·권한 등)에서 픽스처 잡음을 줄이려는 것이다.
+     * 사진 유무를 검증하는 시나리오는 이 헬퍼를 쓰지 않고 직접 {@code perform} 한다.
+     */
     private String register(Account who, Map<String, Object> payload) throws Exception {
+        Map<String, Object> body = new HashMap<>(payload); // 호출자 맵을 건드리지 않는다
+        if (!body.containsKey("photoFileKey")) {
+            body.put("photoFileKey", uploadPhoto(who, "fixture.jpg"));
+        }
         return mockMvc.perform(post("/certificates").header(HttpHeaders.AUTHORIZATION, token(who))
-                        .contentType(MediaType.APPLICATION_JSON).content(write(payload)))
+                        .contentType(MediaType.APPLICATION_JSON).content(write(body)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
+    }
+
+    /**
+     * 사진 없이 저장된 <b>옛 행</b> — 사진이 필수가 되기 전 데이터. API 로는 더 이상 만들 수 없어
+     * repo 로 직접 넣는다(검증 대상이 등록이 아니라 그 행의 수정 동작이다).
+     */
+    private StudentCertificate legacyCertificateWithoutPhoto(Account owner) {
+        return certificateRepo.save(StudentCertificate.builder()
+                .owner(owner)
+                .disciplineCode("FREEDIVING")
+                .organizationCode("AIDA")
+                .level(CertLevel.LEVEL_2)
+                .certificateNumber("LEGACY-NO-PHOTO")
+                .acquiredAt(LocalDate.of(2023, 5, 20))
+                .source(CertificateSource.EXTERNAL)
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC))
+                .build());
     }
 
     /** 수정(PUT) — 전면 교체. 사진은 payload 에 photoFileKey 가 없으면 기존 것이 유지된다. */
@@ -324,8 +354,10 @@ class StudentCertificateUseCaseTest {
         // (2) 같은 필드를 명시적 null 로
         Map<String, Object> explicitNull = new HashMap<>(omitted);
         explicitNull.put("certificateNumber", "NULLED");
+        // photoFileKey 는 이제 필수라 이 목록에 없다 — 명시적 null 은 400 이 정상이다(V11).
+        explicitNull.put("photoFileKey", uploadPhoto(student, "card.jpg"));
         for (String k : List.of("organizationName", "organizationFullName",
-                "certificationDisplayName", "issuer", "photoFileKey", "enrollmentId")) {
+                "certificationDisplayName", "issuer", "enrollmentId")) {
             explicitNull.put(k, null);
         }
         register(student, explicitNull);
@@ -480,6 +512,22 @@ class StudentCertificateUseCaseTest {
         assertThat(saved.getInstructorName()).isNull();
     }
 
+    @Test
+    @DisplayName("S15: 사진 없이 등록됐던 옛 행도 사진을 붙여 수정하면 200 — 막다른 길이 되지 않는다")
+    void update_legacyRowWithNewPhotoSucceeds() throws Exception {
+        Account student = account("c-s15@test.com", "diverS15", Role.STUDENT);
+        StudentCertificate legacy = legacyCertificateWithoutPhoto(student);
+        String newKey = uploadPhoto(student, "attached.jpg");
+
+        Map<String, Object> edited = body("FREEDIVING", "AIDA", "LEVEL_2", "NOW-WITH-PHOTO", "2024-11-02");
+        edited.put("photoFileKey", newKey);
+        update(student, legacy.getId(), edited);
+
+        StudentCertificate saved = certificateRepo.findById(legacy.getId()).orElseThrow();
+        assertThat(saved.getPhotoFileKey()).isEqualTo(newKey);
+        assertThat(saved.getCertificateNumber()).isEqualTo("NOW-WITH-PHOTO");
+    }
+
     /* ════════════════ V — 검증 거절 ════════════════ */
 
     @Test
@@ -488,6 +536,7 @@ class StudentCertificateUseCaseTest {
         Account student = account("c-v1@test.com", "diverV1", Role.STUDENT);
         Map<String, Object> payload = body("FREEDIVING", "AIDA", "LEVEL_2", "FUTURE",
                 LocalDate.now().plusDays(1).toString());
+        payload.put("photoFileKey", uploadPhoto(student, "card.jpg")); // 사진은 필수 — 여기서 걸리면 안 된다
 
         mockMvc.perform(post("/certificates").header(HttpHeaders.AUTHORIZATION, token(student))
                         .contentType(MediaType.APPLICATION_JSON).content(write(payload)))
@@ -501,10 +550,11 @@ class StudentCertificateUseCaseTest {
     @DisplayName("V2: 카탈로그에 없는 종목 코드로 등록하면 400")
     void register_rejectsUnknownDiscipline() throws Exception {
         Account student = account("c-v2@test.com", "diverV2", Role.STUDENT);
+        Map<String, Object> payload = body("NOT_A_SPORT", "AIDA", "LEVEL_2", "X", "2024-11-02");
+        payload.put("photoFileKey", uploadPhoto(student, "card.jpg")); // 종목에서 걸려야지 사진에서 걸리면 안 된다
 
         mockMvc.perform(post("/certificates").header(HttpHeaders.AUTHORIZATION, token(student))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(write(body("NOT_A_SPORT", "AIDA", "LEVEL_2", "X", "2024-11-02"))))
+                        .contentType(MediaType.APPLICATION_JSON).content(write(payload)))
                 .andExpect(status().isBadRequest());
 
         assertThat(certificateRepo.findAll()).isEmpty();
@@ -520,6 +570,7 @@ class StudentCertificateUseCaseTest {
 
         Map<String, Object> payload = body("FREEDIVING", "AIDA", "LEVEL_2", "X", "2024-11-02");
         payload.put("enrollmentId", e.getId());
+        payload.put("photoFileKey", uploadPhoto(student, "card.jpg"));
 
         mockMvc.perform(post("/certificates").header(HttpHeaders.AUTHORIZATION, token(student))
                         .contentType(MediaType.APPLICATION_JSON).content(write(payload)))
@@ -537,6 +588,7 @@ class StudentCertificateUseCaseTest {
 
         Map<String, Object> payload = body("SCUBA", "PADI", "LEVEL_1", "X", "2024-11-02"); // 강의는 프리다이빙
         payload.put("enrollmentId", e.getId());
+        payload.put("photoFileKey", uploadPhoto(student, "card.jpg"));
 
         mockMvc.perform(post("/certificates").header(HttpHeaders.AUTHORIZATION, token(student))
                         .contentType(MediaType.APPLICATION_JSON).content(write(payload)))
@@ -656,6 +708,62 @@ class StudentCertificateUseCaseTest {
                 .andExpect(jsonPath("$.msg").value("강의의 종목과 자격증의 종목이 달라요."));
     }
 
+    @Test
+    @DisplayName("V11: 사진 없이 등록하면 400 — 사진은 필수다 (\"사진이 진실\": 수영장 입장 시 제시하는 게 사진이다)")
+    void register_rejectsMissingPhoto() throws Exception {
+        Account student = account("c-v11@test.com", "diverV11", Role.STUDENT);
+
+        // 생략도, 명시적 null 도, 빈 문자열도 전부 같은 이유로 거절된다.
+        Map<String, Object> omitted = body("FREEDIVING", "AIDA", "LEVEL_2", "NO-PHOTO", "2024-11-02");
+        Map<String, Object> explicitNull = body("FREEDIVING", "AIDA", "LEVEL_2", "NO-PHOTO", "2024-11-02");
+        explicitNull.put("photoFileKey", null);
+        Map<String, Object> blank = body("FREEDIVING", "AIDA", "LEVEL_2", "NO-PHOTO", "2024-11-02");
+        blank.put("photoFileKey", "   ");
+
+        for (Map<String, Object> payload : List.of(omitted, explicitNull, blank)) {
+            mockMvc.perform(post("/certificates").header(HttpHeaders.AUTHORIZATION, token(student))
+                            .contentType(MediaType.APPLICATION_JSON).content(write(payload)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.msg").value("자격증 사진을 추가해주세요."));
+        }
+
+        assertThat(certificateRepo.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("V12: 사진 없이 등록됐던 옛 행을 새 사진 없이 수정하면 400 — 결과가 사진 없는 자격증이면 안 된다")
+    void update_rejectsWhenResultWouldHaveNoPhoto() throws Exception {
+        Account student = account("c-v12@test.com", "diverV12", Role.STUDENT);
+        StudentCertificate legacy = legacyCertificateWithoutPhoto(student);
+
+        // photoFileKey 를 안 보내는 건 "유지"인데, 유지할 사진이 없다.
+        mockMvc.perform(put("/certificates/" + legacy.getId()).header(HttpHeaders.AUTHORIZATION, token(student))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(write(body("FREEDIVING", "AIDA", "LEVEL_2", "STILL-NO-PHOTO", "2024-11-02"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("자격증 사진을 추가해주세요."));
+
+        // 거절됐으면 스칼라 변경도 남으면 안 된다
+        assertThat(certificateRepo.findById(legacy.getId()).orElseThrow().getCertificateNumber())
+                .isEqualTo("LEGACY-NO-PHOTO");
+    }
+
+    @Test
+    @DisplayName("V13: 사진 없는 옛 행도 조회·삭제는 그대로 된다 — DB 제약을 안 걸었기에 읽다가 막히지 않는다")
+    void legacyRowWithoutPhotoStaysReadableAndDeletable() throws Exception {
+        Account student = account("c-v13@test.com", "diverV13", Role.STUDENT);
+        StudentCertificate legacy = legacyCertificateWithoutPhoto(student);
+
+        mockMvc.perform(get("/certificates/" + legacy.getId()).header(HttpHeaders.AUTHORIZATION, token(student)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.photoViewUrl").isEmpty()); // 사진 없으면 null (생략이 아니라 명시적 null)
+
+        mockMvc.perform(delete("/certificates/" + legacy.getId()).header(HttpHeaders.AUTHORIZATION, token(student)))
+                .andExpect(status().isNoContent());
+
+        assertThat(certificateRepo.findAll()).isEmpty();
+    }
+
     /* ════════════════ R — 권한 ════════════════ */
 
     @Test
@@ -699,6 +807,7 @@ class StudentCertificateUseCaseTest {
 
         Map<String, Object> payload = body("FREEDIVING", "AIDA", "LEVEL_2", "X", "2024-11-02");
         payload.put("enrollmentId", e.getId());
+        payload.put("photoFileKey", uploadPhoto(stranger, "card.jpg"));
 
         mockMvc.perform(post("/certificates").header(HttpHeaders.AUTHORIZATION, token(stranger))
                         .contentType(MediaType.APPLICATION_JSON).content(write(payload)))

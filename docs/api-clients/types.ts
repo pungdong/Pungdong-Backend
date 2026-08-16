@@ -2445,7 +2445,7 @@ export interface ManualRefundResult {
 //   이쪽은 본인이 보유를 기록하는 자산. 경로도 /certificates/** 로 갈린다.
 // ★ role 게이트 없음 — 강사도 개인 자격으로 보유한다.
 //
-// 흐름: (선택) 사진 업로드 → fileKey 받기 → 등록 JSON 에 photoFileKey 로 참조.
+// 흐름: 사진 업로드 → fileKey 받기 → 등록 JSON 에 photoFileKey 로 참조. **사진은 필수**(2026-08-16).
 //
 // ⚠️ 표시명(organizationName·organizationFullName·certificationDisplayName)은 **등록 시점 Sanity
 //    스냅샷**이다. 자격증은 불변 credential 이라 카탈로그가 나중에 이름을 바꿔도 그대로 남는다
@@ -2485,10 +2485,18 @@ export interface StudentCertificateCreateRequest {
   acquiredAt: string;
   /** (선택) 외부 발급 기관. 최대 100자. */
   issuer?: string;
-  /** (선택) 업로드 응답의 fileKey 를 그대로. ★ **본인이 올린 것**이어야 한다 — 남의 key 는 400. */
-  photoFileKey?: string;
   /**
-   * (선택) 연결할 수강 id — 출처는 GET /enrollments/mine/schedule 의 `courses[].enrollmentId`
+   * **필수** (2026-08-16 선택 → 필수로 뒤집음). 업로드 응답의 fileKey 를 그대로.
+   * 생략/null/공백 → 400 "자격증 사진을 추가해주세요."
+   * ★ **본인이 올린 것**이어야 한다 — 남의 key 는 400 "사진을 다시 업로드해주세요."
+   *
+   * 왜 필수인가: 표시명·번호는 자기 신고라 BE 가 대조하지 않고, 실제 확인은 **수영장 입장 때 사진을
+   * 제시**해서 이뤄진다("사진이 진실"). 사진 없는 자격증은 그 확인을 통과하지 못한다.
+   */
+  photoFileKey: string;
+  /**
+   * (선택 — 사진과 달리 **강의 연결만 선택으로 남았다**) 연결할 수강 id.
+   * 출처는 GET /enrollments/mine/schedule 의 `courses[].enrollmentId`
    * (**`certifiable === true`** 인 것만 — `status` 가 아니다, 위 ScheduleCourse.certifiable 주석 참고).
    * 보내면 source=PUNGDONG 이 되고 강사·강의가 서버에서 박제된다.
    * ★ 소유·완료·종목 정합을 BE 가 검증한다: 남의 수강 = 404, 미완료 = 400, 종목 불일치 = 400.
@@ -2529,7 +2537,11 @@ export interface StudentCertificate extends HalLinks {
   courseCompletedAt: string | null;
   /** 발급 강사 닉네임 스냅샷. 이니셜은 FE 파생. */
   instructorName: string | null;
-  /** 표시용 **한시** URL(presigned, TTL 3분). 저장값이 아니라 조회 시점 발급. 사진 없으면 null. */
+  /**
+   * 표시용 **한시** URL(presigned, TTL 3분). 저장값이 아니라 조회 시점 발급.
+   * 사진 없으면 null — 신규 등록분은 사진이 필수라 항상 있지만, **필수가 되기 전 옛 행은 null 일 수
+   * 있다**(DB 제약을 걸지 않아 읽기·삭제는 계속 된다). 렌더 시 null 가드는 유지할 것.
+   */
   photoViewUrl: string | null;
   /** instant (offset 포함). */
   createdAt: string;
@@ -2546,6 +2558,10 @@ export interface StudentCertificate extends HalLinks {
  *                   다르면 옛 객체는 서버가 파기). 사진은 별도 업로드 왕복이라 번호 오타 하나 고치려고
  *                   카드를 다시 찍게 만들지 않으려는 것 — ★ 애초에 기존 key 를 되돌려 보낼 수도 없다.
  *                   조회 응답에 오는 건 만료되는 photoViewUrl 이지 key 가 아니다.
+ *                   ★ 사진은 필수지만 **여기엔 required 를 걸 수 없다**(빈 값이 "유지"라는 정상 입력).
+ *                   대신 **결과가 사진 없는 자격증이면 400** "자격증 사진을 추가해주세요." —
+ *                   즉 `photoFileKey` 생략 + 기존 사진도 없음 = 400. 실제로 걸리는 건 사진이 필수가
+ *                   되기 전에 등록된 **옛 행**뿐이고, 그 행은 수정할 때 사진을 붙여야 한다.
  *                   ⚠️ 사진 **제거는 불가**(화면에도 제거 버튼이 없다). 빈 문자열을 제거로 쓰지 말 것 —
  *                   서버는 생략과 구분하지 않고 "유지"로 읽는다.
  *  - enrollmentId : 생략 = **연결 해제**. source 가 EXTERNAL 로 돌아가고 courseId·courseTitle·
@@ -2572,7 +2588,11 @@ export interface StudentCertificateUpdateRequest {
   acquiredAt: string;
   /** (선택) 외부 발급 기관. 최대 100자. **안 보내면 지워진다**(전면 교체). */
   issuer?: string;
-  /** (선택) **새** 사진의 fileKey. 비우면 기존 사진 유지. ★ 본인이 올린 것이어야 한다 — 남의 key 는 400. */
+  /**
+   * (선택) **새** 사진의 fileKey. 비우면 기존 사진 유지.
+   * ★ 본인이 올린 것이어야 한다 — 남의 key 는 400.
+   * ★ 단 **기존 사진도 없으면 400** "자격증 사진을 추가해주세요."(사진 없이 등록된 옛 행).
+   */
   photoFileKey?: string;
   /** (선택) 연결할 수강 id. **빼면 연결이 해제된다.** */
   enrollmentId?: number;
