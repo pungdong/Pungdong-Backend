@@ -116,16 +116,31 @@ public class ChatRoomService {
      * 파생되며, 이 경로가 있어야 옛 푸시를 눌러도 대화가 열린다.
      */
     ChatRoom requireAccessibleRoom(Account viewer, Long roomId) {
+        return requireAccessibleRoom(viewer, roomId, true);
+    }
+
+    /**
+     * @param sync 참여자 행을 enrollment 현재 상태로 맞출지. {@code false} 면 접근 판정만 한다 —
+     *             접근 자격은 어차피 enrollment 를 <b>라이브로</b> 보고 정하므로(아래 {@code isEligible})
+     *             건너뛰어도 권한이 느슨해지지 않는다. 폴링({@code ?after=})처럼 초 단위로 반복되는
+     *             읽기에서 매번 참여자 테이블을 훑지 않으려는 것이다. 합류/이탈 반영은 방 열기·전송이 맡는다.
+     */
+    ChatRoom requireAccessibleRoom(Account viewer, Long roomId, boolean sync) {
         Optional<AvailabilitySession> session = sessionRepo.findById(roomId);
         if (session.isEmpty()) {
             ChatRoom room = roomRepo.findById(roomId).orElseThrow(ResourceNotFoundException::new);
             requireActiveParticipant(room.getId(), viewer.getId());
             return room;
         }
-        return openForLiveSession(viewer, session.get());
+        return openForLiveSession(viewer, session.get(), sync);
     }
 
-    private ChatRoom openForLiveSession(Account viewer, AvailabilitySession session) {
+    private ChatRoom openForLiveSession(Account viewer, AvailabilitySession session, boolean sync) {
+        // 방을 만들려면 스냅샷 필수값(강사·날짜·종료시각)이 있어야 한다. 없는 일정은 채팅 대상이 아니다 —
+        // 그냥 두면 NOT NULL 컬럼에 null 을 써서 500(DataIntegrityViolation)이 난다.
+        if (!isChatEligible(session)) {
+            throw new ResourceNotFoundException();
+        }
         List<EnrollmentRound> paid = roundRepo.findByAvailabilitySessionIdAndStatusIn(
                 session.getId(), EnrollmentStatus.OCCUPYING);
         // 결제자가 0 이면 방이 아직 "생기지 않은" 상태다 — 디자인의 "결제 전 = 미생성".
@@ -133,8 +148,25 @@ public class ChatRoomService {
             throw new ResourceNotFoundException();
         }
         ChatRoom room = ensureRoom(session, paid);
-        reconcileParticipants(room, session, paid);
+        if (sync) {
+            reconcileParticipants(room, session, paid);
+        }
         return room;
+    }
+
+    /**
+     * 방을 만들 수 있는 일정인가 — 강사·날짜·종료시각이 모두 있어야 한다.
+     *
+     * <p>{@code chat_room.instructor_id}/{@code closes_at} 는 NOT NULL 인데 {@code AvailabilitySession}
+     * 쪽 컬럼은 nullable 이다. 현재 생성 경로(`SessionCreateRequest` 가 날짜·시간을 @NotNull 로 강제)에서는
+     * 어긋날 일이 없지만, 그 전제가 바뀌면 첫 방 생성이 500 으로 터진다. 여기서 걸러 "채팅 없는 일정"
+     * (= HIDDEN)으로 흘려보낸다.
+     */
+    static boolean isChatEligible(AvailabilitySession session) {
+        return session != null
+                && session.getInstructor() != null
+                && session.getDate() != null
+                && session.getEndTime() != null;
     }
 
     /** 강사(슬롯 소유자)이거나, 그 세션에 결제완료 회차를 가진 수강생이면 참여 자격이 있다. */

@@ -70,7 +70,9 @@ public class ChatQueryService {
         for (Long id : ids) {
             AvailabilitySession session = sessions.get(id);
             List<EnrollmentRound> paid = paidBySession.getOrDefault(id, List.of());
-            if (session == null || paid.isEmpty()) {
+            // 방을 만들 수 없는 일정(강사·날짜·종료시각 결측)은 카드에서도 HIDDEN 이어야 한다 —
+            // ACTIVE 로 보여주면 눌렀을 때 -1009 가 나는 죽은 버튼이 된다.
+            if (session == null || paid.isEmpty() || !ChatRoomService.isChatEligible(session)) {
                 continue;
             }
             boolean isInstructor = session.getInstructor() != null

@@ -72,7 +72,8 @@ public class ChatMessageService {
         if (before != null && after != null) {
             throw new BadRequestException("before 와 after 는 함께 쓸 수 없어요.");
         }
-        ChatRoom room = roomService.requireAccessibleRoom(viewer, roomId);
+        // 폴링이 초 단위로 도는 경로라 참여자 동기화는 건너뛴다(접근 판정은 그대로 라이브다).
+        ChatRoom room = roomService.requireAccessibleRoom(viewer, roomId, false);
         int limit = normalizeSize(size);
         Pageable page = PageRequest.of(0, limit);
 
@@ -128,17 +129,19 @@ public class ChatMessageService {
     @Transactional
     public Sent send(Account sender, Long roomId, ChatSendRequest request) {
         ChatRoom room = roomService.requireAccessibleRoom(sender, roomId);
-        boolean sessionAlive = sessionRepo.existsById(room.getId());
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-        if (ChatRoomService.stateOf(room, sessionAlive, now) == ChatRoomState.CLOSED) {
-            throw new BadRequestException("종료된 회차 채팅방에는 메시지를 보낼 수 없어요.");
-        }
 
-        // 재전송이 먼저다 — 레이트리밋보다 앞에 둬야 "이미 저장된 걸 다시 확인하는 요청" 이 429 로 막히지 않는다.
+        // 재전송이 가장 먼저다 — 이미 저장된 걸 다시 확인하는 요청이라 레이트리밋에도, 마감에도 막히면 안 된다.
+        // (마감 직전에 보낸 메시지의 재시도가 마감 직후에 도착하면 400 이 아니라 원래 결과를 돌려줘야 한다.)
         Optional<ChatMessage> duplicate =
                 messageRepo.findBySenderAccountIdAndClientMessageId(sender.getId(), request.getClientMessageId());
         if (duplicate.isPresent()) {
             return new Sent(toResponse(room.getId(), duplicate.get(), sender.getId()), false);
+        }
+
+        boolean sessionAlive = sessionRepo.existsById(room.getId());
+        if (ChatRoomService.stateOf(room, sessionAlive, now) == ChatRoomState.CLOSED) {
+            throw new BadRequestException("종료된 회차 채팅방에는 메시지를 보낼 수 없어요.");
         }
 
         requireUnderRateLimit(sender.getId(), now);
@@ -224,7 +227,7 @@ public class ChatMessageService {
     /** 멱등 — 전진만 한다. 폴링과 경합해도 되감기지 않는다. */
     @Transactional
     public void markRead(Account viewer, Long roomId, Long lastReadMessageId) {
-        ChatRoom room = roomService.requireAccessibleRoom(viewer, roomId);
+        ChatRoom room = roomService.requireAccessibleRoom(viewer, roomId, false);
         ChatReadState state = readStateRepo.findByRoomIdAndAccountId(room.getId(), viewer.getId())
                 .orElseGet(() -> ChatReadState.builder()
                         .roomId(room.getId()).accountId(viewer.getId()).lastReadMessageId(0L).build());

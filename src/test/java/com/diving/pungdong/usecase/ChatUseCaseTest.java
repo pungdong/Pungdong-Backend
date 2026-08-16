@@ -346,6 +346,37 @@ class ChatUseCaseTest {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    @DisplayName("I3 연타로 레이트리밋을 넘기면 429 + code -1023 + retryAfterSeconds 를 준다(2xx 로 삼키지 않는다)")
+    void rateLimited() throws Exception {
+        Account instructor = account("ins@pd.com", "김민지");
+        Account student = account("stu@pd.com", "김수민");
+        AvailabilitySession s = session(instructor, LocalTime.of(14, 0), LocalTime.of(17, 0));
+        enroll(student, course(instructor, "AIDA2"), s, EnrollmentStatus.CONFIRMED);
+        mockMvc.perform(get("/chat/rooms/" + s.getId()).header(HttpHeaders.AUTHORIZATION, token(student)));
+
+        // 창(10초) 안에서 허용치(10건)까지는 통과한다.
+        for (int i = 1; i <= 10; i++) {
+            mockMvc.perform(post("/chat/rooms/" + s.getId() + "/messages")
+                            .header(HttpHeaders.AUTHORIZATION, token(student))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(Map.of("text", "연타 " + i, "clientMessageId", "burst-" + i))))
+                    .andExpect(status().isCreated());
+        }
+
+        // 11번째는 막힌다. 저장되지 않았으므로 2xx 를 주면 FE 가 성공으로 오해한다.
+        mockMvc.perform(post("/chat/rooms/" + s.getId() + "/messages")
+                        .header(HttpHeaders.AUTHORIZATION, token(student))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("text", "한 번 더", "clientMessageId", "burst-11"))))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value(-1023))
+                .andExpect(jsonPath("$.retryAfterSeconds").isNumber());
+
+        assertThat(messageRepo.findAll().stream()
+                .filter(m -> m.getKind() == ChatMessageKind.USER).count()).isEqualTo(10);
+    }
+
     /* ─── C* 커서 페이지네이션 ─────────────────────────────── */
 
     @Test

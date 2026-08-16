@@ -1,8 +1,6 @@
 package com.diving.pungdong.chat;
 
 import lombok.*;
-import org.hibernate.annotations.OnDelete;
-import org.hibernate.annotations.OnDeleteAction;
 
 import javax.persistence.*;
 import java.time.OffsetDateTime;
@@ -38,8 +36,8 @@ public class ChatMessage {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** CASCADE 삭제는 V28 의 raw FK 가 한다 — 스칼라 컬럼이라 @OnDelete 는 아무 효과가 없어 달지 않는다. */
     @Column(name = "room_id", nullable = false)
-    @OnDelete(action = OnDeleteAction.CASCADE)
     private Long roomId;
 
     /** SYSTEM 이면 null. FK 없음(account 강결합 회피). */
