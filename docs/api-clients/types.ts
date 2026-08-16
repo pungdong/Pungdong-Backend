@@ -2784,13 +2784,21 @@ export interface ChatRoomResponse {
    *   (로컬 감산 누적 금지).
    */
   closesInSeconds: number | null;
+  /**
+   * 강의명. 서로 다른 강의의 수강생이 같은 일정에 모일 수 있어(일정 = 물리적 강사·시간·위치 슬롯)
+   * **가장 먼저 합류한 회차의 강의명**을 쓴다. 강의 정보가 끊긴 회차뿐인 예외적 경우에만 null.
+   */
   courseTitle: string | null;
+  /**
+   * 회차 번호. **추가세션(EXTRA)은 정규 번호가 없어 null 이다** — 실제로 자주 나오는 값이니
+   * 헤더를 "{courseTitle} {roundIndex}회차" 로 조립할 때 반드시 분기할 것.
+   */
   roundIndex: number | null;
   /** civil(오프셋 없음) — new Date() 로 만지지 말 것. "2026-12-10" */
-  date: string | null;
+  date: string;
   /** civil, "HH:mm:ss" (기존 AvailabilitySessionResponse.startTime 과 같은 포맷) */
-  startTime: string | null;
-  endTime: string | null;
+  startTime: string;
+  endTime: string;
   venueName: string | null;
   /** 현재 참여자만(이탈자 제외) — 헤더 "참여자 3명". */
   participantCount: number;

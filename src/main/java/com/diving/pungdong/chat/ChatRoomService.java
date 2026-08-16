@@ -166,6 +166,7 @@ public class ChatRoomService {
         return session != null
                 && session.getInstructor() != null
                 && session.getDate() != null
+                && session.getStartTime() != null
                 && session.getEndTime() != null;
     }
 
@@ -216,13 +217,33 @@ public class ChatRoomService {
             room.setInstructorId(session.getInstructor().getId());
         }
         room.setVenueName(resolveVenueName(session.getVenueRefId()));
-        paid.stream().findFirst().ifPresent(r -> {
+        headerSource(paid).ifPresent(r -> {
             Enrollment enrollment = r.getEnrollment();
             if (enrollment != null && enrollment.getCourse() != null) {
                 room.setCourseTitle(enrollment.getCourse().getTitle());
             }
             room.setRoundIndex(r.getRoundIndex());
         });
+    }
+
+    /**
+     * 헤더("AIDA2 2회차")를 어느 회차에서 뽑을지 — <b>가장 먼저 합류한 회차</b>(round id 최소).
+     *
+     * <p>일정은 물리적 (강사, 시간, 위치) 슬롯이라 <b>서로 다른 강의의 수강생이 같은 방에 있을 수 있다.</b>
+     * 그때 헤더는 어느 한 강의를 고를 수밖에 없는데, 정렬 없이 {@code findFirst} 로 뽑으면 조회할 때마다
+     * <b>제목이 바뀔 수 있다</b>(레포 쿼리에 ORDER BY 가 없어 순서가 비보장이고, 스냅샷은 방을 열 때마다
+     * 다시 쓰인다). id 최소로 고정해 최소한 흔들리지는 않게 한다.
+     *
+     * <p>강의명이 없는 회차(enrollment/course 체인 결측)는 건너뛴다 — 헤더가 빈칸이 되지 않게.
+     */
+    private static Optional<EnrollmentRound> headerSource(List<EnrollmentRound> paid) {
+        Comparator<EnrollmentRound> byId = Comparator.comparing(
+                EnrollmentRound::getId, Comparator.nullsLast(Comparator.naturalOrder()));
+        return paid.stream()
+                .filter(r -> r.getEnrollment() != null && r.getEnrollment().getCourse() != null
+                        && r.getEnrollment().getCourse().getTitle() != null)
+                .min(byId)
+                .or(() -> paid.stream().min(byId));
     }
 
     private String resolveVenueName(String venueRefId) {

@@ -265,6 +265,26 @@ class ChatUseCaseTest {
                 .andExpect(jsonPath("$.participantCount").value(2));
     }
 
+    @Test
+    @DisplayName("S6 서로 다른 강의의 수강생이 한 일정에 모여도 헤더는 흔들리지 않는다(먼저 합류한 회차 기준)")
+    void headerIsStableAcrossCourses() throws Exception {
+        Account instructor = account("ins@pd.com", "김민지");
+        Account first = account("a@pd.com", "먼저");
+        Account second = account("b@pd.com", "나중");
+        AvailabilitySession s = session(instructor, LocalTime.of(14, 0), LocalTime.of(17, 0));
+        // 일정은 물리적 (강사,시간,위치) 슬롯이라 다른 강의 수강생이 같은 방에 들어올 수 있다.
+        enroll(first, course(instructor, "AIDA2 프리다이빙 과정"), s, EnrollmentStatus.CONFIRMED);
+        enroll(second, course(instructor, "PADI 프리다이버 과정"), s, EnrollmentStatus.CONFIRMED);
+
+        // 누가 열든, 몇 번을 열든 같은 제목이어야 한다 — 정렬 없이 findFirst 로 뽑으면 여기서 흔들린다.
+        for (Account viewer : List.of(first, second, instructor)) {
+            mockMvc.perform(get("/chat/rooms/" + s.getId()).header(HttpHeaders.AUTHORIZATION, token(viewer)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.courseTitle").value("AIDA2 프리다이빙 과정"))
+                    .andExpect(jsonPath("$.participantCount").value(3));
+        }
+    }
+
     /* ─── R* 권한 ──────────────────────────────────────────── */
 
     @Test
