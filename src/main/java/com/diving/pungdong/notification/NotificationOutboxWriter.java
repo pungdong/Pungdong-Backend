@@ -3,6 +3,7 @@ package com.diving.pungdong.notification;
 import com.diving.pungdong.notification.NotificationOutbox;
 import com.diving.pungdong.notification.NotificationStatus;
 import com.diving.pungdong.notification.NotificationType;
+import com.diving.pungdong.notification.event.ChatMessageEvent;
 import com.diving.pungdong.notification.event.CommunityCommentEvent;
 import com.diving.pungdong.notification.event.EnrollmentAcceptedEvent;
 import com.diving.pungdong.notification.event.EnrollmentExpiredEvent;
@@ -112,6 +113,50 @@ public class NotificationOutboxWriter {
                 .data(data)
                 .build();
         enqueue(NotificationType.COMMUNITY_COMMENT, event.getRecipientAccountId(), payload);
+    }
+
+    // ── 채팅(chat) 흐름 ────────────────────────────────────────────────────
+
+    /**
+     * 세션 단체 채팅 새 메시지 — 발신자를 뺀 참여자 전원에게 fan-out.
+     *
+     * <p>수신자별로 {@code enqueue} 를 한 번씩 부른다(= outbox 행 N개 + 알림함 행 N개). 발행자 트랜잭션에
+     * 그대로 합류하므로 메시지 저장이 롤백되면 알림도 함께 사라진다. 수신자 목록은 발행자가 이미 만들어
+     * 실어 보내므로 여기서 재조회하지 않는다({@link #onLectureNotification} 과 같은 형태).
+     *
+     * <p><b>딥링크가 방으로 직행한다</b> — {@code roomId} 하나면 앱이 채팅방을 연다. 다른 타입처럼
+     * 허브로 보내면 채팅은 목록 메뉴가 없어 알림이 쓸모없어진다. {@code sessionId} 는 싣지 않는다:
+     * 같은 것을 가리키는 이름이 둘이면 어느 걸로 이동할지가 호출부마다 갈린다.
+     *
+     * <p>제목은 방 스냅샷에서 만든다 — 세션이 지워진 뒤에 재시도로 발송돼도 "null회차" 가 나가지 않게.
+     */
+    @EventListener
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void onChatMessage(ChatMessageEvent event) {
+        Map<String, String> data = new LinkedHashMap<>();
+        data.put("type", NotificationType.CHAT_MESSAGE.name());
+        putIfPresent(data, "roomId", event.getRoomId());
+        putIfPresent(data, "messageId", event.getMessageId());
+
+        String title = chatTitle(event.getCourseTitle(), event.getRoundIndex());
+        String body = String.format("%s: %s", event.getSenderNickName(), event.getPreview());
+
+        for (Long recipientId : event.getRecipientAccountIds()) {
+            NotificationPayload payload = NotificationPayload.builder()
+                    .title(title)
+                    .body(body)
+                    .data(data)
+                    .build();
+            enqueue(NotificationType.CHAT_MESSAGE, recipientId, payload);
+        }
+    }
+
+    /** "AIDA2 2회차" / 회차를 모르면 코스명만 / 코스명도 없으면 중립 문구. */
+    private String chatTitle(String courseTitle, Integer roundIndex) {
+        if (courseTitle == null || courseTitle.isBlank()) {
+            return "회차 채팅";
+        }
+        return roundIndex == null ? courseTitle : String.format("%s %d회차", courseTitle, roundIndex);
     }
 
     // ── 수강(enrollment) 흐름 ──────────────────────────────────────────────

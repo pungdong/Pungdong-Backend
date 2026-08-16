@@ -344,6 +344,20 @@ erDiagram
 
 `data` = `{notificationId, type, postId, commentId}`. 제목 없는 글(브랜딩 유입)이면 `회원님의 글` 로 대체. **좋아요 알림은 만들지 않는다**(빈도가 높아 소음).
 
+### 세션 단체 채팅 — 채널 `chat`
+
+| # | Type | 트리거 | 수신자 | title / body |
+|---|---|---|---|---|
+| 10 | `CHAT_MESSAGE` | `ChatMessageService.send` | **발신자를 뺀 참여자 전원**(강사 + 결제완료 수강생) | `{코스명} {N}회차` / `{보낸사람닉}: {본문 앞 40자}` |
+
+`data` = `{notificationId, type, roomId, messageId}`. **`sessionId` 는 싣지 않는다** — 방 키는 `roomId` 하나이고, 같은 것을 가리키는 이름이 둘이면 어느 걸로 이동할지가 호출부마다 갈린다.
+
+**🔴 이 타입만 허브가 아니라 채팅방으로 직행한다.** 다른 타입이 파라미터 없는 허브로 착지하는 건 v1 에 그 화면들이 **없었기 때문**이지 강한 규약이어서가 아니었다 — 채팅은 목록 메뉴 자체가 없어서 방으로 못 가면 알림이 쓸모없다(2026-08-16 사용자 결정). 착지 실패(방 없음·참여자 아님 = code `-1009`) 시 폴백은 허브(일정 탭).
+
+`chat` 채널도 `payment` 와 같다 — **앱에 이미 만들어져 있던 빈 채널**이라 신설이 아니라 첫 사용이고 앱 릴리스 종속이 없다(`NotificationCategory.CHAT` 도 미리 정의돼 있었다, `timeSensitive=true`).
+
+fan-out 은 `LECTURE_NOTIFICATION` 과 같은 형태다 — 이벤트가 `List<Long> recipientAccountIds` 를 통째로 싣고 리스너가 수신자당 `enqueue` 를 한 번씩 부른다(메시지 1건 = outbox N행 + 알림함 N행). **중복 전송(멱등 히트)은 발행하지 않는다** — 재시도 한 번에 참여자 전원이 알림을 두 번 받으면 안 된다.
+
 ### 레거시 — 사문화, 신규 사용 금지
 
 | # | Type | 트리거 | 상태 |
