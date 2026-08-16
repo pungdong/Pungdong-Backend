@@ -62,6 +62,8 @@ public class AvailabilityService {
     private final VenueRefResolver venueRefResolver;
     private final EnrollmentRoundJpaRepo roundRepo;
     private final SessionCleaner sessionCleaner;
+    // 슬롯 상세의 "세션 단체 채팅" CTA 상태. chat 쪽은 레포만 참조하므로 순환 없음.
+    private final com.diving.pungdong.chat.ChatQueryService chatQueryService;
     private final SessionOverlapGuard overlapGuard;
 
     /* ─── coverage(예약가능시간) 직접 편집 ───────────────────── */
@@ -248,10 +250,11 @@ public class AvailabilityService {
         Map<String, VenueResponse> venueByRef = resolveVenues(sessions);
         Map<Long, List<EnrollmentRound>> activeBySession = activeBySession(
                 sessions.stream().map(AvailabilitySession::getId).collect(Collectors.toList()));
+        Map<Long, com.diving.pungdong.chat.dto.RoundChatState> chatStates = chatStatesFor(sessions);
         return AvailabilityCalendarResponse.builder()
                 .coverage(coverageRanges(instructor, from, to))
                 .sessions(sessions.stream()
-                        .map(s -> toResponse(s, venueByRef, activeBySession))
+                        .map(s -> toResponse(s, venueByRef, activeBySession, chatStates))
                         .collect(Collectors.toList()))
                 .build();
     }
@@ -339,11 +342,32 @@ public class AvailabilityService {
     }
 
     private AvailabilitySessionResponse toResponse(AvailabilitySession s) {
-        return toResponse(s, resolveVenues(List.of(s)), activeBySession(List.of(s.getId())));
+        return toResponse(s, resolveVenues(List.of(s)), activeBySession(List.of(s.getId())),
+                chatStatesFor(List.of(s)));
+    }
+
+    /**
+     * 슬롯 상세·캘린더의 "세션 단체 채팅" CTA 상태를 한 번에 푼다.
+     *
+     * <p>이 도메인의 조회자는 언제나 <b>슬롯 소유자(강사)</b>다({@code requireOwned} 를 통과한 뒤에만 매핑한다)
+     * — 그래서 viewer 를 따로 받지 않고 세션의 강사를 쓴다. 세션마다 조회하면 캘린더가 N+1 이 되므로
+     * 배치 변형만 둔다.
+     */
+    private Map<Long, com.diving.pungdong.chat.dto.RoundChatState> chatStatesFor(
+            List<AvailabilitySession> sessions) {
+        Long viewerId = sessions.stream()
+                .map(AvailabilitySession::getInstructor).filter(java.util.Objects::nonNull)
+                .map(Account::getId).findFirst().orElse(null);
+        if (viewerId == null) {
+            return Map.of();
+        }
+        return chatQueryService.statesFor(viewerId,
+                sessions.stream().map(AvailabilitySession::getId).collect(Collectors.toList()));
     }
 
     private AvailabilitySessionResponse toResponse(AvailabilitySession s, Map<String, VenueResponse> venueByRef,
-                                                   Map<Long, List<EnrollmentRound>> activeBySession) {
+                                                   Map<Long, List<EnrollmentRound>> activeBySession,
+                                                   Map<Long, com.diving.pungdong.chat.dto.RoundChatState> chatStates) {
         List<EnrollmentRound> active = activeBySession.getOrDefault(s.getId(), List.of());
         // 점유(결제대기+확정)는 confirmed 버킷으로 합산 — 둘 다 좌석을 차지(v1; FE 별도 표시는 후속).
         int confirmed = (int) active.stream().filter(e -> e.getStatus().occupiesCapacity()).count();
@@ -356,8 +380,12 @@ public class AvailabilityService {
         List<ApplicantSummaryResponse> applicants = active.stream()
                 .map(AvailabilityService::toApplicant).collect(Collectors.toList());
         // filled = 찬 자리 = 확정 + 대기 + 외부 (신청 시점 좌석 lock — PENDING 도 점유)
-        return AvailabilitySessionResponse.of(
+        AvailabilitySessionResponse response = AvailabilitySessionResponse.of(
                 s, status, confirmed + pending + external, confirmed, external, pending, venueName, ticketName, applicants);
+        // 채팅 CTA 는 of(...) 시그니처를 늘리지 않고 여기서 붙인다(호출부가 여럿이라 파라미터를 더 늘리면 읽기 어렵다).
+        response.setChat(chatStates.getOrDefault(s.getId(),
+                com.diving.pungdong.chat.dto.RoundChatState.hidden()));
+        return response;
     }
 
     /** ticketRef → venue 이용권 명칭(단일 출처). 미지정/미존재면 null. */
