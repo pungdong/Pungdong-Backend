@@ -52,6 +52,7 @@
 - **마감 = (date, endTime)@KST + 24h** — 슬롯 시각은 오프셋 없는 civil 이라 존을 붙여야 절대시각이 된다. `venue.timeZone` 이 아직 없어 KST 고정(`payment.RefundService` 와 같은 선례). 응답엔 **절대시각이 아니라 잔여 초**(`closesInSeconds`) — 기기 시계가 어긋나도 안 밀리게(`paymentExpiresInSeconds` 규칙). 슬롯 시간이 바뀌면 **늘어날 수도** 있다.
 - **표시명은 BE 가 합성한다**(`displayName` = "김수민 학생"). FE 합성으로 두면 web/mobile 사본 2벌이 어긋난다(이 레포에서 반복된 부류). `name`/`role`/`accountId` 도 함께 준다.
 - **레이트리밋** = 최근 10초 10건(상수는 `ChatMessageService`). 범용 인프라가 레포에 없어(유일 선례는 본인확인 OTP 의 Redis 쿨다운) DB count 로 하는 최소 가드다. 초과 시 **429 + `-1023` + body `retryAfterSeconds`**.
+- **읽음 처리는 방의 마지막 메시지 id 로 상한을 자른다(clamp)** — `/read` 는 받은 id 의 소속을 검사하지 않아서, 합성값(`Long.MAX_VALUE` 등)이 오면 id 단조증가 때문에 **그 방 unread 가 영구히 0 으로 굳는다.** 소속 검증은 폴링 경로에 비싸 상한만 자른다(`(room_id, id)` 인덱스 1방). 회귀 테스트 `U4`.
 - **unread 는 사람 메시지만 센다** — 개설 안내(`SYSTEM`)는 제외라 **새 방은 0**. 조건을 `kind = USER` 로 **명시**할 것: `senderAccountId <> :me` 만으로도 걸러지는 것처럼 보이나 그건 3치 논리(`NULL <> :me` = UNKNOWN)에 우연히 기대는 형태고, 실제로 계약 문서와 구현이 이 지점에서 어긋났다(FE 가 문서 읽고 잡음).
 - **없음/비참여 = `ResourceNotFoundException`** → 이 레포에선 **HTTP 400 + code `-1009`**(404 아님). FE 딥링크 폴백은 status 가 아니라 **code** 로 건다.
 - **`CLOSED` 방 조회는 200** 이다(읽기 전용이라 대화는 보여야 한다). 400 은 **전송**만.

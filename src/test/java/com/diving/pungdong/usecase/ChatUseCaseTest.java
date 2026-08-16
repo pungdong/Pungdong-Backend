@@ -587,6 +587,35 @@ class ChatUseCaseTest {
                 .andExpect(jsonPath("$.courses[0].rounds[0].chat.unreadCount").value(0));
     }
 
+    @Test
+    @DisplayName("U4 방의 마지막 id 를 넘는 값으로 읽음 처리하면 그 방 최대 id 로 잘린다(합성값 → unread 영구 0 방지)")
+    void markReadIsClampedToRoomMax() throws Exception {
+        Account instructor = account("ins@pd.com", "김민지");
+        Account student = account("stu@pd.com", "김수민");
+        AvailabilitySession s = session(instructor, LocalTime.of(14, 0), LocalTime.of(17, 0));
+        enroll(student, course(instructor, "AIDA2"), s, EnrollmentStatus.CONFIRMED);
+        mockMvc.perform(get("/chat/rooms/" + s.getId()).header(HttpHeaders.AUTHORIZATION, token(student)));
+        send(instructor, s.getId(), "첫 메시지", "i-1");
+
+        long roomMax = messageRepo.findAll().stream().map(ChatMessage::getId).max(Long::compareTo).orElseThrow();
+
+        // 클라이언트가 실제 id 가 아닌 합성값을 올린 상황.
+        mockMvc.perform(patch("/chat/rooms/" + s.getId() + "/read")
+                        .header(HttpHeaders.AUTHORIZATION, token(student))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("lastReadMessageId", Long.MAX_VALUE))))
+                .andExpect(status().isNoContent());
+
+        // 그대로 저장했으면 이후 어떤 메시지도 id 가 더 작아 unread 가 영구히 0 이 된다.
+        assertThat(readStateRepo.findByRoomIdAndAccountId(s.getId(), student.getId())
+                .orElseThrow().getLastReadMessageId()).isEqualTo(roomMax);
+
+        // 잘렸으므로 다음 메시지는 정상적으로 unread 로 잡힌다.
+        send(instructor, s.getId(), "그 다음 메시지", "i-2");
+        mockMvc.perform(get("/chat/rooms/" + s.getId()).header(HttpHeaders.AUTHORIZATION, token(student)))
+                .andExpect(jsonPath("$.unreadCount").value(1));
+    }
+
     /* ─── X* 수명 ──────────────────────────────────────────── */
 
     @Test

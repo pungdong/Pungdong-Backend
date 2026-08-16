@@ -202,6 +202,8 @@ erDiagram
 집계는 `m.kind = USER and m.senderAccountId <> :me and m.id > coalesce(lastRead, 0)` 한 방으로,
 방 개수와 무관하게 쿼리 1회다(회차 카드 N건에서 방마다 세면 N+1).
 
+**읽음 처리(`PATCH /read`)는 그 방의 마지막 메시지 id 로 상한을 자른다.** 이 엔드포인트는 받은 id 가 그 방의 것인지 검사하지 않으므로, 클라이언트가 실제 id 대신 **합성값**(`Long.MAX_VALUE`, 타임스탬프 등)을 보내면 메시지 id 가 단조증가라 **그 방 unread 가 영구히 0 으로 굳는다**(이후 상대가 무슨 말을 해도 배지가 안 뜬다). 소속 검증은 폴링 경로에 비싸서, 상한만 잘라 같은 사고를 구조적으로 막는다. 회귀 테스트 `U4`.
+
 ⚠️ `kind = USER` 를 **명시**한다. `senderAccountId <> :me` 만으로도 SYSTEM 이 걸러지는 것처럼 보이지만
 (발신자가 NULL 이고 `NULL <> :me` 는 TRUE 가 아니라 UNKNOWN) 그건 3치 논리에 우연히 기대는 형태다 —
 실제로 계약 문서와 초기 구현이 이 지점에서 어긋났고, FE 가 문서를 읽고 잡아냈다.
@@ -215,6 +217,22 @@ erDiagram
 - 🟢 **메시지 삭제 API 가 없다.** `deleted` 컬럼과 툼스톤 문구("삭제된 메시지입니다.")만 있고 경로가 없다. → 모더레이션 도입 시 함께.
 - 🟢 **첨부가 없다**(v1 텍스트 전용). → `S3Uploader` + `ImageUploadPolicy` 재사용, 스키마는 그때 마이그레이션(미리 `content_type` 을 두지 않는다).
 - 🔴 **prod 는 `FIREBASE_ENABLED=false` 라 실제 푸시가 무음이다**(outbox 는 `SENT` 로 보인다). 이 도메인 밖 문제이고 알림 트랙의 묶음 배포에서 켠다. → 켜기 전까지 "메시지 → 푸시" 가 prod 에서 동작하지 않는다.
+
+## 6-1. 후속 — 어드민 대화 열람 (미구현, 설계만)
+
+"어드민은 지난 회차 대화까지 볼 수 있어야 한다(분석 목적, 그룹대화라 시크릿 아님)" 요구가 있었다. **이 레포에서 구현하지 않기로 했고**(사용자가 별도 진행), 다음 사람이 그대로 쓰도록 조사 결과만 남긴다.
+
+기존 어드민 패턴(실측): 경로 `/admin/<도메인>/<자원>`, 매처 `hasRole("ADMIN")`(`SecurityConfiguration` 에 3곳 선례), 목록은 `Pageable` + `@PageableDefault(size=20, sort=..., DESC)` + `PagedResourcesAssembler` → `PagedModel`, 단건은 `EntityModel`, `produces = MediaTypes.HAL_JSON_VALUE`.
+
+1. **`GET /admin/chat/rooms`** — 필터 `instructorId` / `from`·`to`(슬롯 `date` 범위) / `roomId`. 응답은 방 스냅샷(강의명·회차·날짜·시간·venue) + `participantCount` + `messageCount` + `state`.
+2. **`GET /admin/chat/rooms/{roomId}/messages`** — 그 방 전체. `SYSTEM`·`deleted`·**이탈자 발신분 포함**. 발신자 표시명은 `chat_participant` 이력(`leftAt` 포함)으로 해석되므로 **이미 되는 부분**이다.
+3. 🔴 **읽기 전용 · 참여자 검사 없음 · `ChatRoomService.open` 재사용 금지.** 어드민은 참여자가 아니라 `requireParticipant` 를 타면 안 되고, 무엇보다 `open` 은 **지연 생성**이라 어드민이 둘러보는 것만으로 방이 생겨 버린다. 조회 전용 서비스 경로를 따로 둘 것.
+4. **매처 1줄** — `.antMatchers("/admin/chat/**").hasRole("ADMIN")` 를 기존 `/chat/**` 매처보다 **앞에**(먼저 매치되는 쪽이 이긴다).
+5. **인덱스** — `chat_room` 은 현재 PK 뿐이라 강사/기간 필터가 풀스캔이다. `(instructor_id, date)` 인덱스를 새 마이그레이션에 추가.
+
+**커서를 쓰지 않는다** — 커서 이탈(§3-3)은 "실시간 append 중 offset 밀림" 때문에 승인된 것이고, 어드민 분석 화면은 안정적 페이징과 `totalElements` 가 필요하다. 레포 관례(`Pageable`)로 돌아간다.
+
+⚠️ **열람 감사 로그가 이 레포에 없다.** "그룹대화라 시크릿 아님" 이더라도 **타인 대화 전량 열람**은 성격이 다르다(신고 처리처럼 대상이 특정된 조회와도 다르다). 누가 언제 어느 방을 봤는지 남길지는 **제품 결정**이라 여기서 정하지 않았다 — 구현 전에 확인할 것.
 
 ## 7. 더 깊게: 테스트로 보기
 

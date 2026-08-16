@@ -224,14 +224,27 @@ public class ChatMessageService {
 
     /* ─── 읽음 ───────────────────────────────────────────────── */
 
-    /** 멱등 — 전진만 한다. 폴링과 경합해도 되감기지 않는다. */
+    /**
+     * 멱등 — 전진만 한다. 폴링과 경합해도 되감기지 않는다.
+     *
+     * <p><b>그 방의 마지막 메시지 id 로 상한을 건다(clamp).</b> 이 엔드포인트는 받은 id 가 그 방의
+     * 것인지 검사하지 않는데, 클라이언트가 실제 메시지 id 대신 <b>합성값</b>(예: {@code Long.MAX_VALUE},
+     * 타임스탬프)을 보내면 메시지 id 가 단조증가라 <b>그보다 큰 id 가 영원히 안 나와 그 방 unread 가
+     * 영구히 0 으로 굳는다</b> — 이후 상대가 무슨 말을 해도 배지가 안 뜬다. 소속 검증(방마다 메시지
+     * 조회)은 폴링 경로엔 비싸므로, 대신 상한만 잘라 같은 사고를 구조적으로 막는다.
+     * 상한 조회는 {@code (room_id, id)} 인덱스 range 라 1방이다.
+     */
     @Transactional
     public void markRead(Account viewer, Long roomId, Long lastReadMessageId) {
         ChatRoom room = roomService.requireAccessibleRoom(viewer, roomId, false);
+        long ceiling = messageRepo.findFirstByRoomIdOrderByIdDesc(room.getId())
+                .map(ChatMessage::getId).orElse(0L);
+        long clamped = Math.min(lastReadMessageId, ceiling);
+
         ChatReadState state = readStateRepo.findByRoomIdAndAccountId(room.getId(), viewer.getId())
                 .orElseGet(() -> ChatReadState.builder()
                         .roomId(room.getId()).accountId(viewer.getId()).lastReadMessageId(0L).build());
-        if (state.advanceTo(lastReadMessageId) || state.getId() == null) {
+        if (state.advanceTo(clamped) || state.getId() == null) {
             readStateRepo.save(state);
         }
     }
