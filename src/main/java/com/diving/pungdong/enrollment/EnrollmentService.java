@@ -48,6 +48,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -970,7 +971,10 @@ public class EnrollmentService {
         List<String> refs = rounds.stream().map(EnrollmentRound::getVenueRefId)
                 .filter(StringUtils::hasText).distinct().collect(Collectors.toList());
         if (refs.isEmpty()) {
-            return Map.of();
+            // ⚠️ Map.of() 를 쓰면 안 된다 — 불변 맵은 null 키 조회를 NPE 로 거부한다. 호출부는
+            // venueRefId 가 null 인 회차(위치 없는 점유)에도 그대로 get() 을 하므로, 위치 있는 회차가
+            // 하나도 없는 사용자에게 500 이 나간다. Collections.emptyMap() 은 null 키에 null 을 준다.
+            return Collections.emptyMap();
         }
         return venueRefResolver.resolveAll(refs).entrySet().stream()
                 .collect(Collectors.toMap(Map.Entry::getKey, x -> x.getValue().getName()));

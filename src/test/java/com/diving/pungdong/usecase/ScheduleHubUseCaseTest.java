@@ -233,4 +233,29 @@ class ScheduleHubUseCaseTest {
                 .andExpect(jsonPath("$.courses[0].rounds.length()").value(1))
                 .andExpect(jsonPath("$.courses[0].status").value("RESCHEDULING"));
     }
+
+    @Test
+    @DisplayName("SH-V1 위치 없는 회차만 가진 수강생도 강의일정이 200 이다 (venueRefId 전무 → Map.of().get(null) NPE 회귀)")
+    void venuelessRoundsDoNotBreakHub() throws Exception {
+        Account student = account("venueless@pd.com", "위치없는학생");
+        Account instructor = account("ins-v@pd.com", "김민지");
+        Course c = course(instructor, "AIDA1 자격 과정");
+
+        // 위치 없는 점유(± 빠른조정 등)로 잡힌 회차 — venueRefId 가 null 이다.
+        EnrollmentRound noVenue = EnrollmentRound.builder()
+                .roundIndex(1).roundKind(RoundKind.REGULAR)
+                .date(LocalDate.now().plusWeeks(1))
+                .blockStart(LocalTime.of(14, 0)).blockEnd(LocalTime.of(17, 0))
+                .venueRefId(null)
+                .status(EnrollmentStatus.CONFIRMED).entrySnapshot(0).equipmentSnapshot(0)
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
+        enroll(student, c, 300000, noVenue);
+
+        // 고치기 전엔 여기서 500 이 났다 — 해석할 venueRefId 가 하나도 없어 resolveNames 가 Map.of() 를
+        // 돌려주고, 불변 맵에 get(null) 을 하는 순간 NPE. 위치 있는 회차가 하나라도 섞이면 안 터져서
+        // 기존 시나리오들이 전부 이 경로를 비껴갔다.
+        mockMvc.perform(get("/enrollments/mine/schedule").header(HttpHeaders.AUTHORIZATION, token(student)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.courses[0].rounds[0].venueName").doesNotExist());
+    }
 }
