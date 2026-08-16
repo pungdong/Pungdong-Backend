@@ -50,6 +50,7 @@
 - [강사 수강관리(instructor-enrollment-management)](instructor-enrollment-management.md) — enrollment 강사 거울 hub(GET /instructor/enrollments/hub) · 거래=수강생×강의 · 강사 시점 상태/플래그 파생 · 액션은 accept/reject/propose/complete 재사용 · 채팅/다이브로그 미구현
 - [브랜딩 페이지 / 내 프로필(account-branding)](account-branding.md) — branding + account(닉네임=공개 URL) + instructorapplication(자격·검수 파생) + course(연결, 후속) · 강사/일반 공용(워딩만 role 분기) · 첫 쓰기 upsert · 자격 자유입력 폐기 · 영상 제외(#207)
 - [커뮤니티(community)](community.md) — community + branding(게시물 테이블 공유) + instructor-application(강사 판정) + course(연결 강의) + notification(댓글 알림) · 노출은 브랜딩→커뮤니티 단방향 · 참여 신청 영구 제외(=예약 플로우) · 신고 2-A
+- [세션 단체 채팅(session-group-chat)](session-group-chat.md) — chat + availability(일정=방 단위) + enrollment(참여자격=결제완료) + notification(참여자 fan-out 푸시) · 방 PK=일정 id·FK 없음(전원 환불로 일정이 물리 삭제돼도 방 생존) · 지연 생성 · 커서 페이지네이션 + 전송 멱등 · 폴링+FCM(WS/SSE 기각) · 딥링크는 방 직행(허브 착지 규약 정정)
 - [푸시 알림(push)](push.md) — notification(발송) + account(토큰) + FCM/GCP(plop-5997b) · 계약 SoT(/me/devices·data.notificationId·WIF 키리스) · BE 리드/FE 컨폼 · 인앱 알림함 #132 후속 · 메커니즘은 architecture/notification.md
 
 ## 톤

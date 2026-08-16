@@ -34,6 +34,7 @@
 | 브랜딩 페이지 (branding) | [branding.md](branding.md) | ✅ (계정당 1개 공개 프로필 · 공개 URL=닉네임 · 조회는 생성 안 함 · 자격/검수는 읽기 시점 합성 · 게시물은 후속) |
 | 커뮤니티 (community) | [community.md](community.md) | ✅ (게시물 테이블을 branding 과 **공유** · 노출은 브랜딩→커뮤니티 단방향 · 카운터 비저장 일괄집계 · 1-depth 댓글 · 신고 어드민 큐) |
 | 강사 가용시간 (availability) | [availability.md](availability.md) | ✅ (가용시간 window + 외부/수동 점유 hold · 5상태 파생 · enrollment 연동됨) |
+| 세션 단체 채팅 (chat) | [chat.md](chat.md) | ✅ (일정 1개 = 방 1개 · **방 PK=일정 id, FK 없음**(일정이 물리 삭제돼도 방 생존) · 상태 파생 · 커서 페이지네이션 + 전송 멱등 · 폴링+FCM) |
 | 수강신청 (enrollment) | [enrollment.md](enrollment.md) | ✅ (booking — availability ∩ venue 교집합 · exact-match join · 강사 수락 → 결제대기 → 확정) |
 | 결제 (payment) | [payment.md](payment.md) | ✅ (토스페이먼츠 결제위젯 v2 · 수락→결제→확정 · 서버 권위 금액 · stub/toss · webhook 후속) |
 | 학생 보유 자격증 (certificate) | [certificate.md](certificate.md) | ✅ (프로필 "내 자격증" · 사진=비공개 PII presigned · source/holderName/강사 서버 파생 · 표시명 스냅샷 · 수정=PUT 전면교체(사진만 "생략=유지") · 강사신청 자격증과 별개) |
