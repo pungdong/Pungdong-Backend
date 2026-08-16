@@ -94,6 +94,9 @@ public class SecurityConfiguration {
                         .antMatchers("/branding/**").authenticated()
                         // 강사 전용이 아니다 — 일반 유저도 커뮤니티에 쓴다. hasRole 로 막으면 안 된다.
                         .antMatchers("/community/**").authenticated()
+                        // 세션 단체 채팅. 강사·수강생이 같은 방을 쓰므로 여기서도 hasRole 로 가르지 않는다 —
+                        // 실제 접근 판정(그 방의 참여자인가)은 서비스가 방마다 한다.
+                        .antMatchers("/chat/**").authenticated()
                         .antMatchers("/branding-images").authenticated()
                         .antMatchers("/course-images").authenticated()
                         .antMatchers("/courses/**").authenticated()
