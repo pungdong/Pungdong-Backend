@@ -2752,7 +2752,10 @@ export interface RoundChatState {
   state: ChatRoomState;
   /** HIDDEN 이면 null — navigate 자체를 막는다. */
   roomId: number | null;
-  /** HIDDEN 이면 0. */
+  /**
+   * 안 읽은 **상대의 메시지** 수(HIDDEN 이면 0).
+   * 개설 안내(SYSTEM)는 세지 않으므로 **아무도 말하지 않은 새 방은 0** 이다 — 배지가 안 뜬다.
+   */
   unreadCount: number;
 }
 
@@ -2803,6 +2806,7 @@ export interface ChatRoomResponse {
   /** 현재 참여자만(이탈자 제외) — 헤더 "참여자 3명". */
   participantCount: number;
   participants: ChatParticipant[];
+  /** 안 읽은 **상대의 메시지** 수. 개설 안내(kind='SYSTEM')는 세지 않아 새 방은 0 이다. */
   unreadCount: number;
   /** 폴링 초기 커서. 메시지가 없으면 null. */
   latestMessageId: number | null;

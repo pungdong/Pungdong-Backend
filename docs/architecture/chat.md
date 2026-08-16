@@ -194,6 +194,18 @@ erDiagram
 
 🔴 **`-1009` 는 404 가 아니라 400 이다**(레포 전역 매핑). FE 딥링크 폴백은 status 가 아니라 **body 의 code** 로 분기해야 한다.
 
+## 5-1. unread 규칙
+
+**사람이 보낸 메시지만 센다.** 방을 열면 개설 안내(`kind='SYSTEM'`) 1건이 항상 들어 있는데 그건
+"읽을 상대 메시지" 가 아니므로 배지 대상이 아니다 — **새 방의 unread 는 0** 이다.
+
+집계는 `m.kind = USER and m.senderAccountId <> :me and m.id > coalesce(lastRead, 0)` 한 방으로,
+방 개수와 무관하게 쿼리 1회다(회차 카드 N건에서 방마다 세면 N+1).
+
+⚠️ `kind = USER` 를 **명시**한다. `senderAccountId <> :me` 만으로도 SYSTEM 이 걸러지는 것처럼 보이지만
+(발신자가 NULL 이고 `NULL <> :me` 는 TRUE 가 아니라 UNKNOWN) 그건 3치 논리에 우연히 기대는 형태다 —
+실제로 계약 문서와 초기 구현이 이 지점에서 어긋났고, FE 가 문서를 읽고 잡아냈다.
+
 ## 6. 알려진 설계 간극
 
 - 🟡 **메시지 신고가 없다.** 앱스토어 UGC 정책상 필요해질 수 있다. → 커뮤니티 `ContentReport`(다형 타겟 + `(target,reporter)` UNIQUE 멱등 + 어드민 큐) 패턴을 복사해 `chat` 에 대응 엔티티를 추가.

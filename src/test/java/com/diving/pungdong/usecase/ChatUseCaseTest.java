@@ -485,6 +485,26 @@ class ChatUseCaseTest {
     /* ─── U* unread / 읽음 ────────────────────────────────── */
 
     @Test
+    @DisplayName("U0 아무도 말하지 않은 새 방의 unread 는 0 이다 — 개설 안내(SYSTEM)는 세지 않는다")
+    void systemMessageIsNotUnread() throws Exception {
+        Account instructor = account("ins@pd.com", "김민지");
+        Account student = account("stu@pd.com", "김수민");
+        AvailabilitySession s = session(instructor, LocalTime.of(14, 0), LocalTime.of(17, 0));
+        enroll(student, course(instructor, "AIDA2"), s, EnrollmentStatus.CONFIRMED);
+        mockMvc.perform(get("/chat/rooms/" + s.getId()).header(HttpHeaders.AUTHORIZATION, token(student)));
+
+        // 방엔 개설 안내 SYSTEM 1건이 있지만 그건 "읽을 상대 메시지" 가 아니다.
+        // 여기서 1 이 나오면 아무도 말 안 한 회차 카드에 빨간 배지가 뜬다.
+        mockMvc.perform(get("/chat/rooms/" + s.getId()).header(HttpHeaders.AUTHORIZATION, token(instructor)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.unreadCount").value(0));
+
+        // 회차 카드(학생 hub)도 같은 값이어야 한다 — 배지의 단일 출처.
+        mockMvc.perform(get("/enrollments/mine/schedule").header(HttpHeaders.AUTHORIZATION, token(student)))
+                .andExpect(jsonPath("$.courses[0].rounds[0].chat.unreadCount").value(0));
+    }
+
+    @Test
     @DisplayName("U1 상대 메시지는 unread 로 잡히고, 읽음 처리하면 0 이 된다(내가 보낸 건 세지 않는다)")
     void unreadAndMarkRead() throws Exception {
         Account instructor = account("ins@pd.com", "김민지");
@@ -494,9 +514,9 @@ class ChatUseCaseTest {
         mockMvc.perform(get("/chat/rooms/" + s.getId()).header(HttpHeaders.AUTHORIZATION, token(student)));
         send(student, s.getId(), "질문 있어요", "c-1");
 
-        // 강사 시점: 방 개설 SYSTEM + 학생 메시지 = 2
+        // 강사 시점: 학생 메시지 1건만 센다(개설 SYSTEM 은 제외).
         mockMvc.perform(get("/chat/rooms/" + s.getId()).header(HttpHeaders.AUTHORIZATION, token(instructor)))
-                .andExpect(jsonPath("$.unreadCount").value(2));
+                .andExpect(jsonPath("$.unreadCount").value(1));
 
         Long latest = messageRepo.findAll().stream().map(ChatMessage::getId).max(Long::compareTo).orElseThrow();
         mockMvc.perform(patch("/chat/rooms/" + s.getId() + "/read")

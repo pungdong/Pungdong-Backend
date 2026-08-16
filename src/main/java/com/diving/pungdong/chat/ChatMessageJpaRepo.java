@@ -51,14 +51,23 @@ public interface ChatMessageJpaRepo extends JpaRepository<ChatMessage, Long> {
     /**
      * 방별 unread 를 <b>쿼리 1방</b>으로 — 회차 카드가 N개면 방마다 세는 순간 N+1 이다.
      *
-     * <p>읽음상태 행이 없는 방은 {@code coalesce(..., 0)} 으로 "하나도 안 읽음" 이 된다. 내가 보낸 건
-     * 세지 않고, SYSTEM(발신자 null)은 센다.
+     * <p><b>사람이 보낸 메시지만 센다</b> — {@code SYSTEM}(방 개설 안내)은 제외한다. 배지는 "읽을
+     * 상대 메시지가 있다"는 신호인데, 안내 한 줄 때문에 아무도 말 안 한 새 방에 빨간 1 이 뜨면
+     * 그 의미가 아니게 된다. 그래서 <b>새 방의 unread 는 0 에서 시작</b>한다.
+     *
+     * <p>조건을 {@code kind = USER} 로 <b>명시</b>한 이유: 예전엔 발신자 null 여부에 기대고 있었는데,
+     * 그건 SQL 3치 논리({@code NULL <> :me} 가 TRUE 가 아니라 UNKNOWN)에 우연히 의존하는 형태라
+     * 읽는 사람마다 결론이 갈렸다(계약 문서와 구현이 실제로 어긋났다). USER 는 발신자가 반드시 있으므로
+     * 뒤따르는 {@code <> :accountId} 도 NULL 을 만나지 않는다.
+     *
+     * <p>읽음상태 행이 없는 방은 {@code coalesce(..., 0)} 으로 "하나도 안 읽음" 이 된다.
      *
      * @return {@code [roomId, count]} 행들
      */
     @Query("select m.roomId, count(m) from ChatMessage m "
             + "where m.roomId in :roomIds and m.deleted = false "
-            + "and (m.senderAccountId is null or m.senderAccountId <> :accountId) "
+            + "and m.kind = com.diving.pungdong.chat.ChatMessageKind.USER "
+            + "and m.senderAccountId <> :accountId "
             + "and m.id > coalesce((select r.lastReadMessageId from ChatReadState r "
             + "where r.roomId = m.roomId and r.accountId = :accountId), 0L) "
             + "group by m.roomId")
