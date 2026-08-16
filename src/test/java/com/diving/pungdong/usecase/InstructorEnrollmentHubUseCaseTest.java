@@ -8,6 +8,7 @@ import com.diving.pungdong.availability.AvailabilityCoverageJpaRepo;
 import com.diving.pungdong.availability.AvailabilitySessionJpaRepo;
 import com.diving.pungdong.course.*;
 import com.diving.pungdong.enrollment.EnrollmentJpaRepo;
+import com.diving.pungdong.enrollment.Enrollment;
 import com.diving.pungdong.enrollment.EnrollmentRound;
 import com.diving.pungdong.enrollment.EnrollmentStatus;
 import com.diving.pungdong.enrollment.EnrollmentRoundEquipment;
@@ -250,5 +251,34 @@ class InstructorEnrollmentHubUseCaseTest {
                 .andExpect(jsonPath("$.enrollments[0].rounds[0].gearItems[0].sizeLabel").value("270"))
                 .andExpect(jsonPath("$.enrollments[0].rounds[0].gearItems[1].name").value("슈트"))
                 .andExpect(jsonPath("$.enrollments[0].rounds[0].gearItems[1].sizeLabel").value("L"));
+    }
+
+    @Test
+    @DisplayName("IH-V1 위치 없는 회차만 가진 강사도 수강관리 hub 가 200 이다 (venueRefId 전무 → Map.of().get(null) NPE 회귀)")
+    void venuelessRoundsDoNotBreakInstructorHub() throws Exception {
+        Account ins = instructor("ins-v@pd.com", "김민지");
+        Account student = account("stu-v@pd.com", "김수민", Role.STUDENT);
+        Course c = courseRepo.save(Course.builder().instructor(ins).title("AIDA1 과정")
+                .kind(CourseKind.CERTIFICATION).organizationCode("AIDA").disciplineCode("FREEDIVING")
+                .totalRounds(1).price(300000).status(CourseStatus.OPEN)
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
+
+        // 위치 없는 점유로 잡힌 회차 — venueRefId 가 null 이다.
+        EnrollmentRound noVenue = EnrollmentRound.builder()
+                .roundIndex(1).roundKind(RoundKind.REGULAR)
+                .date(LocalDate.now().plusWeeks(1))
+                .blockStart(LocalTime.of(14, 0)).blockEnd(LocalTime.of(17, 0))
+                .venueRefId(null)
+                .status(EnrollmentStatus.CONFIRMED).entrySnapshot(0).equipmentSnapshot(0)
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
+        Enrollment e = Enrollment.builder().student(student).course(c).tuitionSnapshot(300000)
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
+        e.addRound(noVenue);
+        enrollmentRepo.save(e);
+
+        // 학생 hub(SH-V1)와 같은 결함의 강사 쪽 절반 — hub 의 venueNames 도 Map.of() 였다.
+        mockMvc.perform(get("/instructor/enrollments/hub").header(HttpHeaders.AUTHORIZATION, token(ins)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enrollments[0].rounds[0].venueName").doesNotExist());
     }
 }

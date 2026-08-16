@@ -43,6 +43,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -102,7 +103,9 @@ public class InstructorEnrollmentService {
         List<String> refs = all.stream().flatMap(e -> e.getRounds().stream())
                 .map(EnrollmentRound::getVenueRefId).filter(StringUtils::hasText).distinct()
                 .collect(Collectors.toList());
-        Map<String, String> venueNames = refs.isEmpty() ? Map.of()
+        // Map.of() 금지 — null 키 조회가 NPE 다(아래 resolveNames 주석 참고). 위치 있는 회차가 하나도
+        // 없는 강사의 hub 가 500 으로 떨어진다.
+        Map<String, String> venueNames = refs.isEmpty() ? Collections.emptyMap()
                 : venueRefResolver.resolveAll(refs).entrySet().stream()
                         .collect(Collectors.toMap(Map.Entry::getKey, x -> x.getValue().getName()));
 
@@ -566,7 +569,10 @@ public class InstructorEnrollmentService {
         List<String> refs = rounds.stream().map(EnrollmentRound::getVenueRefId)
                 .filter(StringUtils::hasText).distinct().collect(Collectors.toList());
         if (refs.isEmpty()) {
-            return Map.of();
+            // ⚠️ Map.of() 를 쓰면 안 된다 — 불변 맵은 null 키 조회를 NPE 로 거부한다. 호출부는
+            // venueRefId 가 null 인 회차(위치 없는 점유)에도 그대로 get() 을 하므로, 위치 있는 회차가
+            // 하나도 없는 사용자에게 500 이 나간다. Collections.emptyMap() 은 null 키에 null 을 준다.
+            return Collections.emptyMap();
         }
         return venueRefResolver.resolveAll(refs).entrySet().stream()
                 .collect(Collectors.toMap(Map.Entry::getKey, x -> x.getValue().getName()));
