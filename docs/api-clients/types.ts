@@ -2535,9 +2535,51 @@ export interface StudentCertificate extends HalLinks {
   createdAt: string;
 }
 
+/**
+ * PUT /certificates/{id} (인증·본인) — **전면 교체**. 성공 = 200 + StudentCertificate 단건.
+ * 없거나 남의 것이면 -1009. PATCH 는 없다(편집 폼이 카드 전체를 다시 보낸다).
+ *
+ * 필드·검증은 StudentCertificateCreateRequest 와 **같다**. 다만 두 필드는 "생략"의 뜻이 다르므로
+ * 등록 쪽 주석을 그대로 옮겨 쓰면 틀린다:
+ *
+ *  - photoFileKey : 생략/빈 값 = **기존 사진 유지**. 새 key 를 보낼 때만 교체된다(같은 값이면 no-op,
+ *                   다르면 옛 객체는 서버가 파기). 사진은 별도 업로드 왕복이라 번호 오타 하나 고치려고
+ *                   카드를 다시 찍게 만들지 않으려는 것 — ★ 애초에 기존 key 를 되돌려 보낼 수도 없다.
+ *                   조회 응답에 오는 건 만료되는 photoViewUrl 이지 key 가 아니다.
+ *                   ⚠️ 사진 **제거는 불가**(화면에도 제거 버튼이 없다). 빈 문자열을 제거로 쓰지 말 것 —
+ *                   서버는 생략과 구분하지 않고 "유지"로 읽는다.
+ *  - enrollmentId : 생략 = **연결 해제**. source 가 EXTERNAL 로 돌아가고 courseId·courseTitle·
+ *                   courseCompletedAt·instructorName 이 전부 null 이 된다. 보내면 등록과 같은 3중
+ *                   검증 후 재박제(남의 수강 = -1009, 미완료 = 400, 종목 불일치 = 400).
+ *
+ * 나머지 스칼라는 전면 교체다 — issuer 를 빼면 **비워진다**. 폼의 현재 값을 전부 실어 보낼 것.
+ */
+export interface StudentCertificateUpdateRequest {
+  /** GET /disciplines 의 code. BE 가 검증한다(없는 코드 → 400). */
+  disciplineCode: string;
+  /** Sanity certOrganization.code. BE 는 카탈로그를 소유하지 않아 값 대조는 하지 않는다. */
+  organizationCode: string;
+  /** (선택) Sanity `name` — 카드 모노그램용 짧은 표시명. */
+  organizationName?: string;
+  /** (선택) Sanity `fullName` — 상세 "자격 단체" 행. */
+  organizationFullName?: string;
+  level: CertLevel;
+  /** (선택) Sanity `displayName` — 예 "AIDA 2". */
+  certificationDisplayName?: string;
+  /** 단체마다 형식이 달라 **정규식 없음**. 최대 100자. */
+  certificateNumber: string;
+  /** ISO `yyyy-MM-dd` (civil date — new Date() 로 TZ 변환하지 말 것). **미래 날짜는 400**. */
+  acquiredAt: string;
+  /** (선택) 외부 발급 기관. 최대 100자. **안 보내면 지워진다**(전면 교체). */
+  issuer?: string;
+  /** (선택) **새** 사진의 fileKey. 비우면 기존 사진 유지. ★ 본인이 올린 것이어야 한다 — 남의 key 는 400. */
+  photoFileKey?: string;
+  /** (선택) 연결할 수강 id. **빼면 연결이 해제된다.** */
+  enrollmentId?: number;
+}
+
 // DELETE /certificates/{id} (인증·본인) — 하드 삭제(DB 행 + 사진 객체). 성공 = 204 No Content.
 //   자기 신고 데이터라 법정 보존 대상이 아니다. 없거나 남의 것이면 -1009.
-// ⚠️ 수정(PUT/PATCH)은 **없다** — FE 에 편집 화면이 없어서 의도적으로 안 만들었다. 화면이 생기면 추가.
 
 // ============================================================
 // 인증 실패 응답 코드 (참고용)

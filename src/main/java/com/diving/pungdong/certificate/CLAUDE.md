@@ -19,7 +19,7 @@
 
 ## 무엇이 들어있나
 
-- **컨트롤러** `StudentCertificateController` — `/certificates/**` (목록 `mine` · 단건 · 등록 · 삭제 · 사진업로드). 매처는 `global/security/SecurityConfiguration`.
+- **컨트롤러** `StudentCertificateController` — `/certificates/**` (목록 `mine` · 단건 · 등록 · 수정 · 삭제 · 사진업로드). 매처는 `global/security/SecurityConfiguration` 의 `/certificates/**` (메서드 무관 `authenticated` — 새 메서드를 늘려도 그대로 덮인다).
 - **서비스** `StudentCertificateService` — 검증·파생·스냅샷 전부 여기.
 - **엔티티** `StudentCertificate`, enum `CertificateSource`(PUNGDONG/EXTERNAL), 레포 `StudentCertificateJpaRepo`.
 - **스토리지** `storage/StudentCertificatePhotoStorage` + `S3…`/`Local…` — `pungdong.storage.s3.enabled` 게이트. **비공개(PII) 등급**.
@@ -33,7 +33,12 @@
 - **강사·강의도 클라이언트를 안 믿는다.** `enrollmentId` 로 서버가 조회해 박제한다.
 - **표시명은 스냅샷이다** (`organizationName`/`organizationFullName`/`certificationDisplayName`). 등록 시점 Sanity 값을 박제 — 자격증은 불변 credential 이고(`Enrollment.tuitionSnapshot` 과 같은 철학), FE 의 카탈로그 소비가 **동기 순수함수**라 조회 때 Sanity 를 읽으면 로딩 상태가 리스트·상세로 번진다. **검증되는 건 코드**(`disciplineCode`=테이블, `level`=enum)이고 표시명은 아니다.
 - **`CertLevel` 은 `course` 패키지에서 import.** 옮기지 말 것 — `sanity/CLAUDE.md` 가 **Sanity `certifications[].level` ↔ 이 enum ↔ `types.ts` union** 3자 계약으로 못박아 뒀고, 이 도메인은 네 번째 소비자일 뿐이다.
-- **수정(PUT/PATCH)이 없다.** FE 에 편집 화면이 없다 — 만들면 도달 불가 API 다. 엔티티는 막지 않았으니 화면이 생기는 PR 에서 추가.
+- **수정은 `PUT` 전면 교체이고 `PATCH` 는 없다** (2026-08-16 추가 — 편집 화면이 생겼다). 스칼라는 안 보내면 비워진다. 단 **두 필드는 "생략"의 뜻이 다르다**:
+  - `photoFileKey` **생략 = 기존 사진 유지** (전면 교체의 유일한 예외). 사진은 별도 업로드 왕복이라, 안 그러면 번호 오타 하나 고치려고 카드를 다시 찍어야 한다. FE 가 기존 key 를 되돌려 보낼 수도 없다(응답에 오는 건 만료되는 `photoViewUrl` 이지 key 가 아니다). 교체 시 **옛 객체는 커밋 이후 파기**. 사진 *제거*는 표현 불가 — **"빈 문자열 = 제거"로 겸용하지 말 것**(생략과 구분이 안 돼 유지/제거가 뒤바뀐다).
+  - `enrollmentId` **생략 = 연결 해제**(`EXTERNAL` + 강의 스냅샷 **전부** 비움. 부분 잔존 = 유령 강의).
+- **`StudentCertificateUpdateRequest` 와 `StudentCertificateCreateRequest` 는 필드·검증이 같아야 한다.** 한쪽에만 필드를 추가하면 등록은 받는데 수정은 **조용히 무시**한다. 그럼에도 클래스를 나눈 건 위 두 필드의 *의미*가 갈리기 때문 — 이름이 같다고 뜻까지 같지 않다.
+- **엔티티에 `@Setter` 를 열지 않는다.** 열면 `source`·`enrollmentId` 같은 **서버 파생값**까지 아무 데서나 바뀐다. 의도별 메서드(`updateDetails`/`replacePhoto`/`linkCourse`/`unlinkCourse`)만 두고, `linkCourse` 가 `source=PUNGDONG` 이 되는 유일한 경로다. `owner`·`createdAt` 은 어디서도 안 바뀐다.
+- **강의 연결 검증은 `applyCourseLink` 한 곳** — 등록·수정 공용. 두 벌이면 등록은 통과하고 수정은 거절하는 어긋남이 생긴다.
 - **중복 등록을 막지 않는다.** 재취득·재발급(분실·갱신)이 실재한다. UNIQUE 를 걸면 정상 사용자를 막는다.
 - **`enrollment_id` 에 FK 를 안 걸었다.** 연결한 수강이 나중에 정리돼도 자격증(사용자 자산)은 남아야 한다.
 

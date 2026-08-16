@@ -4,6 +4,7 @@ import com.diving.pungdong.account.Account;
 import com.diving.pungdong.certificate.dto.CertificatePhotoResult;
 import com.diving.pungdong.certificate.dto.StudentCertificateCreateRequest;
 import com.diving.pungdong.certificate.dto.StudentCertificateResponse;
+import com.diving.pungdong.certificate.dto.StudentCertificateUpdateRequest;
 import com.diving.pungdong.certificate.storage.StudentCertificatePhotoStorage;
 import com.diving.pungdong.course.Course;
 import com.diving.pungdong.course.RoundKind;
@@ -37,10 +38,11 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * 학생 보유 자격증 — 조회/등록/삭제 + 사진 업로드.
+ * 학생 보유 자격증 — 조회/등록/수정/삭제 + 사진 업로드.
  *
- * <p>등록은 <b>클라이언트가 준 값을 그대로 믿지 않는다</b>: {@code source}·{@code holderName}·강사·강의는
- * 전부 서버가 파생하고, {@code enrollmentId}·{@code photoFileKey} 는 소유를 검증한다.
+ * <p>등록·수정 모두 <b>클라이언트가 준 값을 그대로 믿지 않는다</b>: {@code source}·{@code holderName}·
+ * 강사·강의는 전부 서버가 파생하고, {@code enrollmentId}·{@code photoFileKey} 는 소유를 검증한다.
+ * 그 파생·검증은 {@link #applyCourseLink} 한 곳에 모여 있어 등록과 수정이 갈리지 않는다.
  */
 @Slf4j
 @Service
@@ -101,7 +103,7 @@ public class StudentCertificateService {
         disciplineService.getActiveByCode(request.getDisciplineCode());
         requireOwnedPhotoKey(account, request.getPhotoFileKey());
 
-        StudentCertificate.StudentCertificateBuilder builder = StudentCertificate.builder()
+        StudentCertificate cert = StudentCertificate.builder()
                 .owner(account)
                 .disciplineCode(request.getDisciplineCode())
                 .organizationCode(request.getOrganizationCode())
@@ -113,28 +115,85 @@ public class StudentCertificateService {
                 .acquiredAt(request.getAcquiredAt())
                 .issuer(request.getIssuer())
                 .photoFileKey(request.getPhotoFileKey())
-                .createdAt(OffsetDateTime.now(ZoneOffset.UTC));
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC))
+                .build();
 
-        // source 는 요청 필드가 아니라 강의 연결 여부의 파생값이다.
-        if (request.getEnrollmentId() == null) {
-            builder.source(CertificateSource.EXTERNAL);
-        } else {
-            applyCourseSnapshot(builder, account, request);
-        }
+        // source 는 요청 필드가 아니라 강의 연결 여부의 파생값이다 — 등록·수정이 같은 경로를 탄다.
+        applyCourseLink(cert, account, request.getEnrollmentId(), request.getDisciplineCode());
 
-        StudentCertificate saved = certificateRepo.save(builder.build());
+        StudentCertificate saved = certificateRepo.save(cert);
         return toResponse(saved, resolveHolderName(account));
     }
 
+    /* ─── 수정 ──────────────────────────────────────────────── */
+
     /**
-     * 강의 연결 — 소유·완료·종목 정합을 검증하고 강사·강의를 <b>등록 시점 스냅샷</b>으로 박제한다.
+     * 전면 교체(full replace) — 스칼라 필드는 보낸 값이 곧 결과다({@code issuer} 를 빼면 비워진다).
+     * 없거나 남의 것이면 404(존재 숨김) — {@code getOne}/{@code delete} 와 같다.
+     *
+     * <p><b>사진만 "생략 = 유지"</b> 로 예외다. 사진은 별도 업로드 왕복(2-phase)을 거치는 값이라 전면
+     * 교체를 그대로 적용하면 <b>번호 오타 하나 고치려고 카드를 다시 찍어 올려야 한다.</b> 그래서 비어
+     * 있으면 그대로 두고, 새 key 가 왔고 지금 것과 다를 때만 교체한다(같으면 no-op). 교체 시
+     * <b>옛 객체는 커밋 이후 파기</b> — PII 를 고아로 남기지 않는다. (사진 <i>제거</i>는 이 계약으로
+     * 표현할 수 없다. FE 편집 폼에도 제거 버튼이 없다 — 생기면 별도 필드가 필요하다.)
+     *
+     * <p>반대로 {@code enrollmentId} 는 전면 교체를 그대로 따른다 — 생략 = <b>연결 해제</b>. 잘못
+     * 연결한 강의를 되돌릴 길이 필요하고, 사진과 달리 재입력 비용이 없다(피커에서 다시 고르면 된다).
+     */
+    @Transactional
+    public StudentCertificateResponse update(Account account, Long id, StudentCertificateUpdateRequest request) {
+        StudentCertificate cert = requireMine(account, id);
+        // 등록과 같은 순서로 막는다 — 종목 → 사진 소유 → (아래) 강의 연결.
+        disciplineService.getActiveByCode(request.getDisciplineCode());
+        requireOwnedPhotoKey(account, request.getPhotoFileKey());
+
+        cert.updateDetails(
+                request.getDisciplineCode(),
+                request.getOrganizationCode(),
+                request.getOrganizationName(),
+                request.getOrganizationFullName(),
+                request.getLevel(),
+                request.getCertificationDisplayName(),
+                request.getCertificateNumber().trim(),
+                request.getAcquiredAt(),
+                request.getIssuer());
+
+        replacePhotoIfChanged(cert, request.getPhotoFileKey());
+        applyCourseLink(cert, account, request.getEnrollmentId(), request.getDisciplineCode());
+
+        // 더티 체킹으로 커밋 시 UPDATE. 위에서 던지면 롤백되고 사진 파기도 안 돈다(afterCommit).
+        return toResponse(cert, resolveHolderName(account));
+    }
+
+    /** 새 key 가 있고 지금 것과 다를 때만 교체 + 옛 객체 파기. 빈 값이면 유지, 같으면 no-op. */
+    private void replacePhotoIfChanged(StudentCertificate cert, String newPhotoKey) {
+        String currentKey = cert.getPhotoFileKey();
+        if (!StringUtils.hasText(newPhotoKey) || newPhotoKey.equals(currentKey)) {
+            return;
+        }
+        cert.replacePhoto(newPhotoKey);
+        if (StringUtils.hasText(currentKey)) {
+            deletePhotoAfterCommit(cert.getId(), currentKey);
+        }
+    }
+
+    /**
+     * 강의 연결 — <b>등록과 수정이 공유하는 단일 경로</b>다. {@code source} 와 강의 스냅샷은 여기서만
+     * 정해진다. 검증이 두 벌이면 등록은 통과시키고 수정은 거절하는(혹은 그 반대) 어긋남이 생긴다.
+     *
+     * <p>{@code enrollmentId} 가 없으면 <b>연결 없음</b>({@code EXTERNAL} + 스냅샷 비움), 있으면
+     * 소유·완료·종목 정합 3중 검증 후 강사·강의를 <b>그 시점 스냅샷</b>으로 박제한다.
      *
      * <p>단체({@code organizationCode}) 정합은 검사하지 않는다 — 코스의 단체는 "목표 단체"라 실제 발급
      * 단체가 다를 여지가 있다(제휴 발급). 종목처럼 구조적 모순이 아니다.
      */
-    private void applyCourseSnapshot(StudentCertificate.StudentCertificateBuilder builder,
-                                     Account account, StudentCertificateCreateRequest request) {
-        Enrollment enrollment = enrollmentRepo.findById(request.getEnrollmentId())
+    private void applyCourseLink(StudentCertificate cert, Account account, Long enrollmentId, String disciplineCode) {
+        if (enrollmentId == null) {
+            cert.unlinkCourse();
+            return;
+        }
+
+        Enrollment enrollment = enrollmentRepo.findById(enrollmentId)
                 .filter(e -> e.getStudent() != null && e.getStudent().getId().equals(account.getId()))
                 .orElseThrow(ResourceNotFoundException::new); // 없음/비소유 통일 — 존재 숨김
 
@@ -144,16 +203,16 @@ public class StudentCertificateService {
         }
 
         Course course = enrollment.getCourse();
-        if (course == null || !course.getDisciplineCode().equals(request.getDisciplineCode())) {
+        if (course == null || !course.getDisciplineCode().equals(disciplineCode)) {
             throw new BadRequestException("강의의 종목과 자격증의 종목이 달라요.");
         }
 
-        builder.source(CertificateSource.PUNGDONG)
-                .enrollmentId(enrollment.getId())
-                .courseId(course.getId())
-                .courseTitle(course.getTitle())
-                .courseCompletedAt(lastRegularRoundDate(enrollment))
-                .instructorName(course.getInstructor() == null ? null : course.getInstructor().getNickName());
+        cert.linkCourse(
+                enrollment.getId(),
+                course.getId(),
+                course.getTitle(),
+                lastRegularRoundDate(enrollment),
+                course.getInstructor() == null ? null : course.getInstructor().getNickName());
     }
 
     /** 수료일 = 마지막 정규 회차 날짜(civil date). 날짜 없는 회차는 제외. */

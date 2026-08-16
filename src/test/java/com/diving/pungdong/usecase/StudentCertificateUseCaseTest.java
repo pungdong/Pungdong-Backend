@@ -47,7 +47,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 학생 보유 자격증 use-case — 조회 / 등록(외부·강의연결) / 삭제 / 사진 업로드.
+ * 학생 보유 자격증 use-case — 조회 / 등록(외부·강의연결) / 수정 / 삭제 / 사진 업로드.
  *
  * <p><b>읽는 법</b>: {@code @DisplayName} 을 위에서 아래로 = 사양.
  * S* 성공 / V* 검증거절 / R* 권한 / A* 탈퇴 파기.
@@ -142,6 +142,14 @@ class StudentCertificateUseCaseTest {
         return mockMvc.perform(post("/certificates").header(HttpHeaders.AUTHORIZATION, token(who))
                         .contentType(MediaType.APPLICATION_JSON).content(write(payload)))
                 .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+    }
+
+    /** 수정(PUT) — 전면 교체. 사진은 payload 에 photoFileKey 가 없으면 기존 것이 유지된다. */
+    private String update(Account who, Long id, Map<String, Object> payload) throws Exception {
+        return mockMvc.perform(put("/certificates/" + id).header(HttpHeaders.AUTHORIZATION, token(who))
+                        .contentType(MediaType.APPLICATION_JSON).content(write(payload)))
+                .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
     }
 
@@ -373,6 +381,105 @@ class StudentCertificateUseCaseTest {
         assertThat(item.get("certificationDisplayName").asText()).isEqualTo(certName);
     }
 
+    @Test
+    @DisplayName("S11: 수정하면 번호·취득일·단체 표시명이 바뀌고, 사진을 안 보내면 기존 사진이 그대로 유지된다")
+    void update_replacesScalarsAndKeepsPhotoWhenAbsent() throws Exception {
+        Account student = account("c-s11@test.com", "diverS11", Role.STUDENT);
+        String fileKey = uploadPhoto(student, "card.jpg");
+        Map<String, Object> created = body("FREEDIVING", "AIDA", "LEVEL_2", "TYPO-1", "2024-11-02");
+        created.put("photoFileKey", fileKey);
+        created.put("issuer", "원래 발급처");
+        register(student, created);
+        Long id = certificateRepo.findAll().get(0).getId();
+
+        // 오타 정정 — 번호·취득일·표시명만 고치고 사진은 다시 올리지 않는다(폼이 재업로드를 강요하면 안 된다).
+        Map<String, Object> edited = body("FREEDIVING", "AIDA", "LEVEL_2", "AIDA-2024-99999", "2024-12-25");
+        edited.put("organizationName", "AIDA KOREA");
+        update(student, id, edited);
+
+        StudentCertificate saved = certificateRepo.findById(id).orElseThrow();
+        assertThat(saved.getCertificateNumber()).isEqualTo("AIDA-2024-99999");
+        assertThat(saved.getAcquiredAt()).isEqualTo(LocalDate.of(2024, 12, 25));
+        assertThat(saved.getOrganizationName()).isEqualTo("AIDA KOREA");
+        // 사진은 유지 — key 도 실물 파일도 그대로다
+        assertThat(saved.getPhotoFileKey()).isEqualTo(fileKey);
+        assertThat(Files.exists(diskPathOf(fileKey))).isTrue();
+        // 전면 교체라 보내지 않은 스칼라는 비워진다(PATCH 가 아니다)
+        assertThat(saved.getIssuer()).isNull();
+    }
+
+    @Test
+    @DisplayName("S12: 새 사진 key 로 수정하면 사진이 교체되고 이전 사진 실물이 파기된다 (PII 고아 방지)")
+    void update_replacesPhotoAndPurgesOldObject() throws Exception {
+        Account student = account("c-s12@test.com", "diverS12", Role.STUDENT);
+        String oldKey = uploadPhoto(student, "old.jpg");
+        Map<String, Object> created = body("FREEDIVING", "AIDA", "LEVEL_2", "PHOTO", "2024-11-02");
+        created.put("photoFileKey", oldKey);
+        register(student, created);
+        Long id = certificateRepo.findAll().get(0).getId();
+
+        String newKey = uploadPhoto(student, "new.jpg");
+        Map<String, Object> edited = body("FREEDIVING", "AIDA", "LEVEL_2", "PHOTO", "2024-11-02");
+        edited.put("photoFileKey", newKey);
+        update(student, id, edited);
+
+        assertThat(certificateRepo.findById(id).orElseThrow().getPhotoFileKey()).isEqualTo(newKey);
+        assertThat(Files.exists(diskPathOf(newKey))).isTrue();
+        assertThat(Files.exists(diskPathOf(oldKey))).isFalse(); // 옛 카드 사진이 남아 있으면 안 된다
+    }
+
+    @Test
+    @DisplayName("S13: 외부 취득으로 등록한 뒤 강의를 연결하면 source=PUNGDONG + 강사·강의가 박제된다 (깜빡한 연동 사후 보정)")
+    void update_linksCourseAfterwards() throws Exception {
+        Account instructor = account("c-s13i@test.com", "김민지", Role.INSTRUCTOR);
+        Account student = account("c-s13@test.com", "diverS13", Role.STUDENT);
+        Course course = course(instructor, "FREEDIVING", "AIDA");
+        LocalDate roundDate = LocalDate.now().minusDays(4);
+        Enrollment e = enrollment(student, course, true, roundDate);
+
+        register(student, body("FREEDIVING", "AIDA", "LEVEL_2", "LATE-LINK", "2024-11-02"));
+        Long id = certificateRepo.findAll().get(0).getId();
+        assertThat(certificateRepo.findById(id).orElseThrow().getSource()).isEqualTo(CertificateSource.EXTERNAL);
+
+        Map<String, Object> edited = body("FREEDIVING", "AIDA", "LEVEL_2", "LATE-LINK", "2024-11-02");
+        edited.put("enrollmentId", e.getId());
+        update(student, id, edited);
+
+        StudentCertificate saved = certificateRepo.findById(id).orElseThrow();
+        assertThat(saved.getSource()).isEqualTo(CertificateSource.PUNGDONG);
+        assertThat(saved.getEnrollmentId()).isEqualTo(e.getId());
+        assertThat(saved.getCourseId()).isEqualTo(course.getId());
+        assertThat(saved.getCourseTitle()).isEqualTo("AIDA2 자격 과정");
+        assertThat(saved.getInstructorName()).isEqualTo("김민지"); // 요청에 없던 값 — 서버가 붙인다
+        assertThat(saved.getCourseCompletedAt()).isEqualTo(roundDate);
+    }
+
+    @Test
+    @DisplayName("S14: enrollmentId 를 빼고 수정하면 연결이 해제된다 — source=EXTERNAL + 강의 스냅샷이 전부 비워진다")
+    void update_unlinksCourse() throws Exception {
+        Account instructor = account("c-s14i@test.com", "강사S14", Role.INSTRUCTOR);
+        Account student = account("c-s14@test.com", "diverS14", Role.STUDENT);
+        Course course = course(instructor, "FREEDIVING", "AIDA");
+        Enrollment e = enrollment(student, course, true, LocalDate.now().minusDays(6));
+
+        Map<String, Object> created = body("FREEDIVING", "AIDA", "LEVEL_2", "UNLINK", "2024-11-02");
+        created.put("enrollmentId", e.getId());
+        register(student, created);
+        Long id = certificateRepo.findAll().get(0).getId();
+
+        // 잘못 연결했다 — enrollmentId 없이 다시 보내면 해제(전면 교체 의미론)
+        update(student, id, body("FREEDIVING", "AIDA", "LEVEL_2", "UNLINK", "2024-11-02"));
+
+        StudentCertificate saved = certificateRepo.findById(id).orElseThrow();
+        assertThat(saved.getSource()).isEqualTo(CertificateSource.EXTERNAL);
+        // 부분 잔존은 유령 강의를 만든다 — 전부 비워져야 한다
+        assertThat(saved.getEnrollmentId()).isNull();
+        assertThat(saved.getCourseId()).isNull();
+        assertThat(saved.getCourseTitle()).isNull();
+        assertThat(saved.getCourseCompletedAt()).isNull();
+        assertThat(saved.getInstructorName()).isNull();
+    }
+
     /* ════════════════ V — 검증 거절 ════════════════ */
 
     @Test
@@ -482,6 +589,73 @@ class StudentCertificateUseCaseTest {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    @DisplayName("V8: 수정에 남이 올린 사진 key 를 넣으면 400 — 기존 사진은 그대로 남는다")
+    void update_rejectsOtherPersonsPhoto() throws Exception {
+        Account victim = account("c-v8a@test.com", "diverV8a", Role.STUDENT);
+        Account attacker = account("c-v8b@test.com", "diverV8b", Role.STUDENT);
+        String victimKey = uploadPhoto(victim, "leaked.jpg");
+        String myKey = uploadPhoto(attacker, "mine.jpg");
+
+        Map<String, Object> created = body("FREEDIVING", "AIDA", "LEVEL_2", "V8", "2024-11-02");
+        created.put("photoFileKey", myKey);
+        register(attacker, created);
+        Long id = certificateRepo.findAll().get(0).getId();
+
+        Map<String, Object> edited = body("FREEDIVING", "AIDA", "LEVEL_2", "V8", "2024-11-02");
+        edited.put("photoFileKey", victimKey);
+
+        mockMvc.perform(put("/certificates/" + id).header(HttpHeaders.AUTHORIZATION, token(attacker))
+                        .contentType(MediaType.APPLICATION_JSON).content(write(edited)))
+                .andExpect(status().isBadRequest());
+
+        assertThat(certificateRepo.findById(id).orElseThrow().getPhotoFileKey()).isEqualTo(myKey);
+        assertThat(Files.exists(diskPathOf(victimKey))).isTrue(); // 남의 실물도 건드리지 않는다
+    }
+
+    @Test
+    @DisplayName("V9: 수정으로 아직 안 끝난 강의를 연결하면 400 — 등록과 같은 판정을 쓴다")
+    void update_rejectsIncompleteEnrollment() throws Exception {
+        Account instructor = account("c-v9i@test.com", "강사V9", Role.INSTRUCTOR);
+        Account student = account("c-v9@test.com", "diverV9", Role.STUDENT);
+        Course course = course(instructor, "FREEDIVING", "AIDA");
+        Enrollment e = enrollment(student, course, false, LocalDate.now().minusDays(1)); // done 아님
+
+        register(student, body("FREEDIVING", "AIDA", "LEVEL_2", "V9", "2024-11-02"));
+        Long id = certificateRepo.findAll().get(0).getId();
+
+        Map<String, Object> edited = body("FREEDIVING", "AIDA", "LEVEL_2", "V9-EDITED", "2024-11-02");
+        edited.put("enrollmentId", e.getId());
+
+        mockMvc.perform(put("/certificates/" + id).header(HttpHeaders.AUTHORIZATION, token(student))
+                        .contentType(MediaType.APPLICATION_JSON).content(write(edited)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("아직 수강이 끝나지 않은 강의예요."));
+
+        // 거절됐으면 스칼라 변경도 남으면 안 된다(부분 적용 금지 — 통째로 롤백)
+        assertThat(certificateRepo.findById(id).orElseThrow().getCertificateNumber()).isEqualTo("V9");
+    }
+
+    @Test
+    @DisplayName("V10: 수정에서 강의의 종목과 자격증의 종목이 다르면 400")
+    void update_rejectsDisciplineMismatch() throws Exception {
+        Account instructor = account("c-v10i@test.com", "강사V10", Role.INSTRUCTOR);
+        Account student = account("c-v10@test.com", "diverV10", Role.STUDENT);
+        Course course = course(instructor, "FREEDIVING", "AIDA");
+        Enrollment e = enrollment(student, course, true, LocalDate.now().minusDays(3));
+
+        register(student, body("SCUBA", "PADI", "LEVEL_1", "V10", "2024-11-02"));
+        Long id = certificateRepo.findAll().get(0).getId();
+
+        Map<String, Object> edited = body("SCUBA", "PADI", "LEVEL_1", "V10", "2024-11-02"); // 강의는 프리다이빙
+        edited.put("enrollmentId", e.getId());
+
+        mockMvc.perform(put("/certificates/" + id).header(HttpHeaders.AUTHORIZATION, token(student))
+                        .contentType(MediaType.APPLICATION_JSON).content(write(edited)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("강의의 종목과 자격증의 종목이 달라요."));
+    }
+
     /* ════════════════ R — 권한 ════════════════ */
 
     @Test
@@ -540,6 +714,23 @@ class StudentCertificateUseCaseTest {
         register(instructor, body("SCUBA", "PADI", "LEVEL_3", "INS-1", "2024-01-10"));
 
         assertThat(certificateRepo.findAll()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("R5: 남의 자격증은 수정도 404 — 존재를 숨기고 내용도 그대로다")
+    void updateOthersCertificate_404() throws Exception {
+        Account owner = account("c-r5a@test.com", "diverR5a", Role.STUDENT);
+        Account stranger = account("c-r5b@test.com", "diverR5b", Role.STUDENT);
+        register(owner, body("FREEDIVING", "AIDA", "LEVEL_2", "MINE", "2024-11-02"));
+        Long id = certificateRepo.findAll().get(0).getId();
+
+        mockMvc.perform(put("/certificates/" + id).header(HttpHeaders.AUTHORIZATION, token(stranger))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(write(body("FREEDIVING", "AIDA", "LEVEL_3", "HIJACKED", "2024-11-02"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(-1009));
+
+        assertThat(certificateRepo.findById(id).orElseThrow().getCertificateNumber()).isEqualTo("MINE");
     }
 
     /* ════════════════ A — 탈퇴 파기 ════════════════ */
