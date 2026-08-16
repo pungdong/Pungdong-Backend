@@ -72,6 +72,18 @@ public class InstructorScheduleHubResponse {
     @Builder
     public static class RoundCard {
         private final Long roundId;
+        /**
+         * 이 회차가 붙은 일정(session) id. 슬롯 미배정/소멸이면 null.
+         *
+         * <p>⚠️ <b>채팅 진입에 쓰지 않는다</b> — 그건 {@link #chat} 의 {@code state}/{@code roomId} 로 판단한다.
+         * 이 필드는 일정 단위 API(예: 세션 일괄 완료)를 부르기 위한 좌표다.
+         */
+        private final Long sessionId;
+        /**
+         * 회차 채팅 진입 정보. <b>항상 non-null</b> — 채팅이 없는 회차는 {@code state=HIDDEN} 이다.
+         * null 과 HIDDEN 두 가지로 "안 보임" 을 표현하면 한쪽만 검사한 호출부가 조용히 버그가 된다.
+         */
+        private final com.diving.pungdong.chat.dto.RoundChatState chat;
         private final Integer roundIndex;
         private final String roundKind;            // REGULAR | EXTRA
         private final InstructorRoundStatus status;

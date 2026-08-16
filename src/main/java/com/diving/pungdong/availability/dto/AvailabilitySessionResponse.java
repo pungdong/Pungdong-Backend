@@ -58,6 +58,15 @@ public class AvailabilitySessionResponse {
     private List<ApplicantSummaryResponse> applicants;
 
     /**
+     * 세션 단체 채팅 진입 정보 — 슬롯 상세의 "세션 단체 채팅" CTA 가 이걸로 노출·이동을 결정한다.
+     *
+     * <p><b>항상 non-null</b>({@code state=HIDDEN} 이 "안 보임"). CTA 는 {@code chat.roomId} 로 이동하고
+     * <b>{@code id}(세션 id)를 방 키로 쓰지 않는다</b> — 오늘 두 값이 같은 숫자인 건 BE 내부 구현이라,
+     * 나중에 방 키를 분리하면 그렇게 만든 쪽만 깨진다.
+     */
+    private com.diving.pungdong.chat.dto.RoundChatState chat;
+
+    /**
      * 엔티티 → 응답 매핑. 점유 파생값·venueName·applicants 는 호출자가 계산해 넘긴다(N+1 회피 위해 배치 해석).
      */
     public static AvailabilitySessionResponse of(AvailabilitySession s, SlotStatus status,

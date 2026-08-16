@@ -288,6 +288,13 @@ export type NotificationType =
   | 'REFUND_COMPLETED'           // 환불 완료 → 학생 (직접 요청 환불에만; 자동환불은 위 두 타입이 안내)
   // 커뮤니티 — data: { postId, commentId }
   | 'COMMUNITY_COMMENT'
+  // 세션 단체 채팅 — data: { roomId, messageId }
+  //
+  // ⚠️ 유일하게 **허브가 아니라 채팅방으로 바로 착지**하는 타입이다. 다른 타입이 파라미터 없는
+  // 허브로 가는 건 v1 에 그 화면이 없었기 때문이지 강한 규약이어서가 아니었고, 채팅은 목록 메뉴
+  // 자체가 없어 방으로 못 가면 알림이 쓸모없다. 착지 실패(방 없음/참여자 아님 = code -1009)
+  // 시 폴백은 허브(일정 탭). data 에 sessionId 는 싣지 않는다 — 방 키는 roomId 하나다.
+  | 'CHAT_MESSAGE'
   // 레거시 (사문화 — 과거 행 표시용). data: { lectureId, scheduleId }
   | 'RESERVATION_CREATED'
   | 'RESERVATION_CANCELLED'
@@ -1786,6 +1793,12 @@ export interface ApplicantSummaryResponse {
  */
 export interface AvailabilitySessionResponse {
   id: number;
+  /**
+   * "세션 단체 채팅" CTA 상태. **항상 non-null**.
+   * ⚠️ CTA 는 `chat.roomId` 로 이동한다 — `id`(세션 id)를 방 키로 넘기지 말 것.
+   * 오늘 두 값이 같은 숫자인 건 BE 내부 구현이라, 그렇게 만든 쪽만 나중에 깨진다.
+   */
+  chat: RoundChatState;
   date: string;
   startTime: string;
   endTime: string;
@@ -2072,6 +2085,13 @@ export type CourseScheduleStatus =
 
 export interface ScheduleRound {
   roundId: number; // 회차 id — 취소·결제·일정변경 행위 단위
+  /**
+   * 이 회차가 붙은 일정(session) id. 슬롯 미배정/소멸이면 null.
+   * ⚠️ **채팅 진입에 쓰지 않는다** — 그건 chat.state / chat.roomId 로 판단한다.
+   */
+  sessionId: number | null;
+  /** 회차 채팅 진입 정보. **항상 non-null** (채팅이 없으면 state='HIDDEN'). */
+  chat: RoundChatState;
   roundIndex: number | null; // REGULAR 1..N, EXTRA null
   roundKind: 'REGULAR' | 'EXTRA' | null;
   status: RoundScheduleStatus;
@@ -2202,6 +2222,13 @@ export interface InstructorEnrollmentCard {
 }
 export interface InstructorRoundCard {
   roundId: number;
+  /**
+   * 이 회차가 붙은 일정(session) id. 슬롯 미배정/소멸이면 null.
+   * ⚠️ **채팅 진입에 쓰지 않는다** — 그건 chat.state / chat.roomId 로 판단한다.
+   */
+  sessionId: number | null;
+  /** 회차 채팅 진입 정보. **항상 non-null** (채팅이 없으면 state='HIDDEN'). */
+  chat: RoundChatState;
   roundIndex: number | null;
   roundKind: string;             // REGULAR | EXTRA
   status: InstructorRoundStatus;
@@ -2670,9 +2697,207 @@ export const ErrorCode = {
    * 나오는 곳: 수강 환불(POST /enrollments/{id}/refund)·취소 등 환불이 걸린 상태 전이.
    */
   REFUND_BLOCKED: -1022,
+  /**
+   * 메시지를 너무 빨리 보냄 — 전송 레이트리밋 초과 (HTTP **429**).
+   * ★ 사용자 잘못이 아니라 연타 방어다 — 응답 body 의 `retryAfterSeconds` 만큼 기다렸다 재시도 안내
+   *   ("메시지를 너무 빨리 보내고 있어요"). 200 + 필드가 아니라 429 인 이유: 메시지가 **저장되지 않았는데**
+   *   2xx 를 주면 FE 가 전송 성공으로 오해한다.
+   * 나오는 곳: POST /chat/rooms/{roomId}/messages.
+   */
+  TOO_MANY_REQUESTS: -1023,
 } as const;
 
+/**
+ * 429(-1023) 전용 응답 body — 공통 실패 envelope + 잔여 초.
+ * 절대시각이 아니라 초인 이유는 기기 시계가 서버와 어긋나도 안 밀리게 하려는 것
+ * (otpExpiresInSeconds / paymentExpiresInSeconds / closesInSeconds 와 같은 규약).
+ */
+export interface RateLimitedResult extends CommonResult {
+  retryAfterSeconds: number;
+}
+
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
+
+// ============================================================
+// 세션 단체 채팅 (chat 도메인)
+// docs/features/session-group-chat.md · docs/architecture/notification.md 참고
+//
+// 채팅 그룹의 단위는 **강사 가용시간 슬롯(일정, session)** 이다. 진입은 두 곳:
+//   · 강사 "내 일정 > 슬롯 상세" 의 세션 단체 채팅 CTA → AvailabilitySessionResponse.chat
+//   · 수강관리/강의일정 **회차 카드**의 채팅 버튼 → InstructorRoundCard.chat / ScheduleRound.chat
+// 채팅만 모아보는 목록 화면은 **없다**(제품 결정).
+//
+// 🔴 roomId 규율 — FE 는 roomId 를 **직접 만들지 않는다.** 응답으로 받은 chat.roomId 나
+//    푸시 data.roomId 를 그대로 되돌려준다. 오늘 이 값이 sessionId 와 같은 숫자인 것은 BE 내부
+//    구현이고, session.id 로 구성하면 나중에 방 키가 분리될 때 그렇게 만든 쪽만 깨진다.
+//    HIDDEN 일 때 roomId 가 null 인 것이 그 규율의 안전망이다.
+//
+// 🔴 실시간 — BE 에 WebSocket/SSE 가 **없다.** 화면이 열려 있는 동안 `?after=` 커서 폴링 +
+//    백그라운드는 FCM 푸시다. 권장 간격 3초(강제 아님, 백오프 자유). 조회에 레이트리밋은 없다.
+// ============================================================
+
+/**
+ * 채팅방 표시 상태 — **조회자 기준**으로 서버가 파생한다.
+ *   HIDDEN = 참여자가 아님(미결제 등) → 아이콘 자체를 렌더하지 않는다
+ *   ACTIVE = 참여자 + 마감 전 + 일정 생존 → 읽기 + 쓰기
+ *   CLOSED = 마감(세션 종료+24h) 지났거나 일정이 사라짐 → **읽기 전용**(조회는 200)
+ */
+export type ChatRoomState = 'HIDDEN' | 'ACTIVE' | 'CLOSED';
+
+/** 방 안에서의 역할. 전역 Role 이 아니라 **이 방 기준**이다(강사도 남의 수업에선 학생). */
+export type ChatParticipantRole = 'INSTRUCTOR' | 'STUDENT';
+
+/** 회차 카드·슬롯 상세에 실리는 채팅 진입 정보. 항상 non-null. */
+export interface RoundChatState {
+  state: ChatRoomState;
+  /** HIDDEN 이면 null — navigate 자체를 막는다. */
+  roomId: number | null;
+  /**
+   * 안 읽은 **상대의 메시지** 수(HIDDEN 이면 0).
+   * 개설 안내(SYSTEM)는 세지 않으므로 **아무도 말하지 않은 새 방은 0** 이다 — 배지가 안 뜬다.
+   */
+  unreadCount: number;
+}
+
+/** 참여자 요약. displayName 은 **BE 가 합성**한다 — FE 가 접미사를 붙이지 않는다. */
+export interface ChatParticipant {
+  accountId: number;          // 동명이인 대비 · mine 판정의 기준
+  displayName: string;        // "김수민 학생" / "김민지 강사" ← 라벨은 이것만 쓴다
+  name: string;               // 닉네임 원본(실명 미수집)
+  initials: string;           // 아바타 첫 글자
+  role: ChatParticipantRole;
+}
+
+/**
+ * GET /chat/rooms/{roomId} — 방 상세. 없으면 **생성**한다(지연 생성).
+ * 비참여자·없는 방 → HTTP 400 + code -1009(RESOURCE_NOT_FOUND, 존재 숨김). ★404 아님★
+ * CLOSED 방도 **200** 이다(읽기 전용이라 대화는 보여야 한다).
+ *
+ * 헤더 값(courseTitle/roundIndex/date/시간/venueName)은 전부 **방 스냅샷**이라 일정이
+ * 물리 삭제돼도 깨지지 않는다.
+ */
+export interface ChatRoomResponse {
+  roomId: number;
+  state: Exclude<ChatRoomState, 'HIDDEN'>;  // 여기엔 HIDDEN 이 안 나온다
+  /**
+   * 마감까지 남은 **초**. ACTIVE 일 때만, CLOSED 면 null.
+   * 절대시각을 주지 않는 이유: 기기 시계가 어긋나면 카운트다운이 그만큼 밀린다
+   * (otpExpiresInSeconds / paymentExpiresInSeconds 와 같은 규칙).
+   * ⚠️ 슬롯 시간이 바뀌면 이 값이 **늘어날 수도** 있다 — 매 조회 값으로 타이머를 재설정할 것
+   *   (로컬 감산 누적 금지).
+   */
+  closesInSeconds: number | null;
+  /**
+   * 강의명. 서로 다른 강의의 수강생이 같은 일정에 모일 수 있어(일정 = 물리적 강사·시간·위치 슬롯)
+   * **가장 먼저 합류한 회차의 강의명**을 쓴다. 강의 정보가 끊긴 회차뿐인 예외적 경우에만 null.
+   */
+  courseTitle: string | null;
+  /**
+   * 회차 번호. **추가세션(EXTRA)은 정규 번호가 없어 null 이다** — 실제로 자주 나오는 값이니
+   * 헤더를 "{courseTitle} {roundIndex}회차" 로 조립할 때 반드시 분기할 것.
+   */
+  roundIndex: number | null;
+  /** civil(오프셋 없음) — new Date() 로 만지지 말 것. "2026-12-10" */
+  date: string;
+  /** civil, "HH:mm:ss" (기존 AvailabilitySessionResponse.startTime 과 같은 포맷) */
+  startTime: string;
+  endTime: string;
+  venueName: string | null;
+  /** 현재 참여자만(이탈자 제외) — 헤더 "참여자 3명". */
+  participantCount: number;
+  participants: ChatParticipant[];
+  /** 안 읽은 **상대의 메시지** 수. 개설 안내(kind='SYSTEM')는 세지 않아 새 방은 0 이다. */
+  unreadCount: number;
+  /** 폴링 초기 커서. 메시지가 없으면 null. */
+  latestMessageId: number | null;
+}
+
+/** GET /chat/rooms/{roomId}/participants */
+export interface ChatParticipantsResponse {
+  participants: ChatParticipant[];
+  participantCount: number;
+}
+
+/** 메시지 종류. SYSTEM 안내는 **같은 스트림에 섞여** 온다(별도 배열 아님). */
+export type ChatMessageKind = 'USER' | 'SYSTEM';
+
+export interface ChatMessage {
+  id: number;                 // 커서 겸용
+  kind: ChatMessageKind;
+  /**
+   * 본문. SYSTEM 은 "회차 채팅방이 열렸어요" 처럼 **날짜가 없는** 문구다 —
+   * 디자인의 "12/3 (화) · " 접두와 날짜 구분선은 FE 가 sentAt 으로 합성한다.
+   */
+  text: string;
+  deleted: boolean;           // v1 은 삭제 API 가 없어 항상 false
+  /** **instant** — ISO8601 + 오프셋("...Z"). 방 헤더의 date/startTime 과 달리 변환 대상이다. */
+  sentAt: string;
+  senderId: number | null;            // SYSTEM 은 null
+  senderDisplayName: string | null;   // "김수민 학생" — 말풍선 이름 라벨
+  senderName: string | null;
+  senderRole: ChatParticipantRole | null;
+  /**
+   * 요청자 기준으로 **서버가 계산**한다 — 말풍선 좌우 판정.
+   * FE 가 senderId 와 자기 accountId 를 비교하지 않아도 된다(그 경로가 플랫폼마다 달라 버그가 났다).
+   * SYSTEM 은 항상 false.
+   */
+  mine: boolean;
+  /**
+   * 전송 시 보낸 멱등키 **에코**. SYSTEM 은 null.
+   * 낙관적 말풍선을 서버 메시지와 잇는 유일한 키다 — 특히 after 폴링이 방금 보낸 메시지를 다시
+   * 실어오므로, 이 키로 병합하지 않으면 낙관적 1건 + 폴링 1건으로 **두 번 렌더**된다.
+   */
+  clientMessageId: string | null;
+}
+
+/**
+ * GET /chat/rooms/{roomId}/messages?before=&after=&size=
+ *
+ * before(과거 스크롤) / after(폴링) 중 **하나만** — 함께 주면 400. 둘 다 없으면 최신 size 건.
+ * before·after 는 모두 **exclusive**(그 id 자체는 미포함). size 기본 30 / 최대 100.
+ * before 는 "커서에 **가장 가까운** 과거" N건이다(가장 오래된 N건이 아니다).
+ */
+export interface ChatMessageListResponse {
+  /** **항상 id 오름차순**(과거→최신). 요청 방향과 무관 — 재정렬 불필요. */
+  messages: ChatMessage[];
+  /**
+   * 요청 방향으로 더 있는가. **명시 필드다** — messages.length < size 로 추론하지 말 것
+   * (그 추론 방식이 커뮤니티 댓글에서 무한스크롤 종료조건을 깬 적이 있다).
+   * after 폴링에서 true = 버스트가 size 를 넘음 → 즉시 재조회.
+   */
+  hasMore: boolean;
+  /**
+   * 그 방향 다음 요청에 그대로 넣을 값(before → 목록 최소 id, after → 목록 최대 id).
+   * ⚠️ **빈 목록이면 요청에 쓴 커서를 그대로 에코한다**(커서 없이 불렀고 결과도 비면 null).
+   *   after 폴링은 대부분 빈 목록이라, 여기서 null 을 주면 `cursor = res.nextCursor` 한 호출부의
+   *   커서가 날아가고 다음 폴링이 최신 N건을 통째로 다시 가져와 중복 렌더가 난다.
+   */
+  nextCursor: number | null;
+}
+
+/**
+ * POST /chat/rooms/{roomId}/messages
+ * → **201** 신규 저장 / **200** 중복(기존 메시지 그대로). 둘 다 body 는 ChatMessage 다.
+ *   FE 는 둘을 같게 처리하면 된다(어느 쪽이든 낙관적 말풍선을 확정으로 바꾼다).
+ * CLOSED 방 전송 → 400. 레이트리밋 초과 → 429 + code -1023 + retryAfterSeconds.
+ */
+export interface ChatSendRequest {
+  text: string;               // @NotBlank, 최대 1000자
+  /**
+   * 전송 멱등키. 같은 값으로 다시 보내면 새 메시지를 만들지 않는다.
+   * **UUID 포맷이 아니어도 된다**(서버가 형식을 검사하지 않는다, 최대 64자) — RN(Hermes)에
+   * WebCrypto 가 없어 UUID 를 강제하면 네이티브 의존성이 붙기 때문. UNIQUE 가 (보낸사람, 키)
+   * 라 사용자 간 충돌은 무의미하다.
+   * ★ FE 규약: **전송 버튼을 누른 시점에 1회 생성**하고 재시도(자동·수동 무관)엔 같은 값을 재사용한다.
+   *   재시도마다 새로 만들면 멱등이 의미를 잃는다.
+   */
+  clientMessageId: string;
+}
+
+/** PATCH /chat/rooms/{roomId}/read → 204. 멱등 — 전진만 하고 되감기지 않는다. */
+export interface ChatReadRequest {
+  lastReadMessageId: number;
+}
 
 // ============================================================
 // 사이트 설정 (siteSettings) — 런칭 토글

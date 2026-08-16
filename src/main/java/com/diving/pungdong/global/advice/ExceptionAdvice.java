@@ -2,6 +2,7 @@ package com.diving.pungdong.global.advice;
 
 import com.diving.pungdong.global.advice.exception.*;
 import com.diving.pungdong.global.model.CommonResult;
+import com.diving.pungdong.global.model.RateLimitedResult;
 import com.diving.pungdong.global.ResponseService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -186,6 +187,23 @@ public class ExceptionAdvice {
         log.error("[payment] 환불 처리 불가로 상태 전이 롤백 — {}", e.getMessage());
         return responseService.getFailResult(
                 Integer.parseInt(getMessage("refundBlocked.code")), getMessage("refundBlocked.msg"));
+    }
+
+    /**
+     * 요청이 너무 잦음 — 429. body 에 {@code retryAfterSeconds} 를 더해 "N초 후 다시 시도" 를 그릴 수 있게 한다
+     * (절대시각이 아니라 잔여 초인 이유는 {@code RateLimitedResult} 참고).
+     *
+     * <p>200 + 필드로 주지 않는 이유: 요청이 처리되지 않았는데 200 이면 FE 가 성공으로 오해한다.
+     */
+    @ExceptionHandler(TooManyRequestsException.class)
+    @ResponseStatus(HttpStatus.TOO_MANY_REQUESTS)
+    public CommonResult tooManyRequests(TooManyRequestsException e) {
+        RateLimitedResult result = new RateLimitedResult();
+        result.setSuccess(false);
+        result.setCode(Integer.parseInt(getMessage("tooManyRequests.code")));
+        result.setMsg(getMessage("tooManyRequests.msg"));
+        result.setRetryAfterSeconds(e.getRetryAfterSeconds());
+        return result;
     }
 
     @ExceptionHandler(EmailDuplicationException.class)

@@ -81,6 +81,8 @@ public class EnrollmentService {
     private final com.diving.pungdong.global.sitesettings.SiteSettingsProvider siteSettings;
     private final IdentityVerificationJpaRepo identityVerificationRepo;
     private final ApplicationEventPublisher events; // 결제된 회차의 취소·차액 환불(payment 리스너 수신)
+    // 회차 카드의 채팅 버튼 상태(HIDDEN/ACTIVE/CLOSED + unread). chat 쪽은 레포만 참조하므로 순환 없음.
+    private final com.diving.pungdong.chat.ChatQueryService chatQueryService;
 
     /** 1회차 신청 — 수강 컨테이너 + 첫 만남 회차 생성. */
     @Transactional
@@ -614,8 +616,16 @@ public class EnrollmentService {
         Map<String, String> venueNames = resolveNames(
                 enrollments.stream().flatMap(e -> e.getRounds().stream()).collect(Collectors.toList()));
 
+        // 회차 채팅 상태는 세션 id 를 전부 모아 한 번에 푼다 — 회차마다 조회하면 N+1 이다.
+        Map<Long, com.diving.pungdong.chat.dto.RoundChatState> chatStates = chatQueryService.statesFor(
+                student.getId(),
+                enrollments.stream().flatMap(e -> e.getRounds().stream())
+                        .map(EnrollmentService::sessionIdOf)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toSet()));
+
         List<ScheduleHubResponse.ScheduleCourse> courses = enrollments.stream()
-                .map(e -> buildScheduleCourse(e, venueNames))
+                .map(e -> buildScheduleCourse(e, venueNames, chatStates))
                 .sorted(Comparator.comparingInt(c -> CourseScheduleStatus.ORDER.indexOf(c.getStatus())))
                 .collect(Collectors.toList());
 
@@ -631,7 +641,14 @@ public class EnrollmentService {
                 OffsetDateTime.now(ZoneOffset.UTC));
     }
 
-    private ScheduleHubResponse.ScheduleCourse buildScheduleCourse(Enrollment e, Map<String, String> venueNames) {
+    /** 회차가 붙은 일정 id — 취소·거절로 끊겼으면 null(스냅샷은 남지만 session_id 는 비워진다). */
+    private static Long sessionIdOf(EnrollmentRound r) {
+        return r.getAvailabilitySession() == null ? null : r.getAvailabilitySession().getId();
+    }
+
+    private ScheduleHubResponse.ScheduleCourse buildScheduleCourse(
+            Enrollment e, Map<String, String> venueNames,
+            Map<Long, com.diving.pungdong.chat.dto.RoundChatState> chatStates) {
         int paymentTtlHours = siteSettings.current().paymentTtlHours();
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         // 재신청으로 대체된 죽은 회차는 제외 — 안 그러면 옛 REJECTED 때문에 강의가 영원히 RESCHEDULING 으로 굳는다.
@@ -639,6 +656,9 @@ public class EnrollmentService {
                 .sorted(Comparator.comparing(r -> r.getRoundIndex() == null ? Integer.MAX_VALUE : r.getRoundIndex()))
                 .map(r -> ScheduleHubResponse.ScheduleRound.builder()
                         .roundId(r.getId())
+                        .sessionId(sessionIdOf(r))
+                        .chat(chatStates.getOrDefault(sessionIdOf(r),
+                                com.diving.pungdong.chat.dto.RoundChatState.hidden()))
                         .roundIndex(r.getRoundIndex())
                         .roundKind(r.getRoundKind() == null ? null : r.getRoundKind().name())
                         .status(RoundScheduleStatus.from(r))

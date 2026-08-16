@@ -71,6 +71,8 @@ public class InstructorEnrollmentService {
     private final InstructorApplicationJpaRepo applicationRepo;
     private final VenueRefResolver venueRefResolver;
     private final SessionCleaner sessionCleaner;
+    // 회차 카드의 채팅 버튼 상태(HIDDEN/ACTIVE/CLOSED + unread). chat 쪽은 레포만 참조하므로 순환 없음.
+    private final com.diving.pungdong.chat.ChatQueryService chatQueryService;
     private final BookableSlotDeriver slotDeriver;
     private final AvailabilityCoverageJpaRepo coverageRepo;
     private final AvailabilitySessionJpaRepo sessionRepo;
@@ -111,8 +113,16 @@ public class InstructorEnrollmentService {
                 .filter(e -> e.getStudent() != null && hasDoneRound(e))
                 .collect(Collectors.groupingBy(e -> e.getStudent().getId(), Collectors.counting()));
 
+        // 회차 채팅 상태는 세션 id 를 전부 모아 한 번에 푼다 — 회차마다 조회하면 N+1 이다.
+        Map<Long, com.diving.pungdong.chat.dto.RoundChatState> chatStates = chatQueryService.statesFor(
+                instructor.getId(),
+                all.stream().flatMap(e -> e.getRounds().stream())
+                        .map(InstructorEnrollmentService::sessionIdOf)
+                        .filter(java.util.Objects::nonNull)
+                        .collect(Collectors.toSet()));
+
         List<EnrollmentCard> cards = all.stream()
-                .map(e -> card(e, today, venueNames, attendedByStudent))
+                .map(e -> card(e, today, venueNames, attendedByStudent, chatStates))
                 .collect(Collectors.toList());
 
         List<FilterCount> filters = List.of(
@@ -129,8 +139,14 @@ public class InstructorEnrollmentService {
         return new InstructorScheduleHubResponse(filters, filtered);
     }
 
+    /** 회차가 붙은 일정 id — 취소·거절로 끊겼으면 null(스냅샷은 남지만 session_id 는 비워진다). */
+    private static Long sessionIdOf(EnrollmentRound r) {
+        return r.getAvailabilitySession() == null ? null : r.getAvailabilitySession().getId();
+    }
+
     private EnrollmentCard card(Enrollment e, LocalDate today, Map<String, String> venueNames,
-                                Map<Long, Long> attendedByStudent) {
+                                Map<Long, Long> attendedByStudent,
+                                Map<Long, com.diving.pungdong.chat.dto.RoundChatState> chatStates) {
         Course course = e.getCourse();
         int totalRegular = course == null ? 0 : (int) course.getRounds().stream()
                 .filter(cr -> cr.getRoundKind() == RoundKind.REGULAR).count();
@@ -156,7 +172,7 @@ public class InstructorEnrollmentService {
             if (rs == InstructorRoundStatus.CANCELLED) {
                 continue; // 죽은 회차는 카드에서 숨김(파생엔 반영됨)
             }
-            roundCards.add(roundCard(r, rs, venueNames));
+            roundCards.add(roundCard(r, rs, venueNames, chatStates));
         }
 
         long attended = e.getStudent() == null ? 0 : attendedByStudent.getOrDefault(e.getStudent().getId(), 0L);
@@ -185,7 +201,8 @@ public class InstructorEnrollmentService {
                 .build();
     }
 
-    private RoundCard roundCard(EnrollmentRound r, InstructorRoundStatus rs, Map<String, String> venueNames) {
+    private RoundCard roundCard(EnrollmentRound r, InstructorRoundStatus rs, Map<String, String> venueNames,
+                                Map<Long, com.diving.pungdong.chat.dto.RoundChatState> chatStates) {
         SlotRef prev = null;
         if (rs == InstructorRoundStatus.CHANGING && !r.getSlotHistory().isEmpty()) {
             PastSlot p = r.getSlotHistory().get(r.getSlotHistory().size() - 1); // 직전 슬롯
@@ -194,6 +211,9 @@ public class InstructorEnrollmentService {
         }
         return RoundCard.builder()
                 .roundId(r.getId())
+                .sessionId(sessionIdOf(r))
+                .chat(chatStates.getOrDefault(sessionIdOf(r),
+                        com.diving.pungdong.chat.dto.RoundChatState.hidden()))
                 .roundIndex(r.getRoundIndex())
                 .roundKind(r.getRoundKind() == null ? null : r.getRoundKind().name())
                 .status(rs)

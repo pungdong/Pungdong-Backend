@@ -52,7 +52,20 @@ public enum NotificationType {
      * 환불 완료 → 학생. <b>학생이 직접 요청한 환불에만</b> 발행한다 — 거절·만료로 인한 자동환불은
      * 그쪽 알림 body 가 이미 환불을 안내하므로 2건이 연속으로 가면 소음이다(2026-08-14 사용자 결정).
      */
-    REFUND_COMPLETED(NotificationCategory.PAYMENT);
+    REFUND_COMPLETED(NotificationCategory.PAYMENT),
+
+    // ── 채팅(chat) 흐름 ──────────────────────────────────────────────────
+    // chat 채널도 payment 와 같다 — 앱에 이미 생성돼 있고 아무도 안 쓰던 채널이라 첫 사용이며 앱 변경이
+    // 필요 없다. NotificationCategory.CHAT 도 미리 만들어져 있었다(timeSensitive=true).
+
+    /**
+     * 세션 단체 채팅 새 메시지 → <b>발신자를 뺀 참여자 전원</b>(강사 + 결제완료 수강생).
+     *
+     * <p>유일하게 <b>허브가 아니라 채팅방으로 바로 착지</b>하는 타입이다. 다른 타입이 파라미터 없는 허브로
+     * 가는 건 v1 에 그 화면들이 없었기 때문이지 강한 규약이어서가 아니었고, 채팅은 목록 메뉴 자체가 없어
+     * 방으로 못 가면 알림이 쓸모가 없다(2026-08-16 사용자 결정). 착지 실패 시 폴백은 허브다.
+     */
+    CHAT_MESSAGE(NotificationCategory.CHAT);
 
     private final NotificationCategory category;
 
