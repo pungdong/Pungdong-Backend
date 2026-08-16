@@ -2,7 +2,7 @@
 
 ## 한 줄 요약
 
-학생이 **보유한 다이빙 자격증을 직접 기록·관리**하는 도메인(프로필 탭 &gt; 내 자격증). 조회·등록·삭제 + 사진 업로드. 자격증 사진은 **실명·자격증번호가 찍힌 PII** 라 비공개 버킷에 저장하고 조회 시점에만 presigned 로 발급한다. 풍덩 강의 수료와 연결하면 강사·강의가 **등록 시점 스냅샷**으로 박제된다.
+학생이 **보유한 다이빙 자격증을 직접 기록·관리**하는 도메인(프로필 탭 &gt; 내 자격증). 조회·등록·수정·삭제 + 사진 업로드. 자격증 사진은 **실명·자격증번호가 찍힌 PII** 라 비공개 버킷에 저장하고 조회 시점에만 presigned 로 발급한다. 풍덩 강의 수료와 연결하면 강사·강의가 **등록 시점 스냅샷**으로 박제된다.
 
 > **핵심 invariant** — 클라이언트가 정하는 것은 *무슨 자격증인지*(코드·번호·취득일·사진)뿐이다. **`source`·`holderName`·강사·강의는 전부 서버가 파생**하고, 클라이언트가 준 `enrollmentId`·`photoFileKey` 는 **소유를 검증**한다.
 
@@ -59,13 +59,29 @@ flowchart TB
 | `GET /certificates/mine` | 내 목록 (`acquiredAt DESC`) | 200 `_embedded.certificates` | — |
 | `GET /certificates/{id}` | 단건 — **presigned 재발급**용 | 200 `EntityModel` | **-1009** |
 | `POST /certificates` | 등록 | **201** 단건 | — |
+| `PUT /certificates/{id}` | 수정(**전면 교체**) | 200 `EntityModel` | **-1009** |
 | `DELETE /certificates/{id}` | 삭제(행 + 사진) | **204** | **-1009** |
 | `POST /certificates/photos` | 사진 업로드(multipart `image`) | 200 `{fileKey}` | — |
 
 - **빈 목록은 200 + `_embedded` 부재** (Spring HATEOAS 동작). 404 가 아니다 — 빈 상태는 정상 UI 상태.
 - **페이지네이션 없음** — 개인 보유량이 한 자릿수.
-- **수정(PUT/PATCH) 없음** — FE 에 편집 화면이 없다. 만들면 도달 불가 API. 엔티티는 막지 않았다.
-- 없음/비소유는 **403 이 아니라 -1009**(존재 숨김). **신규 에러 코드 없음.**
+- **`PATCH` 는 없다** — 편집 폼이 카드 전체를 다시 보내므로 부분 갱신 계약이 필요 없다. `PUT` 요청 DTO 는 등록과 **같은 필드·같은 검증**이다(`StudentCertificateUpdateRequest`).
+- 없음/비소유는 **403 이 아니라 -1009**(존재 숨김). **신규 에러 코드 없음.** — 수정도 등록·삭제와 같은 코드를 쓴다.
+
+### 수정의 필드별 의미론
+
+전면 교체가 기본이지만 **필드 두 개는 "생략"의 뜻이 다르다.** 같은 이름이라고 등록과 뜻이 같지 않다.
+
+| 필드 | 생략/빈 값 | 값이 있을 때 |
+|---|---|---|
+| 스칼라 전부(`issuer` 포함) | **비워진다** (full replace) | 그 값으로 교체 |
+| `photoFileKey` | **기존 사진 유지** | 다르면 교체 + **옛 객체 커밋 이후 파기**, 같으면 no-op |
+| `enrollmentId` | **연결 해제** (`EXTERNAL` + 스냅샷 전부 삭제) | 3중 재검증 후 `PUNGDONG` 재박제 |
+
+- **사진만 예외인 이유**: 사진은 별도 업로드 왕복(2-phase)을 거치는 값이다. 전면 교체를 그대로 적용하면 **번호 오타 하나 고치려고 카드를 다시 찍어 올려야 한다.** FE 편집 폼은 기존 사진의 `fileKey` 를 되돌려 보낼 수도 없다(응답에 오는 건 만료되는 `photoViewUrl` 이지 key 가 아니다).
+- **사진 *제거*는 이 계약으로 표현할 수 없다** — 디자인에 제거 버튼이 없다. 생기면 별도 필드(`removePhoto: true` 등)가 필요하다. "빈 문자열 = 제거"로 겸용하지 말 것(생략과 구분이 안 된다).
+- **`enrollmentId` 는 반대로 전면 교체를 따른다** — 잘못 연결한 강의를 되돌릴 길이 필요하고, 사진과 달리 재입력 비용이 없다(피커에서 다시 고르면 된다).
+- 거절되면 **통째로 롤백**된다(부분 적용 없음). 사진 파기는 `afterCommit` 이라 롤백 시 돌지 않는다.
 
 ---
 
@@ -131,17 +147,43 @@ sequenceDiagram
     Ctl->>Svc: register
     Svc->>Svc: disciplineCode 검증 (테이블)
     Svc->>Svc: photoFileKey 소유 검증 (내 prefix 인가)
+    Svc->>Svc: applyCourseLink (아래 — 등록·수정 공용)
     alt enrollmentId 있음
         Svc->>Svc: 소유 검증 → 아니면 404
-        Svc->>Enroll: isFullyCompleted?
+        Svc->>Enroll: isCertifiable?
         Enroll-->>Svc: false → 400
         Svc->>Svc: 종목 정합 → 불일치 400
         Svc->>Svc: source=PUNGDONG + 강사·강의 스냅샷
     else 없음
-        Svc->>Svc: source=EXTERNAL
+        Svc->>Svc: source=EXTERNAL (스냅샷 비움)
     end
     Svc-->>FE: 201 단건 (holderName 은 세션 파생)
 ```
+
+## 수정 흐름
+
+```mermaid
+sequenceDiagram
+    participant FE
+    participant Svc as StudentCertificateService
+    participant Store as PhotoStorage
+
+    FE->>Svc: PUT /certificates/{id} (폼 전체)
+    Svc->>Svc: requireMine → 없음/남의 것이면 -1009
+    Svc->>Svc: disciplineCode 검증 · photoFileKey 소유 검증
+    Svc->>Svc: updateDetails (스칼라 전면 교체)
+    alt photoFileKey 비어 있음
+        Svc->>Svc: 기존 사진 유지
+    else 새 key (지금과 다름)
+        Svc->>Svc: replacePhoto(new)
+        Note over Svc,Store: 옛 객체 파기는 **커밋 이후** (afterCommit)
+    end
+    Svc->>Svc: applyCourseLink (등록과 같은 경로 — 없으면 연결 해제)
+    Svc-->>FE: 200 단건 (photoViewUrl 재발급)
+    Svc->>Store: (afterCommit) delete(옛 key)
+```
+
+> **`applyCourseLink` 는 등록·수정이 공유하는 단일 경로다.** 검증이 두 벌이면 등록은 통과시키고 수정은 거절하는(혹은 그 반대) 어긋남이 생긴다 — `source` 가 `PUNGDONG` 이 되는 유일한 지점도 여기다.
 
 ### 강의 연결 3중 검증
 
@@ -211,12 +253,29 @@ presigned URL 은 **경로에 객체 key 를 담는다.** URL 이 한 번 새면
 
 ## 설계 간극 / 후속
 
-- 🟡 **자격증 수정** — 엔드포인트 없음(FE 화면 부재). 엔티티는 막지 않았다.
-- 🟡 **`issuer` 입력 UI** — 모델엔 있으나 FE 폼에 칸이 없어 신규 등록분은 항상 비어 있다(후속 디자인).
+- 🟡 **사진 제거** — `PUT` 은 교체만 표현한다(생략 = 유지). 편집 폼에 제거 버튼이 생기면 별도 필드가 필요하다. "빈 문자열 = 제거"로 겸용하지 말 것 — 생략과 구분이 안 된다.
+- 🟡 **`updatedAt` 없음** — 수정 시각을 남기지 않는다. 자기 신고 데이터라 감사 대상이 아니고, 컬럼을 늘리면 마이그레이션이 붙는다. 이력이 필요해지면(분쟁·어드민 열람) 그때 추가.
+- 🟡 **`issuer` 입력 UI** — 모델엔 있으나 FE 폼에 칸이 없어 신규 등록분은 항상 비어 있다(후속 디자인). ⚠️ **전면 교체라 수정 시 `issuer` 를 안 보내면 기존 값이 지워진다** — 폼에 칸이 생기기 전까지 기존 값이 있는 행을 수정하면 유실된다(현재 신규 등록분은 전부 비어 있어 실질 영향 없음).
 - 🟡 **`holderName` 로마자** — 폼 필드 승격 필요.
 - 🟡 **업로드 후 미제출 고아** — 사진만 올리고 폼을 버리면 객체가 남는다. `instructorapplication` 과 동일한 기존 한계(정리 배치는 후속). FE 가 **제출 시점에 업로드**해 최소화한다.
 - 🟡 **강사 비즈니스 페이지 연결** — 응답에 `courseId` 로 자리만 열어둠.
 - 🟢 **강의 완료 → 자격증 등록 CTA** — BE 는 준비됨(`GET /enrollments/mine/schedule` 의 `COMPLETED` + `enrollmentId`). FE 진입로가 후속.
+
+---
+
+## 결정 로그
+
+추가만 한다(ADR-lite) — 지난 결정을 지우면 "왜 이렇게 됐나"가 사라진다.
+
+| 시점 | 결정 | 왜 |
+|---|---|---|
+| 2026-08-16 | **`PUT /certificates/{id}` 신설** — 등록 후에도 수정 허용 | FE QA 에서 걸렸다: 자격증 **번호 오타**를 고칠 길이 없어 삭제 후 재등록해야 했고(사진 재업로드까지 동반), 등록할 때 **깜빡한 강의 연동**도 되돌릴 수 없었다. 자기 신고 데이터라 정정을 막을 근거가 없다 — "수정 없음"은 화면이 없던 시절의 결론이지 정책이 아니었다 |
+| 2026-08-16 | 부분 갱신(`PATCH`) 대신 **`PUT` 전면 교체** | 편집 폼이 카드 전체를 다시 보낸다. 부분 갱신 계약을 두면 "안 보낸 필드"의 뜻이 필드마다 갈려 FE·BE 가 어긋난다. 요청 DTO 는 등록과 **같은 필드·같은 검증** |
+| 2026-08-16 | **`photoFileKey` 생략 = 기존 사진 유지** (전면 교체의 유일한 예외) | 사진은 별도 업로드 왕복(2-phase)을 거치는 값이라 전면 교체를 그대로 적용하면 **번호 오타 하나 고치려고 카드를 다시 찍어야 한다.** FE 가 기존 key 를 되돌려 보낼 수도 없다 — 응답에 오는 건 만료되는 `photoViewUrl` 이지 key 가 아니다. 교체 시 옛 객체는 **커밋 이후 파기**(PII 고아 방지, 삭제와 같은 메커니즘) |
+| 2026-08-16 | **사진 제거는 범위 밖** — 교체만 표현한다 | 편집 폼에 제거 버튼이 없다. "빈 문자열 = 제거"로 겸용하면 생략과 구분되지 않아 **유지/제거가 뒤바뀐다.** 필요해지면 별도 필드로 명시 |
+| 2026-08-16 | **연결 해제 허용** (`PUNGDONG` → `EXTERNAL`, `enrollmentId` 생략) | 잘못 연결한 강의를 되돌릴 길이 필요하다. 사진과 달리 재입력 비용이 없고(피커에서 다시 고르면 된다), 해제는 **권한·금액에 영향이 없다** — 스냅샷은 표시용이라 "덜 주장하는" 방향의 변경이다. 해제 시 스냅샷을 **전부** 비운다(부분 잔존 = 유령 강의) |
+| 2026-08-16 | 엔티티에 `@Setter` 대신 **의도별 도메인 메서드** (`updateDetails`/`replacePhoto`/`linkCourse`/`unlinkCourse`) | `@Setter` 를 열면 `source`·`enrollmentId` 처럼 **서버가 파생하는 값**까지 아무 데서나 바뀔 수 있게 되고, "클라이언트는 무슨 자격증인지만 정한다"는 invariant 가 코드로 강제되지 않는다. `linkCourse` 가 `source=PUNGDONG` 의 유일한 경로 |
+| 2026-08-16 | 스키마 변경 없음 — **`updatedAt` 컬럼 추가 안 함** | 자기 신고 데이터라 감사 대상이 아니다. 마이그레이션 없이 끝나는 변경을 컬럼 하나로 무겁게 만들지 않는다. 이력이 필요해지면(분쟁·어드민 열람) 그때 |
 
 ---
 
