@@ -136,6 +136,8 @@ public class StudentCertificateService {
      * 있으면 그대로 두고, 새 key 가 왔고 지금 것과 다를 때만 교체한다(같으면 no-op). 교체 시
      * <b>옛 객체는 커밋 이후 파기</b> — PII 를 고아로 남기지 않는다. (사진 <i>제거</i>는 이 계약으로
      * 표현할 수 없다. FE 편집 폼에도 제거 버튼이 없다 — 생기면 별도 필드가 필요하다.)
+     * 단 <b>기존 사진도 없으면 400</b> 이다({@link #requirePhotoAfterUpdate}) — 사진은 필수라서,
+     * 필드가 아니라 <b>결과 상태</b>를 검사한다.
      *
      * <p>반대로 {@code enrollmentId} 는 전면 교체를 그대로 따른다 — 생략 = <b>연결 해제</b>. 잘못
      * 연결한 강의를 되돌릴 길이 필요하고, 사진과 달리 재입력 비용이 없다(피커에서 다시 고르면 된다).
@@ -158,11 +160,29 @@ public class StudentCertificateService {
                 request.getAcquiredAt(),
                 request.getIssuer());
 
+        requirePhotoAfterUpdate(cert, request.getPhotoFileKey());
         replacePhotoIfChanged(cert, request.getPhotoFileKey());
         applyCourseLink(cert, account, request.getEnrollmentId(), request.getDisciplineCode());
 
         // 더티 체킹으로 커밋 시 UPDATE. 위에서 던지면 롤백되고 사진 파기도 안 돈다(afterCommit).
         return toResponse(cert, resolveHolderName(account));
+    }
+
+    /**
+     * 수정 결과가 <b>사진 없는 자격증</b>이면 거절한다 — 사진은 필수다(등록은 DTO 의 {@code @NotBlank}
+     * 가 막는다).
+     *
+     * <p>수정 쪽만 서비스에서 검사하는 이유: 이 필드는 <b>"비움 = 기존 유지"</b> 라 빈 값이 정상 입력이다.
+     * {@code @NotBlank} 를 걸면 유지 의미론이 죽어 <b>매 수정마다 사진 재업로드를 강요</b>하게 된다.
+     * 필드가 아니라 <b>결과 상태</b>를 보는 검사여야 한다.
+     *
+     * <p>실제로 걸리는 건 <b>사진 없이 등록된 옛 행</b>뿐이다(필수가 되기 전 데이터). 그 행은 읽기·삭제는
+     * 그대로 되고, 수정할 때만 사진을 붙이라고 요구한다 — DB 제약을 걸지 않은 이유이기도 하다.
+     */
+    private void requirePhotoAfterUpdate(StudentCertificate cert, String newPhotoKey) {
+        if (!StringUtils.hasText(newPhotoKey) && !StringUtils.hasText(cert.getPhotoFileKey())) {
+            throw new BadRequestException("자격증 사진을 추가해주세요.");
+        }
     }
 
     /** 새 key 가 있고 지금 것과 다를 때만 교체 + 옛 객체 파기. 빈 값이면 유지, 같으면 no-op. */
@@ -282,7 +302,8 @@ public class StudentCertificateService {
     }
 
     /**
-     * 등록 JSON 이 <b>남의 사진</b>을 참조하지 못하게. 빈 값은 통과(사진은 선택).
+     * 요청이 <b>남의 사진</b>을 참조하지 못하게. 빈 값은 통과 — 등록에선 DTO 의 {@code @NotBlank} 가
+     * 이미 막았고, 수정에선 빈 값이 "기존 유지"라는 정상 입력이다(결과 검사는 별도).
      * 유출된 presigned URL 에서 key 를 뽑아 붙이는 경로를 막는다.
      */
     private void requireOwnedPhotoKey(Account account, String photoFileKey) {

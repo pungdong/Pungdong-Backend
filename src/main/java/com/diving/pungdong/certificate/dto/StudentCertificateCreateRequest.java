@@ -68,7 +68,14 @@ public class StudentCertificateCreateRequest {
     @Size(max = 100, message = "발급 기관은 100자 이하로 입력해주세요.")
     private String issuer;
 
-    /** 업로드 응답({@code POST /certificates/photos})의 {@code fileKey} 를 그대로. 본인 것이어야 한다. */
+    /**
+     * 업로드 응답({@code POST /certificates/photos})의 {@code fileKey} 를 그대로. 본인 것이어야 한다.
+     *
+     * <p><b>필수다</b>(2026-08-16 선택 → 필수로 뒤집음). 이 도메인은 "사진이 진실"에 기대고 있다 —
+     * 표시명·번호는 자기 신고라 대조하지 않고, 실제 확인은 <b>수영장 입장 때 사진을 제시</b>해서
+     * 이뤄진다. 사진 없는 자격증은 그 확인을 통과하지 못하니 기록으로서 쓸모가 없다.
+     */
+    @NotBlank(message = "자격증 사진을 추가해주세요.")
     @Size(max = 500)
     private String photoFileKey;
 
