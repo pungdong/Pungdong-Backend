@@ -110,4 +110,62 @@ public class StudentCertificate {
 
     @Column(nullable = false)
     private OffsetDateTime createdAt;
+
+    /* ── 변경 (PUT /certificates/{id}) ─────────────────────────────────
+     * @Setter 를 통째로 열지 않는다 — 그러면 source·enrollmentId 처럼 **서버가 파생하는 값**까지
+     * 아무 데서나 바뀔 수 있게 되고, "클라이언트는 무슨 자격증인지만 정한다"는 invariant 가 코드로
+     * 강제되지 않는다. 대신 함께 바뀌어야 하는 묶음마다 메서드를 둔다.
+     * owner·createdAt 은 어디서도 바뀌지 않는다(수정은 등록 시점을 지우지 않는다).
+     */
+
+    /**
+     * 사용자가 직접 적는 값들의 <b>전면 교체</b>. 사진·강의 연결은 여기 없다 — 수명주기가 달라
+     * ({@link #replacePhoto} 는 옛 객체 파기를 동반하고, 강의는 재검증이 필요하다) 별도 메서드다.
+     */
+    public void updateDetails(String disciplineCode, String organizationCode, String organizationName,
+                              String organizationFullName, CertLevel level, String certificationDisplayName,
+                              String certificateNumber, LocalDate acquiredAt, String issuer) {
+        this.disciplineCode = disciplineCode;
+        this.organizationCode = organizationCode;
+        this.organizationName = organizationName;
+        this.organizationFullName = organizationFullName;
+        this.level = level;
+        this.certificationDisplayName = certificationDisplayName;
+        this.certificateNumber = certificateNumber;
+        this.acquiredAt = acquiredAt;
+        this.issuer = issuer;
+    }
+
+    /**
+     * 사진 참조 교체. <b>호출 전에 소유 검증을 마쳐야 한다</b>
+     * ({@code StudentCertificatePhotoStorage.isOwnedBy}) — 남의 key 를 붙이면 presigned 재발급으로
+     * 남의 사진을 영구 열람하게 된다. 옛 객체 파기는 서비스가 커밋 이후에 한다.
+     */
+    public void replacePhoto(String photoFileKey) {
+        this.photoFileKey = photoFileKey;
+    }
+
+    /**
+     * 풍덩 발급으로 전환 + 강의 스냅샷 박제. {@code source} 가 PUNGDONG 이 되는 <b>유일한 경로</b>다 —
+     * 강의 없이 "풍덩 발급"이 되는 모순 상태를 구조로 막는다.
+     */
+    public void linkCourse(Long enrollmentId, Long courseId, String courseTitle,
+                           LocalDate courseCompletedAt, String instructorName) {
+        this.source = CertificateSource.PUNGDONG;
+        this.enrollmentId = enrollmentId;
+        this.courseId = courseId;
+        this.courseTitle = courseTitle;
+        this.courseCompletedAt = courseCompletedAt;
+        this.instructorName = instructorName;
+    }
+
+    /** 연결 해제 — 외부 취득으로 되돌리고 강의 스냅샷을 <b>전부</b> 비운다(부분 잔존 = 유령 강의). */
+    public void unlinkCourse() {
+        this.source = CertificateSource.EXTERNAL;
+        this.enrollmentId = null;
+        this.courseId = null;
+        this.courseTitle = null;
+        this.courseCompletedAt = null;
+        this.instructorName = null;
+    }
 }
