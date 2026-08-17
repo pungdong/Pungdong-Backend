@@ -80,6 +80,8 @@
     커밋한 행이 바깥의 `count` 에 안 잡힌다(POST 응답 count 가 "내 것 빠진 값"이던 2026-08-17 버그).
     H2 는 기본 READ COMMITTED 라 이걸 못 잡는다 — 재현 테스트는 `CommunityReactionCountUseCaseTest` 가
     자기 컨텍스트만 격리 수준을 올려서 잠근다(전역으로 올리면 H2 2.1 의 CASCADE 삭제 NPE 가 난다).
+    **원리·패턴 메뉴·체크리스트의 단일 출처는 [docs/architecture/transactions.md](../../../../../../../docs/architecture/transactions.md)** —
+    enrollment(H-4)·payment(원장) 가 먼저 밟은 같은 함정이다.
 
 ## `validate` 가 잡아주지 않는 것 (스키마 작업 시 주의)
 
