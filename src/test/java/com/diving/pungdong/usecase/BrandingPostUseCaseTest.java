@@ -342,7 +342,7 @@ class BrandingPostUseCaseTest {
      * 이 상세가 오너의 수정 폼 프리필 소스인데 키가 없으면 폼이 {@code linkedCourseId} 를 못 채우고,
      * 수정이 스냅샷 교체라 저장하는 순간 연결이 조용히 끊긴다(사용자는 오타만 고쳤다).
      * 커뮤니티가 같은 결함을 먼저 고쳤고, 같은 성격의 결정을 도메인마다 다르게 갈 이유가 없어 맞췄다.
-     * <b>공개 쪽 규칙은 그대로다</b> — L3 가 그걸 지킨다. 되돌리려면 두 테스트를 함께 봐야 한다.
+     * <b>공개 쪽 규칙은 그대로다</b> — L4 가 그걸 지킨다. 되돌리려면 두 테스트를 함께 봐야 한다.
      */
     @Test
     @DisplayName("L2: 미공개(DRAFT) 강의도 오너 응답에는 실린다 (없으면 수정 시 연결이 조용히 끊긴다)")
@@ -360,9 +360,50 @@ class BrandingPostUseCaseTest {
     }
 
     @Test
-    @DisplayName("L4: 상세가 카테고리·제목을 준다 (수정 폼이 되실을 값을 받아야 저장 때 안 지워진다)")
+    @DisplayName("L3: 남의 강의는 연결할 수 없다 (400)")
+    void othersCourse_cannotBeLinked() throws Exception {
+        Account me = account("l3a@test.com", "diverP13", Role.INSTRUCTOR);
+        Account other = account("l3b@test.com", "diverP14", Role.INSTRUCTOR);
+        Course theirs = course(other, CourseStatus.OPEN);
+
+        mockMvc.perform(post("/branding/me/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mediaUrls\":[\"" + img("a") + "\"],\"linkedCourseId\":" + theirs.getId() + "}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("내 강의만 연결할 수 있어요."));
+    }
+
+    @Test
+    @DisplayName("L4: 그래도 남·비로그인에게는 DRAFT 강의가 안 보인다 (오너 예외가 공개 화면으로 새면 안 된다)")
+    void draftCourse_isStillHiddenFromPublic() throws Exception {
+        Account me = account("l4@test.com", "diverP17", Role.INSTRUCTOR);
+        Account stranger = account("l4b@test.com", "diverP18", Role.STUDENT);
+        Course draft = course(me, CourseStatus.DRAFT);
+
+        MvcResult created = mockMvc.perform(post("/branding/me/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mediaUrls\":[\"" + img("a") + "\"],\"linkedCourseId\":" + draft.getId() + "}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        long id = ((Number) com.jayway.jsonpath.JsonPath.read(
+                created.getResponse().getContentAsString(), "$.id")).longValue();
+
+        mockMvc.perform(get("/branding-posts/" + id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.linkedCourse").doesNotExist());
+
+        mockMvc.perform(get("/branding-posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(stranger)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.linkedCourse").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("L5: 상세가 카테고리·제목을 준다 (수정 폼이 되실을 값을 받아야 저장 때 안 지워진다)")
     void detail_carriesCategoryAndTitle_soEditCanRoundTrip() throws Exception {
-        Account me = account("l4@test.com", "diverP15", Role.INSTRUCTOR);
+        Account me = account("l5@test.com", "diverP15", Role.INSTRUCTOR);
 
         MvcResult created = mockMvc.perform(post("/branding/me/posts")
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
@@ -402,9 +443,9 @@ class BrandingPostUseCaseTest {
     }
 
     @Test
-    @DisplayName("L5: 반대로 안 되실으면 지워진다 (스냅샷 교체라 생략 = 비우기 — FE 가드가 필요한 이유)")
+    @DisplayName("L6: 반대로 안 되실으면 지워진다 (스냅샷 교체라 생략 = 비우기 — FE 가드가 필요한 이유)")
     void detail_omittingCategoryAndTitle_clearsThem() throws Exception {
-        Account me = account("l5@test.com", "diverP16", Role.INSTRUCTOR);
+        Account me = account("l6@test.com", "diverP16", Role.INSTRUCTOR);
 
         MvcResult created = mockMvc.perform(post("/branding/me/posts")
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
@@ -425,47 +466,6 @@ class BrandingPostUseCaseTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.category").doesNotExist())
                 .andExpect(jsonPath("$.title").doesNotExist());
-    }
-
-    @Test
-    @DisplayName("L3: 그래도 남·비로그인에게는 DRAFT 강의가 안 보인다 (오너 예외가 공개 화면으로 새면 안 된다)")
-    void draftCourse_isStillHiddenFromPublic() throws Exception {
-        Account me = account("l3@test.com", "diverP13", Role.INSTRUCTOR);
-        Account stranger = account("l3b@test.com", "diverP14", Role.STUDENT);
-        Course draft = course(me, CourseStatus.DRAFT);
-
-        MvcResult created = mockMvc.perform(post("/branding/me/posts")
-                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"mediaUrls\":[\"" + img("a") + "\"],\"linkedCourseId\":" + draft.getId() + "}"))
-                .andExpect(status().isOk())
-                .andReturn();
-        long id = ((Number) com.jayway.jsonpath.JsonPath.read(
-                created.getResponse().getContentAsString(), "$.id")).longValue();
-
-        mockMvc.perform(get("/branding-posts/" + id))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.linkedCourse").doesNotExist());
-
-        mockMvc.perform(get("/branding-posts/" + id)
-                        .header(HttpHeaders.AUTHORIZATION, tokenFor(stranger)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.linkedCourse").doesNotExist());
-    }
-
-    @Test
-    @DisplayName("L3: 남의 강의는 연결할 수 없다 (400)")
-    void othersCourse_cannotBeLinked() throws Exception {
-        Account me = account("l3a@test.com", "diverP13", Role.INSTRUCTOR);
-        Account other = account("l3b@test.com", "diverP14", Role.INSTRUCTOR);
-        Course theirs = course(other, CourseStatus.OPEN);
-
-        mockMvc.perform(post("/branding/me/posts")
-                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"mediaUrls\":[\"" + img("a") + "\"],\"linkedCourseId\":" + theirs.getId() + "}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.msg").value("내 강의만 연결할 수 있어요."));
     }
 
     /* ════════════════ V — 검증 ════════════════ */
