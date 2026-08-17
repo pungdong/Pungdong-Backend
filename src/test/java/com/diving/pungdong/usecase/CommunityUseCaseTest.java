@@ -1150,4 +1150,190 @@ class CommunityUseCaseTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.page.size").value(50));
     }
+
+    /* ════════════════ E — 수정(edit) ════════════════ */
+    //
+    // `PUT /community/posts/{id}` 는 원래 <b>M6 · G6 두 개</b>로만 덮여 있었다. 둘 다 "거부되는가"를
+    // 보는 테스트라, 수정이 <b>성공했을 때 무엇이 어떻게 되는가</b>는 사양으로 적힌 적이 없다.
+    // 아래 E* 가 그 자리를 메운다 — 특히 `updatedAt` 은 "수정됨" 표기의 유일한 근거라 못 박아야 한다.
+
+    /** 상세 조회 원문(JSON 문자열). 한 응답에서 두 개 이상 필드를 꺼내 비교할 때 쓴다. */
+    private String detailJson(long postId) throws Exception {
+        return mockMvc.perform(get("/community/posts/" + postId))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+    }
+
+    private String read(String json, String path) {
+        Object value = com.jayway.jsonpath.JsonPath.read(json, path);
+        return String.valueOf(value);
+    }
+
+    @Test
+    @DisplayName("E1: 글을 수정하면 updatedAt 이 createdAt 보다 나중이 된다 (수정 응답에서 바로)")
+    void update_movesUpdatedAtInResponse() throws Exception {
+        Account me = account("e1@c.com", "diverE1", Role.STUDENT);
+        long id = createPost(me, "TOUR", "고치기 전", "본문");
+
+        // 작성 시점엔 @PrePersist 가 같은 now 를 둘 다에 넣으므로 두 값이 정확히 같다.
+        // 즉 "수정된 적 있음" 은 두 값이 갈라졌는지로 판정된다 — 근사 비교가 아니라 정확 비교다.
+        String created = detailJson(id);
+        assertThat(read(created, "$.updatedAt")).isEqualTo(read(created, "$.createdAt"));
+
+        String updated = mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"고친 뒤\",\"body\":\"본문\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        // 수정 응답이 곧바로 갱신된 시각을 실어야 한다 — FE 가 이 응답으로 "수정됨" 배지를 그린다.
+        assertThat(read(updated, "$.updatedAt")).isNotEqualTo(read(updated, "$.createdAt"));
+    }
+
+    @Test
+    @DisplayName("E2: 재조회해도 updatedAt 이 갱신돼 있다 (응답만 맞고 DB 는 안 바뀐 게 아니어야 한다)")
+    void update_persistsUpdatedAt() throws Exception {
+        Account me = account("e2@c.com", "diverE2", Role.STUDENT);
+        long id = createPost(me, "TOUR", "고치기 전", "본문");
+
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"고친 뒤\",\"body\":\"본문\"}"))
+                .andExpect(status().isOk());
+
+        String refetched = detailJson(id);
+        assertThat(read(refetched, "$.updatedAt")).isNotEqualTo(read(refetched, "$.createdAt"));
+    }
+
+    @Test
+    @org.junit.jupiter.api.Disabled("결함 확정(2026-08-18): 사진만 바꾸면 updatedAt 이 안 움직인다. "
+            + "실측값이 createdAt 과 바이트 단위로 같았다 — 부모 행이 dirty 가 아니라 @PreUpdate 가 안 돈다. "
+            + "'수정됨' 표기를 채택하면 반드시 고쳐야 하고, 고치는 PR 에서 이 @Disabled 를 떼는 게 수용 기준이다.")
+    @DisplayName("E3: 사진만 바꿔도 수정으로 친다 (제목·본문이 그대로여도 updatedAt 이 움직인다)")
+    void update_mediaOnly_stillCountsAsEdit() throws Exception {
+        Account me = account("e3@c.com", "diverE3", Role.STUDENT);
+
+        MvcResult created = mockMvc.perform(post("/community/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"사진 글\",\"body\":\"본문\","
+                                + "\"mediaUrls\":[\"" + img("a") + "\"]}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        long id = ((Number) com.jayway.jsonpath.JsonPath.read(
+                created.getResponse().getContentAsString(), "$.id")).longValue();
+
+        // 스칼라 필드(카테고리·제목·본문)는 전부 그대로 두고 사진만 한 장 더한다.
+        // 부모 행이 dirty 가 아니면 @PreUpdate 가 안 돌아 updatedAt 이 멈춘다 — 그걸 잡는 테스트다.
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"사진 글\",\"body\":\"본문\","
+                                + "\"mediaUrls\":[\"" + img("a") + "\",\"" + img("b") + "\"]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.media.length()").value(2));
+
+        String refetched = detailJson(id);
+        assertThat(read(refetched, "$.updatedAt")).isNotEqualTo(read(refetched, "$.createdAt"));
+    }
+
+    @Test
+    @DisplayName("E4: 남의 글은 수정할 수 없다 (400 — 삭제와 같은 존재 숨김. R1 이 삭제만 보고 있었다)")
+    void update_othersPost_rejected() throws Exception {
+        Account owner = account("e4a@c.com", "diverE4a", Role.STUDENT);
+        Account stranger = account("e4b@c.com", "diverE4b", Role.STUDENT);
+        long id = createPost(owner, "TOUR", "내 글", "본문");
+
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(stranger))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"QNA\",\"title\":\"남이 고침\"}"))
+                .andExpect(status().isBadRequest());
+
+        // 400 을 돌려주는 것만으로는 부족하다 — 실제로 안 바뀌었는지 본다.
+        mockMvc.perform(get("/community/posts/" + id))
+                .andExpect(jsonPath("$.title").value("내 글"));
+    }
+
+    @Test
+    @DisplayName("E5: 수정은 스냅샷 교체다 — 사진·태그를 빼고 보내면 남는 게 아니라 지워진다")
+    void update_omittingArrays_clearsThem() throws Exception {
+        Account me = account("e5@c.com", "diverE5", Role.STUDENT);
+
+        MvcResult created = mockMvc.perform(post("/community/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"사진과 태그\",\"body\":\"본문\","
+                                + "\"mediaUrls\":[\"" + img("a") + "\"],\"tags\":[\"프리다이빙\"]}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        long id = ((Number) com.jayway.jsonpath.JsonPath.read(
+                created.getResponse().getContentAsString(), "$.id")).longValue();
+
+        // mediaUrls·tags 키를 아예 생략한다. DTO 필드가 빈 배열로 초기화돼 있어 @NotNull 을 통과하고,
+        // 서비스는 그 빈 배열을 "최종 상태" 로 받아 기존 것을 전부 지운다(+ S3 객체까지).
+        // FE 가 부분 전송하면 사진이 조용히 날아간다는 뜻이라, 계약서 최상단에 박아야 할 동작이다.
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"사진과 태그\",\"body\":\"본문\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.media.length()").value(0))
+                .andExpect(jsonPath("$.tags.length()").value(0));
+    }
+
+    @Test
+    @DisplayName("E6: 일정이 지난 같이가요 글은 제목조차 고칠 수 없다 (@FutureOrPresent 의 부작용 — 결함 기록)")
+    void update_pastMatch_isRejected() throws Exception {
+        Account me = account("e6@c.com", "diverE6", Role.STUDENT);
+        long id = matchPost(me, "지나갈 일정", LocalDate.now().plusDays(1));
+
+        // M4 와 같은 방식으로 "시간이 흐른" 상태를 만든다. 지난 모집글은 정상 상태다(M4 가 그렇게 못 박았다).
+        CommunityPostMatch match = matchRepo.findById(id).orElseThrow();
+        LocalDate past = LocalDate.now().minusDays(1);
+        match.setMeetDate(past);
+        matchRepo.saveAndFlush(match);
+
+        // FE 가 상세로 폼을 프리필하면 지난 meetDate 를 그대로 되돌려 보내게 된다 → 저장 자체가 막힌다.
+        // ⚠️ 이건 사양이 아니라 결함이다. 정책이 정해져 수정되면 이 테스트를 뒤집어야 한다.
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"MATCH\",\"title\":\"오타만 고침\","
+                                + "\"match\":{\"meetDate\":\"" + past + "\",\"capacity\":4,"
+                                + "\"levelLabel\":\"AOWD 이상\"}}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("지난 날짜로는 모집할 수 없어요."));
+    }
+
+    @Test
+    @DisplayName("E7: DRAFT 강의를 연결하면 오너 상세에서도 키가 사라진다 (프리필하면 연결이 끊긴다 — 결함 기록)")
+    void update_draftLinkedCourse_isHiddenFromOwner() throws Exception {
+        Account me = account("e7@c.com", "diverE7", Role.INSTRUCTOR);
+        approveAsInstructor(me);
+        Course draft = course(me, CourseStatus.DRAFT);
+
+        MvcResult created = mockMvc.perform(post("/community/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"준비 중인 강의 연결\",\"body\":\"본문\","
+                                + "\"linkedCourseId\":" + draft.getId() + "}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        long id = ((Number) com.jayway.jsonpath.JsonPath.read(
+                created.getResponse().getContentAsString(), "$.id")).longValue();
+
+        // DB 에는 연결이 살아 있는데
+        assertThat(postRepo.findById(id).orElseThrow().getLinkedCourse()).isNotNull();
+
+        // 응답에는 키 자체가 없다 — 오너 본인이 토큰을 실어도 마찬가지다.
+        // ⚠️ 그래서 상세로 수정 폼을 채우면 linkedCourseId 가 비고, 저장하는 순간 연결이 조용히 끊긴다.
+        // 비공개 코스를 공개 화면에 안 새게 하려는 규칙이 오너 편집 경로까지 덮은 것이라 결함이다.
+        mockMvc.perform(get("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.linkedCourse").doesNotExist());
+    }
 }
