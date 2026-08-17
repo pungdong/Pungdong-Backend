@@ -25,6 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
@@ -244,7 +245,11 @@ public class CommunityPostService {
     }
 
     /**
-     * 숨김 토글 — 삭제가 아니라 <b>되돌릴 수 있는</b> 상태다.
+     * 숨김 설정 — 삭제가 아니라 <b>되돌릴 수 있는</b> 상태다. 요청의 {@code hidden} 을 그대로 반영하는
+     * <b>명시적 값</b>이지 현재 상태를 뒤집는 토글이 아니다(같은 값을 두 번 보내면 no-op).
+     *
+     * <p><b>{@code is_hidden} 은 브랜딩 그리드도 보는 공유 컬럼이다</b> — 커뮤니티에서 숨기면
+     * 강사 프로필 공개 그리드에서도 빠진다(오너 그리드엔 남는다). 클라이언트는 그 파급을 고지해야 한다.
      *
      * <p><b>단, 어드민이 조치한 글은 작성자가 다시 공개할 수 없다.</b> 숨김의 주인이 둘(작성자·어드민)인데
      * 상태 컬럼이 하나뿐이라, 막지 않으면 신고로 내린 글을 작성자가 토글 한 번으로 되살려 조치가
@@ -289,6 +294,9 @@ public class CommunityPostService {
 
     /**
      * 같이가요 모집정보 — {@code MATCH} 면 필수, 아니면 있던 것도 지운다(카테고리를 바꾼 경우).
+     *
+     * <p><b>"미래 일정" 검증이 DTO 가 아니라 여기 있는 이유</b>는 {@code MatchRequest.meetDate} 의
+     * Javadoc 에 있다 — 요청만으로는 판정할 수 없고 <b>저장된 일정과 비교</b>해야 한다.
      */
     private void applyMatch(BrandingPost post, CommunityPostRequest request) {
         if (request.getCategory() != CommunityCategory.MATCH) {
@@ -301,11 +309,37 @@ public class CommunityPostService {
         }
         CommunityPostMatch match = matchRepo.findById(post.getId())
                 .orElseGet(() -> CommunityPostMatch.builder().post(post).build());
+
+        requireFutureIfRescheduled(match.getMeetDate(), input.getMeetDate());
+
         match.setMeetDate(input.getMeetDate());
         match.setMeetTime(input.getMeetTime());
         match.setCapacity(input.getCapacity());
         match.setLevelLabel(input.getLevelLabel());
         matchRepo.save(match);
+    }
+
+    /**
+     * <b>새로 잡는 일정일 때만</b> 미래를 요구한다.
+     *
+     * <p>{@code previous} 가 null 이면 새 모집(작성이거나 다른 카테고리 → MATCH 전환)이고,
+     * 값이 다르면 일정 변경이다. 둘 다 "지금부터 모집하는 자리" 라 과거일 수 없다.
+     * <b>일정을 그대로 둔 수정은 통과한다</b> — 지난 모집글의 제목·본문·사진을 고치는 건 막을 이유가 없고,
+     * 막으면 프리필한 과거 날짜 때문에 그 글이 영구히 편집 불가가 된다.
+     */
+    private void requireFutureIfRescheduled(LocalDate previous, LocalDate next) {
+        // 필드의 @NotNull 이 여기까지 오는 걸 막고 있지만, 그 보증이 이제 먼 곳(DTO)에 있다.
+        // 없으면 previous 유무에 따라 NPE 나 "조용히 통과 → nullable=false 컬럼에서 500" 으로 갈린다.
+        // 둘 다 400 이 맞는 자리라 여기서 한 번 더 막는다.
+        if (next == null) {
+            throw new BadRequestException("일정을 골라주세요.");
+        }
+        if (Objects.equals(previous, next)) {
+            return;
+        }
+        if (next.isBefore(LocalDate.now())) {
+            throw new BadRequestException("지난 날짜로는 모집할 수 없어요.");
+        }
     }
 
     /**
@@ -403,7 +437,10 @@ public class CommunityPostService {
                 .bookmarkedByMe(bookmarked.contains(postId))
                 .hidden(post.isHidden())
                 .mine(mine)
-                .linkedCourse(toLinkedCourse(post.getLinkedCourse()))
+                // 오너에게는 DRAFT 도 실어준다 — 아래 toLinkedCourseForOwner 의 Javadoc 참고.
+                .linkedCourse(mine
+                        ? toLinkedCourseForOwner(post.getLinkedCourse())
+                        : toLinkedCourse(post.getLinkedCourse()))
                 .match(toMatch(matchRepo.findById(postId).orElse(null)))
                 .build();
     }
@@ -464,9 +501,36 @@ public class CommunityPostService {
                 .build();
     }
 
+    /**
+     * <b>오너 전용</b> — DRAFT 도 그대로 싣는다.
+     *
+     * <p>공개 규칙({@link #toLinkedCourse})은 "비공개 코스가 <b>공개 화면</b>에 새면 안 된다" 인데,
+     * 이걸 오너 본인의 상세에까지 적용했더니 <b>수정 시 연결이 조용히 끊기는 경로</b>가 됐다:
+     * 상세에 키가 없으니 수정 폼이 {@code linkedCourseId} 를 프리필하지 못하고, 스냅샷 교체라
+     * 저장하는 순간 연결이 사라진다. 사용자는 제목만 고쳤는데 아무 에러도 없다.
+     *
+     * <p><b>클라이언트가 방어할 수 없는 종류다</b> — "사용자가 연결을 뗐다" 와 "응답에 안 실려서 모른다"
+     * 가 요청에서 똑같이 {@code linkedCourseId == null} 로 보인다. 게다가 이건 우리가 <b>권장하는</b>
+     * 사용이다(준비 중인 강의를 미리 걸어두고 공개되면 뜨게 — 앱 피커가 "비공개 · 공개 후 노출" 로 안내한다).
+     *
+     * <p>오너는 자기 DRAFT 코스의 존재를 이미 알기 때문에 노출이 아니다. <b>피드 카드는 바꾸지 않는다</b>
+     * — 카드에는 오너 개념이 없고 공개 목록이라 기존 규칙 그대로다.
+     */
+    private LinkedCourseResponse toLinkedCourseForOwner(Course course) {
+        return toLinkedCourse(course, true);
+    }
+
     /** DRAFT·삭제된 코스는 <b>키 자체를 생략</b>한다 — 비공개 코스가 공개 화면에 새면 안 된다. */
     private LinkedCourseResponse toLinkedCourse(Course course) {
-        if (course == null || course.getStatus() == CourseStatus.DRAFT) {
+        return toLinkedCourse(course, false);
+    }
+
+    /**
+     * 매핑은 한 곳에만 둔다 — 오너용·공개용을 각각 복사해두면 {@link LinkedCourseResponse} 에 필드가
+     * 늘어난 날 한쪽만 고쳐지고, 그 차이는 "오너에게만 필드가 빠진다" 로 나타나 눈에 잘 안 띈다.
+     */
+    private LinkedCourseResponse toLinkedCourse(Course course, boolean includeDraft) {
+        if (course == null || (!includeDraft && course.getStatus() == CourseStatus.DRAFT)) {
             return null;
         }
         return LinkedCourseResponse.builder()
