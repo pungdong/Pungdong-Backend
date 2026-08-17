@@ -1395,6 +1395,69 @@ class CommunityUseCaseTest {
                 .andExpect(jsonPath("$.body").value(longBody));
     }
 
+    @Test
+    @DisplayName("E12: 숨긴 글 상세는 오너에게만 열린다 (남은 로그인해도 400 — 오너 예외가 새면 안 된다)")
+    void hiddenPost_detailIsOwnerOnly() throws Exception {
+        Account owner = account("e12a@c.com", "diverE12a", Role.STUDENT);
+        Account stranger = account("e12b@c.com", "diverE12b", Role.STUDENT);
+        long id = createPost(owner, "TOUR", "숨길 글", "본문");
+
+        mockMvc.perform(patch("/community/posts/" + id + "/visibility")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"hidden\":true}"))
+                .andExpect(status().isOk());
+
+        // 오너는 열린다 — 수정·숨김해제 진입점이 상세에 있어서 여기가 막히면 되돌릴 방법이 없다.
+        mockMvc.perform(get("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hidden").value(true))
+                .andExpect(jsonPath("$.mine").value(true));
+
+        // 남은 로그인해도 안 열린다. 비로그인도 마찬가지(H1 이 잠근다).
+        mockMvc.perform(get("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(stranger)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("E13: 커뮤니티에서 숨기면 브랜딩 공개 프로필에서도 사라진다 (is_hidden 은 두 화면이 공유한다)")
+    void hidingFromCommunity_alsoHidesFromBrandingGrid() throws Exception {
+        Account me = account("e13@c.com", "diverE13", Role.INSTRUCTOR);
+        long id = brandingPost(me, "TOUR", "프로필에 남길 글");
+
+        mockMvc.perform(get(brandingGrid("diverE13")))
+                .andExpect(jsonPath("$.page.totalElements").value(1));
+
+        mockMvc.perform(patch("/community/posts/" + id + "/visibility")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"hidden\":true}"))
+                .andExpect(status().isOk());
+
+        // 커뮤니티 메뉴에서 숨겼을 뿐인데 브랜딩 공개 그리드에서도 빠진다.
+        // 플래그가 showInFeed 가 아니라 두 화면이 공유하는 is_hidden 이기 때문이다.
+        mockMvc.perform(get(brandingGrid("diverE13")))
+                .andExpect(jsonPath("$.page.totalElements").value(0));
+    }
+
+    @Test
+    @DisplayName("E14: 커뮤니티에서 삭제하면 브랜딩 프로필에서도 영구히 사라진다 (같은 행을 지운다)")
+    void deletingFromCommunity_alsoRemovesFromBrandingGrid() throws Exception {
+        Account me = account("e14@c.com", "diverE14", Role.INSTRUCTOR);
+        long id = brandingPost(me, "TOUR", "프로필에 남길 글");
+
+        mockMvc.perform(delete("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isNoContent());
+
+        // hard delete 다 — 숨김과 달리 되돌릴 수 없다.
+        mockMvc.perform(get(brandingGrid("diverE14")))
+                .andExpect(jsonPath("$.page.totalElements").value(0));
+        assertThat(postRepo.findById(id)).isEmpty();
+    }
+
     /** 연결 강의를 건 커뮤니티 글 작성 → 생성된 id. */
     private long postLinkingCourse(Account author, Course course, String title) throws Exception {
         MvcResult result = mockMvc.perform(post("/community/posts")
