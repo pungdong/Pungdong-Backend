@@ -61,7 +61,11 @@ export type AuthProvider = 'EMAIL' | 'KAKAO' | 'NAVER' | 'APPLE';
 
 export type Gender = 'MALE' | 'FEMALE';
 
-export type DeviceType = 'ANDROID' | 'IOS' | 'WEB';
+/**
+ * 기기 플랫폼. BE Java enum 은 `ANDROID`, `IOS` 둘뿐이다 —
+ * 예전에 여기 있던 `'WEB'` 은 BE 에 대응값이 없어 보내면 400 이었다(2026-08-17 정정).
+ */
+export type DeviceType = 'ANDROID' | 'IOS';
 
 /** 강사 신청 상태. 내 신청 조회는 미신청 시 'NONE' 도 반환. */
 export type InstructorApplicationStatus = 'SUBMITTED' | 'APPROVED' | 'REJECTED';
