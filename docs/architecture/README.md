@@ -20,6 +20,7 @@
 |---|---|---|
 | 회원가입 + 로그인 (sign-up) | [sign-up.md](sign-up.md) | ✅ |
 | 알림 (notification outbox + FCM) | [notification.md](notification.md) | ✅ |
+| OTA 텔레메트리 · 릴리스 대시보드 (ota) | [ota.md](ota.md) | ✅ (permitAll 수집 · 어드민 집계 4종 · 앱 최소버전 정책 · **BE 는 Cloudflare D1 을 읽지 않는다**) |
 | ~~강의 (lecture)~~ | [lecture.md](lecture.md) | 🗑️ **삭제됨 (2026-08-15)** — v1 스택 제거. 후신 [course.md](course.md). 문서는 기록으로만 보존 |
 | ~~일정 (schedule)~~ | [schedule.md](schedule.md) | 🗑️ **삭제됨 (2026-08-15)** — 후신 [availability.md](availability.md) + [enrollment.md](enrollment.md) |
 | ~~예약 (reservation)~~ | [reservation.md](reservation.md) | 🗑️ **삭제됨 (2026-08-15)** — 후신 [enrollment.md](enrollment.md) + [payment.md](payment.md) |

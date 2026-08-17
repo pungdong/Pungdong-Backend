@@ -61,7 +61,11 @@ export type AuthProvider = 'EMAIL' | 'KAKAO' | 'NAVER' | 'APPLE';
 
 export type Gender = 'MALE' | 'FEMALE';
 
-export type DeviceType = 'ANDROID' | 'IOS' | 'WEB';
+/**
+ * 기기 플랫폼. BE Java enum 은 `ANDROID`, `IOS` 둘뿐이다 —
+ * 예전에 여기 있던 `'WEB'` 은 BE 에 대응값이 없어 보내면 400 이었다(2026-08-17 정정).
+ */
+export type DeviceType = 'ANDROID' | 'IOS';
 
 /** 강사 신청 상태. 내 신청 조회는 미신청 시 'NONE' 도 반환. */
 export type InstructorApplicationStatus = 'SUBMITTED' | 'APPROVED' | 'REJECTED';
@@ -2934,4 +2938,200 @@ export interface LegalDocument {
   body: unknown[]; // Portable Text 블록 배열 (@portabletext/react 의 PortableTextBlock[])
   version?: string; // 표시용 개정 버전 (예: '1.0')
   effectiveDate?: string; // ISO date (YYYY-MM-DD)
+}
+
+// ============================================================
+// OTA 텔레메트리 + 릴리스 대시보드 (ota 도메인)
+// 정책·카운트 정의는 docs/features/ota-telemetry.md 가 단일 출처.
+// 앱 아키텍처(번들·채널·지문·롤백)는 PungDong 레포 docs/features/ota.md.
+// ============================================================
+
+/**
+ * OTA 이벤트 종류.
+ * - DOWNLOADED      : 다운로드 **완료**. 부팅 경로는 onProgress 의 progress===1, 포그라운드 재체크 경로는
+ *                     checkForUpdate() 반환값의 id.
+ *                     ⚠️ onUpdateProcessCompleted 는 다운로드 *시작* 시점이라 완료 신호가 아니다.
+ * - SERVER_ROLLBACK : 어드민 disable(또는 rollout 인하)로 이전 번들에 정상 복귀.
+ *                     **정상 운영 동작 — 알람 대상이 아니다.**
+ * - CRASH_ROLLBACK  : 첫 렌더 전 크래시로 네이티브 자동 롤백(onNotifyAppReady 의 crashedBundleId). 🚨 알람 대상.
+ * INSTALLED 는 없다 — 부팅 upsert 의 otaBundleId 로 BE 가 파생한다.
+ */
+export type OtaEventType = 'DOWNLOADED' | 'SERVER_ROLLBACK' | 'CRASH_ROLLBACK';
+
+/**
+ * POST /app/ota/devices — **인증 불필요**(JWT 를 실으면 그 계정이 링크됨).
+ * 호출: 부팅 1회 + 포그라운드 재체크 시(4h 스로틀). 로그인·푸시 권한과 무관하게 항상.
+ * 실패는 전부 삼킨다(재시도 없음, 앱 부팅을 막지 않는다).
+ * ⚠️ 수집은 필드별 try/catch — 하나가 throw 하면 부팅 시퀀스가 죽는다. 못 얻은 필드는 **생략**하면 되고,
+ *    생략된 필드는 서버가 기존 값을 유지한다(null 로 덮어쓰지 않음).
+ * 같은 installId 가 60초 안에 재호출되면 서버가 조용히 no-op 200 을 준다(정상).
+ */
+export interface OtaDeviceUpsertRequest {
+  /**
+   * 불투명 설치 식별자(≤64자, [A-Za-z0-9_-]). AsyncStorage `ota:install-id:v1` 영속 — 재설치하면 새 값.
+   * ★ 암호학적 난수가 아니다. 인증 수단으로 쓰지 말 것(이 값을 키로 하는 비인증 '읽기' 경로 금지).
+   */
+  installId: string;
+  platform: DeviceType; // 'IOS' | 'ANDROID' (대문자 — D1 은 소문자지만 변환은 어드민 몫)
+  appVersion?: string | null; // getAppVersion() 은 nullable. '1.0'(2자리)도 유효
+  otaChannel?: string | null; // ★ union literal 아님 — getChannel(): string 이라 캐스팅을 만들지 않는다
+  fingerprintHash?: string | null; // 형식 미검증(해시 알고리즘이 라이브러리 소관). 현재는 40자 hex
+  /**
+   * ★ 내장 번들이면 null. 판별식 = getBundleId() === getMinBundleId().
+   * (0.36 JS 는 NIL 을 절대 안 준다 — getBundleId() 만 보면 내장 기기도 uuidv7 을 뱉어 오판한다.
+   *  서버도 otaBundleId === otaMinBundleId 면 null 로 정규화한다 — 이중 방어.)
+   */
+  otaBundleId?: string | null;
+  otaMinBundleId?: string | null; // 내장 판별 교차검증 + 바이너리 식별자(지문 보완)
+  /**
+   * HotUpdater.getCohort(). 기본 "1".."1000" 숫자 문자열, 커스텀 코호트(QA)면 슬러그 — 둘이 섞여 형식 검증 없음.
+   * BE 는 이 값으로 집계하지 않는다. 어드민이 (a) rollout 인하 회수 대상 정확 계산 (b) "커스텀 코호트라
+   * rollout 대상이 아닌 기기"(탐지 수단이 달리 없는 조용한 실패) 목록에 쓴다.
+   */
+  otaCohort?: string | null;
+  /**
+   * 최신 20개. 보조 신호 — 잘못된 원소는 서버가 조용히 버리고 나머지를 저장한다(400 아님).
+   * 라이브러리가 배열 순서를 문서화하지 않아 서버는 순서에 의미를 두지 않는다.
+   */
+  otaCrashHistory?: string[] | null;
+}
+// 응답: 200, 본문 없음.
+
+/**
+ * POST /app/ota/devices/{installId}/events — **인증 불필요**.
+ * `at` 필드는 없다(즉시 전송 + 실패 시 재시도 안 함 → 서버 수신 시각이 곧 사건 시각).
+ * installId 행이 아직 없어도 **200** — 서버가 최소 행을 만든다(부팅 upsert 와의 레이스에서 이벤트 유실 방지).
+ * 같은 type 재전송은 last-write-wins(원장 아님, 마지막 상태만 남는다).
+ */
+export interface OtaEventRequest {
+  type: OtaEventType;
+  bundleId: string;
+}
+// 응답: 200, 본문 없음.
+
+/** GET /app/policy — **인증 불필요, 어떤 경우에도 401 을 내지 않는다**(401 인터셉터가 강제 로그아웃시킴). */
+export interface AppPlatformPolicy {
+  /** 미설정이면 "0.0.0" (= 전 버전 통과). 게이트는 사용자를 앱 밖에 가두지 않는다. */
+  minVersion: string;
+  latestVersion: string | null;
+  storeUrl: string | null;
+}
+export interface AppPolicy {
+  ios: AppPlatformPolicy;
+  android: AppPlatformPolicy;
+  message: string | null; // 차단 화면 안내 문구(한국어, FE 가 그대로 렌더)
+}
+// semver 비교는 앱이 한다. 조회 실패(오프라인/타임아웃/5xx)는 **통과**시킬 것.
+// 응답에 Cache-Control: public, max-age=300 이 붙는다(정책 변경 반영이 최대 5분 지연).
+
+/**
+ * PUT /admin/app/policy (hasRole ADMIN) — 전체 치환. 응답은 AppPolicy.
+ * ★ minVersion/latestVersion 은 여기서만 3자리 semver 로 엄격 검증된다.
+ *   텔레메트리의 appVersion 이 '1.0' 을 허용하는 것과의 비대칭은 의도된 것 —
+ *   저긴 관측(거절하면 기기가 조용히 사라진다), 여긴 제어(틀린 값이 게이트를 잘못 여닫는다).
+ */
+export interface UpdateAppPolicyRequest {
+  ios: AppPlatformPolicy;
+  android: AppPlatformPolicy;
+  message: string | null;
+}
+
+// ── 어드민 (전부 hasRole ADMIN) ────────────────────────────
+// ★ 번들 메타(메시지·커밋·enabled·rollout·force·플랫폼·지문·배포시각)는 BE 에 없다 —
+//   Cloudflare D1 이 유일한 출처이고 어드민이 in-process 로 읽어 bundleId 키로 합친다.
+
+/**
+ * GET /admin/ota/bundle-stats?bundleIds=a,b,c&channel=&platform=&activeWindowDays=7  (평문 JSON)
+ * ★ 번들 **목록**의 주체는 D1(어드민)이다. BE 는 카운트만 답한다.
+ * ★ bundleIds 를 주면 → 그 id 만, 요청 순서 그대로, 없는 id 도 전부 0 으로 채워서(누락은 버그).
+ *   최대 100개(초과 400 -1011).
+ * ★ bundleIds 를 생략하면 → BE 가 아는 **전량**(bundleId DESC = 시간 역순 = D1 의 id DESC 와 일치).
+ *   고아 번들(D1 에 없는데 기기는 남아 있는 번들) 탐지에 이 모드를 쓴다.
+ */
+export interface OtaBundleStats {
+  bundleId: string;
+  /** last_seen_at >= now - activeWindowDays. "지금 실행 중"이 아니라 "최근 N일 안에 봤다". */
+  active: number;
+  /**
+   * ★ 누적이 아니다 — 현재 상태 컬럼이라 다른 번들로 넘어간 기기는 빠진다.
+   * "마지막 보고 시점에 이 번들을 실행 중이던 기기 수(윈도우 무관)". active ⊆ installed.
+   */
+  installed: number;
+  /** 총 배포 도달량. ⚠️ 설치까지 끝낸 기기도 포함한다. */
+  downloaded: number;
+  /** "받았는데 아직 안 켠" — 에픽이 지목한 핵심 지표. downloaded 의 부분집합. */
+  downloadedNotInstalled: number;
+  /** 어드민 disable/rollout 인하로 정상 복귀 — 알람 대상 아님(무채색 표기). */
+  serverRolledBack: number;
+  /**
+   * 🚨 ★ 윈도우를 안 타고 사실상 단조 증가한다(한 번 오르면 안 내려감 — 기기당 크래시 롤백 20회 초과 시에만 예외).
+   * 그리고 항상 하한(下限) — 기기가 다시 켜져야 보고된다. "0 = 안전" 도 "안 오르니 나아졌다" 도 아니다.
+   */
+  crashRolledBack: number;
+}
+export interface OtaBundleStatsResponse {
+  activeWindowDays: number;
+  generatedAt: string;
+  stats: OtaBundleStats[];
+}
+
+/**
+ * 기기 상태 필터. 각 값은 OtaBundleStats 의 동명 카운트와 **같은 술어**를 쓴다
+ * (숫자를 눌러 상세로 들어갔을 때 다른 수가 나오지 않게). 기본 ALL.
+ */
+export type OtaDeviceState =
+  | 'ALL' | 'ACTIVE' | 'INSTALLED' | 'DOWNLOADED' | 'DOWNLOADED_NOT_INSTALLED'
+  | 'SERVER_ROLLED_BACK' | 'CRASH_ROLLED_BACK';
+
+/**
+ * GET /admin/ota/bundles/{bundleId}/devices?state=&activeWindowDays=&page=&size=  → PagedModel
+ * GET /admin/ota/devices?userId=|installId=&page=&size=                           → PagedModel
+ * 배열은 `_embedded.otaDevices`. 정렬 last_seen_at DESC, id DESC. 없는 id 는 200 + 빈 페이지(404 아님).
+ */
+export interface OtaDeviceSummary {
+  installId: string;
+  platform: DeviceType | null; // 이벤트가 먼저 도착해 만들어진 최소 행이면 null
+  appVersion: string | null;
+  otaChannel: string | null;
+  otaBundleId: string | null; // null = 내장 번들
+  otaMinBundleId: string | null;
+  fingerprintHash: string | null;
+  /**
+   * "1".."1000" 또는 커스텀 슬러그. 커스텀이면 그 기기는 번들의 targetCohorts 에 명시되지 않는 한
+   * rollout 100% 여도 번들을 못 받는다 — 어드민이 이 행을 뽑아내는 용도.
+   */
+  otaCohort: string | null;
+  downloadedBundleId: string | null;
+  downloadedAt: string | null;
+  serverRollbackFromBundleId: string | null;
+  serverRollbackAt: string | null;
+  crashRollbackBundleId: string | null;
+  /**
+   * ★ 크래시 시각이 아니라 **보고 시각**이다. 실제 크래시는 그 이전 실행에서 났고 시각은 관측 불가.
+   * 이 값으로 크래시 타임라인을 그리면 "배포 3일 뒤 크래시"처럼 보이는데 실제론 그때 앱을 켠 것뿐이다.
+   */
+  crashRollbackReportedAt: string | null;
+  crashHistory: string[]; // 없으면 [] (null 아님 — FE 가 null 체크를 안 하게)
+  lastSeenAt: string;
+  /** 비로그인/탈퇴 기기면 null — 이게 **정상**이다(탈퇴 시 링크만 끊고 행은 남긴다). */
+  user: { id: number; nickName: string } | null;
+}
+
+/**
+ * GET /admin/ota/summary?channel=&activeWindowDays=  (평문 JSON)
+ * 분포 바는 어드민이 직접 그린다(차트 라이브러리 없음) — count DESC, activeDevices 를 분모로.
+ * ★ byBundle 은 여기 없다 — GET /admin/ota/bundle-stats 의 전량 모드가 그 역할을 한다
+ *   (같은 숫자를 두 곳에서 정의하면 드리프트한다).
+ */
+export interface OtaSummary {
+  channel: string | null;
+  activeWindowDays: number;
+  generatedAt: string;
+  /** 분포 바의 분모. ★ "활성 설치 수"이지 "실물 대수"가 아니다(재설치 = 새 installId). */
+  activeDevices: number;
+  embeddedDevices: number; // OTA 미수신(스토어 버전 그대로)
+  linkedDevices: number; // account 링크된 기기 = 드릴다운 가능 비율(모수 신뢰도)
+  /** count DESC, 상위 20 + 나머지는 key=null 행으로 합산("기타/미상"). 총합 = activeDevices. */
+  byAppVersion: { appVersion: string | null; count: number }[];
+  byFingerprint: { fingerprintHash: string | null; count: number }[];
 }

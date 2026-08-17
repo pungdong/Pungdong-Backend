@@ -42,6 +42,11 @@ pungdong:
   identity-verification:
     crypto-key: test-only-identity-crypto-key-not-for-production
     send-cooldown-seconds: 0   # 기본 비활성 — 기존 테스트가 create→resend 를 즉시 호출. 쿨다운은 전용 테스트에서 켠다.
+  ota:
+    # 기본 비활성 — 임베디드 Redis 를 테스트 클래스들이 공유하므로 켜두면 IP 카운터가 누적돼
+    # 실행 순서에 따라 엉뚱한 클래스가 429 를 받는다. 상한 동작은 전용 테스트가 작은 값으로 켜서 검증한다
+    # (identity-verification 의 send-cooldown-seconds 와 같은 이유·같은 방식).
+    new-install-ip-quota-enabled: false
 
 cors:
   allowed-origins: http://localhost:3000

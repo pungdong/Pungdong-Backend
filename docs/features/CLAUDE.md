@@ -52,6 +52,7 @@
 - [커뮤니티(community)](community.md) — community + branding(게시물 테이블 공유) + instructor-application(강사 판정) + course(연결 강의) + notification(댓글 알림) · 노출은 브랜딩→커뮤니티 단방향 · 참여 신청 영구 제외(=예약 플로우) · 신고 2-A
 - [세션 단체 채팅(session-group-chat)](session-group-chat.md) — chat + availability(일정=방 단위) + enrollment(참여자격=결제완료) + notification(참여자 fan-out 푸시) · 방 PK=일정 id·FK 없음(전원 환불로 일정이 물리 삭제돼도 방 생존) · 지연 생성 · 커서 페이지네이션 + 전송 멱등 · 폴링+FCM(WS/SSE 기각) · 딥링크는 방 직행(허브 착지 규약 정정)
 - [푸시 알림(push)](push.md) — notification(발송) + account(토큰) + FCM/GCP(plop-5997b) · 계약 SoT(/me/devices·data.notificationId·WIF 키리스) · BE 리드/FE 컨폼 · 인앱 알림함 #132 후속 · 메커니즘은 architecture/notification.md
+- [OTA 텔레메트리·릴리스 대시보드·최소버전 게이트(ota-telemetry)](ota-telemetry.md) — ota(신규) + account(탈퇴 링크 해제) + 모바일 앱 + apps/admin · **firebase_token 확장 기각**(로그아웃/푸시거부 기기가 빠져 가장 보고 싶은 집단이 먼저 지워짐) · permitAll 수집 + installId · **관측은 관용적/제어는 엄격** · 롤백 2종 분리 · BE 는 D1 을 안 읽음 · 메커니즘은 architecture/ota.md
 
 ## 톤
 
