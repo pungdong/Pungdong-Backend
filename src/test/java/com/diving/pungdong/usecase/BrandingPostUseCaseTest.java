@@ -336,9 +336,17 @@ class BrandingPostUseCaseTest {
                 .andExpect(jsonPath("$.linkedCourse.status").value("OPEN"));
     }
 
+    /**
+     * ⚠️ <b>이 테스트는 2026-08-18 에 뒤집혔다.</b> 원래는 "오너 응답에서도 DRAFT 가 빠진다" 를 사양으로
+     * 단언하고 있었다. 그게 <b>무음 데이터 손실의 원인</b>이라 바꿨다 —
+     * 이 상세가 오너의 수정 폼 프리필 소스인데 키가 없으면 폼이 {@code linkedCourseId} 를 못 채우고,
+     * 수정이 스냅샷 교체라 저장하는 순간 연결이 조용히 끊긴다(사용자는 오타만 고쳤다).
+     * 커뮤니티가 같은 결함을 먼저 고쳤고, 같은 성격의 결정을 도메인마다 다르게 갈 이유가 없어 맞췄다.
+     * <b>공개 쪽 규칙은 그대로다</b> — L3 가 그걸 지킨다. 되돌리려면 두 테스트를 함께 봐야 한다.
+     */
     @Test
-    @DisplayName("L2: 미공개(DRAFT) 강의는 연결돼 있어도 공개 응답에서 빠진다 (미공개 코스가 새면 안 된다)")
-    void draftCourse_isOmittedFromResponse() throws Exception {
+    @DisplayName("L2: 미공개(DRAFT) 강의도 오너 응답에는 실린다 (없으면 수정 시 연결이 조용히 끊긴다)")
+    void draftCourse_isIncludedForOwner() throws Exception {
         Account me = account("l2@test.com", "diverP12", Role.INSTRUCTOR);
         Course draft = course(me, CourseStatus.DRAFT);
 
@@ -346,6 +354,33 @@ class BrandingPostUseCaseTest {
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"mediaUrls\":[\"" + img("a") + "\"],\"linkedCourseId\":" + draft.getId() + "}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.linkedCourse.id").value(draft.getId().intValue()))
+                .andExpect(jsonPath("$.linkedCourse.status").value("DRAFT"));
+    }
+
+    @Test
+    @DisplayName("L3: 그래도 남·비로그인에게는 DRAFT 강의가 안 보인다 (오너 예외가 공개 화면으로 새면 안 된다)")
+    void draftCourse_isStillHiddenFromPublic() throws Exception {
+        Account me = account("l3@test.com", "diverP13", Role.INSTRUCTOR);
+        Account stranger = account("l3b@test.com", "diverP14", Role.STUDENT);
+        Course draft = course(me, CourseStatus.DRAFT);
+
+        MvcResult created = mockMvc.perform(post("/branding/me/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mediaUrls\":[\"" + img("a") + "\"],\"linkedCourseId\":" + draft.getId() + "}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        long id = ((Number) com.jayway.jsonpath.JsonPath.read(
+                created.getResponse().getContentAsString(), "$.id")).longValue();
+
+        mockMvc.perform(get("/branding-posts/" + id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.linkedCourse").doesNotExist());
+
+        mockMvc.perform(get("/branding-posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(stranger)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.linkedCourse").doesNotExist());
     }

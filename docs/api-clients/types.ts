@@ -838,13 +838,18 @@ export interface BrandingPostDetail extends HalLinks {
    * (커뮤니티에서 숨기면 여기서도 true 로 온다).
    */
   hidden: boolean;
-  /** 강사가 연결했을 때만. DRAFT(미공개)·삭제된 코스면 키 자체가 없다. */
+  /**
+   * 강사가 연결했을 때만.
+   * ⚠️ **오너와 남에게 다르게 온다** — 남·비로그인은 DRAFT 면 **키 자체가 없고**,
+   * **오너 본인에게는 DRAFT 도 온다**(`status: 'DRAFT'`). 이 상세가 오너의 수정 폼 프리필 소스인데
+   * 키가 없으면 저장 시 연결이 조용히 끊기기 때문이다. 그리드 카드는 예외 없이 공개 규칙이다.
+   */
   linkedCourse?: {
     id: number;
     title: string;
     thumbnailUrl?: string | null;
     price: number;
-    status: 'OPEN' | 'CLOSED';
+    status: CourseStatus;
   };
 }
 
@@ -855,6 +860,14 @@ export interface BrandingPostDetail extends HalLinks {
  */
 export interface BrandingPostRequest {
   mediaUrls: string[];      // 1~10장
+  /**
+   * ⚠️ **되싣지 않으면 지워진다.** 서버에 `@NotNull` 이 없고 서비스가 무조건 덮어쓴다
+   * (`BrandingPostService.apply`). 커뮤니티 글 수정이 브랜딩발 글을 이 폼으로 보내므로 실질 경로다 —
+   * 상세 응답의 값을 그대로 되실어라(라운드트립). `caption`·`tags` 등 나머지 키도 같다.
+   */
+  category?: CommunityCategory;
+  /** ⚠️ 위 `category` 와 같다 — 되싣지 않으면 `null` 로 지워진다. 최대 100자. */
+  title?: string;
   caption?: string;         // 최대 2000자
   tags?: string[];          // 최대 10개, 각 30자
   locationLabel?: string;   // 최대 60자
