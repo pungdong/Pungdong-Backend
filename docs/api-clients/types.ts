@@ -832,6 +832,12 @@ export interface BrandingPostDetail extends HalLinks {
   /** UTC ISO-8601. "하루 전" 같은 상대시간은 FE가 만든다 — BE는 문자열을 만들지 않는다. */
   createdAt: string;
   pinned: boolean;
+  /**
+   * 숨김 상태. **공개 조회에서는 항상 false** — 숨긴 글은 오너에게만 열린다.
+   * `CommunityPostDetail.hidden` 과 같은 의미이고 같은 행의 같은 컬럼이다
+   * (커뮤니티에서 숨기면 여기서도 true 로 온다).
+   */
+  hidden: boolean;
   /** 강사가 연결했을 때만. DRAFT(미공개)·삭제된 코스면 키 자체가 없다. */
   linkedCourse?: {
     id: number;

@@ -32,6 +32,17 @@ public class BrandingPostDetailResponse {
     @JsonProperty("pinned")
     private boolean pinned;
 
+    /**
+     * 숨김 상태. <b>공개 조회에서는 항상 false</b> — 숨긴 글은 오너에게만 열리기 때문이다.
+     * 커뮤니티 상세({@code CommunityPostDetailResponse.hidden})와 같은 의미이고, 같은 행의 같은 컬럼이다.
+     *
+     * <p>없으면 오너 액션시트가 <b>이미 숨긴 글에 "숨기기" 를 표시</b>한다 — 커뮤니티에서 숨긴 뒤
+     * 브랜딩 화면으로 넘어오는 경로가 실제로 있어서(커뮤니티 메뉴가 브랜딩발 글의 삭제를 그쪽으로 보낸다)
+     * 상태를 모른 채 토글을 그리게 된다.
+     */
+    @JsonProperty("hidden")
+    private boolean hidden;
+
     /** 강사가 연결했을 때만. 미공개·삭제된 코스면 키가 빠진다. */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private LinkedCourseResponse linkedCourse;

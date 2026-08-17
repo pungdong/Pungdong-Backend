@@ -285,6 +285,7 @@ public class BrandingPostService {
                 .locationLabel(post.getLocationLabel())
                 .createdAt(post.getCreatedAt())
                 .pinned(post.isPinned())
+                .hidden(post.isHidden())
                 .linkedCourse(toLinkedCourse(post.getLinkedCourse()))
                 .build();
     }

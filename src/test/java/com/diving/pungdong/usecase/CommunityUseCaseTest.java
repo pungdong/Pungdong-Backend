@@ -1535,6 +1535,31 @@ class CommunityUseCaseTest {
                 .andExpect(jsonPath("$.msg").value("지난 날짜로는 모집할 수 없어요."));
     }
 
+    @Test
+    @DisplayName("E18: 커뮤니티에서 숨기면 브랜딩 상세도 hidden=true 로 온다 (오너 시트가 상태를 알아야 한다)")
+    void hiddenState_isVisibleOnBrandingDetail() throws Exception {
+        Account me = account("e18@c.com", "diverE18", Role.INSTRUCTOR);
+        long id = brandingPost(me, "TOUR", "프로필 글");
+
+        mockMvc.perform(get("/branding-posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hidden").value(false));
+
+        mockMvc.perform(patch("/community/posts/" + id + "/visibility")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"hidden\":true}"))
+                .andExpect(status().isOk());
+
+        // 같은 행의 같은 컬럼이라 브랜딩 상세도 숨김을 알아야 한다. 이 필드가 없으면 오너 액션시트가
+        // 이미 숨긴 글에 "숨기기" 를 그린다 — 커뮤니티에서 숨긴 뒤 브랜딩으로 넘어오는 경로가 실재한다.
+        mockMvc.perform(get("/branding-posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hidden").value(true));
+    }
+
     /** 연결 강의를 건 커뮤니티 글 작성 → 생성된 id. */
     private long postLinkingCourse(Account author, Course course, String title) throws Exception {
         MvcResult result = mockMvc.perform(post("/community/posts")
