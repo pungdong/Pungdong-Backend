@@ -36,7 +36,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 커뮤니티 — 피드·상세·작성.
  *
  * <p><b>읽는 법</b>: {@code @DisplayName} 을 위에서 아래로 = 사양.
- * S* 성공 / X* 노출 방향 / F* 필터 / M* 같이가요 / A* 작성자 합성 / V* 검증 / H* 숨김 / R* 권한.
+ * S* 성공 / X* 노출 방향 / F* 필터 / M* 같이가요 / A* 작성자 합성 / V* 검증 / H* 숨김 / R* 권한 /
+ * K* 좋아요·북마크 / D* 탐색 지표 / C* 댓글 / N* 알림 / G* 가드 / <b>E* 수정(edit)</b>.
  *
  * <p>이 피처에서 가장 틀리기 쉬운 건 <b>노출 방향</b>이다 — 브랜딩에 올리면 커뮤니티에도 가지만
  * 커뮤니티에 올린 글은 브랜딩에 가지 않는다. X* 가 그걸 양방향으로 못 박는다.
@@ -339,7 +340,7 @@ class CommunityUseCaseTest {
         Account me = account("m4@c.com", "diverC37", Role.STUDENT);
         long id = matchPost(me, "지나갈 일정", LocalDate.now().plusDays(1));
 
-        // 지난 날짜는 API 가 거부하므로(@FutureOrPresent) HTTP 로는 만들 수 없다.
+        // 지난 날짜는 API 가 거부하므로(서비스의 requireFutureIfRescheduled) HTTP 로는 만들 수 없다.
         // 시간이 흐른 상황을 재현하려면 저장된 일정을 직접 과거로 돌리는 수밖에 없다.
         CommunityPostMatch match = matchRepo.findById(id).orElseThrow();
         match.setMeetDate(LocalDate.now().minusDays(1));
@@ -1456,6 +1457,82 @@ class CommunityUseCaseTest {
         mockMvc.perform(get(brandingGrid("diverE14")))
                 .andExpect(jsonPath("$.page.totalElements").value(0));
         assertThat(postRepo.findById(id)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("E15: DRAFT 강의를 건 글을 상세→수정으로 왕복해도 연결이 살아남는다 (E9 가 막으려던 결함 본체)")
+    void draftLinkedCourse_survivesRoundTrip() throws Exception {
+        Account me = account("e15@c.com", "diverE15", Role.INSTRUCTOR);
+        approveAsInstructor(me);
+        Course draft = course(me, CourseStatus.DRAFT);
+        long id = postLinkingCourse(me, draft, "준비 중인 강의 연결");
+
+        // FE 가 하는 그대로: 상세를 읽어 linkedCourse.id 를 뽑고, 그걸 linkedCourseId 로 되싣는다.
+        String detail = mockMvc.perform(get("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String courseId = read(detail, "$.linkedCourse.id");
+
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"제목만 고침\",\"body\":\"본문\","
+                                + "\"linkedCourseId\":" + courseId + "}"))
+                .andExpect(status().isOk());
+
+        // 결함의 본체는 "응답에 키가 없다" 가 아니라 "왕복하면 연결이 끊긴다" 였다.
+        assertThat(postRepo.findById(id).orElseThrow().getLinkedCourse()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("E16: 지난 모집글의 일정을 미래로 옮기면 다시 열린다 (완화의 목적은 복구 경로다)")
+    void pastMatch_canBeRescheduledForward() throws Exception {
+        Account me = account("e16@c.com", "diverE16", Role.STUDENT);
+        long id = matchPost(me, "되살릴 모집", LocalDate.now().plusDays(1));
+
+        CommunityPostMatch match = matchRepo.findById(id).orElseThrow();
+        match.setMeetDate(LocalDate.now().minusDays(2));
+        matchRepo.saveAndFlush(match);
+
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"MATCH\",\"title\":\"일정 새로 잡음\","
+                                + "\"match\":{\"meetDate\":\"" + LocalDate.now().plusDays(7) + "\","
+                                + "\"capacity\":4,\"levelLabel\":\"AOWD 이상\"}}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.match.open").value(true));
+    }
+
+    @Test
+    @DisplayName("E17: 카테고리를 돌렸다 오면 지난 일정은 되살릴 수 없다 (모집정보가 지워져 '새 모집' 이 된다)")
+    void matchRoundTrip_losesPastDate() throws Exception {
+        Account me = account("e17@c.com", "diverE17", Role.STUDENT);
+        long id = matchPost(me, "왕복할 모집", LocalDate.now().plusDays(1));
+
+        CommunityPostMatch match = matchRepo.findById(id).orElseThrow();
+        LocalDate past = LocalDate.now().minusDays(2);
+        match.setMeetDate(past);
+        matchRepo.saveAndFlush(match);
+
+        // MATCH → TOUR 로 바꾸면 모집정보 행이 삭제된다(M6).
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"잠깐 자랑 글\"}"))
+                .andExpect(status().isOk());
+
+        // 다시 MATCH 로 오면 비교할 이전 일정이 없어 "새 모집" 으로 판정된다 → 과거 날짜는 거부.
+        // 되살리려면 일정을 새로 잡아야 한다. 완화가 카테고리 왕복으로 우회되지 않는다는 뜻이다.
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"MATCH\",\"title\":\"되돌리기\","
+                                + "\"match\":{\"meetDate\":\"" + past + "\",\"capacity\":4,"
+                                + "\"levelLabel\":\"AOWD 이상\"}}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("지난 날짜로는 모집할 수 없어요."));
     }
 
     /** 연결 강의를 건 커뮤니티 글 작성 → 생성된 id. */

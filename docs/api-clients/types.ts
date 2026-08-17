@@ -889,7 +889,13 @@ export interface LinkedCourse {
   title: string;
   thumbnailUrl?: string | null;
   price: number;
-  status: 'OPEN' | 'CLOSED';
+  /**
+   * ⚠️ **`DRAFT` 가 올 수 있는 건 오너 본인의 커뮤니티 상세뿐**이다
+   * (`CommunityPostDetail.linkedCourse` — 수정 폼 프리필용). 카드·남·비로그인은 DRAFT 면 키가 아예 없다.
+   * 그래서 `'OPEN' | 'CLOSED'` 가 아니라 `CourseStatus` 다 — 좁히면 FE 가 `status === 'DRAFT'` 를
+   * 비교할 때 컴파일 에러가 나고, exhaustive switch 가 DRAFT 를 도달 불가로 처리한다.
+   */
+  status: CourseStatus;
 }
 
 /** 피드·상세·댓글에 공통으로 실리는 작성자. 강사 강조 UI(링+✓+"강사 · 강의 N")의 유일한 소스. */

@@ -324,6 +324,12 @@ public class CommunityPostService {
      * 막으면 프리필한 과거 날짜 때문에 그 글이 영구히 편집 불가가 된다.
      */
     private void requireFutureIfRescheduled(LocalDate previous, LocalDate next) {
+        // 필드의 @NotNull 이 여기까지 오는 걸 막고 있지만, 그 보증이 이제 먼 곳(DTO)에 있다.
+        // 없으면 previous 유무에 따라 NPE 나 "조용히 통과 → nullable=false 컬럼에서 500" 으로 갈린다.
+        // 둘 다 400 이 맞는 자리라 여기서 한 번 더 막는다.
+        if (next == null) {
+            throw new BadRequestException("일정을 골라주세요.");
+        }
         if (Objects.equals(previous, next)) {
             return;
         }
@@ -507,21 +513,20 @@ public class CommunityPostService {
      * — 카드에는 오너 개념이 없고 공개 목록이라 기존 규칙 그대로다.
      */
     private LinkedCourseResponse toLinkedCourseForOwner(Course course) {
-        if (course == null) {
-            return null;
-        }
-        return LinkedCourseResponse.builder()
-                .id(course.getId())
-                .title(course.getTitle())
-                .thumbnailUrl(course.getMedia().isEmpty() ? null : course.getMedia().get(0).getUrl())
-                .price(course.getPrice())
-                .status(course.getStatus())
-                .build();
+        return toLinkedCourse(course, true);
     }
 
     /** DRAFT·삭제된 코스는 <b>키 자체를 생략</b>한다 — 비공개 코스가 공개 화면에 새면 안 된다. */
     private LinkedCourseResponse toLinkedCourse(Course course) {
-        if (course == null || course.getStatus() == CourseStatus.DRAFT) {
+        return toLinkedCourse(course, false);
+    }
+
+    /**
+     * 매핑은 한 곳에만 둔다 — 오너용·공개용을 각각 복사해두면 {@link LinkedCourseResponse} 에 필드가
+     * 늘어난 날 한쪽만 고쳐지고, 그 차이는 "오너에게만 필드가 빠진다" 로 나타나 눈에 잘 안 띈다.
+     */
+    private LinkedCourseResponse toLinkedCourse(Course course, boolean includeDraft) {
+        if (course == null || (!includeDraft && course.getStatus() == CourseStatus.DRAFT)) {
             return null;
         }
         return LinkedCourseResponse.builder()
