@@ -179,7 +179,9 @@ public class CommunityCommentService {
             }
         }
         return ReactionResponse.builder()
-                .count(commentLikeRepo.countByCommentId(commentId)).active(true).build();
+                // 삽입은 새 트랜잭션에서 커밋됐다 — 카운트도 새 스냅샷으로(CommunityReactionService.like 와 같다).
+                .count(idempotentInsert.countFresh(() -> commentLikeRepo.countByCommentId(commentId)))
+                .active(true).build();
     }
 
     @Transactional
