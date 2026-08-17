@@ -68,6 +68,16 @@ public class SecurityConfiguration {
                         .antMatchers(HttpMethod.GET, "/courses/*/detail").permitAll()
                         .antMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
                         .antMatchers(HttpMethod.GET, "/legal/**").permitAll()
+                        // 앱 최소버전 정책 — 비인증 조회. 🚨 이 경로는 어떤 경우에도 401 을 내면 안 된다:
+                        // 앱이 공개 엔드포인트도 같은 axios 인스턴스(토큰 동봉)로 부르는데, 401 이 나오면 그
+                        // 인터셉터가 setUnauthenticated() 를 호출해 부팅 중 정상 사용자가 강제 로그아웃된다.
+                        .antMatchers(HttpMethod.GET, "/app/policy").permitAll()
+                        // OTA 텔레메트리 — 로그인·푸시 권한과 무관하게 모든 설치를 세야 릴리스 대시보드가
+                        // 의미를 갖는다(인증을 걸면 "번들에 갇혀 로그아웃한 사용자" 가 먼저 사라진다).
+                        // 신분은 여전히 세션에서만 온다 — @CurrentUser 가 익명이면 null 이고 바디로 안 받는다.
+                        // ⚠️ ant 의 '*' 는 '/' 를 넘지 않아 이벤트 경로를 따로 적어야 한다.
+                        .antMatchers(HttpMethod.POST, "/app/ota/devices").permitAll()
+                        .antMatchers(HttpMethod.POST, "/app/ota/devices/*/events").permitAll()
                         .antMatchers(HttpMethod.POST, "/webhooks/sanity/venue").permitAll()
                         // 이니시스 결제창이 인증결과를 form POST 하는 콜백 — 콜백엔 우리 JWT 가 없어 permitAll.
                         // 인증은 P_AUTH_TID(우리 콜백에만 옴)가 대신하고, 승인 실패 시 fail 로 리다이렉트한다. /payments/** 보다 먼저.
@@ -78,6 +88,10 @@ public class SecurityConfiguration {
                         .antMatchers("/admin/community/reports/**").hasRole("ADMIN")
                         // 결제 주문 수동 환불(운영 보정) — 어드민 전용. /payments/** 매처와 경로가 다르지만 명시.
                         .antMatchers("/admin/payments/**").hasRole("ADMIN")
+                        // OTA 릴리스 대시보드(기기 카운트·드릴다운) + 앱 정책 편집 — 어드민 전용.
+                        // 번들 메타·조작은 여기 없다(어드민이 Cloudflare D1 을 직접 읽고 쓴다).
+                        .antMatchers("/admin/ota/**").hasRole("ADMIN")
+                        .antMatchers("/admin/app/**").hasRole("ADMIN")
                         .antMatchers("/instructor-applications/**").authenticated()
                         // 학생 보유 자격증(프로필 > 내 자격증) — 강사도 개인 자격으로 쓰므로 hasRole 로 막지 않는다.
                         .antMatchers("/certificates/**").authenticated()
