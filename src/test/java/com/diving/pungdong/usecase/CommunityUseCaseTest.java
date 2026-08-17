@@ -1285,8 +1285,8 @@ class CommunityUseCaseTest {
     }
 
     @Test
-    @DisplayName("E6: 일정이 지난 같이가요 글은 제목조차 고칠 수 없다 (@FutureOrPresent 의 부작용 — 결함 기록)")
-    void update_pastMatch_isRejected() throws Exception {
+    @DisplayName("E6: 일정이 지난 같이가요 글도 제목을 고칠 수 있다 (일정을 그대로 두면 통과한다)")
+    void update_pastMatch_keepingDate_isAllowed() throws Exception {
         Account me = account("e6@c.com", "diverE6", Role.STUDENT);
         long id = matchPost(me, "지나갈 일정", LocalDate.now().plusDays(1));
 
@@ -1296,44 +1296,115 @@ class CommunityUseCaseTest {
         match.setMeetDate(past);
         matchRepo.saveAndFlush(match);
 
-        // FE 가 상세로 폼을 프리필하면 지난 meetDate 를 그대로 되돌려 보내게 된다 → 저장 자체가 막힌다.
-        // ⚠️ 이건 사양이 아니라 결함이다. 정책이 정해져 수정되면 이 테스트를 뒤집어야 한다.
+        // FE 가 상세로 폼을 프리필하면 지난 meetDate 를 그대로 되돌려 보낸다. 그게 막히면
+        // 지난 모집글은 오타 하나 때문에 영구히 편집 불가가 된다 — 그래서 통과해야 한다.
         mockMvc.perform(put("/community/posts/" + id)
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"category\":\"MATCH\",\"title\":\"오타만 고침\","
                                 + "\"match\":{\"meetDate\":\"" + past + "\",\"capacity\":4,"
                                 + "\"levelLabel\":\"AOWD 이상\"}}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("오타만 고침"))
+                .andExpect(jsonPath("$.match.open").value(false));
+    }
+
+    @Test
+    @DisplayName("E7: 그렇다고 지난 날짜로 일정을 '바꿀' 수는 없다 (완화가 구멍이 되면 안 된다)")
+    void update_reschedulingToPast_isRejected() throws Exception {
+        Account me = account("e7@c.com", "diverE7", Role.STUDENT);
+        long id = matchPost(me, "앞으로의 일정", LocalDate.now().plusDays(10));
+
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"MATCH\",\"title\":\"과거로 옮기기\","
+                                + "\"match\":{\"meetDate\":\"" + LocalDate.now().minusDays(3) + "\","
+                                + "\"capacity\":4,\"levelLabel\":\"AOWD 이상\"}}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.msg").value("지난 날짜로는 모집할 수 없어요."));
     }
 
     @Test
-    @DisplayName("E7: DRAFT 강의를 연결하면 오너 상세에서도 키가 사라진다 (프리필하면 연결이 끊긴다 — 결함 기록)")
-    void update_draftLinkedCourse_isHiddenFromOwner() throws Exception {
-        Account me = account("e7@c.com", "diverE7", Role.INSTRUCTOR);
-        approveAsInstructor(me);
-        Course draft = course(me, CourseStatus.DRAFT);
+    @DisplayName("E8: 새 모집글은 여전히 지난 날짜로 만들 수 없다 (완화는 '기존 일정 유지' 에만 적용된다)")
+    void create_pastMatch_stillRejected() throws Exception {
+        Account me = account("e8@c.com", "diverE8", Role.STUDENT);
 
-        MvcResult created = mockMvc.perform(post("/community/posts")
+        mockMvc.perform(post("/community/posts")
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"category\":\"TOUR\",\"title\":\"준비 중인 강의 연결\",\"body\":\"본문\","
-                                + "\"linkedCourseId\":" + draft.getId() + "}"))
-                .andExpect(status().isOk())
-                .andReturn();
-        long id = ((Number) com.jayway.jsonpath.JsonPath.read(
-                created.getResponse().getContentAsString(), "$.id")).longValue();
+                        .content("{\"category\":\"MATCH\",\"title\":\"과거 모집\","
+                                + "\"match\":{\"meetDate\":\"" + LocalDate.now().minusDays(1) + "\","
+                                + "\"capacity\":4,\"levelLabel\":\"AOWD 이상\"}}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("지난 날짜로는 모집할 수 없어요."));
+    }
 
-        // DB 에는 연결이 살아 있는데
-        assertThat(postRepo.findById(id).orElseThrow().getLinkedCourse()).isNotNull();
+    @Test
+    @DisplayName("E9: 오너에게는 DRAFT 연결 강의도 상세에 실린다 (없으면 수정 시 연결이 조용히 끊긴다)")
+    void draftLinkedCourse_isVisibleToOwner() throws Exception {
+        Account me = account("e9@c.com", "diverE9", Role.INSTRUCTOR);
+        approveAsInstructor(me);
+        Course draft = course(me, CourseStatus.DRAFT);
+        long id = postLinkingCourse(me, draft, "준비 중인 강의 연결");
 
-        // 응답에는 키 자체가 없다 — 오너 본인이 토큰을 실어도 마찬가지다.
-        // ⚠️ 그래서 상세로 수정 폼을 채우면 linkedCourseId 가 비고, 저장하는 순간 연결이 조용히 끊긴다.
-        // 비공개 코스를 공개 화면에 안 새게 하려는 규칙이 오너 편집 경로까지 덮은 것이라 결함이다.
+        // 오너는 자기 DRAFT 코스를 이미 알고 있다 — 수정 폼이 프리필할 id 를 받아야 한다.
         mockMvc.perform(get("/community/posts/" + id)
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.linkedCourse.id").value(draft.getId().intValue()))
+                .andExpect(jsonPath("$.linkedCourse.status").value("DRAFT"));
+    }
+
+    @Test
+    @DisplayName("E10: 하지만 남에게는 DRAFT 연결 강의가 여전히 안 보인다 (오너 예외가 공개 화면으로 새면 안 된다)")
+    void draftLinkedCourse_stillHiddenFromOthers() throws Exception {
+        Account author = account("e10a@c.com", "diverE10a", Role.INSTRUCTOR);
+        approveAsInstructor(author);
+        Account viewer = account("e10b@c.com", "diverE10b", Role.STUDENT);
+        Course draft = course(author, CourseStatus.DRAFT);
+        long id = postLinkingCourse(author, draft, "준비 중인 강의 연결");
+
+        // 비로그인
+        mockMvc.perform(get("/community/posts/" + id))
                 .andExpect(jsonPath("$.linkedCourse").doesNotExist());
+
+        // 로그인했지만 남
+        mockMvc.perform(get("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(viewer)))
+                .andExpect(jsonPath("$.linkedCourse").doesNotExist());
+
+        // 피드 카드는 오너에게도 공개 규칙 그대로다 — 카드엔 오너 개념이 없다.
+        mockMvc.perform(get("/community/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(author)))
+                .andExpect(jsonPath("$._embedded.posts[0].linkedCourse").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("E11: 본문 2000자를 넘겨도 저장된다 (계약이 5000 인데 컬럼이 2000 이라 500 이 나던 자리)")
+    void update_longBody_isStored() throws Exception {
+        Account me = account("e11@c.com", "diverE11", Role.STUDENT);
+        long id = createPost(me, "TOUR", "긴 본문", "짧은 본문");
+        String longBody = "가".repeat(4500);
+
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"긴 본문\",\"body\":\"" + longBody + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.body").value(longBody));
+    }
+
+    /** 연결 강의를 건 커뮤니티 글 작성 → 생성된 id. */
+    private long postLinkingCourse(Account author, Course course, String title) throws Exception {
+        MvcResult result = mockMvc.perform(post("/community/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(author))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"" + title + "\",\"body\":\"본문\","
+                                + "\"linkedCourseId\":" + course.getId() + "}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        return ((Number) com.jayway.jsonpath.JsonPath.read(
+                result.getResponse().getContentAsString(), "$.id")).longValue();
     }
 }

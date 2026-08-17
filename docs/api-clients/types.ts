@@ -966,26 +966,42 @@ export interface CommunityPostDetail extends HalLinks {
   hidden: boolean;
   /** 내 글이면 "더보기" 에 수정·삭제 노출. 카드엔 메뉴가 없어 불필요. */
   mine: boolean;
+  /**
+   * ⚠️ **오너(`mine === true`)와 남에게 다르게 온다.**
+   * - 남·비로그인: `DRAFT` 코스면 **키 생략**(비공개 코스가 공개 화면에 새면 안 된다). 피드 카드도 동일.
+   * - **오너: `DRAFT` 여도 그대로 온다** — 없으면 수정 폼이 `linkedCourseId` 를 프리필하지 못하고,
+   *   스냅샷 교체라 저장하는 순간 **연결이 조용히 끊긴다**. `status` 를 보고 "비공개 · 공개 후 노출" 을 고지할 것.
+   */
   linkedCourse?: LinkedCourse;
   match?: CommunityMatch;
 }
 
 /**
  * POST /community/posts · PUT /community/posts/{postId} (인증)
- * ⚠️ 수정도 **스냅샷 교체** — 보낸 mediaUrls/tags 가 최종 상태다.
+ *
+ * ⚠️ **수정은 PATCH 가 아니라 전체 스냅샷 교체다. 생략한 키 = "변경 없음" 이 아니라 "비우기".**
+ * 이 규칙은 배열만이 아니라 **모든 키**에 적용된다 — `body`·`locationLabel`·`linkedCourseId`·
+ * `match.meetTime` 도 빠뜨리면 null 이 된다. **응답값을 그대로 되실어라(라운드트립).**
+ * 폼이 편집하지 않는 필드도 마찬가지다 — 입력 UI 유무는 값 보존과 무관하다(값은 state 에 들고 있으면 된다).
+ *
+ * ⚠️ `mediaUrls` 를 빠뜨리면 사진이 지워질 뿐 아니라 **S3 객체가 즉시 영구 삭제**된다(복구 불가).
+ * ⚠️ `mediaUrls: null` 은 400 이다. 비울 의도면 `[]` 를 명시할 것.
  * ⚠️ mediaUrls 는 업로드(POST /branding-images)로 받은 우리 CDN URL 만. 배열 순서 = 표시 순서.
+ * ⚠️ `category`/`title` 은 필수라, 그 둘이 없는 **브랜딩발 글은 이 요청으로 표현할 수 없다** —
+ *    `category == null` 인 글은 커뮤니티 PUT 대상이 아니다(브랜딩 수정 경로로 보낼 것).
  */
 export interface CommunityPostRequest {
   category: CommunityCategory;   // 필수
   title: string;                 // 필수 2~100자
-  body?: string;                 // 최대 5000자
+  body?: string;                 // 최대 5000자 (V30 에서 컬럼을 5000 으로 넓혔다)
   mediaUrls?: string[];          // 최대 10장. 사진 없는 글 허용(궁금해요·같이가요)
   tags?: string[];               // 최대 5개, 각 30자
   locationLabel?: string;        // 최대 60자
   /**
    * 내 코스만 — 남의 코스는 400(존재 숨김). ⚠️ category==='MATCH' 면 **연결 불가**(영리활동 금지 가드) → 400
    *
-   * DRAFT 코스도 **요청은 통과**하고 공개 응답에서 linkedCourse 키만 생략된다(OPEN 으로 바꾸면 그때 나타남).
+   * DRAFT 코스도 **요청은 통과**하고 **공개** 응답에서 linkedCourse 키만 생략된다(OPEN 으로 바꾸면 그때 나타남).
+   * 오너 본인의 상세 응답에는 DRAFT 도 실린다 — 안 그러면 수정 시 연결이 끊긴다(위 `CommunityPostDetail` 참고).
    * "준비 중인 강의를 미리 걸어두고 공개되면 뜨게" 가 유효한 사용이라 서버는 막지 않는다 —
    * 대신 **FE 가 선택 시점과 선택 후 두 번 고지**한다(시트/드롭다운은 닫히면 안 읽히므로 폼에도 남긴다).
    * `CLOSED` 는 거르지도 고지하지도 않는다 — 응답에 그대로 오고 미니카드가 마감으로 그린다.
@@ -993,8 +1009,13 @@ export interface CommunityPostRequest {
   linkedCourseId?: number;
   /** category==='MATCH' 일 때 필수. */
   match?: {
-    meetDate: string;            // 오늘 이후
-    meetTime?: string;
+    /**
+     * **새로 잡는 일정일 때만** 오늘 이후여야 한다 — 작성이거나 일정을 바꿀 때.
+     * 저장된 일정을 그대로 되보내는 수정은 **일정이 이미 지났어도 통과**한다
+     * (안 그러면 지난 모집글은 제목 오타조차 못 고친다).
+     */
+    meetDate: string;
+    meetTime?: string;           // ⚠️ 폼에 UI 가 없어도 되실을 것 — 안 보내면 null 로 덮인다
     capacity: number;            // 2~20
     levelLabel: string;          // 필수, 최대 60자
   };
