@@ -830,6 +830,13 @@ export interface BrandingPostDetail extends HalLinks {
   tags: string[];
   locationLabel?: string | null;
   /** UTC ISO-8601. "하루 전" 같은 상대시간은 FE가 만든다 — BE는 문자열을 만들지 않는다. */
+  /**
+   * 카테고리·제목. 브랜딩 게시물은 caption 이 곧 본문이라 **둘 다 없을 수 있다**(키 생략).
+   * ⚠️ **수정 폼은 이 값을 그대로 되실어야 한다** — `BrandingPostRequest` 가 두 필드를 무조건
+   * 덮어쓰므로, 안 보내면 `null` 로 지워진다. 폼에 입력 UI 가 없어도 값은 보존해야 한다.
+   */
+  category?: CommunityCategory;
+  title?: string;
   createdAt: string;
   pinned: boolean;
   /**

@@ -360,6 +360,74 @@ class BrandingPostUseCaseTest {
     }
 
     @Test
+    @DisplayName("L4: 상세가 카테고리·제목을 준다 (수정 폼이 되실을 값을 받아야 저장 때 안 지워진다)")
+    void detail_carriesCategoryAndTitle_soEditCanRoundTrip() throws Exception {
+        Account me = account("l4@test.com", "diverP15", Role.INSTRUCTOR);
+
+        MvcResult created = mockMvc.perform(post("/branding/me/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mediaUrls\":[\"" + img("a") + "\"],\"category\":\"TOUR\","
+                                + "\"title\":\"문섬 다이빙\",\"caption\":\"본문\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.category").value("TOUR"))
+                .andExpect(jsonPath("$.title").value("문섬 다이빙"))
+                .andReturn();
+        long id = ((Number) com.jayway.jsonpath.JsonPath.read(
+                created.getResponse().getContentAsString(), "$.id")).longValue();
+
+        // 상세로 프리필 → 그대로 되실어 저장. 값을 못 받으면 여기서 보낼 게 없어 지워진다.
+        String detail = mockMvc.perform(get("/branding-posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.category").value("TOUR"))
+                .andExpect(jsonPath("$.title").value("문섬 다이빙"))
+                // ⚠️ 인자 없는 getContentAsString() 은 기본 charset 으로 읽어 한글이 깨진다.
+                // 깨진 값을 그대로 되실으면 "라운드트립이 됐다" 는 착각 속에 제목이 망가진 채 저장된다.
+                .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        // JsonPath.read 는 제네릭이라 String.valueOf 에 바로 넘기면 char[] 오버로드로 추론돼 터진다.
+        Object categoryValue = com.jayway.jsonpath.JsonPath.read(detail, "$.category");
+        Object titleValue = com.jayway.jsonpath.JsonPath.read(detail, "$.title");
+        String category = String.valueOf(categoryValue);
+        String title = String.valueOf(titleValue);
+
+        mockMvc.perform(put("/branding/me/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mediaUrls\":[\"" + img("a") + "\"],\"category\":\"" + category + "\","
+                                + "\"title\":\"" + title + "\",\"caption\":\"본문 고침\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.category").value("TOUR"))
+                .andExpect(jsonPath("$.title").value("문섬 다이빙"));
+    }
+
+    @Test
+    @DisplayName("L5: 반대로 안 되실으면 지워진다 (스냅샷 교체라 생략 = 비우기 — FE 가드가 필요한 이유)")
+    void detail_omittingCategoryAndTitle_clearsThem() throws Exception {
+        Account me = account("l5@test.com", "diverP16", Role.INSTRUCTOR);
+
+        MvcResult created = mockMvc.perform(post("/branding/me/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mediaUrls\":[\"" + img("a") + "\"],\"category\":\"TOUR\","
+                                + "\"title\":\"지워질 제목\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        long id = ((Number) com.jayway.jsonpath.JsonPath.read(
+                created.getResponse().getContentAsString(), "$.id")).longValue();
+
+        // 두 키를 뺀 수정 — 서버는 @NotNull 없이 무조건 덮어쓰므로 null 이 된다.
+        // 사양이 아니라 **스냅샷 교체의 귀결**이다. FE 는 응답값을 되실어 이걸 피해야 한다.
+        mockMvc.perform(put("/branding/me/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mediaUrls\":[\"" + img("a") + "\"],\"caption\":\"본문만 고침\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.category").doesNotExist())
+                .andExpect(jsonPath("$.title").doesNotExist());
+    }
+
+    @Test
     @DisplayName("L3: 그래도 남·비로그인에게는 DRAFT 강의가 안 보인다 (오너 예외가 공개 화면으로 새면 안 된다)")
     void draftCourse_isStillHiddenFromPublic() throws Exception {
         Account me = account("l3@test.com", "diverP13", Role.INSTRUCTOR);

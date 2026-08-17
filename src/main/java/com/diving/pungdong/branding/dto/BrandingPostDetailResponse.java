@@ -1,6 +1,7 @@
 package com.diving.pungdong.branding.dto;
 
 import com.diving.pungdong.branding.BrandingMediaKind;
+import com.diving.pungdong.branding.CommunityCategory;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.*;
@@ -22,6 +23,21 @@ public class BrandingPostDetailResponse {
     private Long id;
     private Author author;
     private List<Media> media;
+
+    /**
+     * 카테고리·제목. <b>nullable</b> — 브랜딩 게시물은 caption 이 곧 본문이라 둘 다 없을 수 있다.
+     *
+     * <p><b>왜 응답에 싣나:</b> 수정({@code PUT /branding/me/posts/{id}})이 스냅샷 교체이고
+     * {@code BrandingPostRequest} 가 두 필드를 <b>@NotNull 없이 무조건 덮어쓴다</b>. 이 상세가 수정 폼의
+     * 유일한 프리필 소스라, 여기서 안 주면 클라이언트는 <b>되실을 값을 받은 적이 없어</b> 저장할 때마다
+     * 두 값을 지우게 된다. "우리 폼에 입력이 없다" 는 "유실이 없다" 가 아니다 — 앱에서 붙인 제목이
+     * web 수정으로 날아간다.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private CommunityCategory category;
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String title;
 
     private String caption;
     private List<String> tags;

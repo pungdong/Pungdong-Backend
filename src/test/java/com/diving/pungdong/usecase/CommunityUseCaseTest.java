@@ -1158,11 +1158,17 @@ class CommunityUseCaseTest {
     // 보는 테스트라, 수정이 <b>성공했을 때 무엇이 어떻게 되는가</b>는 사양으로 적힌 적이 없다.
     // 아래 E* 가 그 자리를 메운다 — 특히 `updatedAt` 은 "수정됨" 표기의 유일한 근거라 못 박아야 한다.
 
-    /** 상세 조회 원문(JSON 문자열). 한 응답에서 두 개 이상 필드를 꺼내 비교할 때 쓴다. */
+    /**
+     * 상세 조회 원문(JSON 문자열). 한 응답에서 두 개 이상 필드를 꺼내 비교할 때 쓴다.
+     *
+     * <p>⚠️ <b>UTF-8 을 명시한다</b> — 인자 없는 {@code getContentAsString()} 은 기본 charset 으로 읽어
+     * 한글이 깨진다. 꺼낸 값을 되실어 저장하는 라운드트립 테스트에서 특히 위험하다(깨진 채 저장되고도
+     * 통과한 것처럼 보인다).
+     */
     private String detailJson(long postId) throws Exception {
         return mockMvc.perform(get("/community/posts/" + postId))
                 .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
+                .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
     }
 
     private String read(String json, String path) {

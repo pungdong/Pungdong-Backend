@@ -290,6 +290,9 @@ public class BrandingPostService {
                         .map(m -> BrandingPostDetailResponse.Media.builder()
                                 .kind(m.getKind()).url(m.getUrl()).sortOrder(m.getSortOrder()).build())
                         .collect(Collectors.toList()))
+                // 수정 폼이 되실어야 하는 값이다 — 안 주면 저장할 때마다 지워진다(DTO Javadoc 참고).
+                .category(post.getCategory())
+                .title(post.getTitle())
                 .caption(post.getCaption())
                 .tags(post.getTags().stream().map(BrandingPostTag::getTag).collect(Collectors.toList()))
                 .locationLabel(post.getLocationLabel())
