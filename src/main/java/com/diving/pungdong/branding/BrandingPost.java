@@ -66,7 +66,11 @@ public class BrandingPost {
     @Column(length = 100)
     private String title;
 
-    @Column(length = 2000)
+    /**
+     * 본문. <b>두 작성 경로가 서로 다른 상한을 갖는다</b> — 브랜딩 2000자, 커뮤니티 5000자.
+     * 컬럼은 넓은 쪽(5000)을 수용하고, 실제 상한은 각 요청 DTO 가 건다(V30).
+     */
+    @Column(length = 5000)
     private String caption;
 
     /** 커뮤니티 피드 노출 여부. 작성 경로가 명시 설정한다(클래스 Javadoc 참고). */
