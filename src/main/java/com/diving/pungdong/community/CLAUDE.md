@@ -75,7 +75,11 @@
     하나라, 막지 않으면 토글 한 번으로 조치가 무효가 된다.
 16. **UNIQUE 로 멱등을 만들 때 제약 위반을 같은 트랜잭션에서 잡으면 안 된다.** 잡아도 트랜잭션이
     rollback-only 라 뒤이은 조회·커밋이 터진다 — 삽입만 `IdempotentInsert`(REQUIRES_NEW + flush)로
-    격리하고 바깥에서 잡는다.
+    격리하고 바깥에서 잡는다. **그 뒤의 카운트도 새 트랜잭션에서 읽는다**(`IdempotentInsert.countFresh`) —
+    MySQL 기본 REPEATABLE READ 에선 바깥 트랜잭션이 첫 SELECT 시점 스냅샷을 끝까지 봐서, REQUIRES_NEW 로
+    커밋한 행이 바깥의 `count` 에 안 잡힌다(POST 응답 count 가 "내 것 빠진 값"이던 2026-08-17 버그).
+    H2 는 기본 READ COMMITTED 라 이걸 못 잡는다 — 재현 테스트는 `CommunityReactionCountUseCaseTest` 가
+    자기 컨텍스트만 격리 수준을 올려서 잠근다(전역으로 올리면 H2 2.1 의 CASCADE 삭제 NPE 가 난다).
 
 ## `validate` 가 잡아주지 않는 것 (스키마 작업 시 주의)
 

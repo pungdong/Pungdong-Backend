@@ -48,8 +48,10 @@ public class CommunityReactionService {
                 // no-op — 경쟁 요청이 먼저 넣었다. 결과가 같으니 에러가 아니다.
             }
         }
+        // 삽입은 새 트랜잭션에서 커밋됐다 — 이 트랜잭션의 스냅샷(REPEATABLE READ)엔 안 보이므로 카운트도
+        // 새 스냅샷으로 읽는다. 안 그러면 응답 count 가 "내 것 빠진 값" 이 된다(IdempotentInsert 참조).
         return ReactionResponse.builder()
-                .count(likeRepo.countByPostId(postId)).active(true).build();
+                .count(idempotentInsert.countFresh(() -> likeRepo.countByPostId(postId))).active(true).build();
     }
 
     @Transactional
@@ -74,7 +76,7 @@ public class CommunityReactionService {
             }
         }
         return ReactionResponse.builder()
-                .count(bookmarkRepo.countByPostId(postId)).active(true).build();
+                .count(idempotentInsert.countFresh(() -> bookmarkRepo.countByPostId(postId))).active(true).build();
     }
 
     @Transactional
