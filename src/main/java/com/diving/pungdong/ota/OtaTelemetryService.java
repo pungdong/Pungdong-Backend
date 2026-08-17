@@ -133,6 +133,8 @@ public class OtaTelemetryService {
                 device.setCrashRollbackBundleId(bundleId);
                 // ★ 크래시 시각이 아니라 '보고 시각' — 크래시는 이전 실행에서 났고 관측 불가다.
                 device.setCrashRollbackReportedAt(now);
+                // 같은 롤백을 부팅 upsert 가 이미 서버 롤백으로 파생해 뒀다면 원인은 사고였으므로 되돌린다.
+                clearServerRollbackIfCrash(device, bundleId);
             }
             default -> throw new IllegalStateException("unhandled event type: " + request.getType());
         }
@@ -141,6 +143,9 @@ public class OtaTelemetryService {
     /* ─── 내부 ──────────────────────────────────────────────────────────── */
 
     private void applyUpsert(OtaDevice device, OtaDeviceUpsertRequest request, Account account, OffsetDateTime now) {
+        // 서버 롤백 파생을 위해 "직전에 실행 중이던 번들"을 덮어쓰기 전에 붙든다.
+        String previousBundleId = device.getOtaBundleId();
+
         // 생략된 필드는 기존 값을 유지한다 — 앱이 필드별 try/catch 로 하나를 빠뜨렸을 때 직전에 잘 보고된
         // 값을 null 로 지우면, 그 기기의 분포가 조용히 "미상"으로 옮겨간다.
         if (request.getPlatform() != null) {
@@ -172,12 +177,66 @@ public class OtaTelemetryService {
         // 어드민의 "삭제된 번들에 갇힌 기기" 탐지가 오탐된다.
         device.normalizeEmbeddedBundle();
 
+        deriveServerRollback(device, previousBundleId, now);
+
         // 로그인 상태면 링크한다. 비로그인 요청은 기존 링크를 지우지 않는다 —
         // 로그아웃해도 "누구 기기였는지"가 남아야 CS 드릴다운이 끊기지 않는다.
         if (account != null) {
             device.setAccountId(account.getId());
         }
         device.setLastSeenAt(now);
+    }
+
+    /**
+     * <b>서버 롤백을 부팅 보고에서 파생한다</b> — 앱 이벤트는 보조다.
+     *
+     * <p><b>왜 앱 이벤트를 못 믿나</b>(mobile 실측): 모든 ROLLBACK 응답은 {@code shouldForceUpdate} 로
+     * 덮어써지고, 강제 경로는 {@code await reload()} <b>뒤에</b> {@code onUpdateProcessCompleted} 를 부른다.
+     * 리로드되면 그 줄은 실행되지 않으므로 <b>부팅 경로의 SERVER_ROLLBACK 이벤트는 사실상 도달 불가</b>다 —
+     * 그런데 "disable 직후 앱을 새로 켠 사용자"가 가장 흔한 경로다. 계약대로 앱만 믿으면 이 카운트는
+     * 0 근처에 머물고, 그게 하필 <b>에픽 완료 기준이 보는 숫자</b>다.
+     *
+     * <p><b>파생 규칙</b>: 번들 id 는 uuidv7 이라 <b>문자열 비교 = 시간순</b>이다. 직전 번들이 있었는데
+     * 새 값이 <b>더 작거나(옛 번들) null(내장 복귀)</b> 이면 뒤로 간 것 = 롤백이다.
+     * 이 판정은 클라이언트 이벤트 유실과 무관하고, FROM(빠져나온 번들)이 정의상 정확하다.
+     *
+     * <p><b>크래시 롤백과의 이중 계산 방지 — 양방향으로 막는다.</b> 같은 부팅에서 네이티브 자동 롤백이
+     * 일어나면 그것도 "번들이 뒤로 간" 것으로 보이는데, 원인이 정반대라 서버 롤백으로 세면 안 된다.
+     * 부팅 upsert 와 {@code CRASH_ROLLBACK} 이벤트의 <b>도착 순서가 보장되지 않으므로</b>(이벤트 엔드포인트가
+     * 관대한 것과 같은 이유) 한쪽 가드만으로는 못 막는다:
+     * <ul>
+     *   <li>이벤트가 <b>먼저</b> 온 경우 → 여기서 {@code crashRollbackBundleId} 를 보고 기록하지 않는다.</li>
+     *   <li>upsert 가 <b>먼저</b>인 경우 → 나중에 도착한 {@code CRASH_ROLLBACK} 이
+     *       {@link #clearServerRollbackIfCrash} 로 서버 기록을 지운다.</li>
+     * </ul>
+     */
+    private static void deriveServerRollback(OtaDevice device, String previousBundleId, OffsetDateTime now) {
+        if (previousBundleId == null) {
+            return; // 신규 행이거나 원래 내장 — 빠져나온 번들이 없다
+        }
+        String current = device.getOtaBundleId();
+        boolean wentBackwards = (current == null) || current.compareTo(previousBundleId) < 0;
+        if (!wentBackwards) {
+            return;
+        }
+        // 같은 번들에 대한 크래시 롤백이 이미 보고됐으면 그쪽이 원인이다(사고 ≠ 운영 조작).
+        if (previousBundleId.equals(device.getCrashRollbackBundleId())) {
+            return;
+        }
+        device.setServerRollbackFromBundleId(previousBundleId);
+        device.setServerRollbackAt(now);
+    }
+
+    /**
+     * upsert 가 먼저 와서 서버 롤백으로 기록해 뒀는데 같은 번들의 {@code CRASH_ROLLBACK} 이 뒤늦게 도착하면,
+     * 원인은 사고였으므로 서버 롤백 기록을 <b>지운다</b>. 안 지우면 한 번의 롤백이 두 카운트에 동시에 잡혀
+     * "disable 했더니 크래시도 났다" 로 읽힌다.
+     */
+    private static void clearServerRollbackIfCrash(OtaDevice device, String bundleId) {
+        if (bundleId.equals(device.getServerRollbackFromBundleId())) {
+            device.setServerRollbackFromBundleId(null);
+            device.setServerRollbackAt(null);
+        }
     }
 
     private boolean eventMergedWithin(OtaDevice device, OtaEventType type, OffsetDateTime now) {

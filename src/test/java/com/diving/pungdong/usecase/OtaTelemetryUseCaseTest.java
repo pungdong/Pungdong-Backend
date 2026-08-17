@@ -166,6 +166,98 @@ class OtaTelemetryUseCaseTest {
         assertThat(saved.getOtaBundleId()).isEqualTo("bundle-a");
     }
 
+    @Test
+    @DisplayName("S7: 다음 부팅에 번들이 옛것으로 돌아가 있으면 서버 롤백으로 센다 (앱 이벤트 없이도)")
+    void upsert_derivesServerRollbackWhenBundleGoesBackwards() throws Exception {
+        mockMvc.perform(post(DEVICES).contentType(MediaType.APPLICATION_JSON)
+                        .content(bootBody("install-s7", "IOS", "1.0.0", "staging", "bundle-b")))
+                .andExpect(status().isOk());
+        backdateLastSeen("install-s7");
+
+        // 어드민이 bundle-b 를 disable → 기기가 더 옛 번들로 강제 복귀한 채 부팅
+        mockMvc.perform(post(DEVICES).contentType(MediaType.APPLICATION_JSON)
+                        .content(bootBody("install-s7", "IOS", "1.0.0", "staging", "bundle-a")))
+                .andExpect(status().isOk());
+
+        OtaDevice saved = otaDeviceJpaRepo.findByInstallId("install-s7").orElseThrow();
+        // FROM = 빠져나온 번들. 이게 뒤집히면 disable 한 번들의 카운트가 0 으로 남는다.
+        assertThat(saved.getServerRollbackFromBundleId()).isEqualTo("bundle-b");
+        assertThat(saved.getServerRollbackAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("S8: 내장 번들로 되돌아간 경우도 서버 롤백으로 센다 (되돌아갈 OTA 번들이 없을 때)")
+    void upsert_derivesServerRollbackOnEmbeddedReturn() throws Exception {
+        mockMvc.perform(post(DEVICES).contentType(MediaType.APPLICATION_JSON)
+                        .content(bootBody("install-s8", "IOS", "1.0.0", "staging", "bundle-x")))
+                .andExpect(status().isOk());
+        backdateLastSeen("install-s8");
+
+        mockMvc.perform(post(DEVICES).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"installId\":\"install-s8\",\"platform\":\"IOS\","
+                                + "\"otaBundleId\":\"min-uuid\",\"otaMinBundleId\":\"min-uuid\"}"))
+                .andExpect(status().isOk());
+
+        OtaDevice saved = otaDeviceJpaRepo.findByInstallId("install-s8").orElseThrow();
+        assertThat(saved.getOtaBundleId()).isNull();
+        assertThat(saved.getServerRollbackFromBundleId()).isEqualTo("bundle-x");
+    }
+
+    @Test
+    @DisplayName("S9: 정상 업데이트(더 새 번들)는 롤백으로 세지 않는다")
+    void upsert_forwardMoveIsNotRollback() throws Exception {
+        mockMvc.perform(post(DEVICES).contentType(MediaType.APPLICATION_JSON)
+                        .content(bootBody("install-s9", "IOS", "1.0.0", "staging", "bundle-a")))
+                .andExpect(status().isOk());
+        backdateLastSeen("install-s9");
+
+        mockMvc.perform(post(DEVICES).contentType(MediaType.APPLICATION_JSON)
+                        .content(bootBody("install-s9", "IOS", "1.0.0", "staging", "bundle-b")))
+                .andExpect(status().isOk());
+
+        assertThat(otaDeviceJpaRepo.findByInstallId("install-s9").orElseThrow()
+                .getServerRollbackFromBundleId()).isNull();
+    }
+
+    @Test
+    @DisplayName("S10: 크래시 롤백이 먼저 보고됐으면 같은 롤백을 서버 롤백으로 세지 않는다 (원인이 사고다)")
+    void crashReportedFirst_isNotCountedAsServerRollback() throws Exception {
+        mockMvc.perform(post(DEVICES).contentType(MediaType.APPLICATION_JSON)
+                        .content(bootBody("install-s10", "IOS", "1.0.0", "staging", "bundle-b")))
+                .andExpect(status().isOk());
+        postEvent("install-s10", "CRASH_ROLLBACK", "bundle-b");
+        backdateLastSeen("install-s10");
+
+        mockMvc.perform(post(DEVICES).contentType(MediaType.APPLICATION_JSON)
+                        .content(bootBody("install-s10", "IOS", "1.0.0", "staging", "bundle-a")))
+                .andExpect(status().isOk());
+
+        OtaDevice saved = otaDeviceJpaRepo.findByInstallId("install-s10").orElseThrow();
+        assertThat(saved.getCrashRollbackBundleId()).isEqualTo("bundle-b");
+        assertThat(saved.getServerRollbackFromBundleId()).isNull();
+    }
+
+    @Test
+    @DisplayName("S11: 서버 롤백으로 먼저 세었더라도 크래시 롤백이 뒤늦게 오면 그 기록을 지운다 (도착 순서가 보장되지 않는다)")
+    void crashReportedLater_clearsDerivedServerRollback() throws Exception {
+        mockMvc.perform(post(DEVICES).contentType(MediaType.APPLICATION_JSON)
+                        .content(bootBody("install-s11", "IOS", "1.0.0", "staging", "bundle-b")))
+                .andExpect(status().isOk());
+        backdateLastSeen("install-s11");
+        mockMvc.perform(post(DEVICES).contentType(MediaType.APPLICATION_JSON)
+                        .content(bootBody("install-s11", "IOS", "1.0.0", "staging", "bundle-a")))
+                .andExpect(status().isOk());
+        assertThat(otaDeviceJpaRepo.findByInstallId("install-s11").orElseThrow()
+                .getServerRollbackFromBundleId()).isEqualTo("bundle-b");
+
+        postEvent("install-s11", "CRASH_ROLLBACK", "bundle-b");
+
+        OtaDevice saved = otaDeviceJpaRepo.findByInstallId("install-s11").orElseThrow();
+        assertThat(saved.getServerRollbackFromBundleId()).isNull();
+        assertThat(saved.getServerRollbackAt()).isNull();
+        assertThat(saved.getCrashRollbackBundleId()).isEqualTo("bundle-b");
+    }
+
     /* ─── E* 이벤트 ───────────────────────────────────────────────────────── */
 
     @Test

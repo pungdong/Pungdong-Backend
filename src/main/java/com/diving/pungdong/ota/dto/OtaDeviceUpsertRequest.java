@@ -36,7 +36,7 @@ public class OtaDeviceUpsertRequest {
      */
     @NotBlank
     @Size(max = 64)
-    @Pattern(regexp = "^[A-Za-z0-9_.-]{1,64}$", message = "installId 형식이 올바르지 않습니다.")
+    @Pattern(regexp = "^[A-Za-z0-9_-]{1,64}$", message = "installId 형식이 올바르지 않습니다.")
     private String installId;
 
     /** 유일하게 required 인 선택지 — 앱이 {@code Platform.OS} 에서 만드는 JS 상수라 throw 하지 않는다. */

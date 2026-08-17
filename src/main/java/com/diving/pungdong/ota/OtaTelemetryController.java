@@ -83,5 +83,5 @@ public class OtaTelemetryController {
     }
 
     private static final java.util.regex.Pattern INSTALL_ID_SAFE =
-            java.util.regex.Pattern.compile("^[A-Za-z0-9_.-]{1,64}$");
+            java.util.regex.Pattern.compile("^[A-Za-z0-9_-]{1,64}$");
 }

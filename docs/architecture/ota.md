@@ -17,7 +17,10 @@
 2. **수집은 관용적, 제어는 엄격.** 텔레메트리는 앱이 4xx 를 조용히 삼키므로 거절 = "그 기기가 영구히 집계 밖"
    이다. 그래서 `installId`·`platform` 외에는 전부 선택이고 형식 검증도 최소다. 반대로 `PUT /admin/app/policy`
    는 사람이 폼에 넣고 에러가 화면에 보이므로 semver 를 엄격히 본다.
-3. **카운트와 목록은 같은 술어를 쓴다.** `OtaBundleStats` 의 각 필드는 `GET .../devices?state=` 의 동명
+3. **`serverRolledBack` 은 앱이 아니라 BE 가 파생한다.** 앱의 롤백 콜백은 (a) "어디로" 를 주는데 우리는
+   "어디에서" 가 필요하고, (b) 강제 리로드 뒤에 놓여 부팅 경로에선 실행되지 않는다. 그래서 부팅 보고에서
+   직전 번들 대비 뒤로 갔는지로 판정한다 — 클라이언트 이벤트 유실과 무관해진다.
+4. **카운트와 목록은 같은 술어를 쓴다.** `OtaBundleStats` 의 각 필드는 `GET .../devices?state=` 의 동명
    필터와 1:1 이다 — 어드민이 숫자를 눌렀는데 다른 수가 나오면 안 된다(`OtaAdminUseCaseTest` A7 이 잠근다).
 
 ## 2. 컴포넌트 지도
@@ -79,6 +82,7 @@ sequenceDiagram
     else 행이 있음
         S->>DB: 보낸 필드만 갱신 (생략 필드는 기존 값 유지)
         Note over S: otaBundleId == otaMinBundleId 면 null 로 정규화(내장 번들)
+        Note over S: 직전 번들보다 뒤로 갔으면 서버 롤백 파생<br/>(같은 번들의 크래시 롤백이 있으면 건너뜀)
     else 행이 없음
         S->>S: IP 신규 생성 상한 확인 (fail-open)
         S->>DB: insert

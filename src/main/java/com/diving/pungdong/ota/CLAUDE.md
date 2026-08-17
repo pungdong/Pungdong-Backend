@@ -34,9 +34,13 @@
    빠진다. 정의문을 바꿀 땐 §2.0 표와 어드민 툴팁이 같이 움직인다.
 5. **`crashRollbackReportedAt` 은 크래시 시각이 아니라 보고 시각**이다. 이름을 줄이지 말 것 —
    그 이름이 "배포 3일 뒤 크래시" 오독을 막는 유일한 장치다.
-6. **BE 는 Cloudflare D1 을 읽지 않는다.** 번들 메타를 여기에 넣고 싶어지면 먼저
+6. **`serverRolledBack` 은 BE 파생이다** — 앱 이벤트는 보조다. 앱 콜백은 롤백 *대상*(어디로)을 주는데
+   컬럼은 *출발*(어디에서)이고, 게다가 강제 리로드 뒤에 있어 부팅 경로에선 실행되지 않는다.
+   파생 로직(`deriveServerRollback`)을 지우면 **에픽 완료 기준이 보는 숫자가 0 근처로 죽는다.**
+   크래시 롤백과의 이중 계산 방지는 **양방향 둘 다** 필요하다(도착 순서가 보장되지 않는다).
+7. **BE 는 Cloudflare D1 을 읽지 않는다.** 번들 메타를 여기에 넣고 싶어지면 먼저
    `docs/features/ota-telemetry.md` §역할 분담을 읽을 것(라이브러리 스키마가 8개월에 두 번 바뀌었다).
-7. **IP 상한은 fail-open.** `OtaClientIpResolver` 는 `X-Forwarded-For` 의 **마지막 홉**을 본다(ALB 가 덧붙인
+8. **IP 상한은 fail-open.** `OtaClientIpResolver` 는 `X-Forwarded-For` 의 **마지막 홉**을 본다(ALB 가 덧붙인
    실 클라이언트 IP). `server.forward-headers-strategy` 를 켜지 않은 이유는 그게 전역 설정이라 이 피처 밖까지
    동작이 바뀌기 때문 — 영향 범위를 이 클래스 하나로 가뒀다.
 
