@@ -27,6 +27,14 @@
    ⚠️ **그런데 `@JsonProperty` 만으로는 부족하고, 원시 `boolean` 이면 오히려 키가 둘로 늘어난다.** Lombok 이 원시 `boolean isInstructor` 에 대해 만드는 게터는 `isInstructor()` 이고 Jackson 은 이걸 프로퍼티 **`instructor`** 로 본다 — 필드의 `@JsonProperty("isInstructor")` 와 **서로 다른 두 프로퍼티**가 되어 `{"instructor":true,"isInstructor":true}` 가 나간다. 래퍼 `Boolean` 이면 게터가 `getIsInstructor()` 라 프로퍼티명이 `isInstructor` 로 일치해 합쳐진다 — `MyBrandingResponse` 가 멀쩡한 게 이 차이 때문이지 설계가 아니다.
    **원시 boolean 을 쓸 거면 필드명에서 `is` 를 떼고**(`private boolean instructor`) `@JsonProperty("isInstructor")` 를 병기한다. `community` 의 `CommunityAuthorResponse` 가 그 형태다.
    🔴 **`BrandingProfileResponse.isInstructor` 는 아직 원시 boolean 이라 실제로 키가 둘 나간다**(`GET /instructors/{nickName}` 로 실측). REST Docs 가 `relaxedResponseFields` 라 문서화 안 된 여분 키를 잡아주지 못했다.
+5-1. ⚠️ **`category` 와 `title` 은 독립이다 — "함께 있거나 함께 없다" 는 보장이 아니다.**
+   두 컬럼 다 nullable 이고(`V19`) 묶는 제약이 없다. `BrandingPostRequest.title` 은 `category` 와
+   **별개의 선택 필드**로 설계돼 있어, 클라이언트가 `{mediaUrls, title}` 만 보내면 title-only 행이 생긴다.
+   지금 그런 행이 없는 건 **현재 FE 폼들이 둘 다 안 보내서**지 서버가 막아서가 아니다.
+   🔴 **커뮤니티 수정 트랙이 `category == null` 을 "브랜딩발 글" 판정으로 쓰고 있다** —
+   브랜딩 폼에 제목 입력이 추가되면 그 판정이 깨진다. 배경·대응은
+   [docs/features/community.md](../../../../../../../docs/features/community.md) 의 D안 항목 옆.
+
 6. **`RecordEventCode`(CWT/FIM/…)는 `discipline.Discipline`(FREEDIVING/SCUBA/…)과 다른 축이다.** 둘 다 "discipline" 이라 부르면 반드시 사고 난다 — 컬럼도 `event_code`.
 7. **`BrandingRecord.value` 의 컬럼명은 `record_value`** — `value` 는 H2(테스트 DB) 예약어라 그대로 쓰면 스키마 생성이 깨진다. API 필드명은 `value` 유지.
 8. **숨김(`is_hidden`)은 삭제가 아니다.** 공개 목록·상세·게시물 수에서만 빠지고 **오너 목록엔 남는다** — 안 그러면 숨긴 글을 다시 켤 수 없다. 같은 이유로 **상세도 오너 본인에겐 열린다**(숨김·미발행 포함) — `GET /branding-posts/{id}` 는 보는 사람에 따라 갈린다. permitAll 이라 `@CurrentUser` 가 **null 일 수 있다.**
