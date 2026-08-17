@@ -45,6 +45,7 @@
 | **시간 처리 (크로스도메인 규약)** | [time-handling.md](time-handling.md) | 🔜 (글로벌화 설계 — instant=OffsetDateTime/UTC·local=LocalDate/Time 유지 · 표시 TZ 전략 · 필드 인벤토리 · 리팩토링 대기) |
 | **보안 원칙 (크로스커팅)** | [security.md](security.md) | ✅ (도메인 아님 — 신원=세션·객체단위 인가 anti-IDOR·비순차 식별자) |
 | **테스트 아키텍처 (크로스커팅)** | [testing.md](testing.md) | ✅ (도메인 아님 — hermetic 원칙·외부 경계 격리 A:stub핀/B:@MockBean·env 누출·새 외부서비스 체크리스트) |
+| **트랜잭션·격리 (크로스커팅)** | [transactions.md](transactions.md) | ✅ (도메인 아님 — MySQL REPEATABLE READ 스냅샷: REQUIRES_NEW 로 커밋한 것도 바깥 plain SELECT 엔 안 보임 · 인시던트 3건(H-4·원장·리액션 count) · 패턴 메뉴 · "누르면 count 반환" API 체크리스트 · H2 는 재현 못 함) |
 
 > 🗑️ 표시된 4개 문서(lecture · schedule · reservation · review)는 **v1 레거시 청산(2026-08-15)** 으로 코드가 사라진 도메인이다. 삭제하지 않고 남긴 이유는 "왜 그렇게 만들었고 어떤 간극 때문에 재설계했는지"의 기록이기 때문 — 각 문서 상단에 삭제 배너와 후신 링크가 있다. **현재 동작의 근거로 인용하지 말 것.**
 
