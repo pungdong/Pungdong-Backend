@@ -5,6 +5,10 @@
 > **package-by-feature.** `branding`(게시물 엔티티·프로필) · `account` · `course` 를 **단방향 참조**한다 —
 > 그쪽은 이 패키지를 모른다.
 
+> **게시물의 두 표면(커뮤니티 피드 ↔ 브랜딩 그리드) 관계 규칙은
+> [docs/features/post-surfaces.md](../../../../../../../docs/features/post-surfaces.md) 가 단일 출처다.**
+> 이 테이블을 읽거나 쓰는 코드를 건드리기 전에 읽을 것 — 한쪽 도메인만 보고 고쳐서 사고가 세 번 났다.
+
 ## 가장 먼저 알아야 할 것 — 게시물 테이블은 새로 만들지 않았다
 
 **커뮤니티 포스트 = `branding.BrandingPost` 다.** 별도 테이블이 아니다.

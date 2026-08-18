@@ -27,7 +27,7 @@ public class CommunityCommentEvent {
     /** 댓글 단 사람의 닉네임 — 알림 본문에 들어간다. */
     String actorNickName;
 
-    /** 대상 글 제목. 브랜딩발 글이면 없을 수 있어 본문에서 분기한다. */
+    /** 대상 글 제목. V31 부터 항상 있지만, 알림 문구 쪽에 빈 값 폴백을 남겨뒀다. */
     String postTitle;
 
     /** 답글이면 true — 알림 문구가 "댓글" 이 아니라 "답글" 이 된다. */

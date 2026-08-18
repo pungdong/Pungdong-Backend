@@ -101,7 +101,8 @@ public class NotificationOutboxWriter {
         data.put("postId", String.valueOf(event.getPostId()));
         data.put("commentId", String.valueOf(event.getCommentId()));
 
-        // 제목이 없는 글(브랜딩에서 올라온 글)이 있어서 문구를 나눈다 — "null님의 글" 이 나가면 안 된다.
+        // 제목은 V31 부터 NOT NULL 이라 아래 폴백은 사실상 도달하지 않는다 — 그래도 남겨둔다:
+        // 알림 문구에 "null님의 글" 이 나가는 사고는 비싸고, 가드는 한 줄이다.
         String where = event.getPostTitle() == null || event.getPostTitle().isBlank()
                 ? "회원님의 글"
                 : String.format("'%s'", event.getPostTitle());
