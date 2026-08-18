@@ -55,11 +55,11 @@ public class BrandingPost {
     private AccountBranding branding;
 
     /**
-     * 커뮤니티 카테고리. <b>NOT NULL</b>(V30) — 모든 글은 커뮤니티 글이므로 분류축이 반드시 있다.
+     * 커뮤니티 카테고리. <b>NOT NULL</b>(V31) — 모든 글은 커뮤니티 글이므로 분류축이 반드시 있다.
      *
-     * <p>V19~V29 동안은 nullable 이었다: 브랜딩 작성 경로가 카테고리를 안 받던 시절의 글이 있었고,
+     * <p>V19~V30 동안은 nullable 이었다: 브랜딩 작성 경로가 카테고리를 안 받던 시절의 글이 있었고,
      * FE 배포 창(window) 동안 null 이 <b>정당한 값</b>이었기 때문이다. 작성 폼이 하나로 합쳐지면서
-     * (2026-08-18) 두 경로 모두 카테고리를 요구하게 됐고, 기존 행은 V30 에서 backfill 했다.
+     * (2026-08-18) 두 경로 모두 카테고리를 요구하게 됐고, 기존 행은 V31 에서 backfill 했다.
      * 카테고리 없는 글이 남아 있으면 "오타 하나 고치려는 강사가 없던 카테고리를 발명해야" 수정이 된다.
      */
     @Enumerated(EnumType.STRING)
@@ -67,13 +67,19 @@ public class BrandingPost {
     private CommunityCategory category;
 
     /**
-     * 커뮤니티 글의 제목. <b>nullable</b> — 브랜딩 게시물은 caption 이 곧 본문이라 제목이 없다.
-     * 커뮤니티 작성 경로에서는 필수(앱 레벨 검증).
+     * 글 제목. <b>NOT NULL</b>(V31) — 카테고리와 같은 이유로 두 쓰기 경로 모두 필수로 받는다.
+     *
+     * <p>V19~V30 동안은 nullable 이었다: 브랜딩 게시물은 caption 이 곧 본문이라 제목이 없었다.
+     * 작성 폼이 하나로 합쳐지면서(2026-08-18) 그 전제가 사라졌고, 기존 행은 V31 에서 backfill 했다.
      */
-    @Column(length = 100)
+    @Column(length = 100, nullable = false)
     private String title;
 
-    @Column(length = 2000)
+    /**
+     * 본문. <b>두 작성 경로가 서로 다른 상한을 갖는다</b> — 브랜딩 2000자, 커뮤니티 5000자.
+     * 컬럼은 넓은 쪽(5000)을 수용하고, 실제 상한은 각 요청 DTO 가 건다(V30).
+     */
+    @Column(length = 5000)
     private String caption;
 
     /** 커뮤니티 피드 노출 여부. 작성 경로가 명시 설정한다(클래스 Javadoc 참고). */

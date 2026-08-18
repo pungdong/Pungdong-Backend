@@ -5,6 +5,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.NotNull;
 import javax.validation.constraints.Size;
 import java.util.ArrayList;
@@ -42,12 +43,16 @@ public class BrandingPostRequest {
     private CommunityCategory category;
 
     /**
-     * 제목. <b>선택</b>이다 — 브랜딩 글은 caption 이 곧 본문이라, 필수로 만들면 유저가 같은 말을 두 번
-     * 쓰거나 대충 채운다. 긴 후기를 쓰는 사람에게 선택지만 준다.
+     * 제목. <b>필수</b>다(2026-08-18) — 카테고리와 같은 이유다. 통합 폼({@code /community/posts})이
+     * 제목을 2~100자 필수로 받으므로, 제목 없는 글은 통합 폼으로 여는 순간 작성자가 없던 제목을
+     * 지어내야 수정이 된다. DB 도 NOT NULL(V31) 이라 여기서 막지 않으면 저장 시점에 500 이 된다.
      *
-     * <p>비워도 피드 카드가 깨지지 않는다 — {@code PostCard} 가 제목을 조건부로 렌더한다.
+     * <p>예전엔 선택이었다("caption 이 곧 본문이라 같은 말을 두 번 쓰게 된다"). 작성 경로가 하나로
+     * 합쳐지면서 그 전제가 사라졌다 — 이 엔드포인트는 구버전 앱 호환으로만 남고, 신규 작성은 제목을
+     * 받는 폼 하나뿐이다.
      */
-    @Size(max = 100, message = "제목은 100자까지 쓸 수 있어요.")
+    @NotBlank(message = "제목을 입력해주세요.")
+    @Size(min = 2, max = 100, message = "제목은 2자 이상 100자까지 쓸 수 있어요.")
     private String title;
 
     /**

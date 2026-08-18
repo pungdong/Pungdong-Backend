@@ -86,7 +86,12 @@ public class BrandingPostService {
         if (!isVisibleTo(post, viewer)) {
             throw new ResourceNotFoundException();
         }
-        return toDetail(post);
+        return toDetail(post, isOwner(post, viewer));
+    }
+
+    private boolean isOwner(BrandingPost post, Account viewer) {
+        return viewer != null
+                && Objects.equals(post.getBranding().getAccount().getId(), viewer.getId());
     }
 
     /**
@@ -128,7 +133,7 @@ public class BrandingPostService {
                 .showInFeed(true)
                 .build();
         apply(post, request, owner);
-        return toDetail(postRepo.save(post));
+        return toDetail(postRepo.save(post), true);
     }
 
     /** 수정 — 미디어·태그를 스냅샷으로 교체한다. */
@@ -143,7 +148,7 @@ public class BrandingPostService {
         removed.removeAll(request.getMediaUrls());
         deleteObjectsQuietly(removed);
 
-        return toDetail(post);
+        return toDetail(post, true);
     }
 
     /** 삭제 — 행과 함께 S3 객체도 지운다. */
@@ -167,7 +172,7 @@ public class BrandingPostService {
     public BrandingPostDetailResponse updatePinned(Account currentUser, Long postId, boolean pinned) {
         BrandingPost post = requireMine(postId, currentUser.getId());
         post.setPinned(pinned);
-        return toDetail(post);
+        return toDetail(post, true);
     }
 
     /* ─── 내부 ───────────────────────────────────────────── */
@@ -269,7 +274,12 @@ public class BrandingPostService {
         });
     }
 
-    private BrandingPostDetailResponse toDetail(BrandingPost post) {
+    /**
+     * @param owner 뷰어가 작성자 본인인가. <b>연결 강의의 DRAFT 노출 여부만</b> 이 값에 달려 있다
+     *              ({@link #toLinkedCourse}). 오너 CRUD 경로는 {@code requireMine} 을 이미 통과했으므로
+     *              무조건 {@code true} 다.
+     */
+    private BrandingPostDetailResponse toDetail(BrandingPost post, boolean owner) {
         Account author = post.getBranding().getAccount();
         return BrandingPostDetailResponse.builder()
                 .id(post.getId())
@@ -281,18 +291,33 @@ public class BrandingPostService {
                         .map(m -> BrandingPostDetailResponse.Media.builder()
                                 .kind(m.getKind()).url(m.getUrl()).sortOrder(m.getSortOrder()).build())
                         .collect(Collectors.toList()))
+                // 수정 폼이 되실어야 하는 값이다 — 안 주면 저장할 때마다 지워진다(DTO Javadoc 참고).
+                .category(post.getCategory())
+                .title(post.getTitle())
                 .caption(post.getCaption())
                 .tags(post.getTags().stream().map(BrandingPostTag::getTag).collect(Collectors.toList()))
                 .locationLabel(post.getLocationLabel())
                 .createdAt(post.getCreatedAt())
                 .pinned(post.isPinned())
-                .linkedCourse(toLinkedCourse(post.getLinkedCourse()))
+                .hidden(post.isHidden())
+                .linkedCourse(toLinkedCourse(post.getLinkedCourse(), owner))
                 .build();
     }
 
-    /** DRAFT(미공개)·삭제된 코스는 아예 안 내려준다 — 공개 페이지에 미공개 코스가 새면 안 된다. */
-    private LinkedCourseResponse toLinkedCourse(Course course) {
-        if (course == null || course.getStatus() == CourseStatus.DRAFT) {
+    /**
+     * DRAFT(미공개)·삭제된 코스는 <b>공개 응답에서</b> 안 내려준다 — 공개 페이지에 미공개 코스가 새면 안 된다.
+     *
+     * <p><b>단 오너 본인에게는 DRAFT 도 싣는다.</b> 이 상세({@code GET /branding-posts/{id}})가 오너의
+     * <b>수정 폼 프리필 소스</b>이고 수정은 스냅샷 교체다 — 키가 없으면 폼이 {@code linkedCourseId} 를
+     * 못 채우고, 저장하는 순간 <b>연결이 조용히 끊긴다</b>. 사용자는 오타만 고쳤는데 아무 에러도 없다.
+     * 요청에서 "사용자가 뗐다" 와 "응답에 안 실려서 모른다" 가 구별되지 않아 클라이언트가 방어할 수도 없다.
+     *
+     * <p>커뮤니티가 같은 이유로 먼저 고쳤고({@code CommunityPostService.toLinkedCourse}), 같은 성격의
+     * 결정을 도메인마다 다르게 갈 이유가 없다. 오너는 자기 DRAFT 코스를 이미 알기 때문에 노출이 아니다.
+     * <b>그리드 카드는 바꾸지 않는다</b> — 카드엔 오너 개념이 없다.
+     */
+    private LinkedCourseResponse toLinkedCourse(Course course, boolean owner) {
+        if (course == null || (!owner && course.getStatus() == CourseStatus.DRAFT)) {
             return null;
         }
         return LinkedCourseResponse.builder()

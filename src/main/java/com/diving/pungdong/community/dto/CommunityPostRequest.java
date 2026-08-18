@@ -86,8 +86,20 @@ public class CommunityPostRequest {
     @NoArgsConstructor
     public static class MatchRequest {
 
+        /**
+         * 모집 일정.
+         *
+         * <p><b>"미래여야 한다" 는 제약이 여기(DTO)에 없는 건 의도다.</b> 이 규칙은 요청만 봐서는
+         * 판정할 수 없다 — <b>저장된 일정과 같은지</b>에 따라 답이 갈리기 때문이다.
+         * {@code @FutureOrPresent} 를 필드에 걸었더니 <b>일정이 이미 지난 모집글은 제목 오타조차
+         * 고칠 수 없었다</b>(프리필한 과거 날짜를 그대로 되돌려 보내면 400). 규칙의 의도는
+         * "과거 날짜로 <i>모집하지</i> 마라" 인데 "과거 모집글을 <i>손대지</i> 마라" 로 과잉 적용된 것이다.
+         *
+         * <p>그래서 검증을 서비스로 옮겼다 — <b>새로 잡는 일정일 때만</b> 미래를 요구한다
+         * ({@code CommunityPostService.applyMatch}). 신규 작성과 "일정 변경" 은 그대로 막힌다.
+         * 레포 규약(형식 검증은 DTO 에서)의 예외이며, 근거는 "요청만으로 판정 불가" 다.
+         */
         @NotNull(message = "일정을 골라주세요.")
-        @FutureOrPresent(message = "지난 날짜로는 모집할 수 없어요.")
         private LocalDate meetDate;
 
         /** 입수 시각. 날짜만 정하고 시간은 협의하는 모집도 있어 선택. */

@@ -830,15 +830,33 @@ export interface BrandingPostDetail extends HalLinks {
   tags: string[];
   locationLabel?: string | null;
   /** UTC ISO-8601. "하루 전" 같은 상대시간은 FE가 만든다 — BE는 문자열을 만들지 않는다. */
+  /**
+   * 카테고리·제목. **항상 온다**(V31 에서 둘 다 NOT NULL + 기존 행 backfill).
+   * ⚠️ 수정 폼은 이 값을 그대로 되실어야 한다 — 안 보내면 이제 `null` 로 지워지는 대신 **400** 이다
+   *    (조용히 지워지는 것보다 실패하는 쪽이 낫다). 폼에 입력 UI 가 없어도 값은 보존해야 한다.
+   */
+  category: CommunityCategory;
+  title: string;
   createdAt: string;
   pinned: boolean;
-  /** 강사가 연결했을 때만. DRAFT(미공개)·삭제된 코스면 키 자체가 없다. */
+  /**
+   * 숨김 상태. **공개 조회에서는 항상 false** — 숨긴 글은 오너에게만 열린다.
+   * `CommunityPostDetail.hidden` 과 같은 의미이고 같은 행의 같은 컬럼이다
+   * (커뮤니티에서 숨기면 여기서도 true 로 온다).
+   */
+  hidden: boolean;
+  /**
+   * 강사가 연결했을 때만.
+   * ⚠️ **오너와 남에게 다르게 온다** — 남·비로그인은 DRAFT 면 **키 자체가 없고**,
+   * **오너 본인에게는 DRAFT 도 온다**(`status: 'DRAFT'`). 이 상세가 오너의 수정 폼 프리필 소스인데
+   * 키가 없으면 저장 시 연결이 조용히 끊기기 때문이다. 그리드 카드는 예외 없이 공개 규칙이다.
+   */
   linkedCourse?: {
     id: number;
     title: string;
     thumbnailUrl?: string | null;
     price: number;
-    status: 'OPEN' | 'CLOSED';
+    status: CourseStatus;
   };
 }
 
@@ -855,6 +873,14 @@ export interface BrandingPostDetail extends HalLinks {
 export interface BrandingPostRequest {
   category: CommunityCategory;  // 필수 (2026-08-18~)
   mediaUrls: string[];      // 1~10장
+  /**
+   * ⚠️ **둘 다 필수다**(2026-08-18). 예전엔 `@NotNull` 이 없어 안 보내면 스냅샷 교체로 **조용히
+   * 지워졌다** — 이제 400 이다. 상세 응답의 값을 그대로 되실어라(라운드트립).
+   * `caption`·`tags` 등 나머지 키는 여전히 "생략 = 비우기" 다.
+   */
+  category: CommunityCategory;
+  /** 2~100자. 필수. */
+  title: string;
   caption?: string;         // 최대 2000자
   tags?: string[];          // 최대 10개, 각 30자
   locationLabel?: string;   // 최대 60자
@@ -907,7 +933,13 @@ export interface LinkedCourse {
   title: string;
   thumbnailUrl?: string | null;
   price: number;
-  status: 'OPEN' | 'CLOSED';
+  /**
+   * ⚠️ **`DRAFT` 가 올 수 있는 건 오너 본인의 커뮤니티 상세뿐**이다
+   * (`CommunityPostDetail.linkedCourse` — 수정 폼 프리필용). 카드·남·비로그인은 DRAFT 면 키가 아예 없다.
+   * 그래서 `'OPEN' | 'CLOSED'` 가 아니라 `CourseStatus` 다 — 좁히면 FE 가 `status === 'DRAFT'` 를
+   * 비교할 때 컴파일 에러가 나고, exhaustive switch 가 DRAFT 를 도달 불가로 처리한다.
+   */
+  status: CourseStatus;
 }
 
 /** 피드·상세·댓글에 공통으로 실리는 작성자. 강사 강조 UI(링+✓+"강사 · 강의 N")의 유일한 소스. */
@@ -948,10 +980,10 @@ export interface CommunityMatch {
  */
 export interface CommunityPostCard {
   id: number;
-  /** **항상 온다**(V30 에서 NOT NULL + 기존 행 backfill). 카테고리 없는 글은 더 이상 생기지 않는다. */
+  /** **항상 온다**(V31 에서 NOT NULL + 기존 행 backfill). 카테고리 없는 글은 더 이상 생기지 않는다. */
   category: CommunityCategory;
-  /** 여전히 없을 수 있다 — 구 브랜딩 경로는 제목이 선택이었고 그 시절 글이 남아 있다(통합 폼은 필수). */
-  title?: string;
+  /** **항상 온다**(V31 NOT NULL + backfill). 제목 없는 글은 더 이상 없다. */
+  title: string;
   bodyExcerpt?: string | null;   // 앞 200자 — FE 가 CSS 3줄 클램프
   author: CommunityAuthor;
   thumbnailUrls: string[];       // 앞 3장만 (카드가 3장 + "+N" 구조)
@@ -982,10 +1014,10 @@ export interface CommunityPostCard {
 /** GET /community/posts/{postId} (비로그인 가능). 숨김·미노출은 400(존재 숨김) — 단 오너 본인은 열린다. */
 export interface CommunityPostDetail extends HalLinks {
   id: number;
-  /** **항상 온다**(V30 NOT NULL). */
+  /** **항상 온다**(V31 NOT NULL). */
   category: CommunityCategory;
-  /** 구 브랜딩 경로로 쓴 글만 없을 수 있다. */
-  title?: string;
+  /** **항상 온다**(V31 NOT NULL). */
+  title: string;
   body?: string | null;
   author: CommunityAuthor;
   media: { url: string; sortOrder: number }[];
@@ -1005,26 +1037,42 @@ export interface CommunityPostDetail extends HalLinks {
   showOnProfile: boolean;
   /** 내 글이면 "더보기" 에 수정·삭제 노출. 카드엔 메뉴가 없어 불필요. */
   mine: boolean;
+  /**
+   * ⚠️ **오너(`mine === true`)와 남에게 다르게 온다.**
+   * - 남·비로그인: `DRAFT` 코스면 **키 생략**(비공개 코스가 공개 화면에 새면 안 된다). 피드 카드도 동일.
+   * - **오너: `DRAFT` 여도 그대로 온다** — 없으면 수정 폼이 `linkedCourseId` 를 프리필하지 못하고,
+   *   스냅샷 교체라 저장하는 순간 **연결이 조용히 끊긴다**. `status` 를 보고 "비공개 · 공개 후 노출" 을 고지할 것.
+   */
   linkedCourse?: LinkedCourse;
   match?: CommunityMatch;
 }
 
 /**
  * POST /community/posts · PUT /community/posts/{postId} (인증)
- * ⚠️ 수정도 **스냅샷 교체** — 보낸 mediaUrls/tags 가 최종 상태다.
+ *
+ * ⚠️ **수정은 PATCH 가 아니라 전체 스냅샷 교체다. 생략한 키 = "변경 없음" 이 아니라 "비우기".**
+ * 이 규칙은 배열만이 아니라 **모든 키**에 적용된다 — `body`·`locationLabel`·`linkedCourseId`·
+ * `match.meetTime` 도 빠뜨리면 null 이 된다. **응답값을 그대로 되실어라(라운드트립).**
+ * 폼이 편집하지 않는 필드도 마찬가지다 — 입력 UI 유무는 값 보존과 무관하다(값은 state 에 들고 있으면 된다).
+ *
+ * ⚠️ `mediaUrls` 를 빠뜨리면 사진이 지워질 뿐 아니라 **S3 객체가 즉시 영구 삭제**된다(복구 불가).
+ * ⚠️ `mediaUrls: null` 은 400 이다. 비울 의도면 `[]` 를 명시할 것.
  * ⚠️ mediaUrls 는 업로드(POST /branding-images)로 받은 우리 CDN URL 만. 배열 순서 = 표시 순서.
+ * ⚠️ `category`/`title` 은 필수라, 그 둘이 없는 **브랜딩발 글은 이 요청으로 표현할 수 없다** —
+ *    `category == null` 인 글은 커뮤니티 PUT 대상이 아니다(브랜딩 수정 경로로 보낼 것).
  */
 export interface CommunityPostRequest {
   category: CommunityCategory;   // 필수
   title: string;                 // 필수 2~100자
-  body?: string;                 // 최대 5000자
+  body?: string;                 // 최대 5000자 (V30 에서 컬럼을 5000 으로 넓혔다)
   mediaUrls?: string[];          // 최대 10장. 사진 없는 글 허용(궁금해요·같이가요)
   tags?: string[];               // 최대 5개, 각 30자
   locationLabel?: string;        // 최대 60자
   /**
    * 내 코스만 — 남의 코스는 400(존재 숨김). ⚠️ category==='MATCH' 면 **연결 불가**(영리활동 금지 가드) → 400
    *
-   * DRAFT 코스도 **요청은 통과**하고 공개 응답에서 linkedCourse 키만 생략된다(OPEN 으로 바꾸면 그때 나타남).
+   * DRAFT 코스도 **요청은 통과**하고 **공개** 응답에서 linkedCourse 키만 생략된다(OPEN 으로 바꾸면 그때 나타남).
+   * 오너 본인의 상세 응답에는 DRAFT 도 실린다 — 안 그러면 수정 시 연결이 끊긴다(위 `CommunityPostDetail` 참고).
    * "준비 중인 강의를 미리 걸어두고 공개되면 뜨게" 가 유효한 사용이라 서버는 막지 않는다 —
    * 대신 **FE 가 선택 시점과 선택 후 두 번 고지**한다(시트/드롭다운은 닫히면 안 읽히므로 폼에도 남긴다).
    * `CLOSED` 는 거르지도 고지하지도 않는다 — 응답에 그대로 오고 미니카드가 마감으로 그린다.
@@ -1043,8 +1091,13 @@ export interface CommunityPostRequest {
   showOnProfile?: boolean;
   /** category==='MATCH' 일 때 필수. */
   match?: {
-    meetDate: string;            // 오늘 이후
-    meetTime?: string;
+    /**
+     * **새로 잡는 일정일 때만** 오늘 이후여야 한다 — 작성이거나 일정을 바꿀 때.
+     * 저장된 일정을 그대로 되보내는 수정은 **일정이 이미 지났어도 통과**한다
+     * (안 그러면 지난 모집글은 제목 오타조차 못 고친다).
+     */
+    meetDate: string;
+    meetTime?: string;           // ⚠️ 폼에 UI 가 없어도 되실을 것 — 안 보내면 null 로 덮인다
     capacity: number;            // 2~20
     levelLabel: string;          // 필수, 최대 60자
   };

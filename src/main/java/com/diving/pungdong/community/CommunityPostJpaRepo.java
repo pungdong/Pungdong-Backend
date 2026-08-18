@@ -112,7 +112,7 @@ public interface CommunityPostJpaRepo extends JpaRepository<BrandingPost, Long>,
 
     /**
      * 카테고리별 최근 7일 글 수 — 피드 상단 4-up 그리드와 HOT 뱃지(&gt;50).
-     * 카테고리는 V30 이후 NOT NULL 이라 모든 글이 정확히 한 칸에 속한다(예전엔 브랜딩발 글이
+     * 카테고리는 V31 이후 NOT NULL 이라 모든 글이 정확히 한 칸에 속한다(예전엔 브랜딩발 글이
      * 어느 칸에도 안 속해 `category is not null` 로 걸러야 했다).
      */
     @Query("select p.category, count(p) from BrandingPost p "

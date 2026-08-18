@@ -29,14 +29,28 @@
    ⚠️ **그런데 `@JsonProperty` 만으로는 부족하고, 원시 `boolean` 이면 오히려 키가 둘로 늘어난다.** Lombok 이 원시 `boolean isInstructor` 에 대해 만드는 게터는 `isInstructor()` 이고 Jackson 은 이걸 프로퍼티 **`instructor`** 로 본다 — 필드의 `@JsonProperty("isInstructor")` 와 **서로 다른 두 프로퍼티**가 되어 `{"instructor":true,"isInstructor":true}` 가 나간다. 래퍼 `Boolean` 이면 게터가 `getIsInstructor()` 라 프로퍼티명이 `isInstructor` 로 일치해 합쳐진다 — `MyBrandingResponse` 가 멀쩡한 게 이 차이 때문이지 설계가 아니다.
    **원시 boolean 을 쓸 거면 필드명에서 `is` 를 떼고**(`private boolean instructor`) `@JsonProperty("isInstructor")` 를 병기한다. `community` 의 `CommunityAuthorResponse` 가 그 형태다.
    🔴 **`BrandingProfileResponse.isInstructor` 는 아직 원시 boolean 이라 실제로 키가 둘 나간다**(`GET /instructors/{nickName}` 로 실측). REST Docs 가 `relaxedResponseFields` 라 문서화 안 된 여분 키를 잡아주지 못했다.
+5-1. ⚠️ **`category` 와 `title` 은 독립이다 — "함께 있거나 함께 없다" 는 보장이 아니다.**
+   두 컬럼 다 nullable 이고(`V19`) 묶는 제약이 없다. `BrandingPostRequest.title` 은 `category` 와
+   **별개의 선택 필드**로 설계돼 있어, 클라이언트가 `{mediaUrls, title}` 만 보내면 title-only 행이 생긴다.
+   지금 그런 행이 없는 건 **현재 FE 폼들이 둘 다 안 보내서**지 서버가 막아서가 아니다.
+   🔴 **커뮤니티 수정 트랙이 `category == null` 을 "브랜딩발 글" 판정으로 쓰고 있다** —
+   브랜딩 폼에 제목 입력이 추가되면 그 판정이 깨진다. 배경·대응은
+   [docs/features/community.md](../../../../../../../docs/features/community.md) 의 D안 항목 옆.
+
 6. **`RecordEventCode`(CWT/FIM/…)는 `discipline.Discipline`(FREEDIVING/SCUBA/…)과 다른 축이다.** 둘 다 "discipline" 이라 부르면 반드시 사고 난다 — 컬럼도 `event_code`.
 7. **`BrandingRecord.value` 의 컬럼명은 `record_value`** — `value` 는 H2(테스트 DB) 예약어라 그대로 쓰면 스키마 생성이 깨진다. API 필드명은 `value` 유지.
 8. **숨김(`is_hidden`)은 삭제가 아니고, 이 도메인 것도 아니다.** 공개 목록·상세·게시물 수에서만 빠지고 **오너 목록엔 남는다** — 안 그러면 숨긴 글을 다시 켤 수 없다. 같은 이유로 **상세도 오너 본인에겐 열린다**(숨김·미발행 포함) — `GET /branding-posts/{id}` 는 보는 사람에 따라 갈린다. permitAll 이라 `@CurrentUser` 가 **null 일 수 있다.**
    ⚠️ **토글 엔드포인트는 커뮤니티에 있다**(`PATCH /community/posts/{id}/visibility`). 여기 있던 쌍둥이는 삭제했다 — 숨김은 두 표면에 함께 걸리는 전역 스위치인데, 이 문은 `show_on_profile=true` 만 통과시켜 커뮤니티 전용 글을 못 숨겼고 **어드민 조치(ACTIONED) 확인이 없어 신고로 내려간 글을 작성자가 되살릴 수 있었다.** 여기서 `setHidden` 을 다시 부활시키지 말 것.
 9. **그리드는 미디어를 일괄 조회해 그룹핑한다.** 카드마다 `post.getMedia()` 를 건드리면 N+1 이다.
+   ⚠️ **연결 강의의 DRAFT 는 공개 응답에서만 숨긴다 — 오너 상세에는 싣는다**(2026-08-18). 오너에게까지
+   감췄더니 이 상세가 **수정 폼 프리필 소스**인데 `linkedCourseId` 를 못 채워, 스냅샷 교체로 **저장하는 순간
+   연결이 조용히 끊겼다**(사용자는 오타만 고쳤고 에러도 없다). 요청에서 "사용자가 뗐다" 와 구별되지 않아
+   클라이언트가 방어할 수도 없다. `커뮤니티`가 같은 결함을 먼저 고쳤고 도메인마다 다르게 갈 이유가 없다.
+   **그리드 카드는 예외 없이 공개 규칙**(오너 개념이 없다). 안전망은 `BrandingPostUseCaseTest` L2·L3 **한 쌍** —
+   되돌리려면 둘을 함께 봐야 한다.
 10. **정렬·size 는 서버가 고정한다.** 클라이언트 `sort` 를 `Pageable` 에 태우면 pinned-우선이 깨지고 임의 필드 정렬이 뚫린다. `size` 상한 50.
 11. **`mediaUrls` 는 우리 CDN base 로 시작하는지 검증한다.** 없으면 본문에 임의 외부 이미지를 심을 수 있고, 삭제 로직이 남의 도메인을 지우려 든다.
-12. **`BrandingPostRequest.category` 는 필수다**(2026-08-18). 모든 글은 커뮤니티 글이라 분류축이 있어야 하고, DB 도 NOT NULL(V30) 이다.
+12. **`BrandingPostRequest.category`·`title` 은 필수다**(2026-08-18). 모든 글은 커뮤니티 글이라 분류축과 제목이 있어야 하고, DB 도 NOT NULL(V31) 이다. 예전엔 두 키를 생략하면 스냅샷 교체로 **조용히 지워졌다** — 지금은 400 이다(지워진 건 알아채기 어렵다).
 
 ## 공개 URL = 닉네임 (D3)
 

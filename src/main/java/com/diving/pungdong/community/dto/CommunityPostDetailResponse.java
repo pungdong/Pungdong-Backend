@@ -16,7 +16,7 @@ public class CommunityPostDetailResponse {
 
     private final Long id;
 
-    /** V30 이후 <b>항상 있다</b>(NOT NULL). */
+    /** V31 이후 <b>항상 있다</b>(NOT NULL). */
     private final CommunityCategory category;
 
     /** 구 브랜딩 경로로 쓴 글은 제목이 없을 수 있다 — 통합 폼에서는 필수. */

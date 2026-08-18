@@ -103,7 +103,7 @@ erDiagram
     int sort_order
   }
   BrandingPost {
-    String caption "2000"
+    String caption "5000"
     String location_label
     boolean pinned
     boolean is_hidden "삭제와 별개, 되돌릴 수 있음"

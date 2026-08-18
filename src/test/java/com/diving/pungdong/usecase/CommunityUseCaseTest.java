@@ -36,8 +36,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 커뮤니티 — 피드·상세·작성.
  *
  * <p><b>읽는 법</b>: {@code @DisplayName} 을 위에서 아래로 = 사양.
- * S* 성공 / X* 노출 방향 / P* 프로필 노출 토글 / F* 필터 / M* 같이가요 / A* 작성자 합성 /
- * V* 검증 / H* 숨김 / R* 권한.
+ * S* 성공 / X* 노출 방향 / P* 프로필 노출·숨김 / F* 필터 / M* 같이가요 / A* 작성자 합성 / V* 검증 /
+ * H* 숨김 / R* 권한 / K* 좋아요·북마크 / D* 탐색 지표 / C* 댓글 / N* 알림 / G* 가드 /
+ * <b>E* 수정(edit)</b>.
  *
  * <p>이 피처에서 가장 틀리기 쉬운 건 <b>노출</b>이다. 작성 폼이 하나로 합쳐진 뒤(2026-08-18)
  * 규칙은 두 축이다 — {@code showOnProfile}(작성자가 고른다)과 {@code isHidden}(숨김이 이긴다).
@@ -163,7 +164,7 @@ class CommunityUseCaseTest {
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(author))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"mediaUrls\":[\"" + img("a") + "\"],\"category\":\"" + category
-                                + "\",\"caption\":\"" + caption + "\"}"))
+                                + "\",\"title\":\"" + caption + "\",\"caption\":\"" + caption + "\"}"))
                 .andExpect(status().isOk())
                 .andReturn();
         return ((Number) com.jayway.jsonpath.JsonPath.read(
@@ -602,7 +603,7 @@ class CommunityUseCaseTest {
         Account me = account("m4@c.com", "diverC37", Role.STUDENT);
         long id = matchPost(me, "지나갈 일정", LocalDate.now().plusDays(1));
 
-        // 지난 날짜는 API 가 거부하므로(@FutureOrPresent) HTTP 로는 만들 수 없다.
+        // 지난 날짜는 API 가 거부하므로(서비스의 requireFutureIfRescheduled) HTTP 로는 만들 수 없다.
         // 시간이 흐른 상황을 재현하려면 저장된 일정을 직접 과거로 돌리는 수밖에 없다.
         CommunityPostMatch match = matchRepo.findById(id).orElseThrow();
         match.setMeetDate(LocalDate.now().minusDays(1));
@@ -1425,5 +1426,432 @@ class CommunityUseCaseTest {
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(admin)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.page.size").value(50));
+    }
+
+    /* ════════════════ E — 수정(edit) ════════════════ */
+    //
+    // `PUT /community/posts/{id}` 는 원래 <b>M6 · G6 두 개</b>로만 덮여 있었다. 둘 다 "거부되는가"를
+    // 보는 테스트라, 수정이 <b>성공했을 때 무엇이 어떻게 되는가</b>는 사양으로 적힌 적이 없다.
+    // 아래 E* 가 그 자리를 메운다 — 특히 `updatedAt` 은 "수정됨" 표기의 유일한 근거라 못 박아야 한다.
+
+    /**
+     * 상세 조회 원문(JSON 문자열). 한 응답에서 두 개 이상 필드를 꺼내 비교할 때 쓴다.
+     *
+     * <p>⚠️ <b>UTF-8 을 명시한다</b> — 인자 없는 {@code getContentAsString()} 은 기본 charset 으로 읽어
+     * 한글이 깨진다. 꺼낸 값을 되실어 저장하는 라운드트립 테스트에서 특히 위험하다(깨진 채 저장되고도
+     * 통과한 것처럼 보인다).
+     */
+    private String detailJson(long postId) throws Exception {
+        return mockMvc.perform(get("/community/posts/" + postId))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    private String read(String json, String path) {
+        Object value = com.jayway.jsonpath.JsonPath.read(json, path);
+        return String.valueOf(value);
+    }
+
+    @Test
+    @DisplayName("E1: 글을 수정하면 updatedAt 이 createdAt 보다 나중이 된다 (수정 응답에서 바로)")
+    void update_movesUpdatedAtInResponse() throws Exception {
+        Account me = account("e1@c.com", "diverE1", Role.STUDENT);
+        long id = createPost(me, "TOUR", "고치기 전", "본문");
+
+        // 작성 시점엔 @PrePersist 가 같은 now 를 둘 다에 넣으므로 두 값이 정확히 같다.
+        // 즉 "수정된 적 있음" 은 두 값이 갈라졌는지로 판정된다 — 근사 비교가 아니라 정확 비교다.
+        String created = detailJson(id);
+        assertThat(read(created, "$.updatedAt")).isEqualTo(read(created, "$.createdAt"));
+
+        String updated = mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"고친 뒤\",\"body\":\"본문\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        // 수정 응답이 곧바로 갱신된 시각을 실어야 한다 — FE 가 이 응답으로 "수정됨" 배지를 그린다.
+        assertThat(read(updated, "$.updatedAt")).isNotEqualTo(read(updated, "$.createdAt"));
+    }
+
+    @Test
+    @DisplayName("E2: 재조회해도 updatedAt 이 갱신돼 있다 (응답만 맞고 DB 는 안 바뀐 게 아니어야 한다)")
+    void update_persistsUpdatedAt() throws Exception {
+        Account me = account("e2@c.com", "diverE2", Role.STUDENT);
+        long id = createPost(me, "TOUR", "고치기 전", "본문");
+
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"고친 뒤\",\"body\":\"본문\"}"))
+                .andExpect(status().isOk());
+
+        String refetched = detailJson(id);
+        assertThat(read(refetched, "$.updatedAt")).isNotEqualTo(read(refetched, "$.createdAt"));
+    }
+
+    @Test
+    @org.junit.jupiter.api.Disabled("결함 확정(2026-08-18): 사진만 바꾸면 updatedAt 이 안 움직인다. "
+            + "실측값이 createdAt 과 바이트 단위로 같았다 — 부모 행이 dirty 가 아니라 @PreUpdate 가 안 돈다. "
+            + "'수정됨' 표기를 채택하면 반드시 고쳐야 하고, 고치는 PR 에서 이 @Disabled 를 떼는 게 수용 기준이다.")
+    @DisplayName("E3: 사진만 바꿔도 수정으로 친다 (제목·본문이 그대로여도 updatedAt 이 움직인다)")
+    void update_mediaOnly_stillCountsAsEdit() throws Exception {
+        Account me = account("e3@c.com", "diverE3", Role.STUDENT);
+
+        MvcResult created = mockMvc.perform(post("/community/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"사진 글\",\"body\":\"본문\","
+                                + "\"mediaUrls\":[\"" + img("a") + "\"]}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        long id = ((Number) com.jayway.jsonpath.JsonPath.read(
+                created.getResponse().getContentAsString(), "$.id")).longValue();
+
+        // 스칼라 필드(카테고리·제목·본문)는 전부 그대로 두고 사진만 한 장 더한다.
+        // 부모 행이 dirty 가 아니면 @PreUpdate 가 안 돌아 updatedAt 이 멈춘다 — 그걸 잡는 테스트다.
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"사진 글\",\"body\":\"본문\","
+                                + "\"mediaUrls\":[\"" + img("a") + "\",\"" + img("b") + "\"]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.media.length()").value(2));
+
+        String refetched = detailJson(id);
+        assertThat(read(refetched, "$.updatedAt")).isNotEqualTo(read(refetched, "$.createdAt"));
+    }
+
+    @Test
+    @DisplayName("E4: 남의 글은 수정할 수 없다 (400 — 삭제와 같은 존재 숨김. R1 이 삭제만 보고 있었다)")
+    void update_othersPost_rejected() throws Exception {
+        Account owner = account("e4a@c.com", "diverE4a", Role.STUDENT);
+        Account stranger = account("e4b@c.com", "diverE4b", Role.STUDENT);
+        long id = createPost(owner, "TOUR", "내 글", "본문");
+
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(stranger))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"QNA\",\"title\":\"남이 고침\"}"))
+                .andExpect(status().isBadRequest());
+
+        // 400 을 돌려주는 것만으로는 부족하다 — 실제로 안 바뀌었는지 본다.
+        mockMvc.perform(get("/community/posts/" + id))
+                .andExpect(jsonPath("$.title").value("내 글"));
+    }
+
+    @Test
+    @DisplayName("E5: 수정은 스냅샷 교체다 — 사진·태그를 빼고 보내면 남는 게 아니라 지워진다")
+    void update_omittingArrays_clearsThem() throws Exception {
+        Account me = account("e5@c.com", "diverE5", Role.STUDENT);
+
+        MvcResult created = mockMvc.perform(post("/community/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"사진과 태그\",\"body\":\"본문\","
+                                + "\"mediaUrls\":[\"" + img("a") + "\"],\"tags\":[\"프리다이빙\"]}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        long id = ((Number) com.jayway.jsonpath.JsonPath.read(
+                created.getResponse().getContentAsString(), "$.id")).longValue();
+
+        // mediaUrls·tags 키를 아예 생략한다. DTO 필드가 빈 배열로 초기화돼 있어 @NotNull 을 통과하고,
+        // 서비스는 그 빈 배열을 "최종 상태" 로 받아 기존 것을 전부 지운다(+ S3 객체까지).
+        // FE 가 부분 전송하면 사진이 조용히 날아간다는 뜻이라, 계약서 최상단에 박아야 할 동작이다.
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"사진과 태그\",\"body\":\"본문\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.media.length()").value(0))
+                .andExpect(jsonPath("$.tags.length()").value(0));
+    }
+
+    @Test
+    @DisplayName("E6: 일정이 지난 같이가요 글도 제목을 고칠 수 있다 (일정을 그대로 두면 통과한다)")
+    void update_pastMatch_keepingDate_isAllowed() throws Exception {
+        Account me = account("e6@c.com", "diverE6", Role.STUDENT);
+        long id = matchPost(me, "지나갈 일정", LocalDate.now().plusDays(1));
+
+        // M4 와 같은 방식으로 "시간이 흐른" 상태를 만든다. 지난 모집글은 정상 상태다(M4 가 그렇게 못 박았다).
+        CommunityPostMatch match = matchRepo.findById(id).orElseThrow();
+        LocalDate past = LocalDate.now().minusDays(1);
+        match.setMeetDate(past);
+        matchRepo.saveAndFlush(match);
+
+        // FE 가 상세로 폼을 프리필하면 지난 meetDate 를 그대로 되돌려 보낸다. 그게 막히면
+        // 지난 모집글은 오타 하나 때문에 영구히 편집 불가가 된다 — 그래서 통과해야 한다.
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"MATCH\",\"title\":\"오타만 고침\","
+                                + "\"match\":{\"meetDate\":\"" + past + "\",\"capacity\":4,"
+                                + "\"levelLabel\":\"AOWD 이상\"}}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("오타만 고침"))
+                .andExpect(jsonPath("$.match.open").value(false));
+    }
+
+    @Test
+    @DisplayName("E7: 그렇다고 지난 날짜로 일정을 '바꿀' 수는 없다 (완화가 구멍이 되면 안 된다)")
+    void update_reschedulingToPast_isRejected() throws Exception {
+        Account me = account("e7@c.com", "diverE7", Role.STUDENT);
+        long id = matchPost(me, "앞으로의 일정", LocalDate.now().plusDays(10));
+
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"MATCH\",\"title\":\"과거로 옮기기\","
+                                + "\"match\":{\"meetDate\":\"" + LocalDate.now().minusDays(3) + "\","
+                                + "\"capacity\":4,\"levelLabel\":\"AOWD 이상\"}}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("지난 날짜로는 모집할 수 없어요."));
+    }
+
+    @Test
+    @DisplayName("E8: 새 모집글은 여전히 지난 날짜로 만들 수 없다 (완화는 '기존 일정 유지' 에만 적용된다)")
+    void create_pastMatch_stillRejected() throws Exception {
+        Account me = account("e8@c.com", "diverE8", Role.STUDENT);
+
+        mockMvc.perform(post("/community/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"MATCH\",\"title\":\"과거 모집\","
+                                + "\"match\":{\"meetDate\":\"" + LocalDate.now().minusDays(1) + "\","
+                                + "\"capacity\":4,\"levelLabel\":\"AOWD 이상\"}}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("지난 날짜로는 모집할 수 없어요."));
+    }
+
+    @Test
+    @DisplayName("E9: 오너에게는 DRAFT 연결 강의도 상세에 실린다 (없으면 수정 시 연결이 조용히 끊긴다)")
+    void draftLinkedCourse_isVisibleToOwner() throws Exception {
+        Account me = account("e9@c.com", "diverE9", Role.INSTRUCTOR);
+        approveAsInstructor(me);
+        Course draft = course(me, CourseStatus.DRAFT);
+        long id = postLinkingCourse(me, draft, "준비 중인 강의 연결");
+
+        // 오너는 자기 DRAFT 코스를 이미 알고 있다 — 수정 폼이 프리필할 id 를 받아야 한다.
+        mockMvc.perform(get("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.linkedCourse.id").value(draft.getId().intValue()))
+                .andExpect(jsonPath("$.linkedCourse.status").value("DRAFT"));
+    }
+
+    @Test
+    @DisplayName("E10: 하지만 남에게는 DRAFT 연결 강의가 여전히 안 보인다 (오너 예외가 공개 화면으로 새면 안 된다)")
+    void draftLinkedCourse_stillHiddenFromOthers() throws Exception {
+        Account author = account("e10a@c.com", "diverE10a", Role.INSTRUCTOR);
+        approveAsInstructor(author);
+        Account viewer = account("e10b@c.com", "diverE10b", Role.STUDENT);
+        Course draft = course(author, CourseStatus.DRAFT);
+        long id = postLinkingCourse(author, draft, "준비 중인 강의 연결");
+
+        // 비로그인
+        mockMvc.perform(get("/community/posts/" + id))
+                .andExpect(jsonPath("$.linkedCourse").doesNotExist());
+
+        // 로그인했지만 남
+        mockMvc.perform(get("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(viewer)))
+                .andExpect(jsonPath("$.linkedCourse").doesNotExist());
+
+        // 피드 카드는 오너에게도 공개 규칙 그대로다 — 카드엔 오너 개념이 없다.
+        mockMvc.perform(get("/community/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(author)))
+                .andExpect(jsonPath("$._embedded.posts[0].linkedCourse").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("E11: 본문 2000자를 넘겨도 저장된다 (계약이 5000 인데 컬럼이 2000 이라 500 이 나던 자리)")
+    void update_longBody_isStored() throws Exception {
+        Account me = account("e11@c.com", "diverE11", Role.STUDENT);
+        long id = createPost(me, "TOUR", "긴 본문", "짧은 본문");
+        String longBody = "가".repeat(4500);
+
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"긴 본문\",\"body\":\"" + longBody + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.body").value(longBody));
+    }
+
+    @Test
+    @DisplayName("E12: 숨긴 글 상세는 오너에게만 열린다 (남은 로그인해도 400 — 오너 예외가 새면 안 된다)")
+    void hiddenPost_detailIsOwnerOnly() throws Exception {
+        Account owner = account("e12a@c.com", "diverE12a", Role.STUDENT);
+        Account stranger = account("e12b@c.com", "diverE12b", Role.STUDENT);
+        long id = createPost(owner, "TOUR", "숨길 글", "본문");
+
+        mockMvc.perform(patch("/community/posts/" + id + "/visibility")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"hidden\":true}"))
+                .andExpect(status().isOk());
+
+        // 오너는 열린다 — 수정·숨김해제 진입점이 상세에 있어서 여기가 막히면 되돌릴 방법이 없다.
+        mockMvc.perform(get("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hidden").value(true))
+                .andExpect(jsonPath("$.mine").value(true));
+
+        // 남은 로그인해도 안 열린다. 비로그인도 마찬가지(H1 이 잠근다).
+        mockMvc.perform(get("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(stranger)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("E13: 커뮤니티에서 숨기면 브랜딩 공개 프로필에서도 사라진다 (is_hidden 은 두 화면이 공유한다)")
+    void hidingFromCommunity_alsoHidesFromBrandingGrid() throws Exception {
+        Account me = account("e13@c.com", "diverE13", Role.INSTRUCTOR);
+        long id = brandingPost(me, "TOUR", "프로필에 남길 글");
+
+        mockMvc.perform(get(brandingGrid("diverE13")))
+                .andExpect(jsonPath("$.page.totalElements").value(1));
+
+        mockMvc.perform(patch("/community/posts/" + id + "/visibility")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"hidden\":true}"))
+                .andExpect(status().isOk());
+
+        // 커뮤니티 메뉴에서 숨겼을 뿐인데 브랜딩 공개 그리드에서도 빠진다.
+        // 플래그가 showInFeed 가 아니라 두 화면이 공유하는 is_hidden 이기 때문이다.
+        mockMvc.perform(get(brandingGrid("diverE13")))
+                .andExpect(jsonPath("$.page.totalElements").value(0));
+    }
+
+    @Test
+    @DisplayName("E14: 커뮤니티에서 삭제하면 브랜딩 프로필에서도 영구히 사라진다 (같은 행을 지운다)")
+    void deletingFromCommunity_alsoRemovesFromBrandingGrid() throws Exception {
+        Account me = account("e14@c.com", "diverE14", Role.INSTRUCTOR);
+        long id = brandingPost(me, "TOUR", "프로필에 남길 글");
+
+        mockMvc.perform(delete("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isNoContent());
+
+        // hard delete 다 — 숨김과 달리 되돌릴 수 없다.
+        mockMvc.perform(get(brandingGrid("diverE14")))
+                .andExpect(jsonPath("$.page.totalElements").value(0));
+        assertThat(postRepo.findById(id)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("E15: DRAFT 강의를 건 글을 상세→수정으로 왕복해도 연결이 살아남는다 (E9 가 막으려던 결함 본체)")
+    void draftLinkedCourse_survivesRoundTrip() throws Exception {
+        Account me = account("e15@c.com", "diverE15", Role.INSTRUCTOR);
+        approveAsInstructor(me);
+        Course draft = course(me, CourseStatus.DRAFT);
+        long id = postLinkingCourse(me, draft, "준비 중인 강의 연결");
+
+        // FE 가 하는 그대로: 상세를 읽어 linkedCourse.id 를 뽑고, 그걸 linkedCourseId 로 되싣는다.
+        String detail = mockMvc.perform(get("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String courseId = read(detail, "$.linkedCourse.id");
+
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"제목만 고침\",\"body\":\"본문\","
+                                + "\"linkedCourseId\":" + courseId + "}"))
+                .andExpect(status().isOk());
+
+        // 결함의 본체는 "응답에 키가 없다" 가 아니라 "왕복하면 연결이 끊긴다" 였다.
+        assertThat(postRepo.findById(id).orElseThrow().getLinkedCourse()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("E16: 지난 모집글의 일정을 미래로 옮기면 다시 열린다 (완화의 목적은 복구 경로다)")
+    void pastMatch_canBeRescheduledForward() throws Exception {
+        Account me = account("e16@c.com", "diverE16", Role.STUDENT);
+        long id = matchPost(me, "되살릴 모집", LocalDate.now().plusDays(1));
+
+        CommunityPostMatch match = matchRepo.findById(id).orElseThrow();
+        match.setMeetDate(LocalDate.now().minusDays(2));
+        matchRepo.saveAndFlush(match);
+
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"MATCH\",\"title\":\"일정 새로 잡음\","
+                                + "\"match\":{\"meetDate\":\"" + LocalDate.now().plusDays(7) + "\","
+                                + "\"capacity\":4,\"levelLabel\":\"AOWD 이상\"}}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.match.open").value(true));
+    }
+
+    @Test
+    @DisplayName("E17: 카테고리를 돌렸다 오면 지난 일정은 되살릴 수 없다 (모집정보가 지워져 '새 모집' 이 된다)")
+    void matchRoundTrip_losesPastDate() throws Exception {
+        Account me = account("e17@c.com", "diverE17", Role.STUDENT);
+        long id = matchPost(me, "왕복할 모집", LocalDate.now().plusDays(1));
+
+        CommunityPostMatch match = matchRepo.findById(id).orElseThrow();
+        LocalDate past = LocalDate.now().minusDays(2);
+        match.setMeetDate(past);
+        matchRepo.saveAndFlush(match);
+
+        // MATCH → TOUR 로 바꾸면 모집정보 행이 삭제된다(M6).
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"잠깐 자랑 글\"}"))
+                .andExpect(status().isOk());
+
+        // 다시 MATCH 로 오면 비교할 이전 일정이 없어 "새 모집" 으로 판정된다 → 과거 날짜는 거부.
+        // 되살리려면 일정을 새로 잡아야 한다. 완화가 카테고리 왕복으로 우회되지 않는다는 뜻이다.
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"MATCH\",\"title\":\"되돌리기\","
+                                + "\"match\":{\"meetDate\":\"" + past + "\",\"capacity\":4,"
+                                + "\"levelLabel\":\"AOWD 이상\"}}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("지난 날짜로는 모집할 수 없어요."));
+    }
+
+    @Test
+    @DisplayName("E18: 커뮤니티에서 숨기면 브랜딩 상세도 hidden=true 로 온다 (오너 시트가 상태를 알아야 한다)")
+    void hiddenState_isVisibleOnBrandingDetail() throws Exception {
+        Account me = account("e18@c.com", "diverE18", Role.INSTRUCTOR);
+        long id = brandingPost(me, "TOUR", "프로필 글");
+
+        mockMvc.perform(get("/branding-posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hidden").value(false));
+
+        mockMvc.perform(patch("/community/posts/" + id + "/visibility")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"hidden\":true}"))
+                .andExpect(status().isOk());
+
+        // 같은 행의 같은 컬럼이라 브랜딩 상세도 숨김을 알아야 한다. 이 필드가 없으면 오너 액션시트가
+        // 이미 숨긴 글에 "숨기기" 를 그린다 — 커뮤니티에서 숨긴 뒤 브랜딩으로 넘어오는 경로가 실재한다.
+        mockMvc.perform(get("/branding-posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hidden").value(true));
+    }
+
+    /** 연결 강의를 건 커뮤니티 글 작성 → 생성된 id. */
+    private long postLinkingCourse(Account author, Course course, String title) throws Exception {
+        MvcResult result = mockMvc.perform(post("/community/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(author))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"" + title + "\",\"body\":\"본문\","
+                                + "\"linkedCourseId\":" + course.getId() + "}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        return ((Number) com.jayway.jsonpath.JsonPath.read(
+                result.getResponse().getContentAsString(), "$.id")).longValue();
     }
 }

@@ -143,7 +143,8 @@ class BrandingPostControllerTest {
         mockMvc.perform(post("/branding/me/posts")
                         .header(HttpHeaders.AUTHORIZATION, token(account))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"category\":\"TOUR\",\"mediaUrls\":[\"https://cdn.plop.cool/branding/a.jpg\"],"
+                        .content("{\"category\":\"TOUR\",\"title\":\"제주 문섬 다이빙\","
+                                + "\"mediaUrls\":[\"https://cdn.plop.cool/branding/a.jpg\"],"
                                 + "\"caption\":\"제주 문섬\",\"tags\":[\"제주다이빙\"],"
                                 + "\"locationLabel\":\"제주 서귀포 문섬\",\"linkedCourseId\":77}"))
                 .andExpect(status().isOk())
@@ -151,6 +152,7 @@ class BrandingPostControllerTest {
                         requestHeaders(headerWithName(HttpHeaders.AUTHORIZATION).description("access token")),
                         requestFields(
                                 fieldWithPath("category").description("TOUR|TRAINING|MATCH|QNA. **필수**. 이 경로는 구버전 앱 호환용이고, 신규 작성은 `POST /community/posts` + `showOnProfile:true`"),
+                                fieldWithPath("title").description("제목 2~100자. **필수**(2026-08-18~)"),
                                 fieldWithPath("mediaUrls").description("업로드로 받은 CDN URL 1~10개. **배열 순서가 표시 순서**이고 0번이 썸네일"),
                                 fieldWithPath("caption").description("본문(최대 2000자)").optional(),
                                 fieldWithPath("tags").description("태그 최대 10개, 각 30자").optional(),

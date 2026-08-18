@@ -21,7 +21,7 @@ public class CommunityPostCardResponse {
 
     private final Long id;
 
-    /** V30 이후 <b>항상 있다</b> — 두 쓰기 경로 모두 카테고리를 요구하고 기존 행은 backfill 했다. */
+    /** V31 이후 <b>항상 있다</b> — 두 쓰기 경로 모두 카테고리를 요구하고 기존 행은 backfill 했다. */
     private final CommunityCategory category;
 
     /**
