@@ -2,6 +2,7 @@ package com.diving.pungdong.account;
 
 import com.diving.pungdong.global.advice.ValidationErrors;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
+import com.diving.pungdong.global.advice.ValidationErrors;
 import com.diving.pungdong.global.advice.exception.SignInInputException;
 import com.diving.pungdong.global.security.CurrentUser;
 import com.diving.pungdong.global.security.JwtTokenProvider;
@@ -217,7 +218,7 @@ public class SignController {
     public ResponseEntity<?> signUp(@Valid @RequestBody SignUpInfo signUpInfo,
                                     BindingResult result) {
         if (result.hasErrors()) {
-            throw new SignInInputException();
+            throw new SignInInputException(ValidationErrors.firstMessage(result));
         }
 
         Account saved = accountService.saveAccountInfo(signUpInfo);

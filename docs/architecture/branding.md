@@ -151,7 +151,7 @@ erDiagram
 
 ## 5. 보안 / 권한 매트릭스
 
-매처는 `global/security/SecurityConfiguration`. **`/instructors/*` 는 리터럴 `/instructors/public`·`/instructors/suggested` 보다 뒤에** 둔다(그래야 두 목록 엔드포인트가 가려지지 않는다). 같은 이유로 그 두 단어는 **닉네임 예약어**다(`NickNameAuditService.RESERVED_NICKNAMES`) — 안 막으면 그 닉네임을 가진 계정의 프로필이 영영 안 열린다. ⚠️ ant 의 `*` 는 `/` 를 넘지 않으므로 하위 경로는 매처를 따로 추가해야 한다.
+매처는 `global/security/SecurityConfiguration`. **`/instructors/*` 는 리터럴 `/instructors/public`·`/instructors/suggested` 보다 뒤에** 둔다(그래야 두 목록 엔드포인트가 가려지지 않는다). 같은 이유로 그 두 단어는 **닉네임 예약어**다(`global/validation/NickNamePolicy` — 가입·변경이 400 으로 막힌다. 규칙 전체는 [sign-up.md](sign-up.md) '닉네임 정책') — 안 막으면 그 닉네임을 가진 계정의 프로필이 영영 안 열린다. ⚠️ ant 의 `*` 는 `/` 를 넘지 않으므로 하위 경로는 매처를 따로 추가해야 한다.
 
 | 엔드포인트 | 인증 | 역할 | 소유권 |
 |---|---|---|---|

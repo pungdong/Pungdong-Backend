@@ -35,6 +35,12 @@ public class ExceptionAdvice {
     @ExceptionHandler(SignInInputException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     protected CommonResult signInInputException(SignInInputException e){
+        // 형식 오류는 "어느 필드가 왜 틀렸는지"를 그대로 돌려준다(badRequest 와 동일 규칙) — 형식 규칙은
+        // 이미 공개 계약(types.ts·FE)이라 숨겨서 얻는 보안이 없고, 숨기면 사용자가 고칠 수가 없다.
+        // 메시지를 싣지 않은 호출부는 종전대로 일반 문구로 폴백한다.
+        if (e.getMessage() != null) {
+            return responseService.getFailResult(Integer.parseInt(getMessage("signInInputException.code")), e.getMessage());
+        }
         return responseService.getFailResult(Integer.parseInt(getMessage("signInInputException.code")), getMessage("signInInputException.msg"));
     }
 

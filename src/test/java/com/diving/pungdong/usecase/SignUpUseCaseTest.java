@@ -129,7 +129,7 @@ class SignUpUseCaseTest {
         SignUpInfo payload = SignUpInfo.builder()
                 .email("photo@example.com")
                 .password("pw1234ab")
-                .nickName("photo-user")
+                .nickName("photouser")
                 .build();
 
         mockMvc.perform(post("/sign/sign-up")
@@ -209,12 +209,12 @@ class SignUpUseCaseTest {
         SignUpInfo first = SignUpInfo.builder()
                 .email("dup@example.com")
                 .password("pw1234ab")
-                .nickName("first-user")
+                .nickName("firstuser")
                 .build();
         SignUpInfo second = SignUpInfo.builder()
                 .email("dup@example.com")
                 .password("pw5678cd")
-                .nickName("second-user")
+                .nickName("seconduser")
                 .build();
 
         mockMvc.perform(post("/sign/sign-up")
@@ -229,7 +229,7 @@ class SignUpUseCaseTest {
 
         assertThat(accountRepo.findAll()).hasSize(1);
         assertThat(accountRepo.findByEmail("dup@example.com").orElseThrow().getNickName())
-                .isEqualTo("first-user");
+                .isEqualTo("firstuser");
     }
 
     @Test

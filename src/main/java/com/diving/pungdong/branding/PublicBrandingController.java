@@ -50,7 +50,7 @@ public class PublicBrandingController {
      *
      * <p>{@code /{nickName}} <b>앞</b>에 둔다. Spring 은 리터럴을 path variable 보다 우선하므로 라우팅
      * 자체는 순서와 무관하지만, 읽는 사람에게 "이 네임스페이스의 리터럴 경로" 를 먼저 보이게 하려는 것이다.
-     * ⚠️ 닉네임 {@code "suggested"} 는 예약어로 막힌다({@code NickNameAuditService.RESERVED_NICKNAMES}) —
+     * ⚠️ 닉네임 {@code "suggested"} 는 예약어로 막힌다({@code global/validation/NickNamePolicy}) —
      * 안 막으면 그 닉네임을 가진 사람의 프로필이 영영 안 열린다({@code "public"} 과 같은 이유).
      */
     @GetMapping("/suggested")

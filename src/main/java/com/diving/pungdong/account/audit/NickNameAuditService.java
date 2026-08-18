@@ -1,6 +1,7 @@
 package com.diving.pungdong.account.audit;
 
 import com.diving.pungdong.account.Account;
+import com.diving.pungdong.global.validation.NickNamePolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,18 +21,16 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class NickNameAuditService {
 
-    /**
-     * 예약어 — 공개 프로필 경로({@code /instructors/{nickName}})와 충돌하거나 충돌할 여지가 있는 값들.
-     * {@code public}·{@code suggested} 는 <b>실제로</b> 기존 리터럴 경로와 부딪힌다(Spring 이
-     * 리터럴을 우선하므로 그 닉네임의 프로필은 영영 안 열린다). 나머지는 앞으로 이 네임스페이스에 생길
-     * 만한 경로를 미리 막아두는 것.
-     */
-    public static final List<String> RESERVED_NICKNAMES = List.of(
-            "public", "suggested", "me", "admin", "new", "search", "about", "help", "login", "signup",
-            "api", "docs");
-
     private final NickNameAuditRepo repo;
 
+    /**
+     * 예약어 판정은 {@link NickNamePolicy} 단일 출처를 그대로 쓴다 — 가입/변경을 막는 규칙과 리포트가
+     * 어긋나면 "지금 막히는 값"과 "이미 갖고 있는 값"의 집합이 달라져 진단으로 못 쓴다.
+     *
+     * <p>SQL {@code in (...)} 이 아니라 <b>자바에서 판정</b>하는 이유: 정책이 정확일치 말고
+     * 부분일치·접두·정규화(구분자 제거·리트 치환)를 함께 보기 때문에 SQL 로 옮기면 규칙이 둘로 갈린다.
+     * 계정 수가 적은 단계라 전건 스캔 비용보다 규칙 일치가 중요하다.
+     */
     public NickNameAudit run() {
         List<NickNameAudit.DuplicateGroup> duplicates = repo.findDuplicatedNickNames().stream()
                 .map(normalized -> NickNameAudit.DuplicateGroup.builder()
@@ -44,7 +43,9 @@ public class NickNameAuditService {
                 .totalAccounts(repo.countAll())
                 .nullNickNames(repo.countNullNickNames())
                 .duplicates(duplicates)
-                .reservedWordHolders(toAffected(repo.findByReservedNickNames(RESERVED_NICKNAMES)))
+                .reservedWordHolders(toAffected(repo.findAllWithNickName().stream()
+                        .filter(account -> NickNamePolicy.isReserved(account.getNickName()))
+                        .collect(Collectors.toList())))
                 .urlUnsafeHolders(toAffected(repo.findUrlUnsafeNickNames()))
                 .build();
     }

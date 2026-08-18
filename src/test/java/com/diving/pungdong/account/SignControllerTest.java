@@ -36,6 +36,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.hateoas.MediaTypes;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.restdocs.payload.JsonFieldType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -167,6 +168,8 @@ class SignControllerTest {
         String nickName = "닉네임";
         NickNameResult nickNameResult = NickNameResult.builder()
                 .exists(false)
+                .available(true)
+                .reason(null)
                 .build();
 
         given(accountService.checkNickNameExistence(nickName)).willReturn(nickNameResult);
@@ -185,7 +188,10 @@ class SignControllerTest {
                                         parameterWithName("nickName").description("닉네임")
                                 ),
                                 responseFields(
-                                        fieldWithPath("exists").description("유저 닉네임 존재 여부"),
+                                        fieldWithPath("exists").description("이미 쓰는 계정이 있는지 여부"),
+                                        fieldWithPath("available").description("최종 판정 — 이 닉네임으로 가입/변경이 통과하는지"),
+                                        fieldWithPath("reason").type(JsonFieldType.STRING).optional()
+                                                .description("available=false 인 이유 (DUPLICATED / FORMAT / RESERVED). 사용 가능하면 null"),
                                         fieldWithPath("_links.self.href").description("해당 API 링크"),
                                         fieldWithPath("_links.profile.href").description("API 문서 링크")
                                 )

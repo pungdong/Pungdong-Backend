@@ -7,6 +7,7 @@ import com.diving.pungdong.account.AuthProvider;
 import com.diving.pungdong.account.ProfilePhoto;
 import com.diving.pungdong.account.Role;
 import com.diving.pungdong.account.dto.emailCheck.EmailResult;
+import com.diving.pungdong.account.dto.nickNameCheck.NickNameRejectReason;
 import com.diving.pungdong.account.dto.nickNameCheck.NickNameResult;
 import com.diving.pungdong.account.dto.restore.AccountRestoreInfo;
 import com.diving.pungdong.account.dto.signIn.SignInInfo;
@@ -17,6 +18,7 @@ import com.diving.pungdong.account.dto.update.ForgotPasswordInfo;
 import com.diving.pungdong.account.dto.update.NickNameInfo;
 import com.diving.pungdong.account.dto.update.PasswordUpdateInfo;
 import com.diving.pungdong.global.model.SuccessResult;
+import com.diving.pungdong.global.validation.NickNamePolicy;
 import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.account.EmailService;
 import com.diving.pungdong.account.dto.read.AccountBasicInfo;
@@ -95,6 +97,7 @@ public class AccountService implements UserDetailsService {
     }
 
     public Account saveAccountInfo(SignUpInfo signUpInfo) {
+        checkReservedNickName(signUpInfo.getNickName());
         checkDuplicationOfNickName(signUpInfo.getNickName());
         checkDuplicationOfEmail(signUpInfo.getEmail());
 
@@ -118,12 +121,42 @@ public class AccountService implements UserDetailsService {
         }
     }
 
-    /** 닉네임 중복확인 엔드포인트용 — 중복 여부를 200 으로 반환 (checkEmailExistence 와 대칭). */
+    /**
+     * 가입 / 닉네임 변경 시 예약어 가드 — 예약어면 throw (형식은 DTO 의 {@code @Pattern} 이 이미 봤다).
+     *
+     * <p><b>왜 DTO 가 아니라 여기인가</b>: 예약어는 <b>어드민에게 열어 줘야</b> 한다(우리가 진짜 공식
+     * 계정을 만들 때 쓰려고 막아 둔 이름이다). principal 을 아는 건 서비스뿐이라 판정 위치가 여기다.
+     * 부수효과(계정 저장) 이전에 호출되므로 "검증은 side-effect 전" 원칙은 그대로 지켜진다.
+     */
+    public void checkReservedNickName(String nickName) {
+        if (NickNamePolicy.isReserved(nickName)) {
+            throw new BadRequestException(NickNamePolicy.RESERVED_MESSAGE);
+        }
+    }
+
+    /**
+     * 닉네임 중복확인 엔드포인트용 — <b>쓸 수 있는지</b>를 200 으로 반환 (checkEmailExistence 와 대칭).
+     *
+     * <p>중복뿐 아니라 형식·예약어까지 여기서 답한다. 안 그러면 FE 가 {@code exists:false} 만 보고
+     * "사용 가능" 초록불을 켠 뒤 가입에서 400 을 맞는다 — 같은 판정을 두 곳이 다르게 하는 셈이다.
+     * 기대된 부정 답이라 throw 하지 않는다(레포 규칙: check/query 는 반환, guard 는 throw).
+     */
     public NickNameResult checkNickNameExistence(String nickName) {
-        Boolean isExisted = accountJpaRepo.existsByNickName(nickName);
+        boolean isExisted = accountJpaRepo.existsByNickName(nickName);
+
+        NickNameRejectReason reason = null;
+        if (isExisted) {
+            reason = NickNameRejectReason.DUPLICATED;
+        } else if (!NickNamePolicy.isValidFormat(nickName)) {
+            reason = NickNameRejectReason.FORMAT;
+        } else if (NickNamePolicy.isReserved(nickName)) {
+            reason = NickNameRejectReason.RESERVED;
+        }
 
         return NickNameResult.builder()
                 .exists(isExisted)
+                .available(reason == null)
+                .reason(reason)
                 .build();
     }
 
@@ -147,7 +180,15 @@ public class AccountService implements UserDetailsService {
         accountJpaRepo.save(account);
     }
 
+    /**
+     * 닉네임 변경. 어드민은 예약어 가드를 건너뛴다 — 예약어를 막아 둔 목적 자체가 <b>우리가 나중에 쓰기
+     * 위해서</b>라, 정작 우리가 못 쓰면 정책이 자기 목적을 배반한다. (형식 가드는 어드민에게도 그대로
+     * 적용된다 — URL 식별자라 공백·특수문자는 어드민 계정이라고 안전해지지 않는다.)
+     */
     public void updateNickName(Account account, String nickName) {
+        if (!account.getRoles().contains(Role.ADMIN)) {
+            checkReservedNickName(nickName);
+        }
         checkDuplicationOfNickName(nickName);
 
         account.setNickName(nickName);

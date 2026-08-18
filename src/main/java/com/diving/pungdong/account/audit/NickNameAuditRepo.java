@@ -5,7 +5,6 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
-import java.util.Collection;
 import java.util.List;
 
 /**
@@ -35,8 +34,9 @@ public interface NickNameAuditRepo extends Repository<Account, Long> {
     @Query("select a.id from Account a where lower(a.nickName) = :normalized order by a.id asc")
     List<Long> findAccountIdsByNormalizedNickName(@Param("normalized") String normalized);
 
-    @Query("select a from Account a where lower(a.nickName) in :reserved order by a.id asc")
-    List<Account> findByReservedNickNames(@Param("reserved") Collection<String> reserved);
+    /** 닉네임이 있는 전 계정 — 예약어 판정은 정규화·부분일치를 봐야 해서 자바에서 한다(서비스 주석 참조). */
+    @Query("select a from Account a where a.nickName is not null order by a.id asc")
+    List<Account> findAllWithNickName();
 
     /**
      * URL 로 열 수 없는 닉네임 — {@code /} 또는 {@code \} 포함. 인코딩해도 Spring Security 방화벽이

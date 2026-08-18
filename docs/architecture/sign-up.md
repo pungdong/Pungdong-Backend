@@ -90,11 +90,44 @@ sequenceDiagram
 
 | 단계 | 거부 사유 | 응답 |
 |---|---|---|
-| ② @Valid | 이메일 형식 / 필수 필드 누락 | 4xx (`SignInInputException`) |
-| ③ findByNickName | 닉네임 중복 | 4xx (`BadRequestException`) |
-| ④ findByEmail | 이메일 중복 | 4xx (`EmailDuplicationException`) |
+| ② @Valid | 이메일 형식 / 비밀번호 길이 / **닉네임 형식** / 필수 필드 누락 | 400 (`SignInInputException`, code -1004) — `msg` 에 **어느 필드가 왜** 틀렸는지 그대로 |
+| ③ 예약어 가드 | 닉네임이 예약어(브랜드·운영자 사칭·라우트 충돌) | 400 (`BadRequestException`) — `"사용할 수 없는 닉네임입니다."` |
+| ④ findByNickName | 닉네임 중복 | 400 (`BadRequestException`) |
+| ⑤ findByEmail | 이메일 중복 | 400 (`EmailDuplicationException`) |
 
 거부 시 ProfilePhoto / Account INSERT 모두 발생하지 않는다 — `AccountService` 가 `@Transactional` 이라 한 단계라도 throw 하면 전체 롤백.
+
+### 닉네임 정책 (형식 + 예약어)
+
+> 정책·왜·결정 히스토리는 [features/nickname.md](../features/nickname.md). 이 절은 **구현**(규칙표·판정 위치)이다.
+
+단일 출처는 `global/validation/NickNamePolicy`. 가입(`POST /sign/sign-up`)·변경(`PATCH /account/nickName`)·
+중복확인(`GET /sign/check/nickName`) **세 경로가 같은 규칙**을 쓴다 — 가입만 막고 변경으로 뚫리면 의미가 없고,
+중복확인이 다른 답을 하면 FE 가 초록불을 켜 놓고 가입에서 400 을 맞는다.
+
+**왜 이렇게 좁은가**: 닉네임은 표시명이자 **공개 URL 식별자**(`GET /instructors/{nickName}`, D3 결정)다.
+그래서 ① 라우트 리터럴과 부딪히면 그 계정 프로필이 영영 안 열리고, ② 플랫폼·운영자 사칭의 표면이 되고,
+③ 우리가 나중에 쓸 공식 이름이 선점당한다.
+
+| 층 | 규칙 | 판정 위치 |
+|---|---|---|
+| 형식 | 2~16자, **한글(완성형)·영문·숫자·밑줄(_)** 만 | DTO `@Pattern` (`SignUpInfo`·`NickNameInfo`) — side effect 이전 |
+| 예약어 | 브랜드·한글 역할어는 **포함**, 라틴 역할어는 **정확일치·접두**, 라우트어는 **정확일치** | `AccountService.checkReservedNickName` (어드민 예외가 있어 principal 을 아는 곳) |
+| 중복 | `existsByNickName` | `AccountService.checkDuplicationOfNickName` |
+
+- **형식 가드가 사칭 방어의 절반**이다. 문자셋을 좁히면 동형이의 문자(키릴 `а` vs 라틴 `a`)·제로폭 문자·
+  이모지·공백이 **원천 차단**된다 — 예약어 목록으로는 못 막는 우회 경로가 문자셋 하나로 닫힌다.
+- **판정 전 정규화**: NFKC → 소문자 → 리트 치환(`0→o,1→l,3→e,4→a,5→s,7→t`) → 한글/영문/숫자 외 제거.
+  그래서 `p_u_n_g_d0ng` 도 `pungdong` 으로 걸린다. (이 값은 **판정 전용** — 표시·저장에 쓰지 않는다.)
+- **라틴 역할어를 부분일치로 막지 않는 이유**: `badminton` 이 `admin` 에 걸린다. 한글은 단어 경계가 없어
+  반대로 부분일치가 정답이다(`우리동네관리자`). `master` 는 `masterdiver`(실제 다이빙 등급 표기) 때문에
+  접두 목록에서 뺐다 — 단독 `master` 만 막는다.
+- **어드민 예외**: `ROLE_ADMIN` 은 예약어 가드를 건너뛴다. 막아 둔 목적 자체가 *우리가 나중에 쓰려고* 라
+  정작 우리가 못 쓰면 정책이 자기 목적을 배반한다. 형식 가드는 어드민에게도 그대로 적용된다.
+- **기존 계정은 재검증하지 않는다** — 이 규칙은 가입·변경 시점에만 걸린다. 이미 예약어를 가진 계정은
+  `account/audit` 리포트(부팅 로그)로 잡아 **개별 안내**한다(자동 변경 안 함).
+- 중복확인 응답은 `{exists, available, reason}` — `exists` 는 호환용 기존 필드고 최종 판정은 `available`.
+  형식 위반·예약어는 **아무도 안 쓰므로 `exists:false`** 로 나오기 때문에 이 구분이 필요하다.
 
 ---
 
