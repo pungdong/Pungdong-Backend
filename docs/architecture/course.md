@@ -120,6 +120,19 @@ erDiagram
 
 ## 6. 알려진 설계 간극 / 확장 자리
 
+- 🔴 **`blocked_at` 은 어드민 전용 축이다**(2026-08-19, V33). 신고 조치로 세워지고 **강사가 만질 수 없다** —
+  `CourseStatus`(DRAFT/OPEN/CLOSED)는 강사가 자유롭게 오가는 영업 상태라 조치를 거기 얹으면 되돌려진다.
+  빠지는 곳: 둘러보기(`CourseSpecifications` 안에 **조건 없이** 박혀 있다 — `excludeSeeded` 와 달리
+  호출부가 고르는 축이 아니다) · 공개 상세 · **강의 수 집계 4종**(브랜딩 `products`·커뮤니티 작성자 칩) ·
+  게시물의 연결 강의 카드 2곳 · 신규 신청(슬롯 피커 + 제출 + 다음 회차).
+  ⚠️ **확정·결제된 수강은 건드리지 않는다.** `enrollment.getCourse()` 를 타는 경로가 많아
+  (수강 카드·환불 비율·채팅방 제목) 연관관계를 끊는 방식으로 구현하면 조용히 무너진다 —
+  환불 금액까지 바뀐다. 필터는 **조회 쿼리에만**. 정책은 [features/moderation.md](../features/moderation.md).
+- 🟡 **조치된 강의를 강사에게 알리지 않는다.** 강사는 "왜 아무도 안 들어오지" 를 알 수 없다 — 알림 1종 +
+  내 강의 목록 표기가 후속.
+- 🟡 **일정 변경·결제 준비는 `blocked_at` 도 `CLOSED` 도 보지 않는다.** 기존 구멍이고, 예약 게이트를
+  한 헬퍼로 모을 때 함께 정리한다.
+
 - 🟢 **공개 둘러보기(`GET /courses/browse`) + 상세(`GET /courses/{id}/detail`) 구현** — OPEN 코스 목록/검색/필터 + 카드→상세(legacy `/lecture/list`·상세 대체). 상세는 강사용 `GET /{id}`(원본 ticketRef·daypart) 와 달리 **venue 합성**: venueRefId→`VenueResponse`(`VenueRefResolver.resolveVenues`)로 위치명·type·주소(area)·**입장료(이용권×평일/주말 daypart fee, `VenueDaypart.fee`)**·장비를 풀어 내려준다. 시안의 단일 `entry` 가 아니라 이용권명+daypart별 fee(예 "일반권 (3시간) · 평일 48,000/주말 55,000"). 평점·강사 경력·확정일정 등은 review/booking 도입 후속(현재 instructorName 만).
 - 🟡 **둘러보기 정렬 = 최신·가격만** — 시안의 `인기순`/`가까운 일정`은 코스에 평점·확정일정 신호가 아직 없어 미구현(부킹·리뷰 도입 시 추가). 카드의 `meta`(주말·총 N회차) 중 회차수만 확정, 평일/주말 daypart 파생은 후속.
 - 🟡 **둘러보기 목록 N+1** — 카드 매핑이 코스별 media/levels/regions(LAZY)를 건드림(페이지 20 기준 소수 쿼리, MVP 허용). fetch-join/프로젝션은 후속 최적화.

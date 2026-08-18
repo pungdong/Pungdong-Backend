@@ -1273,11 +1273,15 @@ export interface CommunityCommentRequest {
 //    같은 글이라도 뷰어에 따라 `commentCount` 가 다를 수 있다. 캐시 키에 뷰어를 포함할 것.
 
 /**
- * POST /community/reports (인증) — 신고 접수.
- * ⚠️ 중복 신고는 **200 멱등**(기존 건 반환). 자기 글·댓글은 400. 없는 대상도 400.
+ * POST /reports (인증) — 신고 접수.
+ * ⚠️ 경로가 `/community/reports` 에서 **`/reports` 로 옮겨졌다**(대상이 커뮤니티 밖으로 넓어져서).
+ *    구 경로는 당분간 별칭으로 함께 받는다 — FE 셋이 옮기면 제거되니 새 경로를 쓸 것.
+ * ⚠️ 중복 신고는 **200 멱등**(기존 건 반환). 자기가 올린 것은 400. 없는 대상도 400.
  * ⚠️ `reason === 'OTHER'` 면 `detail` 필수 — 없으면 400.
+ * ⚠️ `CHAT_MESSAGE` 는 **그 방에 접근 가능한 사람만** 신고할 수 있다(아니면 400).
+ *    시스템 메시지·이미 삭제된 메시지도 400.
  */
-export type ReportTargetType = 'POST' | 'COMMENT';
+export type ReportTargetType = 'POST' | 'COMMENT' | 'COURSE' | 'CHAT_MESSAGE';
 
 /** 신고 사유 6종. `OTHER` 면 `detail` 필수. */
 export type ReportReason = 'SPAM' | 'ABUSE' | 'SEXUAL' | 'COMMERCIAL' | 'FALSE_INFO' | 'OTHER';
@@ -1303,8 +1307,10 @@ export interface ContentReport {
   handledAt?: string;
   /** 어드민 목록에만. 접수 응답에는 키가 없다. */
   reporterNickName?: string;
-  /** 어드민 목록에만. 대상이 이미 지워졌으면 키가 없다. */
+  /** 어드민 목록에만. 대상이 이미 지워졌으면 키가 없다. 강의는 제목, 채팅은 본문 앞 80자. */
   targetPreview?: string;
+  /** 어드민 목록에만. **조치 대상의 작성자**(글·댓글·강의·메시지를 올린 사람). 지워졌으면 키가 없다. */
+  targetAuthorNickName?: string;
 }
 
 // ── 유저 차단 (block) — docs/features/moderation.md ──
@@ -1340,10 +1346,18 @@ export interface BlockedAccountResponse {
 }
 
 // 어드민(ROLE_ADMIN) — 신고 처리 큐. 어드민 FE 용이라 모바일/웹 클라이언트는 쓰지 않는다.
-//   GET   /admin/community/reports?status=&page=&size=   배열은 `_embedded.reports`
-//   GET   /admin/community/reports/counts                {pending, actioned, dismissed}
-//   PATCH /admin/community/reports/{reportId}            {status: 'ACTIONED' | 'DISMISSED'}
-//   ⚠️ ACTIONED 는 **대상 콘텐츠를 실제로 숨긴다**(게시물 hidden / 댓글 soft delete).
+//   GET   /admin/reports?status=&targetType=&page=&size=  배열은 `_embedded.reports`
+//   GET   /admin/reports/counts                           {pending, actioned, dismissed}
+//   PATCH /admin/reports/{reportId}                       {status: 'ACTIONED' | 'DISMISSED'}
+//   (구 경로 /admin/community/reports/** 도 당분간 함께 받는다 — 옮기면 제거)
+// ⚠️ `targetType` 이 화면의 **항목 탭**이다(커뮤니티글 · 댓글 · 강의 · 채팅). 생략하면 전체.
+// ⚠️ **링크는 BE 가 만들지 않는다** — `targetType` + `targetId` 로 FE 가 글/상품 페이지 URL 을 조립한다.
+// ⚠️ ACTIONED 는 **대상을 실제로 숨긴다**. 대상별로 효과가 다르다:
+//      POST         → 숨김(작성자가 되살릴 수 없음)
+//      COMMENT      → 유저 삭제와 같은 규칙(대댓글 있으면 자리 남김)
+//      COURSE       → 둘러보기·상세·강의 수·연결 카드에서 제외 + **신규 신청 차단**.
+//                     ⚠️ **이미 확정·결제된 수강은 그대로다** — 일정·결제·환불은 영향 없음.
+//      CHAT_MESSAGE → 툼스톤(자리는 남고 본문이 "삭제된 메시지입니다."로 바뀜)
 
 // ── 알림 (커뮤니티分) ──
 // 댓글·답글이 달리면 수신자에게 푸시 1건. data.type = 'COMMUNITY_COMMENT', data.postId·data.commentId 동봉.
