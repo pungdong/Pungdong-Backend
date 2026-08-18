@@ -5,6 +5,8 @@ import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.account.ProfilePhoto;
 import com.diving.pungdong.account.ProfilePhotoJpaRepo;
 import com.diving.pungdong.account.Role;
+import com.diving.pungdong.branding.AccountBranding;
+import com.diving.pungdong.branding.AccountBrandingJpaRepo;
 import com.diving.pungdong.instructorapplication.InstructorApplication;
 import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
 import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
@@ -32,8 +34,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * 공개 강사 디렉토리 use-case — GET /instructors/public (비로그인). 실 H2 + 시큐리티 체인.
  *
- * <p><b>읽는 법</b>: {@code @DisplayName} 위→아래 = 사양. P* = 공개 목록. 승인(APPROVED) 신청을 가진
- * 실가입 강사만 카드가 되고, 미승인/순수 학생/탈퇴는 빠진다. 카드는 공개 필드(nickName·아바타·종목)만.
+ * <p><b>읽는 법</b>: {@code @DisplayName} 위→아래 = 사양. P* = 공개 목록, <b>S* = 추천 강사</b>
+ * ({@code GET /instructors/suggested}). 승인(APPROVED) 신청을 가진 실가입 강사만 카드가 되고,
+ * 미승인/순수 학생/탈퇴는 빠진다. 카드는 공개 필드(nickName·아바타·종목)만.
+ *
+ * <p>두 목록의 <b>모집단이 다르다</b>: 디렉토리(P*)는 승인된 강사 전부, 추천(S*)은 그중
+ * <b>프로필을 발행한</b> 강사만. 미발행 강사를 추천하면 눌렀을 때 400 이 나는 카드가 된다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -44,10 +50,12 @@ class PublicInstructorUseCaseTest {
     @Autowired AccountJpaRepo accountRepo;
     @Autowired ProfilePhotoJpaRepo profilePhotoRepo;
     @Autowired InstructorApplicationJpaRepo applicationRepo;
+    @Autowired AccountBrandingJpaRepo brandingRepo;
 
     @AfterEach
     void cleanUp() {
         applicationRepo.deleteAll();
+        brandingRepo.deleteAll();
         accountRepo.deleteAll();
         profilePhotoRepo.deleteAll();
     }
@@ -70,6 +78,12 @@ class PublicInstructorUseCaseTest {
         applicationRepo.save(InstructorApplication.builder()
                 .account(account).disciplineCode(disciplineCode).status(status)
                 .submittedAt(OffsetDateTime.now(ZoneOffset.UTC)).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
+    }
+
+    /** 브랜딩 프로필. {@code published=false} 면 공개 상세가 안 열리므로 추천 대상도 아니다. */
+    private void branding(Account account, boolean published) {
+        brandingRepo.save(AccountBranding.builder()
+                .account(account).isPublished(published).build());
     }
 
     /* ─── P* 공개 디렉토리 ─── */
@@ -128,5 +142,113 @@ class PublicInstructorUseCaseTest {
         mockMvc.perform(get("/instructors/public"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.page.totalElements").value(0));
+    }
+
+    /* ─── S* 추천 강사 ─── */
+
+    @Test
+    @DisplayName("S1 추천은 프로필을 발행한 승인 강사만 준다 — 미발행 강사는 목록에도 totalCount 에도 없다")
+    void suggested_onlyPublishedProfiles() throws Exception {
+        Account shown = account("ins-s1a@pd.com", "보이는강사", Role.INSTRUCTOR);
+        application(shown, "FREEDIVING", InstructorApplicationStatus.APPROVED);
+        branding(shown, true);
+
+        Account unpublished = account("ins-s1b@pd.com", "미발행강사", Role.INSTRUCTOR);
+        application(unpublished, "SCUBA", InstructorApplicationStatus.APPROVED);
+        branding(unpublished, false);
+
+        mockMvc.perform(get("/instructors/suggested"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(1))
+                .andExpect(jsonPath("$.instructors", hasSize(1)))
+                .andExpect(jsonPath("$.instructors[0].nickName").value("보이는강사"))
+                .andExpect(jsonPath("$.instructors[0].disciplineCodes",
+                        containsInAnyOrder("FREEDIVING")));
+    }
+
+    @Test
+    @DisplayName("S2 승인되지 않은 신청자는 프로필을 발행했어도 추천되지 않는다")
+    void suggested_excludesUnapproved() throws Exception {
+        Account pending = account("ins-s2@pd.com", "심사중강사", Role.STUDENT);
+        application(pending, "FREEDIVING", InstructorApplicationStatus.SUBMITTED);
+        branding(pending, true);
+
+        mockMvc.perform(get("/instructors/suggested"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(0))
+                .andExpect(jsonPath("$.instructors", hasSize(0)));
+    }
+
+    @Test
+    @DisplayName("S3 limit 보다 강사가 적으면 있는 만큼만 온다 (빈 목록도 200 — 실패가 아니라 사실이다)")
+    void suggested_returnsFewerThanLimit() throws Exception {
+        Account only = account("ins-s3@pd.com", "하나뿐인강사", Role.INSTRUCTOR);
+        application(only, "FREEDIVING", InstructorApplicationStatus.APPROVED);
+        branding(only, true);
+
+        mockMvc.perform(get("/instructors/suggested").param("limit", "5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(1))
+                .andExpect(jsonPath("$.instructors", hasSize(1)));
+    }
+
+    @Test
+    @DisplayName("S4 limit 만큼만 잘라 주되 totalCount 는 전체 수를 그대로 말한다 (홈 카드의 'N명')")
+    void suggested_limitCutsListNotCount() throws Exception {
+        for (int i = 0; i < 4; i++) {
+            Account ins = account("ins-s4-" + i + "@pd.com", "강사" + i, Role.INSTRUCTOR);
+            application(ins, "FREEDIVING", InstructorApplicationStatus.APPROVED);
+            branding(ins, true);
+        }
+
+        mockMvc.perform(get("/instructors/suggested").param("limit", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(4))
+                .andExpect(jsonPath("$.instructors", hasSize(2)));
+    }
+
+    @Test
+    @DisplayName("S5 탈퇴한 강사는 추천되지 않는다 (디렉토리와 같은 축)")
+    void suggested_excludesDeletedAccounts() throws Exception {
+        Account gone = account("ins-s5@pd.com", "탈퇴강사", Role.INSTRUCTOR);
+        application(gone, "FREEDIVING", InstructorApplicationStatus.APPROVED);
+        branding(gone, true);
+        gone.setIsDeleted(true);
+        accountRepo.save(gone);
+
+        mockMvc.perform(get("/instructors/suggested"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(0));
+    }
+
+    @Test
+    @DisplayName("S6 한 강사가 여러 종목을 승인받아도 카드는 1장이고 종목이 함께 실린다")
+    void suggested_multiDisciplineIsOneCard() throws Exception {
+        Account multi = account("ins-s6@pd.com", "멀티강사", Role.INSTRUCTOR);
+        application(multi, "FREEDIVING", InstructorApplicationStatus.APPROVED);
+        application(multi, "SCUBA", InstructorApplicationStatus.APPROVED);
+        branding(multi, true);
+
+        mockMvc.perform(get("/instructors/suggested"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCount").value(1))
+                .andExpect(jsonPath("$.instructors", hasSize(1)))
+                .andExpect(jsonPath("$.instructors[0].disciplineCodes",
+                        containsInAnyOrder("FREEDIVING", "SCUBA")));
+    }
+
+    @Test
+    @DisplayName("S7 추천 카드의 닉네임으로 공개 프로필이 실제로 열린다 (갈 곳 없는 추천을 만들지 않는다)")
+    void suggested_cardLinksResolve() throws Exception {
+        Account ins = account("ins-s7@pd.com", "열리는강사", Role.INSTRUCTOR);
+        application(ins, "FREEDIVING", InstructorApplicationStatus.APPROVED);
+        branding(ins, true);
+
+        mockMvc.perform(get("/instructors/suggested"))
+                .andExpect(jsonPath("$.instructors[0].nickName").value("열리는강사"));
+
+        mockMvc.perform(get("/instructors/열리는강사"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nickName").value("열리는강사"));
     }
 }

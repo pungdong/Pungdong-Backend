@@ -11,7 +11,9 @@
 ```mermaid
 flowchart TB
   subgraph branding["branding 패키지 (BE)"]
-    PBC[PublicBrandingController<br/>GET /instructors/&#123;nickName&#125;] --> BS[BrandingService]
+    PBC[PublicBrandingController<br/>GET /instructors/&#123;nickName&#125;<br/>GET /instructors/suggested] --> BS[BrandingService]
+    PBC --> SIS[SuggestedInstructorService<br/>무작위 추천 강사]
+    SIS --> BR
     BC[BrandingController<br/>/branding/me/**] --> BS
     BS --> BR[AccountBrandingJpaRepo]
     BR --> E[(AccountBranding<br/>→ BrandingRecord)]
@@ -149,10 +151,11 @@ erDiagram
 
 ## 5. 보안 / 권한 매트릭스
 
-매처는 `global/security/SecurityConfiguration`. **`/instructors/*` 는 기존 리터럴 `/instructors/public` 보다 뒤에** 둔다(그래야 목록 엔드포인트가 가려지지 않는다). ⚠️ ant 의 `*` 는 `/` 를 넘지 않으므로 하위 경로는 매처를 따로 추가해야 한다.
+매처는 `global/security/SecurityConfiguration`. **`/instructors/*` 는 리터럴 `/instructors/public`·`/instructors/suggested` 보다 뒤에** 둔다(그래야 두 목록 엔드포인트가 가려지지 않는다). 같은 이유로 그 두 단어는 **닉네임 예약어**다(`NickNameAuditService.RESERVED_NICKNAMES`) — 안 막으면 그 닉네임을 가진 계정의 프로필이 영영 안 열린다. ⚠️ ant 의 `*` 는 `/` 를 넘지 않으므로 하위 경로는 매처를 따로 추가해야 한다.
 
 | 엔드포인트 | 인증 | 역할 | 소유권 |
 |---|---|---|---|
+| `GET /instructors/suggested?limit=5` | **불필요** | — | 승인 + **발행**된 강사 중 무작위. 카드가 여는 상세와 같은 조건이라 **갈 곳 없는 카드가 안 생긴다** |
 | `GET /instructors/{nickName}` | **불필요** | — | `is_published=true` + 미탈퇴만. 그 외 **400(존재 숨김)** |
 | `GET /instructors/{nickName}/posts` | **불필요** | — | 위 + `is_hidden=false` 만. 정렬·size 는 서버 고정 |
 | `GET /branding-posts/{postId}` | **불필요** | — | 발행 + 미숨김만. **단 오너 본인은 자기 글이면 숨김·미발행이어도 조회 가능**. 그 외 **400** |
@@ -194,6 +197,8 @@ erDiagram
 - `E1` 한글 닉네임 / `E2` 공백·`.`·`+` / **`E3` `/` 는 방화벽이 거부**
 - `V1` 없는 닉네임 400 / `V2` 60자 초과 400 + 사용자 문구, 그리고 **검증 실패면 생성도 안 된다**
 - `R1` 비로그인 401 / `R2` 강사가 아니어도 편집·발행 가능 / `R3` `/instructors/public` 이 가려지지 않는다
+
+`usecase/PublicInstructorUseCaseTest` 의 `S*` 가 추천 강사(`/instructors/suggested`)를 덮는다 — 발행 강사만 / 미승인 제외 / limit 보다 적으면 있는 만큼 / `totalCount` 는 자르지 않음 / 탈퇴 제외 / 멀티 종목 1장 / **카드의 닉네임으로 상세가 실제로 열린다**.
 
 `usecase/BrandingPostUseCaseTest` (게시물):
 

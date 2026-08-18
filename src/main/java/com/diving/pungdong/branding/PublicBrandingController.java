@@ -2,6 +2,7 @@ package com.diving.pungdong.branding;
 
 import com.diving.pungdong.branding.dto.BrandingPostCardResponse;
 import com.diving.pungdong.branding.dto.BrandingProfileResponse;
+import com.diving.pungdong.branding.dto.SuggestedInstructorsResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PagedResourcesAssembler;
@@ -13,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -35,11 +37,28 @@ public class PublicBrandingController {
 
     private final BrandingService brandingService;
     private final BrandingPostService postService;
+    private final SuggestedInstructorService suggestedInstructorService;
 
     /**
      * {@code nickName} 은 percent-encoding 으로 전달된다(한글·공백 등). Spring 이 <b>디코딩된 값</b>을
      * 넘겨주므로 여기서 추가 디코딩을 하면 안 된다(이중 디코딩 버그).
      */
+    /**
+     * 추천 강사 — 커뮤니티 사이드바("이 강사님은 어때요?")와 홈의 공식 강사 카드. <b>비로그인 가능</b>.
+     *
+     * <p>{@code /{nickName}} <b>앞</b>에 둔다. Spring 은 리터럴을 path variable 보다 우선하므로 라우팅
+     * 자체는 순서와 무관하지만, 읽는 사람에게 "이 네임스페이스의 리터럴 경로" 를 먼저 보이게 하려는 것이다.
+     * ⚠️ 닉네임 {@code "suggested"} 는 예약어로 막힌다({@code NickNameAuditService.RESERVED_NICKNAMES}) —
+     * 안 막으면 그 닉네임을 가진 사람의 프로필이 영영 안 열린다({@code "public"} 과 같은 이유).
+     */
+    @GetMapping("/suggested")
+    public ResponseEntity<?> suggested(@RequestParam(required = false, defaultValue = "5") int limit) {
+        EntityModel<SuggestedInstructorsResponse> model =
+                EntityModel.of(suggestedInstructorService.suggest(limit));
+        model.add(Link.of("/docs/api.html#resource-instructors-suggested").withRel("profile"));
+        return ResponseEntity.ok().body(model);
+    }
+
     @GetMapping("/{nickName}")
     public ResponseEntity<?> publicProfile(@PathVariable String nickName) {
         EntityModel<BrandingProfileResponse> model =
