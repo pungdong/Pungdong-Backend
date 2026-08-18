@@ -22,12 +22,13 @@ public class NickNameAuditService {
 
     /**
      * 예약어 — 공개 프로필 경로({@code /instructors/{nickName}})와 충돌하거나 충돌할 여지가 있는 값들.
-     * {@code public} 은 <b>실제로</b> 기존 {@code GET /instructors/public} 리터럴과 부딪힌다(Spring 이
+     * {@code public}·{@code suggested} 는 <b>실제로</b> 기존 리터럴 경로와 부딪힌다(Spring 이
      * 리터럴을 우선하므로 그 닉네임의 프로필은 영영 안 열린다). 나머지는 앞으로 이 네임스페이스에 생길
      * 만한 경로를 미리 막아두는 것.
      */
     public static final List<String> RESERVED_NICKNAMES = List.of(
-            "public", "me", "admin", "new", "search", "about", "help", "login", "signup", "api", "docs");
+            "public", "suggested", "me", "admin", "new", "search", "about", "help", "login", "signup",
+            "api", "docs");
 
     private final NickNameAuditRepo repo;
 

@@ -695,6 +695,38 @@ export interface PublicInstructorResponse {
   avatarUrl?: string | null;   // 프로필 사진(미설정이면 없음/null → FE 기본 아바타)
   disciplineCodes: string[];   // 승인 종목들, 예 ['FREEDIVING','SCUBA']
 }
+// ⚠️ 이 목록은 **브랜딩 프로필 발행 여부를 보지 않는다** — 카드를 눌러 /instructors/{nickName} 로 가면
+//    미발행 강사는 400 이 난다. "누를 수 있는 강사"가 필요하면 아래 /instructors/suggested 를 쓴다.
+
+/**
+ * GET /instructors/suggested?limit=5 (비로그인) — **무작위 추천 강사**.
+ * 커뮤니티 사이드바 "이 강사님은 어때요?" 와 홈의 공식 강사 카드가 **같이 쓴다**.
+ * EntityModel(단일 객체) — PagedModel 이 아니라 `_embedded`·`page` 키가 없다. 위 디렉토리와 응답 모양이 다르다.
+ *
+ * ⚠️ **매 요청 다시 뽑는다.** 새로고침하면 다른 강사가 온다(한 명만 계속 노출되면 나머지에게 순서가 안 온다).
+ *    캐싱하지 말 것 — 캐싱하면 이 위젯의 목적이 사라진다.
+ * ⚠️ **모집단이 /instructors/public 과 다르다**: 승인 + **프로필 발행**까지 된 강사만. 그래서 카드의
+ *    nickName 은 항상 `/instructors/{nickName}` 로 열린다(갈 곳 없는 카드가 생기지 않는다).
+ * ⚠️ 강사가 limit 보다 적으면 **있는 만큼만** 온다. 0명이면 `instructors: []` + `totalCount: 0` (에러가 아니다).
+ * limit 상한 20(초과하면 20 으로 잘린다). 기본 5.
+ */
+export interface SuggestedInstructorsResponse {
+  /**
+   * 추천 가능한(승인 + 발행) 강사 **총 수**. 홈 카드의 "공식 강사 N명" 이 이 값이다.
+   * ⚠️ `PublicInstructorResponse` 목록의 `page.totalElements`(= 승인된 강사 전부)와 **다를 수 있다** —
+   *    세는 대상이 다르다. 한 화면에서 두 숫자를 섞어 쓰지 말 것.
+   */
+  totalCount: number;
+  instructors: SuggestedInstructor[];
+}
+
+export interface SuggestedInstructor {
+  /** 공개 프로필 진입 키. `/instructors/{nickName}` 으로 이동한다. **id 는 오지 않는다**(anti-IDOR). */
+  nickName: string;
+  avatarUrl?: string | null;
+  /** 승인 종목 코드. 한글 라벨("프리다이빙")은 `GET /disciplines` 의 `name` 으로 매핑한다. */
+  disciplineCodes: string[];
+}
 
 // ── 브랜딩 페이지 / 내 프로필 (branding) — docs/features/account-branding.md ──
 // 강사에겐 "브랜딩 페이지", 일반 유저에겐 "내 프로필". 같은 스키마·같은 엔드포인트를 쓰고 응답 필드만 role 로 갈린다.
