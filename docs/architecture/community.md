@@ -191,7 +191,7 @@ erDiagram
 - **좋아요·북마크·신고의 UNIQUE 가 멱등성의 근거다.** `(대상, 계정)` UNIQUE 덕에 `POST` 를 두 번 보내도 1건이다. 레거시 `lecture_mark`(강의 찜)에는 이 제약이 없어 중복 찜이 가능했다(v1 과 함께 삭제됨 — V27) — 베끼지 않는다. 올바른 선례는 `venue_favorite`.
 - **자식 행은 `ON DELETE CASCADE` 로 정리한다 — 서비스가 순서대로 지우지 않는다.** 글을 지우는 문이 **둘**(커뮤니티·브랜딩)인데, 서비스에서 지우면 브랜딩 쪽이 같은 정리를 할 수 없다(브랜딩은 커뮤니티를 import 하면 단방향 의존이 깨진다). 정리 책임을 DB 한 곳에 두면 두 문이 같이 낫는다. 엔티티에도 `@OnDelete(action = CASCADE)` 를 단다 — **테스트는 H2 + hbm2ddl 이라 V19 를 읽지 않아서**, 애노테이션이 없으면 생성 DDL 에 CASCADE 가 빠져 테스트에서만 FK 위반이 재현된다.
 - **`content_report` 만 FK 가 없다.** 게시물·댓글 두 종류를 가리키는 폴리모픽 참조라 DB 제약을 걸 수 없다. 대상 존재 확인은 **접수 시점에 서비스가** 한다.
-- **인덱스는 2개만 추가했다.** 피드용 `ix_community_feed(show_in_feed, is_hidden, category, created_at)` 와 인기 태그 집계용 `ix_branding_post_tag_tag`. 브랜딩 그리드용은 **새로 만들지 않았다** — 기존 `ix_branding_post_grid` 가 이미 `branding_id` 로 좁히므로 그 위에 `show_on_profile` 필터를 얹는 비용은 무시할 수 있다. 거의 같은 인덱스를 하나 더 두면 쓰기 비용만 늘어난다.
+- **인덱스는 2개만 추가했다.** 피드용 `ix_community_feed(show_in_feed, is_hidden, category, created_at)` 와 인기 태그 집계용 `ix_branding_post_tag_tag`. ⚠️ 후자의 **커버링은 2026-08-18 에 깨졌다** — 인기 태그에 30일 창이 붙으면서 `branding_post` 조인이 필요해졌다. 창으로 좁힌 뒤 `post_id` 로 붙는 형태라 지금 규모에선 무시할 만해서 인덱스를 더하지 않았다. 브랜딩 그리드용은 **새로 만들지 않았다** — 기존 `ix_branding_post_grid` 가 이미 `branding_id` 로 좁히므로 그 위에 `show_on_profile` 필터를 얹는 비용은 무시할 수 있다. 거의 같은 인덱스를 하나 더 두면 쓰기 비용만 늘어난다.
 
 ### 노출 축을 얹으면 기존 조회 경로를 전부 다시 봐야 한다
 
@@ -206,9 +206,14 @@ erDiagram
 | 피드 | 화이트리스트 enum `LATEST`(기본) · `POPULAR` 뿐. tie-break 은 항상 `id desc` |
 | `?category=MATCH` | **자동으로 `meetDate ASC`**(일정 임박순). 정렬 축이 조인 테이블에 있어 전용 쿼리를 탄다 |
 | 댓글 | `createdAt ASC` **고정 — 파라미터 없음** |
+| `?tag=` | 정확 일치 필터. 정렬·카테고리와 자유롭게 조합된다(전용 쿼리·Specification 양쪽에 건다) |
 | 페이지 크기 | 상한 50 (전수 스크래핑 방지) |
 
-**`POPULAR` 은 최근 7일 창 + 좋아요 desc** 이고, `group by p`(엔티티 전체)로 쓴다 — 컬럼 일부만 group by 하면 MySQL `ONLY_FULL_GROUP_BY` 에서 깨진다. **H2 는 이걸 증명하지 못하므로**(테스트 DB) 실 MySQL 부팅으로 확인해야 한다. 페이징을 위해 `countQuery` 도 따로 준다.
+**`POPULAR` 은 최근 7일 창 + 참여 점수 desc** 다. **참여 점수 = 좋아요 + 댓글 + 북마크**이고 사이드바 "지금 뜨는 토픽" 과 **같은 식**을 쓴다(같은 화면에서 1등이 갈리면 안 된다) — `CommunityPostJpaRepo.ENGAGEMENT_SCORE` 상수를 세 쿼리가 공유한다.
+
+⚠️ **세 축을 한 번에 조인하므로 `count(distinct 자식.id)` 가 필수다.** 그냥 `count()` 면 카티전 곱(좋아요 10 × 댓글 5 × 북마크 3 = 150행)이 그대로 점수가 된다. 삭제된 댓글은 `on` 절에서 빼서 카드의 `commentCount` 와 기준을 맞춘다.
+
+`group by p`(엔티티 전체)로 쓰는 이유는 그대로다 — 컬럼 일부만 group by 하면 MySQL `ONLY_FULL_GROUP_BY` 에서 깨진다. **H2 는 이걸 증명하지 못하므로**(테스트 DB) 실 MySQL 부팅으로 확인해야 한다. 페이징을 위해 `countQuery` 도 따로 준다.
 
 ### 댓글: 무엇을 지우고 무엇을 남기나
 
@@ -224,11 +229,11 @@ erDiagram
 
 | 엔드포인트 | 인증 | 역할 | 소유권 |
 |---|---|---|---|
-| `GET /community/posts` | **불필요** | — | `show_in_feed=1` + 미숨김만. 정렬·size 서버 고정. `?authorType=INSTRUCTOR` = 승인 강사 글만 |
+| `GET /community/posts` | **불필요** | — | `show_in_feed=1` + 미숨김만. 정렬·size 서버 고정. `?authorType=INSTRUCTOR` = 승인 강사 글만, `?tag=` = 정확 일치 |
 | `GET /community/posts/{id}` | **불필요** | — | 위와 같음. **단 오너 본인은 자기 글이면 숨김이어도 조회 가능** |
 | `GET /community/posts/{id}/comments` | **불필요** | — | 글이 보이면 스레드도 보인다. 페이지네이션 없음 |
 | `GET /community/posts/{id}/related` | **불필요** | — | 같은 카테고리·자기 제외. 같은 카테고리 글이 없으면 빈 배열 |
-| `GET /community/categories` · `/community/tags/popular` | **불필요** | — | 집계값만 |
+| `GET /community/categories` · `/community/tags/popular` · `/community/topics/trending` | **불필요** | — | 집계값만. 셋 다 리터럴 매처라 `/community/**` authenticated **앞**에 둔다 |
 | `GET /community/posts/me` | 필요 | 인증만 | 내 글 **전부**(숨김·프로필 미노출 포함). 최신순. 리터럴이라 매처를 `/community/posts/*` permitAll **앞**에 둔다 |
 | `POST /community/posts` | 필요 | **인증만** | 작성자 = 세션. 연결 강의는 **내 코스**만 |
 | `PUT · DELETE /community/posts/{id}` | 필요 | 인증만 | 내 글 아니면 **400(존재 숨김)**. 수정은 **전체 스냅샷 교체**(§6 수정 규칙) — `showOnProfile` 도 그 스냅샷에 포함된다 |
@@ -285,7 +290,7 @@ V31 부터 두 컬럼이 NOT NULL 이라 **모든 글이 이 요청으로 표현
 - 🟢 **브랜딩 경로의 숨김 되돌리기 틈은 닫혔다(2026-08-18).** `PATCH /branding/me/posts/{id}/visibility` 를 **삭제**하고 숨김을 커뮤니티 경로 하나로 합쳤다. 그 경로는 어드민 조치(ACTIONED)를 확인하지 않아 프로필 글이 조치당했을 때 작성자가 되살릴 수 있었고, 반대로 `show_on_profile=true` 만 통과시켜 커뮤니티 전용 글은 숨기지도 못했다. **숨김은 컬럼 하나짜리 전역 스위치라 문이 둘이면 규칙이 갈린다** — moderation 컬럼을 새로 만드는 대신 문을 하나로 줄이는 쪽이 쌌다.
 - 🟢 **"내가 쓴 글"(`GET /community/posts/me`) 이 숨김의 회수 경로다.** 이게 없던 동안 `is_hidden=1 AND show_on_profile=0` 인 글은 어떤 목록에도 없어 상세 URL 로만 닿았다 — 되돌릴 화면이 없는 숨김은 사실상 삭제다.
 - 🟡 **레이트리밋이 없다.** 글·댓글 연타를 막는 쿨다운을 계약에 적었지만(D6) 구현하지 않았다. 좋아요·북마크·신고는 UNIQUE 로 멱등이라 연타에 안전하지만, **글·댓글은 그렇지 않다.**
-- 🟡 **`POPULAR` 의 7일 창·정렬식이 하드코딩**이다. 실사용 데이터 없이 정한 값이라 튜닝 여지가 있다. 좋아요만 보고 댓글을 안 본다.
+- 🟡 **`POPULAR` 의 7일 창·가중치가 하드코딩**이다. 세 축(좋아요·댓글·북마크)을 보지만 **가중치는 전부 1** 이고 시간 감쇠도 없다 — 실사용 데이터 없이 임의 가중치를 넣으면 근거 없는 숫자가 랭킹을 좌우한다. 인기 태그의 창은 **30일**로 따로 논다(태그가 글보다 성기게 쌓여서, 같은 7일이면 사이드바가 빈다).
 - 🟢 **검색 없음** — 계약 범위 밖(디자인의 검색 아이콘은 미렌더). 붙이면 `CourseSpecifications` 와 같은 MySQL `LIKE` 방식이 자연스럽다.
 - 🟢 **참여 신청 없음, 앞으로도 만들지 않는다.** 사용자 의도가 "신청류 = 기존 수강신청(예약) 플로우" 다. 그래서 `capacity` 는 있지만 참여자 테이블도 `joinedCount` 도 없고, 클라이언트는 "N명 모집" 으로 렌더한다. 향후 버디 참여도 커스텀 신청이 아니라 **예약 플로우 통합**으로 설계한다.
 - 🟢 **아바타 URL 이 파일명만인 레코드가 있다** — 커뮤니티가 만든 문제가 아니라 기존 데이터 이슈다. [image-storage-and-serving.md](../features/image-storage-and-serving.md) 백로그 참조.
@@ -303,6 +308,8 @@ V31 부터 두 컬럼이 NOT NULL 이라 **모든 글이 이 요청으로 표현
 - `H1` 숨긴 글은 공개에서 빠지되 **오너 상세로는 열린다**(다시 공개를 누를 화면이 필요하다)
 - `K1~K5` 좋아요 멱등 / 취소 / 카드의 카운트·내 상태 / 북마크 목록(비로그인은 에러가 아니라 빈 목록) / 숨긴 글엔 불가
 - `D1~D4` 카테고리 카운트는 **0인 카테고리도 채워 4종 전부**(칸이 그려져야 한다) / 인기 태그 / 관련 글 / 인기순
+- `D5~D8` 인기순은 **세 축 합산**(좋아요만 많은 글이 진다) / 축이 겹쳐도 **곱해지지 않는다**(2·2·2 = 6, 8 아님) / 삭제 댓글은 점수에서 제외 / **뜨는 토픽 1등 = 인기 탭 1등**
+- `D9~D14` 숨긴 글은 두 위젯에서 모두 제외 / 30일 지난 태그 제외 / 한 글의 중복 태그는 1 / `#` 제거 후 합산 / `?tag=` 는 최신순·인기순 양쪽에서 / 빈 `?tag=` 는 필터 없음
 - `C1~C8` 댓글 중첩·수 반영 / **1-depth 강제** / soft delete 로 스레드 유지 / hard delete / 삭제분은 수에서 제외 / 댓글 좋아요 / 남의 댓글 400 / 비로그인 읽기 O·쓰기 401
 - `N1~N3` 알림 — 남의 글 댓글은 1건 / **내 글에 내 댓글은 0건** / 답글은 부모 작성자에게만
 - `X1~X8` 신고 — 접수·큐 / 중복 200 멱등 / 자기 글 불가 / 기타 사유는 설명 필수 / 없는 대상 불가 / **조치하면 실제로 숨겨진다** / 큐는 ADMIN 만 / 목록에 신고자·미리보기
@@ -311,4 +318,4 @@ V31 부터 두 컬럼이 NOT NULL 이라 **모든 글이 이 요청으로 표현
 
 알림 파이프라인 자체(아웃박스 → FCM)는 `usecase/NotificationOutboxFlowTest` 가 이미 검증한다. 커뮤니티 쪽에서 확인할 것은 **"올바른 사람에게 올바른 횟수로 발행하는가"** 라 `N1~N3` 를 커뮤니티 테스트에 뒀다.
 
-⚠️ **테스트는 H2 + Flyway OFF 라 마이그레이션을 검증하지 못한다.** V19 는 빈 docker MySQL 에 `./scripts/dev.sh` 로 부팅해 `validate` 를 통과시키는 것으로만 확인된다. `POPULAR` 의 `GROUP BY` 도 H2 가 증명하지 못하는 항목이다.
+⚠️ **테스트는 H2 + Flyway OFF 라 마이그레이션을 검증하지 못한다.** V19 는 빈 docker MySQL 에 `./scripts/dev.sh` 로 부팅해 `validate` 를 통과시키는 것으로만 확인된다. `POPULAR` 의 `GROUP BY` 도 H2 가 증명하지 못하는 항목이다 — **2026-08-18 에 `count(distinct)` 3개가 더해지면서 이 항목의 위험이 커졌다.**
