@@ -34,7 +34,7 @@
   - **형식은 DTO `@Pattern`, 예약어는 서비스 가드**(`AccountService.checkReservedNickName`) — 어드민(`ROLE_ADMIN`)은 예약어 예외라 principal 을 아는 곳에서만 판정할 수 있다. 막아 둔 목적이 *우리가 나중에 쓰려고* 라 정작 우리가 못 쓰면 안 된다.
   - **세 경로가 같은 규칙**: 가입 · `PATCH /account/nickName` · `GET /sign/check/nickName`. 중복확인은 throw 하지 않고 `{exists, available, reason}` 을 200 으로 준다 — 형식 위반·예약어는 아무도 안 써서 `exists:false` 라 `available` 없이는 FE 가 초록불을 켠다.
   - 새 리터럴 경로를 `/instructors/*` 네임스페이스에 추가하면 **그 단어를 `RESERVED_EXACT` 에 넣을 것** — 안 넣으면 그 닉네임 계정의 프로필이 영영 안 열린다.
-  - 기존 계정은 재검증하지 않는다(가입·변경 시점에만). 이미 예약어를 가진 계정은 `account/audit` 리포트로 개별 안내. 규칙·근거 전체 → [docs/architecture/sign-up.md](../../../../../../../docs/architecture/sign-up.md) "닉네임 정책".
+  - 기존 계정은 재검증하지 않는다(가입·변경 시점에만). 이미 예약어를 가진 계정은 `account/audit` 리포트로 개별 안내. 정책·왜·히스토리 → [docs/features/nickname.md](../../../../../../../docs/features/nickname.md), 구현 규칙표 → [docs/architecture/sign-up.md](../../../../../../../docs/architecture/sign-up.md) "닉네임 정책".
 - **회원탈퇴 = soft delete → 유예 30일 → PII 익명화** (2026-06-29, 앱스토어 계정삭제 의무). `DELETE /account`(본문 없음 — 세션이 본인 증명, 비번 재확인 안 받음 + 현재 access token 블랙리스트; 구버전 앱의 비번 동봉은 무시=하위호환, FE 이슈 #462), 복구 `PATCH /account/deleted-state`(유예 내·이메일 인증), 경과 후 `AccountAnonymizationService`/`AccountDeletionScheduler`(`@Profile("!test")`)가 PII 파기. 결제기록 법정보존(전자상거래법)이라 row 는 하드삭제 못 하고 PII 만 익명화·멱등. 정책·보존표·법적근거·스토어 요건 = [docs/features/account-deletion.md](../../../../../../../docs/features/account-deletion.md). `Account.deletedAt`/`anonymizedAt` + 마이그레이션 `V4`.
 
 ## 안전망 테스트

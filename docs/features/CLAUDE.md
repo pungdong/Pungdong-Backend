@@ -48,6 +48,7 @@
 - [결제(payment)](payment.md) — payment + enrollment + course + venue (토스 결제위젯 v2 · 수락→결제→확정 · 서버 권위 금액 · stub/toss · webhook 후속)
 - [수강생 강의일정 hub(student-schedule)](student-schedule.md) — enrollment 그룹핑 read 허브(GET /enrollments/mine/schedule) · 강의 7/회차 9상태 중 buildable 5 파생 · 설계↔BE 갭/로드맵(메모·채팅·일정변경·환불·완료·리뷰·자격증 미구현)
 - [강사 수강관리(instructor-enrollment-management)](instructor-enrollment-management.md) — enrollment 강사 거울 hub(GET /instructor/enrollments/hub) · 거래=수강생×강의 · 강사 시점 상태/플래그 파생 · 액션은 accept/reject/propose/complete 재사용 · 채팅/다이브로그 미구현
+- [닉네임(nickname)](nickname.md) — account(형식·예약어·중복 판정) + branding(닉네임=공개 URL 식별자) + moderation(사후 신고, 사칭 사유 부재) · **문자셋 축소가 사칭 방어의 절반**(동형이의 문자 원천 차단) · 예약어 매칭 3분류(포함/접두/정확일치)와 오탐 정책(`masterdiver`) · 어드민 예외 · 형식은 알려주고 예약어 목록은 숨김 · 소급 적용 안 함
 - [브랜딩 페이지 / 내 프로필(account-branding)](account-branding.md) — branding + account(닉네임=공개 URL) + instructorapplication(자격·검수 파생) + course(연결, 후속) · 강사/일반 공용(워딩만 role 분기) · 첫 쓰기 upsert · 자격 자유입력 폐기 · 영상 제외(#207)
 - [게시물의 두 표면(post-surfaces)](post-surfaces.md) — community ↔ branding **관계 단일 출처** · 행 하나/화면 둘/상태 셋 · `showOnProfile`=더하기 · 숨김=전역 스위치 & 문 하나 · 관문 쿼리 비대칭 · 소유권 분할 · 새 노출 축 추가 시 체크리스트
 - [커뮤니티(community)](community.md) — community + branding(게시물 테이블 공유 → 관계는 [post-surfaces](post-surfaces.md)) + instructor-application(강사 판정) + course(연결 강의) + notification(댓글 알림) · 카테고리 4종 · 참여 신청 영구 제외(=예약 플로우) · 신고 2-A · 수정 기간제한/수정됨 배지 없음

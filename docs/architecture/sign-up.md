@@ -99,6 +99,8 @@ sequenceDiagram
 
 ### 닉네임 정책 (형식 + 예약어)
 
+> 정책·왜·결정 히스토리는 [features/nickname.md](../features/nickname.md). 이 절은 **구현**(규칙표·판정 위치)이다.
+
 단일 출처는 `global/validation/NickNamePolicy`. 가입(`POST /sign/sign-up`)·변경(`PATCH /account/nickName`)·
 중복확인(`GET /sign/check/nickName`) **세 경로가 같은 규칙**을 쓴다 — 가입만 막고 변경으로 뚫리면 의미가 없고,
 중복확인이 다른 답을 하면 FE 가 초록불을 켜 놓고 가입에서 400 을 맞는다.
