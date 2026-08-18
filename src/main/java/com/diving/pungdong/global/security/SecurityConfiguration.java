@@ -67,6 +67,7 @@ public class SecurityConfiguration {
                         .antMatchers(HttpMethod.GET, "/community/posts/*/comments").permitAll()
                         .antMatchers(HttpMethod.GET, "/community/categories").permitAll()
                         .antMatchers(HttpMethod.GET, "/community/tags/popular").permitAll()
+                        .antMatchers(HttpMethod.GET, "/community/topics/trending").permitAll()
                         .antMatchers(HttpMethod.GET, "/courses/browse").permitAll()
                         .antMatchers(HttpMethod.GET, "/courses/level-labels").permitAll()
                         .antMatchers(HttpMethod.GET, "/courses/*/detail").permitAll()

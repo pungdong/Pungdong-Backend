@@ -61,6 +61,13 @@ public class CommunityPostService {
      */
     private static final int POPULAR_WINDOW_DAYS = 7;
 
+    /**
+     * 인기 태그의 집계 창(일). <b>인기순 피드보다 길다</b> — 태그는 글보다 훨씬 성기게 쌓여서
+     * 7일로 자르면 글이 뜸한 주에 사이드바가 통째로 비고, 자르지 않으면 초기에 달린 태그가
+     * 영구히 상단에 굳어 "인기" 가 아니라 "최초" 를 보여주게 된다.
+     */
+    private static final int TAG_WINDOW_DAYS = 30;
+
     private final CommunityPostJpaRepo postRepo;
     private final CommunityPostMatchJpaRepo matchRepo;
     private final CommunityPostLikeJpaRepo likeRepo;
@@ -88,6 +95,7 @@ public class CommunityPostService {
     public Page<CommunityPostCardResponse> feed(CommunityCategory category,
                                                 FeedSort sort,
                                                 AuthorType authorType,
+                                                String tag,
                                                 boolean bookmarkedByMe,
                                                 Account viewer,
                                                 Pageable pageable) {
@@ -101,19 +109,22 @@ public class CommunityPostService {
 
         // 전용 쿼리(인기순·같이가요)는 Specification 을 못 태워서 같은 조건을 파라미터로 넘긴다.
         boolean instructorOnly = authorType == AuthorType.INSTRUCTOR;
+        // 빈 문자열은 "필터 없음" 이다 — FE 가 ?tag= 를 비워 보내는 걸 0건으로 답하면 안 된다.
+        String tagFilter = StringUtils.hasText(tag) ? tag.trim() : null;
 
         Page<BrandingPost> posts;
         if (sort == FeedSort.POPULAR && !bookmarkedByMe) {
             OffsetDateTime since = OffsetDateTime.now(ZoneOffset.UTC).minusDays(POPULAR_WINDOW_DAYS);
             posts = category == null
-                    ? postRepo.findPopularFeed(since, instructorOnly, page)
-                    : postRepo.findPopularFeedByCategory(since, category, instructorOnly, page);
+                    ? postRepo.findPopularFeed(since, instructorOnly, tagFilter, page)
+                    : postRepo.findPopularFeedByCategory(since, category, instructorOnly, tagFilter, page);
         } else if (category == CommunityCategory.MATCH && !bookmarkedByMe) {
-            posts = postRepo.findMatchFeed(instructorOnly, page);
+            posts = postRepo.findMatchFeed(instructorOnly, tagFilter, page);
         } else {
             Specification<BrandingPost> spec = Specification.where(CommunityPostSpecifications.feedVisible())
                     .and(CommunityPostSpecifications.category(category))
                     .and(CommunityPostSpecifications.authoredBy(authorType))
+                    .and(CommunityPostSpecifications.tag(tagFilter))
                     .and(bookmarkedByMe ? CommunityPostSpecifications.bookmarkedBy(viewer.getId()) : null);
             posts = postRepo.findAll(spec, withLatestSort(page));
         }
@@ -169,12 +180,41 @@ public class CommunityPostService {
         return posts.map(cardMapperFor(posts.getContent(), viewer));
     }
 
-    /** 인기 태그 — 웹 sidebar. 건수 내림차순, 동률이면 사전순(순서가 매 요청 흔들리지 않게). */
+    /**
+     * 인기 태그 — 웹 sidebar. 최근 {@link #TAG_WINDOW_DAYS}일 안에서 <b>그 태그를 단 글의 수</b>
+     * 내림차순, 동률이면 사전순(순서가 매 요청 흔들리지 않게).
+     *
+     * <p>세는 단위가 "태그 행" 이 아니라 "글" 인 이유는 쿼리 Javadoc 참고 — 한 글이 같은 태그를
+     * 두 번 담아도 1 이다.
+     */
     public List<PopularTagResponse> popularTags(int limit) {
         int size = Math.min(Math.max(limit, 1), MAX_PAGE_SIZE);
-        return postRepo.countPopularTags(PageRequest.of(0, size)).stream()
+        OffsetDateTime since = OffsetDateTime.now(ZoneOffset.UTC).minusDays(TAG_WINDOW_DAYS);
+        return postRepo.countPopularTags(since, PageRequest.of(0, size)).stream()
                 .map(row -> PopularTagResponse.builder()
                         .tag((String) row[0]).count((Long) row[1]).build())
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 지금 뜨는 토픽 — 웹 sidebar. 인기순 피드와 <b>같은 점수(좋아요+댓글+북마크)·같은 창</b>의 상위 N 건.
+     *
+     * <p>기준을 공유하는 게 요점이다 — 같은 화면에서 "인기" 탭 1등과 이 위젯 1등이 다르면
+     * 둘 중 하나는 고장 난 것으로 읽힌다.
+     *
+     * <p>글이 모자라면 <b>모자란 대로</b> 짧게 준다. 카테고리 카운트는 0 으로 채우지만(칸은 4개로
+     * 고정이고 0 은 실제 값이다) 여기서 같은 짓을 하면 없는 글을 지어내는 게 된다.
+     */
+    public List<TrendingTopicResponse> trendingTopics(int limit) {
+        int size = Math.min(Math.max(limit, 1), MAX_PAGE_SIZE);
+        OffsetDateTime since = OffsetDateTime.now(ZoneOffset.UTC).minusDays(POPULAR_WINDOW_DAYS);
+        return postRepo.findTrendingTopics(since, PageRequest.of(0, size)).stream()
+                .map(row -> TrendingTopicResponse.builder()
+                        .postId((Long) row[0])
+                        .title((String) row[1])
+                        .category((CommunityCategory) row[2])
+                        .score(((Number) row[3]).longValue())
+                        .build())
                 .collect(Collectors.toList());
     }
 
@@ -314,9 +354,7 @@ public class CommunityPostService {
         }
         post.replaceMedia(media);
 
-        post.replaceTags(request.getTags().stream()
-                .map(tag -> BrandingPostTag.builder().tag(tag).build())
-                .collect(Collectors.toList()));
+        post.replaceTags(BrandingPostTag.normalize(request.getTags()));
     }
 
     /**

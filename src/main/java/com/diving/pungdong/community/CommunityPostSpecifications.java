@@ -1,6 +1,7 @@
 package com.diving.pungdong.community;
 
 import com.diving.pungdong.branding.BrandingPost;
+import com.diving.pungdong.branding.BrandingPostTag;
 import com.diving.pungdong.branding.CommunityCategory;
 import com.diving.pungdong.instructorapplication.InstructorApplication;
 import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
@@ -72,6 +73,30 @@ public final class CommunityPostSpecifications {
                             cb.equal(application.get("account").get("id"),
                                     root.get("branding").get("account").get("id")),
                             cb.equal(application.get("status"), InstructorApplicationStatus.APPROVED)));
+            return cb.exists(sub);
+        };
+    }
+
+    /**
+     * 태그 필터 — 사이드바의 인기 태그를 눌렀을 때. {@code null}/공백이면 걸지 않는다.
+     *
+     * <p><b>조인이 아니라 {@code exists} 서브쿼리</b>다. 조인하면 글이 태그 수만큼 중복 행으로 나와
+     * 페이지에 같은 글이 여러 번 뜨고 {@code totalElements} 도 부풀어 오른다.
+     *
+     * <p><b>정확 일치</b>다. 부분일치({@code LIKE})는 인덱스를 못 타는 데다, "제주" 로 "제주도여행" 까지
+     * 끌려오는 건 태그 필터가 아니라 검색의 동작이다 — 그건 별개 피처다.
+     */
+    public static Specification<BrandingPost> tag(String tag) {
+        if (tag == null || tag.isBlank()) {
+            return null;
+        }
+        return (root, query, cb) -> {
+            var sub = query.subquery(Long.class);
+            var postTag = sub.from(BrandingPostTag.class);
+            sub.select(postTag.get("id"))
+                    .where(cb.and(
+                            cb.equal(postTag.get("post").get("id"), root.get("id")),
+                            cb.equal(postTag.get("tag"), tag)));
             return cb.exists(sub);
         };
     }

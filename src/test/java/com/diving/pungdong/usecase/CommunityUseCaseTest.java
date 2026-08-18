@@ -2,6 +2,7 @@ package com.diving.pungdong.usecase;
 
 import com.diving.pungdong.account.*;
 import com.diving.pungdong.branding.AccountBrandingJpaRepo;
+import com.diving.pungdong.branding.BrandingPost;
 import com.diving.pungdong.branding.BrandingPostJpaRepo;
 import com.diving.pungdong.community.CommunityPostMatch;
 import com.diving.pungdong.course.*;
@@ -874,6 +875,227 @@ class CommunityUseCaseTest {
         mockMvc.perform(get("/community/posts").param("sort", "POPULAR"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$._embedded.posts[0].title").value("인기 있는 글"));
+    }
+
+    /** 태그를 달아 글을 쓴다 → 생성된 id. */
+    private long createPostWithTags(Account author, String title, String... tags) throws Exception {
+        String tagJson = java.util.Arrays.stream(tags)
+                .map(tag -> "\"" + tag + "\"")
+                .collect(java.util.stream.Collectors.joining(","));
+        MvcResult result = mockMvc.perform(post("/community/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(author))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"" + title
+                                + "\",\"body\":\"본문\",\"tags\":[" + tagJson + "]}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        return ((Number) com.jayway.jsonpath.JsonPath.read(
+                result.getResponse().getContentAsString(), "$.id")).longValue();
+    }
+
+    private void like(Account account, long postId) throws Exception {
+        mockMvc.perform(post("/community/posts/" + postId + "/like")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(account))).andExpect(status().isOk());
+    }
+
+    private void bookmark(Account account, long postId) throws Exception {
+        mockMvc.perform(post("/community/posts/" + postId + "/bookmark")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(account))).andExpect(status().isOk());
+    }
+
+    /** 글의 작성 시각을 과거로 민다 — 집계 창(7일·30일) 밖으로 내보내기 위해. */
+    private void backdate(long postId, int days) {
+        BrandingPost post = postRepo.findById(postId).orElseThrow();
+        post.setCreatedAt(java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC).minusDays(days));
+        postRepo.save(post);
+    }
+
+    @Test
+    @DisplayName("D5: 인기순은 좋아요만 보지 않는다 — 좋아요 2 인 글보다 좋아요·댓글·북마크가 하나씩인 글이 위다")
+    void popularSort_sumsAllThreeSignals() throws Exception {
+        Account author = account("d5a@c.com", "diverT01", Role.STUDENT);
+        Account u1 = account("d5b@c.com", "diverT02", Role.STUDENT);
+        Account u2 = account("d5c@c.com", "diverT03", Role.STUDENT);
+
+        long likesOnly = createPost(author, "TOUR", "좋아요만 둘", "본문");
+        long balanced = createPost(author, "TOUR", "고르게 셋", "본문");
+
+        like(u1, likesOnly);
+        like(u2, likesOnly);
+
+        like(u1, balanced);
+        comment(u1, balanced, "댓글", null);
+        bookmark(u2, balanced);
+
+        mockMvc.perform(get("/community/posts").param("sort", "POPULAR"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.posts[0].title").value("고르게 셋"))
+                .andExpect(jsonPath("$._embedded.posts[1].title").value("좋아요만 둘"));
+    }
+
+    @Test
+    @DisplayName("D6: 참여 점수는 축이 겹쳐도 곱해지지 않는다 — 좋아요 2·댓글 2·북마크 2 는 8 이 아니라 6 이다")
+    void engagementScore_doesNotMultiplyAcrossJoins() throws Exception {
+        Account author = account("d6a@c.com", "diverT04", Role.STUDENT);
+        Account u1 = account("d6b@c.com", "diverT05", Role.STUDENT);
+        Account u2 = account("d6c@c.com", "diverT06", Role.STUDENT);
+
+        long postId = createPost(author, "TOUR", "고루 달린 글", "본문");
+        like(u1, postId);
+        like(u2, postId);
+        comment(u1, postId, "댓글1", null);
+        comment(u2, postId, "댓글2", null);
+        bookmark(u1, postId);
+        bookmark(u2, postId);
+
+        mockMvc.perform(get("/community/topics/trending"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.topics[0].postId").value((int) postId))
+                .andExpect(jsonPath("$._embedded.topics[0].score").value(6));
+    }
+
+    @Test
+    @DisplayName("D7: 삭제된 댓글은 참여 점수에서 빠진다 (카드의 댓글 수와 같은 기준)")
+    void engagementScore_excludesDeletedComments() throws Exception {
+        Account author = account("d7a@c.com", "diverT07", Role.STUDENT);
+        Account other = account("d7b@c.com", "diverT08", Role.STUDENT);
+
+        long postId = createPost(author, "TOUR", "댓글 지운 글", "본문");
+        comment(other, postId, "남을 댓글", null);
+        long doomed = comment(other, postId, "지울 댓글", null);
+
+        mockMvc.perform(delete("/community/comments/" + doomed)
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(other))).andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/community/topics/trending"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.topics[0].score").value(1));
+    }
+
+    @Test
+    @DisplayName("D8: 지금 뜨는 토픽의 1등은 인기 탭의 1등과 같다 (기준이 갈리면 안 된다) · 비로그인도 본다")
+    void trendingTopics_agreeWithPopularFeed() throws Exception {
+        Account author = account("d8a@c.com", "diverT09", Role.STUDENT);
+        Account u1 = account("d8b@c.com", "diverT10", Role.STUDENT);
+
+        createPost(author, "TOUR", "조용한 글", "본문");
+        long hot = createPost(author, "QNA", "뜨는 글", "본문");
+        like(u1, hot);
+        comment(u1, hot, "댓글", null);
+
+        mockMvc.perform(get("/community/topics/trending"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.topics[0].postId").value((int) hot))
+                .andExpect(jsonPath("$._embedded.topics[0].title").value("뜨는 글"))
+                .andExpect(jsonPath("$._embedded.topics[0].category").value("QNA"))
+                .andExpect(jsonPath("$._embedded.topics[0].score").value(2));
+
+        mockMvc.perform(get("/community/posts").param("sort", "POPULAR"))
+                .andExpect(jsonPath("$._embedded.posts[0].title").value("뜨는 글"));
+    }
+
+    @Test
+    @DisplayName("D9: 숨긴 글은 뜨는 토픽에서도 인기 태그에서도 빠진다")
+    void hiddenPost_dropsFromDiscoveryWidgets() throws Exception {
+        Account author = account("d9@c.com", "diverT11", Role.STUDENT);
+        long hidden = createPostWithTags(author, "숨길 글", "숨김태그");
+        createPostWithTags(author, "남을 글", "남을태그");
+
+        mockMvc.perform(patch("/community/posts/" + hidden + "/visibility")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(author))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"hidden\":true}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/community/topics/trending"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.topics.length()").value(1))
+                .andExpect(jsonPath("$._embedded.topics[0].title").value("남을 글"));
+
+        mockMvc.perform(get("/community/tags/popular"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.tags.length()").value(1))
+                .andExpect(jsonPath("$._embedded.tags[0].tag").value("남을태그"));
+    }
+
+    @Test
+    @DisplayName("D10: 30일이 지난 글의 태그는 인기 태그에서 빠진다 (오래된 태그가 상단에 굳지 않게)")
+    void popularTags_dropOutsideWindow() throws Exception {
+        Account author = account("d10@c.com", "diverT12", Role.STUDENT);
+        long old = createPostWithTags(author, "오래된 글", "옛날태그");
+        createPostWithTags(author, "최근 글", "요즘태그");
+        backdate(old, 31);
+
+        mockMvc.perform(get("/community/tags/popular"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.tags.length()").value(1))
+                .andExpect(jsonPath("$._embedded.tags[0].tag").value("요즘태그"));
+    }
+
+    @Test
+    @DisplayName("D11: 한 글에 같은 태그를 두 번 넣어도 인기 태그 카운트는 1 이다 (글 수를 센다)")
+    void popularTags_countPostsNotRows() throws Exception {
+        Account author = account("d11@c.com", "diverT13", Role.STUDENT);
+        long postId = createPostWithTags(author, "중복 태그 글", "제주", "제주");
+
+        mockMvc.perform(get("/community/posts/" + postId))
+                .andExpect(jsonPath("$.tags.length()").value(1));
+
+        mockMvc.perform(get("/community/tags/popular"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.tags[0].tag").value("제주"))
+                .andExpect(jsonPath("$._embedded.tags[0].count").value(1));
+    }
+
+    @Test
+    @DisplayName("D12: '#제주' 로 보내도 '제주' 로 저장돼 같은 태그로 합산된다 (#가 붙어 반씩 갈리지 않게)")
+    void tagNormalization_stripsHash() throws Exception {
+        Account author = account("d12@c.com", "diverT14", Role.STUDENT);
+        long withHash = createPostWithTags(author, "샵 붙인 글", "#제주");
+        createPostWithTags(author, "샵 없는 글", "제주");
+
+        mockMvc.perform(get("/community/posts/" + withHash))
+                .andExpect(jsonPath("$.tags[0]").value("제주"));
+
+        mockMvc.perform(get("/community/tags/popular"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.tags.length()").value(1))
+                .andExpect(jsonPath("$._embedded.tags[0].tag").value("제주"))
+                .andExpect(jsonPath("$._embedded.tags[0].count").value(2));
+    }
+
+    @Test
+    @DisplayName("D13: ?tag= 는 그 태그가 달린 글만 준다 — 최신순·인기순 양쪽에서")
+    void tagFilter_narrowsBothSorts() throws Exception {
+        Account author = account("d13a@c.com", "diverT15", Role.STUDENT);
+        Account other = account("d13b@c.com", "diverT16", Role.STUDENT);
+
+        long tagged = createPostWithTags(author, "문섬 글", "문섬");
+        long untagged = createPostWithTags(author, "무관한 글", "성산");
+        like(other, untagged);
+
+        mockMvc.perform(get("/community/posts").param("tag", "문섬"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(1))
+                .andExpect(jsonPath("$._embedded.posts[0].id").value((int) tagged));
+
+        // 인기순은 전용 쿼리라 Specification 을 안 탄다 — 같은 필터가 거기에도 걸리는지 따로 본다.
+        mockMvc.perform(get("/community/posts").param("tag", "문섬").param("sort", "POPULAR"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(1))
+                .andExpect(jsonPath("$._embedded.posts[0].id").value((int) tagged));
+    }
+
+    @Test
+    @DisplayName("D14: ?tag= 를 비워 보내면 필터 없음이다 (0건이 아니라 전체가 온다)")
+    void tagFilter_blankMeansNoFilter() throws Exception {
+        Account author = account("d14@c.com", "diverT17", Role.STUDENT);
+        createPostWithTags(author, "글1", "제주");
+        createPostWithTags(author, "글2", "문섬");
+
+        mockMvc.perform(get("/community/posts").param("tag", ""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(2));
     }
 
     /* ════════════════ C — 댓글 ════════════════ */
