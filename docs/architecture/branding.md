@@ -155,8 +155,8 @@ erDiagram
 
 | 엔드포인트 | 인증 | 역할 | 소유권 |
 |---|---|---|---|
-| `GET /instructors/suggested?limit=5` | **불필요** | — | 승인 + **발행**된 강사 중 무작위. 카드가 여는 상세와 같은 조건이라 **갈 곳 없는 카드가 안 생긴다** |
-| `GET /instructors/{nickName}` | **불필요** | — | `is_published=true` + 미탈퇴만. 그 외 **400(존재 숨김)** |
+| `GET /instructors/suggested?limit=5` | **불필요** | — | 승인 + **발행**된 강사 중 무작위. 카드가 여는 상세와 같은 조건이라 **갈 곳 없는 카드가 안 생긴다**. 토큰을 실으면 **차단한 강사가 빠진다**(`totalCount` 도) |
+| `GET /instructors/{nickName}` | **불필요** | — | `is_published=true` + 미탈퇴만. 그 외 **400(존재 숨김)**. 차단은 방향에 따라 다르다 — 내가 차단 → **200 + `blockedByMe`**(유일한 해제 동선), 상대가 나를 차단 → **400** ([block.md](block.md)) |
 | `GET /instructors/{nickName}/posts` | **불필요** | — | 위 + `is_hidden=false` 만. 정렬·size 는 서버 고정 |
 | `GET /branding-posts/{postId}` | **불필요** | — | 발행 + 미숨김만. **단 오너 본인은 자기 글이면 숨김·미발행이어도 조회 가능**. 그 외 **400** |
 | `GET /branding/me` | 필요 | **인증만** | `@CurrentUser` 기준. 미생성이면 `{exists:false}` |

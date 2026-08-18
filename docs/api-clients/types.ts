@@ -708,6 +708,7 @@ export interface PublicInstructorResponse {
  * ⚠️ **모집단이 /instructors/public 과 다르다**: 승인 + **프로필 발행**까지 된 강사만. 그래서 카드의
  *    nickName 은 항상 `/instructors/{nickName}` 로 열린다(갈 곳 없는 카드가 생기지 않는다).
  * ⚠️ 강사가 limit 보다 적으면 **있는 만큼만** 온다. 0명이면 `instructors: []` + `totalCount: 0` (에러가 아니다).
+ * ⚠️ **토큰을 실으면 차단한 강사가 빠진다**(`totalCount` 도 줄어든다). 비로그인 응답과 다를 수 있다.
  * limit 상한 20(초과하면 20 으로 잘린다). 기본 5.
  */
 export interface SuggestedInstructorsResponse {
@@ -773,6 +774,12 @@ export interface BrandingProfileResponse extends HalLinks {
   records: BrandingRecord[];         // 없으면 [] → 섹션 숨김
   stats: BrandingStats;
   products?: BrandingProducts;       // 강사만
+  /**
+   * 내가 이 사람을 차단했나 — 상단에 "차단됨 · 차단 해제" 를 그린다. 비로그인이면 항상 false.
+   * ⚠️ 차단해도 프로필은 열린다(글 그리드만 빈다) — 여기가 유일한 해제 동선이라 막으면 되돌릴 수 없다.
+   * ⚠️ 반대 방향(상대가 나를 차단)은 이 필드로 드러나지 않는다 — 프로필 자체가 400 이다.
+   */
+  blockedByMe: boolean;
 }
 
 /** 전부 파생값(카운터를 저장하지 않는다). 미구현·비대상 필드는 키가 없다. */
@@ -1202,6 +1209,8 @@ export interface PopularTag {
  * ⚠️ 기준은 `CommunityFeedSort='POPULAR'` 와 **완전히 같다**(최근 7일 · 좋아요+댓글+북마크).
  * ⚠️ 글이 모자라면 **모자란 대로** 짧게 온다. 카테고리 카운트처럼 빈 칸을 0 으로 채우지 않는다
  *    (없는 글을 지어낼 수는 없다) — 0건이면 `_embedded` 키 자체가 없다.
+ * ⚠️ **토큰을 실으면 차단한 사람의 글이 빠진다.** 인기 태그(`/community/tags/popular`)는 작성자를
+ *    노출하지 않는 전역 집계라 차단을 반영하지 않는다 — 의도된 비대칭이다.
  */
 export interface TrendingTopic {
   /** 클릭 시 `GET /community/posts/{postId}` 상세로. */
@@ -1260,6 +1269,8 @@ export interface CommunityCommentRequest {
 // POST|DELETE /community/comments/{commentId}/like (인증) — ReactionResponse.
 //   ⚠️ 삭제된 댓글에는 누를 수 없다 → 400.
 // ⚠️ 게시물의 `commentCount` 는 **삭제된 댓글을 뺀 수**다("댓글 3" 인데 2개 보이면 안 되므로).
+// ⚠️ 토큰을 실으면 **차단한 사람의 댓글(과 그 답글)도 빠진 수**다 — 스레드가 보여주는 것과 같은 기준이라
+//    같은 글이라도 뷰어에 따라 `commentCount` 가 다를 수 있다. 캐시 키에 뷰어를 포함할 것.
 
 /**
  * POST /community/reports (인증) — 신고 접수.
@@ -1294,6 +1305,38 @@ export interface ContentReport {
   reporterNickName?: string;
   /** 어드민 목록에만. 대상이 이미 지워졌으면 키가 없다. */
   targetPreview?: string;
+}
+
+// ── 유저 차단 (block) — docs/features/moderation.md ──
+//
+// 애플 App Store 심사 가이드라인 1.2(UGC)가 신고와 함께 요구하는 "학대적 사용자 차단".
+//
+// ⚠️ **필터링은 서버가 한다.** 차단한 사람의 글·댓글은 피드/스레드/프로필/추천 강사에서 아예 빠져서
+//    내려온다 — FE 가 목록에서 지우면 20개짜리 페이지가 17개가 되고 `page.totalElements` 가 거짓이 된다.
+//    아래 목록 API 는 "차단 관리" 화면과 차단 상태 표시용이지 필터용이 아니다.
+// ⚠️ **차단은 상호 은닉(양방향)이다.** 내가 차단하면 상대에게도 내 글이 보이지 않는다.
+//    차단당한 사실은 알려주지 않는다 — 상대 프로필 조회는 그냥 400(존재 숨김)이다.
+// ⚠️ **차단은 거래를 끊지 않는다.** 강의 둘러보기·수강·일정·결제·단체 채팅은 그대로 동작한다.
+//    차단이 걸리는 표면은 커뮤니티(피드·댓글·브랜딩 프로필·추천 강사)뿐이다.
+//
+//   POST   /blocks           (인증) {nickName} → BlockedAccountResponse.
+//                            중복 차단은 **200 멱등**. 자기 자신·없는 닉네임은 400.
+//   DELETE /blocks/{nickName}(인증) 204. 차단돼 있지 않아도 204(멱등).
+//   GET    /blocks           (인증) PagedModel — 배열은 `_embedded.blockedAccountResponseList`.
+//
+// ⚠️ 닉네임에 `/` 가 들어가면 DELETE 경로가 방화벽(StrictHttpFirewall)에 막힌다 —
+//    공개 프로필 `GET /instructors/{nickName}` 이 이미 갖고 있는 한계와 같다.
+
+export interface BlockRequest {
+  /** 차단할 사용자의 닉네임. 계정 id 는 계약에 없다(순차 id 노출 금지). */
+  nickName: string;
+}
+
+export interface BlockedAccountResponse {
+  nickName: string;
+  avatarUrl?: string;
+  /** 차단한 시각(오프셋 포함). */
+  blockedAt: string;
 }
 
 // 어드민(ROLE_ADMIN) — 신고 처리 큐. 어드민 FE 용이라 모바일/웹 클라이언트는 쓰지 않는다.

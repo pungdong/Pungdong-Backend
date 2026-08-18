@@ -190,6 +190,13 @@ erDiagram
 - ⚠️ **`CommunityPostMatch` 의 `@Id` 에 `@Column` 을 달면 부팅이 깨진다.** `@MapsId` + `@JoinColumn` 과 컬럼이 중복돼 "Repeated column" 으로 실패한다. `@Id` 는 매핑 없이 두고 `@MapsId` 에 맡긴다.
 - **좋아요·북마크·신고의 UNIQUE 가 멱등성의 근거다.** `(대상, 계정)` UNIQUE 덕에 `POST` 를 두 번 보내도 1건이다. 레거시 `lecture_mark`(강의 찜)에는 이 제약이 없어 중복 찜이 가능했다(v1 과 함께 삭제됨 — V27) — 베끼지 않는다. 올바른 선례는 `venue_favorite`.
 - **자식 행은 `ON DELETE CASCADE` 로 정리한다 — 서비스가 순서대로 지우지 않는다.** 글을 지우는 문이 **둘**(커뮤니티·브랜딩)인데, 서비스에서 지우면 브랜딩 쪽이 같은 정리를 할 수 없다(브랜딩은 커뮤니티를 import 하면 단방향 의존이 깨진다). 정리 책임을 DB 한 곳에 두면 두 문이 같이 낫는다. 엔티티에도 `@OnDelete(action = CASCADE)` 를 단다 — **테스트는 H2 + hbm2ddl 이라 V19 를 읽지 않아서**, 애노테이션이 없으면 생성 DDL 에 CASCADE 가 빠져 테스트에서만 FK 위반이 재현된다.
+- **차단 필터는 조회 경로마다 따로 걸려 있다.** 피드는 쿼리 경로가 셋이라(최신순 Specification ·
+  인기순 전용쿼리 · 같이가요 전용쿼리) `CommunityPostSpecifications.notBlockedFor` 와
+  `CommunityPostJpaRepo.BLOCK_FILTER` 가 **같은 술어를 두 벌** 갖는다 — 하나만 고치면 그 탭에서만
+  차단이 샌다. ⚠️ 인기순 두 개는 `countQuery` 가 따로 있어 거기에도 필요하다.
+  댓글은 스레드(메모리 필터)와 `commentCount`(`NOT_BLOCKED` 술어)를 **같은 기준**으로 맞춘다 —
+  어긋나면 "댓글 3인데 2개 보임" 이 된다. 구현·정책은 [block.md](block.md) ·
+  [features/moderation.md](../features/moderation.md).
 - **`content_report` 만 FK 가 없다.** 게시물·댓글 두 종류를 가리키는 폴리모픽 참조라 DB 제약을 걸 수 없다. 대상 존재 확인은 **접수 시점에 서비스가** 한다.
 - **인덱스는 2개만 추가했다.** 피드용 `ix_community_feed(show_in_feed, is_hidden, category, created_at)` 와 인기 태그 집계용 `ix_branding_post_tag_tag`. ⚠️ 후자의 **커버링은 2026-08-18 에 깨졌다** — 인기 태그에 30일 창이 붙으면서 `branding_post` 조인이 필요해졌다. 창으로 좁힌 뒤 `post_id` 로 붙는 형태라 지금 규모에선 무시할 만해서 인덱스를 더하지 않았다. 브랜딩 그리드용은 **새로 만들지 않았다** — 기존 `ix_branding_post_grid` 가 이미 `branding_id` 로 좁히므로 그 위에 `show_on_profile` 필터를 얹는 비용은 무시할 수 있다. 거의 같은 인덱스를 하나 더 두면 쓰기 비용만 늘어난다.
 
@@ -243,6 +250,7 @@ erDiagram
 | `PUT · DELETE /community/comments/{id}` | 필요 | 인증만 | 남의 댓글 **400** |
 | `POST · DELETE /community/comments/{id}/like` | 필요 | 인증만 | 멱등. 삭제된 댓글엔 불가 |
 | `POST /community/reports` | 필요 | 인증만 | 자기 콘텐츠 400. 중복 **200 멱등** |
+| `POST · DELETE · GET /blocks` | 필요 | 인증만 | 유저 차단 — [block.md](block.md) 소유. 피드·상세·댓글·반응이 전부 차단을 본다 |
 | `GET · PATCH /admin/community/reports/**` | 필요 | **ROLE_ADMIN** | — |
 | `POST /branding-images` | 필요 | 인증만 | 사진 업로드 — **기존 재사용, 신규 없음** |
 
