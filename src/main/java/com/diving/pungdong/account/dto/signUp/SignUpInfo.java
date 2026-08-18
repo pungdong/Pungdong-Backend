@@ -5,10 +5,12 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import com.diving.pungdong.global.validation.NickNamePolicy;
 import com.diving.pungdong.global.validation.PasswordPolicy;
 
 import javax.validation.constraints.Email;
 import javax.validation.constraints.NotEmpty;
+import javax.validation.constraints.Pattern;
 import javax.validation.constraints.Size;
 
 /**
@@ -22,13 +24,19 @@ import javax.validation.constraints.Size;
 @AllArgsConstructor
 @Builder
 public class SignUpInfo {
-    @NotEmpty @Email
+    @NotEmpty(message = "이메일을 입력해주세요.")
+    @Email(message = "이메일 형식이 올바르지 않습니다.")
     String email;
 
-    @NotEmpty
+    @NotEmpty(message = "비밀번호를 입력해주세요.")
     @Size(min = PasswordPolicy.MIN_LENGTH, max = PasswordPolicy.MAX_LENGTH, message = PasswordPolicy.MESSAGE)
     String password;
 
-    @NotEmpty
+    /**
+     * 공개 URL 식별자를 겸하므로 형식이 좁다 — {@link NickNamePolicy}. 예약어(브랜드·운영자 사칭·라우트
+     * 충돌) 차단은 형식과 달리 어드민 예외가 있어 DTO 가 아니라 서비스 가드에서 본다.
+     */
+    @NotEmpty(message = "닉네임을 입력해주세요.")
+    @Pattern(regexp = NickNamePolicy.PATTERN, message = NickNamePolicy.MESSAGE)
     String nickName;
 }

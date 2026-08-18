@@ -84,7 +84,7 @@ public class AccountController {
                                                    @Valid @RequestBody NickNameInfo nickNameInfo,
                                                    BindingResult result) {
         if (result.hasErrors()) {
-            throw new BadRequestException();
+            throw new BadRequestException(ValidationErrors.firstMessage(result));
         }
 
         accountService.updateNickName(account, nickNameInfo.getNickName());
