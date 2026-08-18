@@ -955,7 +955,6 @@ export interface BrandingPostDetail extends HalLinks {
  * ⚠️ mediaUrls는 업로드(POST /branding-images)로 받은 우리 CDN URL만 허용. 배열 순서 = 표시 순서, 0번이 썸네일.
  */
 export interface BrandingPostRequest {
-  category: CommunityCategory;  // 필수 (2026-08-18~)
   mediaUrls: string[];      // 1~10장
   /**
    * ⚠️ **둘 다 필수다**(2026-08-18). 예전엔 `@NotNull` 이 없어 안 보내면 스냅샷 교체로 **조용히

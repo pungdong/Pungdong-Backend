@@ -23,6 +23,34 @@ https://raw.githubusercontent.com/pungdong/Pungdong-Backend/master/docs/api-clie
 
 BE 가 컨트롤러 시그니처 / DTO 를 바꾸면 **같은 PR 안에서** `types.ts` 도 같이 갱신. 도메인 문서 갱신 규칙과 동일 원칙.
 
+> ⚠️ **이 파일은 FE 가 통째로 복사하는 진짜 TypeScript 소스다 — 컴파일이 깨지면 미러가 깨진다.**
+> 한 인터페이스 안에 같은 키를 두 번 선언하면 FE 는 `TS2300 Duplicate identifier` 로 빌드가 죽고,
+> sync 할 때마다 손으로 한 줄을 지우는 로컬 예외를 유지해야 한다(`BrandingPostRequest.category` 가
+> 2026-08-18~19 두 번의 sync 동안 실제로 그랬다). **필드를 옮기거나 주석 블록을 붙일 때 옛 줄을
+> 지웠는지 확인할 것** — 주석과 함께 새 위치에 적고 원래 줄을 남기는 게 전형적인 실수다.
+> 커밋 전 중복 스캔:
+> ```
+> python3 - <<'EOF'
+> import re
+> src=open('docs/api-clients/types.ts').read().split('\n')
+> i=0
+> while i<len(src):
+>     m=re.match(r'\s*export interface (\w+)',src[i])
+>     if m and '{' in src[i]:
+>         depth,seen,j=1,{},i+1
+>         while j<len(src) and depth>0:
+>             if depth==1:
+>                 f=re.match(r'(\w+)\??\s*:',src[j].strip())
+>                 if f:
+>                     k=f.group(1)
+>                     if k in seen: print(f"중복 {m.group(1)}.{k} — {seen[k]+1}행, {j+1}행")
+>                     seen[k]=j
+>             depth+=src[j].count('{')-src[j].count('}'); j+=1
+>         i=j
+>     else: i+=1
+> EOF
+> ```
+
 ---
 
 ## types.ts 갱신 체크리스트
