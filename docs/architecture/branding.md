@@ -2,7 +2,7 @@
 
 ## 1. 한 줄 요약
 
-**브랜딩 페이지 = 계정당 1개의 공개 프로필** — 강사에겐 "브랜딩 페이지", 일반 유저에겐 "내 프로필"(워딩만 role 분기). 정체성(tagline·bio·활동지역·아바타) + 공식기록 + 게시물(후속 PR)로 구성되고, **공개 URL 식별자는 순차 id 가 아니라 `nickName`** 이다. 핵심 invariant 둘: **조회는 절대 생성하지 않는다**(생성은 첫 쓰기가 한다), **강사 한정 요소는 소유하지 않고 읽기 시점에 합성한다**(자격·검수상태는 `instructorapplication` 소유).
+**브랜딩 페이지 = 계정당 1개의 공개 프로필** — 강사에겐 "브랜딩 페이지", 일반 유저에겐 "내 프로필"(워딩만 role 분기). 정체성(tagline·bio·활동지역·아바타) + 공식기록 + 게시물로 구성되고, **공개 URL 식별자는 순차 id 가 아니라 `nickName`** 이다. 핵심 invariant 둘: **조회는 절대 생성하지 않는다**(생성은 첫 쓰기가 한다), **강사 한정 요소는 소유하지 않고 읽기 시점에 합성한다**(자격·검수상태는 `instructorapplication` 소유).
 
 > 정책·왜·결정 히스토리는 [docs/features/account-branding.md](../features/account-branding.md). 이 문서는 *어떻게(구현)*.
 
@@ -120,7 +120,7 @@ erDiagram
 - **`event_code` 는 `discipline.Discipline` 과 다른 축이다.** 종목(FREEDIVING·SCUBA·MERMAID) vs 프리다이빙 경기 세부종목(CWT·FIM·…). 같은 "discipline" 이라 부르면 반드시 사고 나서 이름을 분리했다.
 - **`record_value` 컬럼명** — `value` 는 H2(테스트 DB) 예약어라 스키마 생성이 깨진다. API 필드명은 `value` 유지.
 - **`linked_course_id` 는 `ON DELETE SET NULL`** — 코스가 지워져도 게시물은 살고 연결만 끊긴다.
-- **게시물 3개 테이블은 V17 에서 미리 만들고 엔티티/엔드포인트는 후속 PR** — `hbm2ddl=validate` 는 엔티티에 대응하는 테이블만 보므로 무해하고, 마이그레이션 횟수를 줄인다.
+- **게시물 3개 테이블은 V17 에서 미리 만들고 엔티티/엔드포인트는 뒤따라 붙였다**(지금은 둘 다 있다) — `hbm2ddl=validate` 는 엔티티에 대응하는 테이블만 보므로 테이블만 먼저 만들어도 무해하고, 마이그레이션 횟수를 줄인다.
 - 🟡 **`account.nick_name` 에 UNIQUE 인덱스가 아직 없다** — §6 참고.
 
 ### 그리드의 N+1 을 어떻게 피했나

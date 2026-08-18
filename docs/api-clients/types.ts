@@ -827,11 +827,30 @@ export interface BrandingProfileResponse extends HalLinks {
   blockedByMe: boolean;
 }
 
-/** 전부 파생값(카운터를 저장하지 않는다). 미구현·비대상 필드는 키가 없다. */
+/**
+ * 전부 파생값(카운터를 저장하지 않는다). 비대상 필드는 키가 없다.
+ * 공개 프로필(`GET /instructors/{nickName}`)과 오너 응답(`GET /branding/me`)이 **같은 값**을 싣는다.
+ */
 export interface BrandingStats {
-  /** 게시물 수 — 게시물 도메인 붙는 후속 PR에서 채워진다. 그동안 FE는 오너 목록의 page.totalElements 사용. */
+  /**
+   * **공개** 게시물 수 — `showOnProfile=true` 이고 **숨기지 않은** 글만 센다. (구 주석과 달리 이미
+   * 채워진다. 미구현 상태가 아니다.)
+   *
+   * 🔴 **오너 화면 헤더에 그대로 쓰면 안 된다.** 오너 그리드(`GET /branding/me/posts`)는 **숨긴 글을
+   *    포함**해 그리므로 "게시물 12" 인데 타일이 14 개인 상황이 된다. 오너 화면의 개수는 계속
+   *    `GET /branding/me/posts` 의 `page.totalElements` 를 쓴다 — 왕복 한 번을 아끼자고 갈아끼우면
+   *    어긋난다(FE 통합 리뷰에서 이미 한 번 잡아낸 지점).
+   *    왕복을 정말 없애려면 **헤더의 정의를 "공개 게시물 수" 로 바꾸는 제품 결정**이 먼저다.
+   *    근거·결정 로그: `docs/architecture/branding.md` "stats.posts 는 오너 응답에서도 '공개' 개수다".
+   */
   posts?: number;
-  /** 누적 수강생 수 — 강사만. 확정(CONFIRMED) 회차를 가진 distinct 학생 수. */
+  /**
+   * 누적 수강생 수 — 확정(CONFIRMED) 회차를 가진 distinct 학생 수. **채워진다.**
+   * ⚠️ **강사만** — 비강사면 키 자체가 없다(0 이 아니라 생략).
+   * ⚠️ 공개 응답(`GET /instructors/{nickName}`)은 미발행 프로필이면 400 이라 오너 화면에서 못 쓰던
+   *    값인데, 오너 응답(`GET /branding/me`)에는 그 제약이 없다 — 오너 카드의 "수강생 수" 슬롯은
+   *    이 값으로 열면 된다.
+   */
   students?: number;
 }
 
