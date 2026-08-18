@@ -139,6 +139,7 @@ export interface AuthToken {
 export interface SignUpRequest {
   email: string;
   password: string; // 8~64자
+  /** 2~16자 한글·영문·숫자·밑줄 + 예약어 금지 — 규칙은 CheckNickNameResponse 주석 참조. 위반 시 400. */
   nickName: string;
 }
 
@@ -194,9 +195,42 @@ export interface CheckEmailResponse extends HalLinks {
   exists: boolean;
 }
 
-/** GET /sign/check/nickName?nickName=... 응답. */
+/**
+ * 닉네임을 쓸 수 없는 이유. FE 는 사유별로 다른 문구를 띄운다.
+ * - `DUPLICATED` 이미 다른 계정이 쓰는 중
+ * - `FORMAT`     길이·문자셋 위반 (아래 규칙)
+ * - `RESERVED`   예약어(브랜드·운영자 사칭·라우트 충돌). **어떤 단어인지는 BE 가 알려주지 않는다**
+ */
+export type NickNameRejectReason = 'DUPLICATED' | 'FORMAT' | 'RESERVED';
+
+/**
+ * GET /sign/check/nickName?nickName=... 응답.
+ *
+ * ⚠️ **`exists` 만 보고 초록불을 켜면 안 된다.** 형식 위반·예약어는 아무도 안 쓰므로 `exists:false` 로
+ * 오지만 가입/변경에서는 400 이다. 최종 판정은 `available`, 사유는 `reason`.
+ * (`exists` 는 기존 클라이언트 호환용으로 남긴 필드다.)
+ *
+ * 닉네임 규칙 (BE `NickNamePolicy` 단일 출처):
+ * - **2~16자**, **한글(완성형)·영문·숫자·밑줄(_)** 만. 공백·이모지·자모(ㅋㅋ)·구두점·키릴 등 그 외 문자는 거부.
+ *   (문자셋을 좁히는 게 동형이의 문자 사칭 `аdmin` 방어의 핵심 — 그래서 FE 도 같은 규칙으로 입력을 막아 주면 좋다.)
+ * - **예약어 차단**: 브랜드('풍덩'·'pungdong'·'plop')와 한글 역할어('관리자'·'운영자'·'고객센터' …)는
+ *   **이름 어디에 들어가도** 거부('풍덩공식', '우리동네관리자'). 라틴 역할어(admin·official·support …)는
+ *   **정확일치 또는 접두**만 거부(오탐 방지 — 'badminton클럽'은 통과). `/instructors/{nickName}` 과
+ *   부딪히는 라우트 단어(public·suggested·me·api …)는 정확일치로 거부.
+ * - 판정 전 **정규화**(대소문자·구분자 제거·전각/호환문자·리트 0→o,1→l,3→e,4→a,5→s,7→t)를 거치므로
+ *   'p_u_n_g_d0ng' 도 '풍덩' 으로 걸린다.
+ *
+ * 400 응답의 `msg`: 형식 오류는 "닉네임은 2~16자의 한글·영문·숫자·밑줄(_)만 쓸 수 있습니다.",
+ * 예약어는 "사용할 수 없는 닉네임입니다." — 둘 다 그대로 표시 가능한 한국어.
+ * (가입 POST /sign/sign-up 은 code -1004, PATCH /account/nickName 은 code -1011.)
+ */
 export interface CheckNickNameResponse extends HalLinks {
+  /** 이미 쓰는 계정이 있는가. 형식 위반·예약어는 여기선 false — `available` 을 볼 것. */
   exists: boolean;
+  /** 최종 판정 — 이 닉네임으로 가입/변경이 통과하는가. */
+  available: boolean;
+  /** available=false 일 때의 사유. 사용 가능하면 null. */
+  reason: NickNameRejectReason | null;
 }
 
 // ── 계정 조회 (account) — docs/architecture/sign-up.md ──
@@ -233,6 +267,17 @@ export interface CertBadge {
   disciplineCode: string;        // 종목 코드, 예 'FREEDIVING'
   organizationCode: string;      // 발급 단체 코드(Sanity 카탈로그), 예 'AIDA'·'PADI'·'OTHER'
   organizationOther?: string | null; // organizationCode==='OTHER' 일 때 직접입력 단체명
+}
+
+// ── 닉네임 변경 (account) ──
+// PATCH /account/nickName (인증) — 성공 = 200 { success: true }.
+//   가입과 **완전히 같은 규칙**(형식·중복·예약어)을 적용한다 — 가입만 막고 변경으로 뚫리면 의미가 없다.
+//   400 의 `msg` 는 그대로 표시 가능한 한국어(형식/예약어/중복 각각 다른 문구).
+//   ★ 닉네임은 공개 URL 식별자라(`/instructors/{nickName}`) 바꾸면 기존 공유 링크가 깨진다 — FE 는 확인을 받는 게 좋다.
+
+/** PATCH /account/nickName 요청 본문. 규칙은 CheckNickNameResponse 주석 참조. */
+export interface NickNameUpdateRequest {
+  nickName: string;
 }
 
 // ── 회원탈퇴 / 복구 (account) — docs/features/account-deletion.md ──

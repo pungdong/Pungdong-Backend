@@ -56,7 +56,7 @@
 
 `GET /instructors/{nickName}`. 전용 handle 컬럼은 **폐기**됐다.
 
-- 경로가 기존 `GET /instructors/public`(공개 강사 목록)과 한 네임스페이스다. Spring MVC 는 **리터럴 우선**이라 라우팅은 안전하지만, 닉네임이 정확히 `public` 인 계정은 프로필이 안 열린다 → 예약어로 차단.
+- 경로가 기존 `GET /instructors/public`(공개 강사 목록)과 한 네임스페이스다. Spring MVC 는 **리터럴 우선**이라 라우팅은 안전하지만, 닉네임이 정확히 `public` 인 계정은 프로필이 안 열린다 → 예약어로 차단(`global/validation/NickNamePolicy` — 가입·변경 시점에 400).
 - **`/`·`\` 가 든 닉네임은 열 수 없다** — Spring Security `StrictHttpFirewall` 이 인코딩된 슬래시 요청을 거부한다(path traversal 방어). 방화벽을 푸는 건 하지 않는다. 신규 입력은 형식 가드로 막고, 기존 보유자는 별도 리포트 대상.
 - `@PathVariable` 은 **이미 디코딩된 값**을 받는다. 추가 디코딩하면 이중 디코딩 버그.
 - ⚠️ `account.nick_name` 에 **아직 UNIQUE 인덱스가 없다**(dedupe 가 유저 식별자를 바꾸는 동작이라 실데이터 점검·승인 후 별도 마이그레이션). 그래서 공개 조회 쿼리는 결정적 정렬(가장 오래된 계정) + 첫 건이다 — 단건 조회로 바꾸면 중복 시 500 이 난다.
