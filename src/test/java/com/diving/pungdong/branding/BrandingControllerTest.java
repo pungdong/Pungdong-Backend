@@ -135,7 +135,7 @@ class BrandingControllerTest {
     @Test
     @DisplayName("공개 브랜딩 페이지 조회")
     void publicBrandingPage() throws Exception {
-        given(brandingService.publicProfile(any())).willReturn(publicProfile());
+        given(brandingService.publicProfile(any(), any())).willReturn(publicProfile());
 
         mockMvc.perform(get("/instructors/{nickName}", "김다이버"))
                 .andExpect(status().isOk())

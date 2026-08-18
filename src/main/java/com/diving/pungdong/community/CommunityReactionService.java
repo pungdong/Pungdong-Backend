@@ -2,8 +2,10 @@ package com.diving.pungdong.community;
 
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.AccountJpaRepo;
+import com.diving.pungdong.block.BlockService;
 import com.diving.pungdong.branding.BrandingPost;
 import com.diving.pungdong.community.dto.ReactionResponse;
+import com.diving.pungdong.global.persistence.IdempotentInsert;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -33,10 +35,12 @@ public class CommunityReactionService {
     private final AccountJpaRepo accountRepo;
     /** 제약 위반이 이 트랜잭션을 오염시키지 않도록 삽입만 새 트랜잭션에서 돌린다. */
     private final IdempotentInsert idempotentInsert;
+    /** 차단 관계인 글에는 반응을 걸 수 없다 — 그 글은 내 피드에 없다. */
+    private final BlockService blockService;
 
     @Transactional
     public ReactionResponse like(Account currentUser, Long postId) {
-        BrandingPost post = requireVisible(postId);
+        BrandingPost post = requireVisible(postId, currentUser);
         Account me = loadAccount(currentUser);
 
         // 이미 있으면 새로 만들지 않는다. 그럼에도 동시에 두 요청이 들어오면 UNIQUE 가 최종 방어선이라
@@ -56,7 +60,7 @@ public class CommunityReactionService {
 
     @Transactional
     public ReactionResponse unlike(Account currentUser, Long postId) {
-        requireVisible(postId);
+        requireVisible(postId, currentUser);
         likeRepo.findByPostIdAndAccountId(postId, currentUser.getId()).ifPresent(likeRepo::delete);
         return ReactionResponse.builder()
                 .count(likeRepo.countByPostId(postId)).active(false).build();
@@ -64,7 +68,7 @@ public class CommunityReactionService {
 
     @Transactional
     public ReactionResponse bookmark(Account currentUser, Long postId) {
-        BrandingPost post = requireVisible(postId);
+        BrandingPost post = requireVisible(postId, currentUser);
         Account me = loadAccount(currentUser);
 
         if (bookmarkRepo.findByPostIdAndAccountId(postId, me.getId()).isEmpty()) {
@@ -81,15 +85,24 @@ public class CommunityReactionService {
 
     @Transactional
     public ReactionResponse unbookmark(Account currentUser, Long postId) {
-        requireVisible(postId);
+        requireVisible(postId, currentUser);
         bookmarkRepo.findByPostIdAndAccountId(postId, currentUser.getId()).ifPresent(bookmarkRepo::delete);
         return ReactionResponse.builder()
                 .count(bookmarkRepo.countByPostId(postId)).active(false).build();
     }
 
     /** 피드에 보이는 글만 반응 대상이다. 숨김·없는 글은 400(존재 숨김). */
-    private BrandingPost requireVisible(Long postId) {
-        return postRepo.findVisibleInFeed(postId).orElseThrow(ResourceNotFoundException::new);
+    /**
+     * 노출 중인 글 + <b>차단 관계 아님</b>. 차단을 안 보면 글 id 만으로 좋아요·북마크가 걸려
+     * 피드 필터가 우회된다(존재 확인 채널도 된다).
+     */
+    private BrandingPost requireVisible(Long postId, Account viewer) {
+        BrandingPost post = postRepo.findVisibleInFeed(postId).orElseThrow(ResourceNotFoundException::new);
+        if (viewer != null
+                && blockService.isBlockedBetween(viewer.getId(), post.getBranding().getAccount().getId())) {
+            throw new ResourceNotFoundException();
+        }
+        return post;
     }
 
     private Account loadAccount(Account currentUser) {

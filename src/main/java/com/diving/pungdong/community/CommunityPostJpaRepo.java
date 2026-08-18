@@ -61,6 +61,23 @@ public interface CommunityPostJpaRepo extends JpaRepository<BrandingPost, Long>,
     String TAG_FILTER = "and (:tag is null or exists (select 1 from BrandingPostTag t where t.post = p and t.tag = :tag)) ";
 
     /**
+     * 차단 필터 — 뷰어와 <b>어느 방향으로든</b> 차단 관계인 작성자의 글을 뺀다.
+     *
+     * <p><b>양방향인 게 핵심이다.</b> 차단은 상호 은닉이라 내가 차단한 사람의 글도, 나를 차단한 사람의
+     * 글도 내게 보이지 않는다. 앞 절이 {@code uk_account_block_once(blocker, blocked)} 를,
+     * 뒤 절이 {@code ix_account_block_reverse(blocked, blocker)} 를 탄다.
+     *
+     * <p><b>클라이언트가 아니라 서버가 거른다.</b> FE 가 페이지에서 빼면 20개짜리 페이지가 17개가 되고
+     * {@code totalElements} 는 그대로라 거짓이 된다 — 한 페이지가 통째로 차단이면 빈 페이지가 나와
+     * 무한스크롤이 멈춘다. 태그 필터를 조인이 아니라 {@code exists} 로 둔 이유와 같은 문제다.
+     *
+     * <p>{@code :viewerId} 가 null(비로그인)이면 통과한다 — 차단 관계 자체가 없다.
+     */
+    String BLOCK_FILTER = "and (:viewerId is null or not exists (select 1 from AccountBlock ab "
+            + "where (ab.blocker.id = :viewerId and ab.blocked = p.branding.account) "
+            + "or (ab.blocked.id = :viewerId and ab.blocker = p.branding.account))) ";
+
+    /**
      * 피드에 노출 중인 글 1건. 숨김·미노출 글은 <b>없는 것으로 취급</b>한다(존재 숨김 → 호출부가 400).
      * 오너 본인에게 열어주는 분기는 서비스가 별도로 처리한다.
      */
@@ -102,10 +119,11 @@ public interface CommunityPostJpaRepo extends JpaRepository<BrandingPost, Long>,
             + "where p.showInFeed = true and p.isHidden = false "
             + "and p.category = com.diving.pungdong.branding.CommunityCategory.MATCH "
             + "and (:instructorOnly = false or exists (select 1 from InstructorApplication ia where ia.account = p.branding.account and ia.status = com.diving.pungdong.instructorapplication.InstructorApplicationStatus.APPROVED)) "
-            + TAG_FILTER
+            + TAG_FILTER + BLOCK_FILTER
             + "order by m.meetDate asc, p.id desc")
     Page<BrandingPost> findMatchFeed(@Param("instructorOnly") boolean instructorOnly,
                                      @Param("tag") String tag,
+                                     @Param("viewerId") Long viewerId,
                                      Pageable pageable);
 
     /**
@@ -126,25 +144,27 @@ public interface CommunityPostJpaRepo extends JpaRepository<BrandingPost, Long>,
      * 훨씬 크다</b>(카티전 곱만큼).
      */
     @Query(value = "select p from BrandingPost p " + ENGAGEMENT_JOINS
-            + "where " + FEED_VISIBLE + INSTRUCTOR_FILTER + TAG_FILTER
+            + "where " + FEED_VISIBLE + INSTRUCTOR_FILTER + TAG_FILTER + BLOCK_FILTER
             + "group by p order by " + ENGAGEMENT_SCORE + " desc, p.id desc",
             countQuery = "select count(p) from BrandingPost p "
-                    + "where " + FEED_VISIBLE + INSTRUCTOR_FILTER + TAG_FILTER)
+                    + "where " + FEED_VISIBLE + INSTRUCTOR_FILTER + TAG_FILTER + BLOCK_FILTER)
     Page<BrandingPost> findPopularFeed(@Param("since") OffsetDateTime since,
                                        @Param("instructorOnly") boolean instructorOnly,
                                        @Param("tag") String tag,
+                                       @Param("viewerId") Long viewerId,
                                        Pageable pageable);
 
     /** 위와 같되 카테고리로 좁힌다. */
     @Query(value = "select p from BrandingPost p " + ENGAGEMENT_JOINS
-            + "where " + FEED_VISIBLE + "and p.category = :category " + INSTRUCTOR_FILTER + TAG_FILTER
+            + "where " + FEED_VISIBLE + "and p.category = :category " + INSTRUCTOR_FILTER + TAG_FILTER + BLOCK_FILTER
             + "group by p order by " + ENGAGEMENT_SCORE + " desc, p.id desc",
             countQuery = "select count(p) from BrandingPost p "
-                    + "where " + FEED_VISIBLE + "and p.category = :category " + INSTRUCTOR_FILTER + TAG_FILTER)
+                    + "where " + FEED_VISIBLE + "and p.category = :category " + INSTRUCTOR_FILTER + TAG_FILTER + BLOCK_FILTER)
     Page<BrandingPost> findPopularFeedByCategory(@Param("since") OffsetDateTime since,
                                                  @Param("category") com.diving.pungdong.branding.CommunityCategory category,
                                                  @Param("instructorOnly") boolean instructorOnly,
                                                  @Param("tag") String tag,
+                                                 @Param("viewerId") Long viewerId,
                                                  Pageable pageable);
 
     /**
@@ -159,8 +179,11 @@ public interface CommunityPostJpaRepo extends JpaRepository<BrandingPost, Long>,
      */
     @Query("select p.id, p.title, p.category, " + ENGAGEMENT_SCORE + " from BrandingPost p " + ENGAGEMENT_JOINS
             + "where p.showInFeed = true and p.isHidden = false and p.createdAt >= :since "
+            + BLOCK_FILTER
             + "group by p order by " + ENGAGEMENT_SCORE + " desc, p.id desc")
-    List<Object[]> findTrendingTopics(@Param("since") OffsetDateTime since, Pageable pageable);
+    List<Object[]> findTrendingTopics(@Param("since") OffsetDateTime since,
+                                      @Param("viewerId") Long viewerId,
+                                      Pageable pageable);
 
     /**
      * 카테고리별 최근 7일 글 수 — 피드 상단 4-up 그리드와 HOT 뱃지(&gt;50).
@@ -200,8 +223,10 @@ public interface CommunityPostJpaRepo extends JpaRepository<BrandingPost, Long>,
     @Query("select p from BrandingPost p "
             + "where p.showInFeed = true and p.isHidden = false "
             + "and p.category = :category and p.id <> :excludePostId "
+            + BLOCK_FILTER
             + "order by p.createdAt desc, p.id desc")
     List<BrandingPost> findRelated(@Param("category") com.diving.pungdong.branding.CommunityCategory category,
                                    @Param("excludePostId") Long excludePostId,
+                                   @Param("viewerId") Long viewerId,
                                    Pageable pageable);
 }

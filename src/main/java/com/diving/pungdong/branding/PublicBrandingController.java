@@ -3,6 +3,8 @@ package com.diving.pungdong.branding;
 import com.diving.pungdong.branding.dto.BrandingPostCardResponse;
 import com.diving.pungdong.branding.dto.BrandingProfileResponse;
 import com.diving.pungdong.branding.dto.SuggestedInstructorsResponse;
+import com.diving.pungdong.account.Account;
+import com.diving.pungdong.global.security.CurrentUser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PagedResourcesAssembler;
@@ -52,17 +54,18 @@ public class PublicBrandingController {
      * 안 막으면 그 닉네임을 가진 사람의 프로필이 영영 안 열린다({@code "public"} 과 같은 이유).
      */
     @GetMapping("/suggested")
-    public ResponseEntity<?> suggested(@RequestParam(required = false, defaultValue = "5") int limit) {
+    public ResponseEntity<?> suggested(@CurrentUser Account viewer,
+                                       @RequestParam(required = false, defaultValue = "5") int limit) {
         EntityModel<SuggestedInstructorsResponse> model =
-                EntityModel.of(suggestedInstructorService.suggest(limit));
+                EntityModel.of(suggestedInstructorService.suggest(limit, viewer));
         model.add(Link.of("/docs/api.html#resource-instructors-suggested").withRel("profile"));
         return ResponseEntity.ok().body(model);
     }
 
     @GetMapping("/{nickName}")
-    public ResponseEntity<?> publicProfile(@PathVariable String nickName) {
+    public ResponseEntity<?> publicProfile(@CurrentUser Account viewer, @PathVariable String nickName) {
         EntityModel<BrandingProfileResponse> model =
-                EntityModel.of(brandingService.publicProfile(nickName));
+                EntityModel.of(brandingService.publicProfile(nickName, viewer));
         model.add(Link.of("/docs/api.html#resource-branding-public").withRel("profile"));
         return ResponseEntity.ok().body(model);
     }
@@ -72,11 +75,12 @@ public class PublicBrandingController {
      * (클라이언트가 정렬을 바꾸거나 size 를 키워 전수 스크래핑하지 못하게).
      */
     @GetMapping("/{nickName}/posts")
-    public ResponseEntity<?> publicPosts(@PathVariable String nickName,
+    public ResponseEntity<?> publicPosts(@CurrentUser Account viewer,
+                                         @PathVariable String nickName,
                                          Pageable pageable,
                                          PagedResourcesAssembler<BrandingPostCardResponse> assembler) {
         PagedModel<EntityModel<BrandingPostCardResponse>> model =
-                assembler.toModel(postService.publicGrid(nickName, pageable));
+                assembler.toModel(postService.publicGrid(nickName, pageable, viewer));
         model.add(Link.of("/docs/api.html#resource-branding-posts").withRel("profile"));
         return ResponseEntity.ok().body(model);
     }

@@ -5,6 +5,7 @@ import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.branding.BrandingPost;
 import com.diving.pungdong.community.dto.ContentReportRequest;
 import com.diving.pungdong.community.dto.ContentReportResponse;
+import com.diving.pungdong.global.persistence.IdempotentInsert;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;

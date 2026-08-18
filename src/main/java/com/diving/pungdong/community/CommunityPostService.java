@@ -3,6 +3,7 @@ package com.diving.pungdong.community;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.account.ProfilePhoto;
+import com.diving.pungdong.block.BlockService;
 import com.diving.pungdong.branding.*;
 import com.diving.pungdong.branding.dto.LinkedCourseResponse;
 import com.diving.pungdong.community.dto.*;
@@ -81,6 +82,8 @@ public class CommunityPostService {
     private final CourseJpaRepo courseRepo;
     /** 강사 여부·강의 수 합성. 댓글 서비스와 같은 컴포넌트를 써야 같은 사람이 두 화면에서 같게 보인다. */
     private final CommunityAuthorComposer authorComposer;
+    /** 단건 경로(상세·관련글)의 차단 판정. 페이징되는 목록은 쿼리 안에서 거른다 — 서비스 Javadoc 참고. */
+    private final BlockService blockService;
     private final PublicMediaUrlPolicy mediaUrlPolicy;
     private final S3Uploader s3Uploader;
 
@@ -112,19 +115,24 @@ public class CommunityPostService {
         // 빈 문자열은 "필터 없음" 이다 — FE 가 ?tag= 를 비워 보내는 걸 0건으로 답하면 안 된다.
         String tagFilter = StringUtils.hasText(tag) ? tag.trim() : null;
 
+        // 차단 필터는 세 경로 전부에 걸어야 한다 — 하나라도 빠지면 그 탭에서만 차단이 새어 나온다.
+        // 비로그인은 null 이고, 그때 필터는 통과다(차단 관계 자체가 없다).
+        Long viewerId = viewer == null ? null : viewer.getId();
+
         Page<BrandingPost> posts;
         if (sort == FeedSort.POPULAR && !bookmarkedByMe) {
             OffsetDateTime since = OffsetDateTime.now(ZoneOffset.UTC).minusDays(POPULAR_WINDOW_DAYS);
             posts = category == null
-                    ? postRepo.findPopularFeed(since, instructorOnly, tagFilter, page)
-                    : postRepo.findPopularFeedByCategory(since, category, instructorOnly, tagFilter, page);
+                    ? postRepo.findPopularFeed(since, instructorOnly, tagFilter, viewerId, page)
+                    : postRepo.findPopularFeedByCategory(since, category, instructorOnly, tagFilter, viewerId, page);
         } else if (category == CommunityCategory.MATCH && !bookmarkedByMe) {
-            posts = postRepo.findMatchFeed(instructorOnly, tagFilter, page);
+            posts = postRepo.findMatchFeed(instructorOnly, tagFilter, viewerId, page);
         } else {
             Specification<BrandingPost> spec = Specification.where(CommunityPostSpecifications.feedVisible())
                     .and(CommunityPostSpecifications.category(category))
                     .and(CommunityPostSpecifications.authoredBy(authorType))
                     .and(CommunityPostSpecifications.tag(tagFilter))
+                    .and(CommunityPostSpecifications.notBlockedFor(viewerId))
                     .and(bookmarkedByMe ? CommunityPostSpecifications.bookmarkedBy(viewer.getId()) : null);
             posts = postRepo.findAll(spec, withLatestSort(page));
         }
@@ -144,6 +152,9 @@ public class CommunityPostService {
         if (post == null) {
             throw new ResourceNotFoundException();
         }
+        // 차단 관계면 딥링크·직접 URL 로도 열리지 않는다 — 피드에서만 가리면 우회로가 남는다.
+        // 어느 방향이든 같게 취급한다(차단당한 사실을 알려주지 않기 위해서도 응답이 같아야 한다).
+        requireNotBlocked(post, viewer);
         return toDetail(post, viewer);
     }
 
@@ -205,10 +216,11 @@ public class CommunityPostService {
      * <p>글이 모자라면 <b>모자란 대로</b> 짧게 준다. 카테고리 카운트는 0 으로 채우지만(칸은 4개로
      * 고정이고 0 은 실제 값이다) 여기서 같은 짓을 하면 없는 글을 지어내는 게 된다.
      */
-    public List<TrendingTopicResponse> trendingTopics(int limit) {
+    public List<TrendingTopicResponse> trendingTopics(int limit, Account viewer) {
         int size = Math.min(Math.max(limit, 1), MAX_PAGE_SIZE);
         OffsetDateTime since = OffsetDateTime.now(ZoneOffset.UTC).minusDays(POPULAR_WINDOW_DAYS);
-        return postRepo.findTrendingTopics(since, PageRequest.of(0, size)).stream()
+        Long viewerId = viewer == null ? null : viewer.getId();
+        return postRepo.findTrendingTopics(since, viewerId, PageRequest.of(0, size)).stream()
                 .map(row -> TrendingTopicResponse.builder()
                         .postId((Long) row[0])
                         .title((String) row[1])
@@ -227,8 +239,10 @@ public class CommunityPostService {
      */
     public List<CommunityPostCardResponse> related(Long postId, int limit, Account viewer) {
         BrandingPost post = postRepo.findVisibleInFeed(postId).orElseThrow(ResourceNotFoundException::new);
+        requireNotBlocked(post, viewer);
         int size = Math.min(Math.max(limit, 1), MAX_PAGE_SIZE);
-        List<BrandingPost> posts = postRepo.findRelated(post.getCategory(), postId, PageRequest.of(0, size));
+        Long viewerId = viewer == null ? null : viewer.getId();
+        List<BrandingPost> posts = postRepo.findRelated(post.getCategory(), postId, viewerId, PageRequest.of(0, size));
         return posts.stream().map(cardMapperFor(posts, viewer)).collect(Collectors.toList());
     }
 
@@ -430,6 +444,22 @@ public class CommunityPostService {
     /* ─── 내부: 조회 조립 ─────────────────────────────────── */
 
     /**
+     * 차단 관계면 <b>없는 것으로 취급</b>한다(존재 숨김 → 400). 목록은 쿼리에서 걸러지지만 상세는
+     * id 만 알면 닿는 경로라 여기서 막지 않으면 딥링크로 그대로 열린다.
+     *
+     * <p>자기 글에는 걸리지 않는다 — 자기 자신은 차단할 수 없어 판정이 항상 false 다.
+     */
+    private void requireNotBlocked(BrandingPost post, Account viewer) {
+        if (viewer == null) {
+            return;
+        }
+        Long authorId = post.getBranding().getAccount().getId();
+        if (blockService.isBlockedBetween(viewer.getId(), authorId)) {
+            throw new ResourceNotFoundException();
+        }
+    }
+
+    /**
      * 카드 매퍼 — <b>페이지 전체에 대한 일괄 조회를 먼저 끝내고</b> 그 결과를 클로저로 들고 카드를 만든다.
      * 이렇게 하지 않으면 카드마다 미디어·카운트·작성자 쿼리가 나간다.
      */
@@ -439,7 +469,12 @@ public class CommunityPostService {
         Map<Long, List<BrandingPostMedia>> mediaByPost = mediaByPost(postIds);
         Map<Long, Long> likes = countMap(likeRepo.countByPostIds(postIds));
         Map<Long, Long> bookmarks = countMap(bookmarkRepo.countByPostIds(postIds));
-        Map<Long, Long> comments = countMap(commentRepo.countByPostIds(postIds));
+        // 댓글 수도 뷰어 기준이어야 한다. 스레드에서 차단 유저의 댓글(과 그 답글)이 빠지는데 수는 전체를
+        // 세면 "댓글 3인데 2개 보임" 이 된다 — 이 레포가 명시적으로 버그라 부르는 상태다(삭제 댓글을
+        // 세지 않는 것과 같은 이유). 페이지당 쿼리 1회는 그대로 유지된다.
+        Map<Long, Long> comments = countMap(viewer == null
+                ? commentRepo.countByPostIds(postIds)
+                : commentRepo.countByPostIdsForViewer(postIds, viewer.getId()));
         Map<Long, CommunityPostMatch> matches = matchRepo.findAllByPostIds(postIds).stream()
                 .collect(Collectors.toMap(CommunityPostMatch::getPostId, Function.identity()));
 
@@ -497,7 +532,9 @@ public class CommunityPostService {
                 .createdAt(post.getCreatedAt())
                 .updatedAt(post.getUpdatedAt())
                 .likeCount(likeRepo.countByPostId(postId))
-                .commentCount(commentRepo.countByPostIdAndIsDeletedFalse(postId))
+                .commentCount(viewer == null
+                        ? commentRepo.countByPostIdAndIsDeletedFalse(postId)
+                        : commentRepo.countVisibleForViewer(postId, viewer.getId()))
                 .bookmarkCount(bookmarkRepo.countByPostId(postId))
                 .likedByMe(liked.contains(postId))
                 .bookmarkedByMe(bookmarked.contains(postId))

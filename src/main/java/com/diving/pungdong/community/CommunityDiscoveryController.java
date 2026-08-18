@@ -1,5 +1,7 @@
 package com.diving.pungdong.community;
 
+import com.diving.pungdong.account.Account;
+import com.diving.pungdong.global.security.CurrentUser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.hateoas.CollectionModel;
 import org.springframework.hateoas.MediaTypes;
@@ -43,7 +45,8 @@ public class CommunityDiscoveryController {
      * 글이 모자라면 짧게 온다 — 카테고리 카운트처럼 빈 칸을 채우지 않는다.
      */
     @GetMapping("/topics/trending")
-    public ResponseEntity<?> trendingTopics(@RequestParam(required = false, defaultValue = "5") int limit) {
-        return ResponseEntity.ok().body(CollectionModel.of(postService.trendingTopics(limit)));
+    public ResponseEntity<?> trendingTopics(@CurrentUser Account viewer,
+                                            @RequestParam(required = false, defaultValue = "5") int limit) {
+        return ResponseEntity.ok().body(CollectionModel.of(postService.trendingTopics(limit, viewer)));
     }
 }

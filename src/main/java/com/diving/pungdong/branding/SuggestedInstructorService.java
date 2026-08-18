@@ -2,6 +2,7 @@ package com.diving.pungdong.branding;
 
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.AccountJpaRepo;
+import com.diving.pungdong.block.BlockService;
 import com.diving.pungdong.branding.dto.SuggestedInstructorResponse;
 import com.diving.pungdong.branding.dto.SuggestedInstructorsResponse;
 import com.diving.pungdong.instructorapplication.InstructorApplication;
@@ -15,6 +16,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -42,6 +44,8 @@ public class SuggestedInstructorService {
     private final AccountBrandingJpaRepo brandingRepo;
     private final AccountJpaRepo accountRepo;
     private final InstructorApplicationJpaRepo applicationRepo;
+    /** 차단한(또는 나를 차단한) 강사는 추천하지 않는다. */
+    private final BlockService blockService;
 
     /**
      * 무작위 {@code limit} 명 + 추천 가능한 강사 총 수.
@@ -52,10 +56,16 @@ public class SuggestedInstructorService {
      * <p>강사가 {@code limit} 보다 적으면 <b>있는 만큼만</b> 온다. 빈 목록도 정상 응답(200)이다 —
      * 승인된 강사가 아직 없거나 아무도 프로필을 발행하지 않은 건 실패가 아니라 사실이다.
      */
-    public SuggestedInstructorsResponse suggest(int limit) {
+    public SuggestedInstructorsResponse suggest(int limit, Account viewer) {
         int size = Math.min(Math.max(limit, 1), MAX_LIMIT);
 
         List<Long> candidates = new ArrayList<>(brandingRepo.findSuggestableInstructorAccountIds());
+        // 차단 관계인 강사는 후보에서 뺀다. 페이징이 없는 목록이라 메모리에서 걸러도 개수가
+        // 어긋나지 않는다 — totalCount 도 걸러낸 뒤의 수여야 "N명 중 무작위" 가 사실이 된다.
+        Set<Long> blocked = blockService.relatedAccountIds(viewer == null ? null : viewer.getId());
+        if (!blocked.isEmpty()) {
+            candidates.removeAll(blocked);
+        }
         long totalCount = candidates.size();
         if (candidates.isEmpty()) {
             return SuggestedInstructorsResponse.builder().totalCount(0).instructors(List.of()).build();

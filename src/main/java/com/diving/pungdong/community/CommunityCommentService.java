@@ -7,8 +7,10 @@ import com.diving.pungdong.community.dto.CommunityAuthorResponse;
 import com.diving.pungdong.community.dto.CommunityCommentRequest;
 import com.diving.pungdong.community.dto.CommunityCommentResponse;
 import com.diving.pungdong.community.dto.ReactionResponse;
+import com.diving.pungdong.global.persistence.IdempotentInsert;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
+import com.diving.pungdong.block.BlockService;
 import com.diving.pungdong.notification.event.CommunityCommentEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
@@ -53,6 +55,8 @@ public class CommunityCommentService {
      * 트랜잭션 밖 발행은 예외고, 안에서 발행해야 롤백 시 알림도 함께 취소된다.
      */
     private final ApplicationEventPublisher eventPublisher;
+    /** 차단 판정. 스레드는 페이징이 없어 메모리에서 걸러도 개수가 어긋날 여지가 없다. */
+    private final BlockService blockService;
 
     /* ─── 조회 ───────────────────────────────────────────── */
 
@@ -63,7 +67,7 @@ public class CommunityCommentService {
     public List<CommunityCommentResponse> thread(Long postId, Account viewer) {
         requireVisiblePost(postId, viewer);
 
-        List<CommunityComment> all = commentRepo.findThread(postId);
+        List<CommunityComment> all = withoutBlocked(commentRepo.findThread(postId), viewer);
         if (all.isEmpty()) {
             return List.of();
         }
@@ -217,6 +221,11 @@ public class CommunityCommentService {
         if (Objects.equals(recipient.getId(), actor.getId())) {
             return;
         }
+        // 차단 관계에는 알림을 보내지 않는다. 위 가드들 때문에 정상 동선으로는 닿지 않지만, 알림은
+        // 차단을 뚫고 나가는 마지막 통로라 여기서도 막는다(푸시는 되돌릴 수 없다).
+        if (blockService.isBlockedBetween(actor.getId(), recipient.getId())) {
+            return;
+        }
         eventPublisher.publishEvent(CommunityCommentEvent.builder()
                 .recipientAccountId(recipient.getId())
                 .postId(post.getId())
@@ -256,9 +265,38 @@ public class CommunityCommentService {
      * 달 수 있으면 존재를 알려주는 셈이다(anti-IDOR).
      */
     private BrandingPost requireVisiblePost(Long postId, Account viewer) {
-        return postRepo.findVisibleInFeed(postId)
+        BrandingPost post = postRepo.findVisibleInFeed(postId)
                 .or(() -> viewer == null ? Optional.empty() : postRepo.findMine(postId, viewer.getId()))
                 .orElseThrow(ResourceNotFoundException::new);
+        // 차단 관계면 글 자체가 없는 것으로 취급한다 — 댓글을 읽는 것도 다는 것도 막힌다.
+        // 이 가드가 없으면 "차단했는데 그 사람이 내 글에 계속 댓글을 단다" 가 그대로 남는다.
+        if (viewer != null
+                && blockService.isBlockedBetween(viewer.getId(), post.getBranding().getAccount().getId())) {
+            throw new ResourceNotFoundException();
+        }
+        return post;
+    }
+
+    /**
+     * 차단한(또는 나를 차단한) 사람의 댓글을 스레드에서 뺀다. <b>그 댓글에 달린 답글도 함께 빠진다</b> —
+     * 부모가 사라지면 붙을 자리가 없다. {@code CommunityCommentJpaRepo.NOT_BLOCKED} 가 세는 기준과
+     * 정확히 같아야 카드의 댓글 수와 어긋나지 않는다.
+     *
+     * <p>삭제 댓글처럼 툼스톤을 남기지 않는 게 요점이다 — 차단은 "그 사람의 흔적이 보이지 않는 것" 이라
+     * "차단한 사용자의 댓글입니다" 라는 자리를 남기면 차단이 절반만 동작한다.
+     */
+    private List<CommunityComment> withoutBlocked(List<CommunityComment> comments, Account viewer) {
+        if (viewer == null) {
+            return comments;
+        }
+        Set<Long> blocked = blockService.relatedAccountIds(viewer.getId());
+        if (blocked.isEmpty()) {
+            return comments;
+        }
+        return comments.stream()
+                .filter(c -> !blocked.contains(c.getAccount().getId()))
+                .filter(c -> c.isTopLevel() || !blocked.contains(c.getParent().getAccount().getId()))
+                .collect(Collectors.toList());
     }
 
     /**
@@ -272,6 +310,11 @@ public class CommunityCommentService {
         CommunityComment comment = commentRepo.findById(commentId)
                 .orElseThrow(ResourceNotFoundException::new);
         requireVisiblePost(comment.getPost().getId(), viewer);
+        // 글 작성자는 안 막혔어도 댓글 작성자가 차단 관계일 수 있다 — 그 댓글은 내 스레드에 없으므로
+        // 없는 것으로 취급한다(id 를 아는 것만으로 반응이 걸리면 필터가 뚫린다).
+        if (viewer != null && blockService.isBlockedBetween(viewer.getId(), comment.getAccount().getId())) {
+            throw new ResourceNotFoundException();
+        }
         if (comment.isDeleted()) {
             throw new BadRequestException("삭제된 댓글에는 좋아요를 누를 수 없어요.");
         }
