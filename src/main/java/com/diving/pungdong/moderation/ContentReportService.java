@@ -68,7 +68,8 @@ public class ContentReportService {
         }
 
         Account me = loadAccount(currentUser);
-        Long authorId = requireTargetAuthor(me, request.getTargetType(), request.getTargetId());
+        Long targetId = resolveTargetId(request);
+        Long authorId = requireTargetAuthor(me, request.getTargetType(), targetId);
 
         // 자기 콘텐츠 신고는 막는다 — 어드민 큐만 늘리고 판단할 게 없다.
         if (Objects.equals(authorId, me.getId())) {
@@ -77,14 +78,14 @@ public class ContentReportService {
 
         // 중복은 멱등 — 기존 건을 그대로 돌려준다.
         Optional<ContentReport> existing = reportRepo.findByTargetTypeAndTargetIdAndReporterId(
-                request.getTargetType(), request.getTargetId(), me.getId());
+                request.getTargetType(), targetId, me.getId());
         if (existing.isPresent()) {
             return toResponse(existing.get(), false);
         }
 
         ContentReport report = ContentReport.builder()
                 .targetType(request.getTargetType())
-                .targetId(request.getTargetId())
+                .targetId(targetId)
                 .reporter(me)
                 .reason(request.getReason())
                 .detail(request.getDetail())
@@ -96,7 +97,7 @@ public class ContentReportService {
             idempotentInsert.insert(reportRepo, report);
         } catch (DataIntegrityViolationException alreadyReported) {
             return reportRepo.findByTargetTypeAndTargetIdAndReporterId(
-                            request.getTargetType(), request.getTargetId(), me.getId())
+                            request.getTargetType(), targetId, me.getId())
                     .map(existingReport -> toResponse(existingReport, false))
                     .orElseThrow(ResourceNotFoundException::new);
         }
@@ -143,6 +144,19 @@ public class ContentReportService {
         return toResponse(report, true);
     }
 
+    /**
+     * 계정 정지 해제 — <b>기각(DISMISSED)은 되돌리지 않는다</b>.
+     *
+     * <p>기각은 조치를 취소하는 동작이 아니다(글도 다시 공개하지 않는다). 그런데 정지는 사람이
+     * 서비스를 아예 못 쓰는 상태라 <b>되돌릴 문이 없으면 영구 잠금</b>이 된다 — 그래서 신고 처리와
+     * 분리된 명시적 경로를 둔다. 닉네임으로 받는 이유는 접수와 같다(순차 id 비노출).
+     */
+    @Transactional
+    public void setSuspended(String nickName, boolean suspended) {
+        Account target = accountRepo.findByNickName(nickName).orElseThrow(ResourceNotFoundException::new);
+        target.setSuspendedAt(suspended ? OffsetDateTime.now(ZoneOffset.UTC) : null);
+    }
+
     /* ─── 내부 ───────────────────────────────────────────── */
 
     /**
@@ -151,6 +165,25 @@ public class ContentReportService {
      * <p>폴리모픽 참조라 DB 제약을 걸 수 없어 접수 시점에 여기서 확인한다 — 없는 대상을 신고하면
      * 어드민 큐에 열 수 없는 행이 쌓인다.
      */
+    /**
+     * 저장에 쓸 대상 id. {@code USER} 만 닉네임으로 받고 여기서 계정 id 로 바꾼다 — 순차 id 를 계약에
+     * 노출하지 않으면서 저장 모양은 하나로 유지한다(폴리모픽 UNIQUE 가 id 축이다).
+     */
+    private Long resolveTargetId(ContentReportRequest request) {
+        if (request.getTargetType() != ReportTargetType.USER) {
+            if (request.getTargetId() == null) {
+                throw new BadRequestException("신고 대상을 선택해주세요.");
+            }
+            return request.getTargetId();
+        }
+        if (!StringUtils.hasText(request.getTargetNickName())) {
+            throw new BadRequestException("신고할 사용자를 지정해 주세요.");
+        }
+        return accountRepo.findByNickName(request.getTargetNickName())
+                .map(Account::getId)
+                .orElseThrow(ResourceNotFoundException::new);
+    }
+
     private Long requireTargetAuthor(Account reporter, ReportTargetType targetType, Long targetId) {
         switch (targetType) {
             case POST:
@@ -164,6 +197,10 @@ public class ContentReportService {
             case COURSE:
                 return courseRepo.findById(targetId)
                         .map(course -> course.getInstructor().getId())
+                        .orElseThrow(ResourceNotFoundException::new);
+            case USER:
+                // 대상 자신이 "작성자" 다 — 자기 신고 가드(authorId == me)가 자연스럽게 성립한다.
+                return accountRepo.findById(targetId).map(Account::getId)
                         .orElseThrow(ResourceNotFoundException::new);
             case CHAT_MESSAGE:
                 // 🔴 방 접근 권한을 채팅 도메인이 직접 본다 — 메시지 id 만으로 신고를 받으면 남의 방
@@ -201,6 +238,12 @@ public class ContentReportService {
                 // 이미 확정·결제된 수강은 건드리지 않는다(Course.blockedAt Javadoc).
                 courseRepo.findById(targetId)
                         .ifPresent(course -> course.setBlockedAt(OffsetDateTime.now(ZoneOffset.UTC)));
+                return;
+            case USER:
+                // 계정 정지 — 로그인·토큰 갱신이 막히고 이미 발급된 토큰도 다음 요청에서 걸린다.
+                // 기존 콘텐츠는 지우지 않는다(개별 콘텐츠는 개별 신고로 조치한다).
+                accountRepo.findById(targetId)
+                        .ifPresent(account -> account.setSuspendedAt(OffsetDateTime.now(ZoneOffset.UTC)));
                 return;
             case CHAT_MESSAGE:
                 chatMessageService.deleteByModerator(targetId);
@@ -240,6 +283,9 @@ public class ContentReportService {
             case COURSE:
                 body = courseRepo.findById(targetId).map(Course::getTitle).orElse(null);
                 break;
+            case USER:
+                body = accountRepo.findById(targetId).map(Account::getNickName).orElse(null);
+                break;
             case CHAT_MESSAGE:
                 body = chatMessageService.moderationPreview(targetId);
                 break;
@@ -273,6 +319,9 @@ public class ContentReportService {
             case COURSE:
                 authorId = courseRepo.findById(targetId)
                         .map(course -> course.getInstructor().getId()).orElse(null);
+                break;
+            case USER:
+                authorId = targetId;
                 break;
             case CHAT_MESSAGE:
                 authorId = chatMessageService.moderationSenderId(targetId);

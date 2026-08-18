@@ -23,6 +23,14 @@
 - **memory `identity-verification-model`** — 가입 무인증 + 본인확인(간편인증+CI) 시점 결정
 - 컨트롤러 시그니처/응답/enum 바꾸면 **같은 PR 에서 [docs/api-clients/types.ts](../../../../../../../docs/api-clients/types.ts) 갱신**
 
+🔴 **`suspendedAt`(정지)은 `isDeleted`(탈퇴)와 다른 축이다.** 정지는 어드민이 하고 해제할 수 있고,
+탈퇴는 본인이 하고 30일 뒤 익명화된다. **합치지 말 것** — 익명화 배치가 `isDeleted` 로 대상을 고르므로
+합치면 정지 계정의 PII 까지 파기된다. 세우는 곳은 `moderation` 하나
+([moderation/CLAUDE.md](../moderation/CLAUDE.md)), 보는 곳은 셋이다 — `JwtAuthenticationFilter`
+(살아 있는 토큰을 즉시 무효화하는 주 빗장) · 로그인 · refresh.
+⚠️ 계정 복구(`updateAccountDeleted`, **permitAll**)가 `suspendedAt` 을 건드리게 만들지 말 것 —
+정지된 사용자가 탈퇴 후 복구로 스스로 정지를 풀 수 있게 된다.
+
 ## 결정 히스토리 (왜 이렇게 됐나 — git diff 가 못 담는 것)
 
 - **가입 시 별도 인증 없음** (설계 결정). 본인확인(간편인증 + CI 수집)은 수강생=강의신청 전, 강사=강사전환 시점. `EmailController`의 `/email/code/*` 는 가입용 아님 — **비밀번호 재설정 + 계정복구** 전용 (`AccountService.modifyForgetPassword`, `updateAccountDeleted`). 지우지 말 것. (memory: identity-verification-model)

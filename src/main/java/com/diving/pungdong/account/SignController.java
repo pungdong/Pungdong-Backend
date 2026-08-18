@@ -1,6 +1,7 @@
 package com.diving.pungdong.account;
 
 import com.diving.pungdong.global.advice.ValidationErrors;
+import com.diving.pungdong.global.advice.exception.NoPermissionsException;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.SignInInputException;
 import com.diving.pungdong.global.security.CurrentUser;
@@ -97,6 +98,13 @@ public class SignController {
         Account account = accountService.findAccountByEmail(signInInfo.getEmail());
         accountService.checkCorrectPassword(signInInfo.getPassword(), account);
 
+        // 정지 안내는 비밀번호를 맞힌 뒤에 한다 — 이메일만으로 "정지된 계정인지" 를 알 수 있으면
+        // 계정 열거(enumeration) 오라클이 하나 늘어난다. 탈퇴 안내는 이 위(findAccountByEmail)에
+        // 이미 있지만 그건 기존 동작이라 건드리지 않았다.
+        if (account.getSuspendedAt() != null) {
+            throw new NoPermissionsException("정지된 계정이에요. 문의는 support@plop.cool 로 보내주세요.");
+        }
+
         String accessToken = jwtTokenProvider.createAccessToken(
                 String.valueOf(account.getId()), account.getRoles());
         String refreshToken = jwtTokenProvider.createRefreshToken(
@@ -148,7 +156,9 @@ public class SignController {
 
         // 탈퇴한 계정은 refresh 로 토큰을 재발급받을 수 없다(탈퇴 직후 access token 은 블랙리스트로
         // 막히고, 이 가드가 refresh 우회를 막는다 — 양쪽 다 닫아야 즉시 접근차단이 성립).
-        if (Boolean.TRUE.equals(account.getIsDeleted())) {
+        if (Boolean.TRUE.equals(account.getIsDeleted()) || account.getSuspendedAt() != null) {
+            // 정지도 탈퇴와 같이 refresh 우회를 닫는다 — 필터가 access token 을 막아도 여기가
+            // 열려 있으면 새 토큰을 받아 계속 시도할 수 있다(둘 다 닫아야 접근차단이 성립).
             throw new com.diving.pungdong.global.advice.exception.ExpiredRefreshTokenException();
         }
 

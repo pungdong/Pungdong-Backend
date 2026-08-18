@@ -27,5 +27,13 @@ public enum ReportTargetType {
     COURSE,
 
     /** 단체 채팅 메시지. 조치 → 툼스톤. 신고자는 <b>그 방에 접근 가능해야</b> 한다(IDOR 방지). */
-    CHAT_MESSAGE
+    CHAT_MESSAGE,
+
+    /**
+     * 사용자 계정 자체. 조치 → <b>계정 정지</b>(로그인·토큰 갱신 차단, 기존 콘텐츠는 유지).
+     *
+     * <p>이 타입만 요청이 {@code targetId} 대신 <b>{@code targetNickName}</b> 을 받는다 — 순차 계정 id 를
+     * 계약에 노출하지 않기 위해서다. 저장은 다른 타입과 같이 {@code target_id}(계정 id)로 한다.
+     */
+    USER
 }

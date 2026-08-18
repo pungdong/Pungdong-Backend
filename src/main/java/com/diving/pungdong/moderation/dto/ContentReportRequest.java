@@ -17,8 +17,23 @@ public class ContentReportRequest {
     @NotNull(message = "신고 대상을 선택해주세요.")
     private ReportTargetType targetType;
 
-    @NotNull(message = "신고 대상을 선택해주세요.")
+    /**
+     * 대상 id. {@code USER} 를 제외한 모든 타입에서 필수다 — 서비스가 타입별로 검증한다.
+     *
+     * <p>{@code USER} 만 예외인 이유는 {@link #targetNickName} 참고.
+     */
     private Long targetId;
+
+    /**
+     * 신고할 사용자의 닉네임 — <b>{@code USER} 타입에서만 쓰고 그때는 필수</b>다.
+     *
+     * <p><b>계정 id 를 받지 않는다.</b> 순차 id 를 계약에 노출하면 증가시켜 전수 조회하는 길이 열린다
+     * (루트 CLAUDE.md anti-IDOR). 공개 프로필·차단이 이미 닉네임을 식별자로 쓰고 있어 클라이언트가
+     * 이미 들고 있는 값이기도 하다. 저장은 다른 타입과 똑같이 {@code target_id}(계정 id)로 하고,
+     * 변환은 서버가 한다 — 폴리모픽 UNIQUE 제약이 id 축이라 저장 모양은 하나여야 한다.
+     */
+    @Size(max = 30, message = "닉네임이 너무 깁니다.")
+    private String targetNickName;
 
     @NotNull(message = "신고 사유를 선택해주세요.")
     private ReportReason reason;

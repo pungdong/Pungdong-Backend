@@ -92,6 +92,8 @@ public class SecurityConfiguration {
                         // 신고 처리 큐 — 어드민 전용. /community/** 의 authenticated 매처보다 앞에 둬야
                         // ADMIN 검사가 실제로 걸린다(먼저 매치되는 매처가 이긴다).
                         .antMatchers("/admin/reports", "/admin/reports/**").hasRole("ADMIN")
+                        // 계정 정지/해제 — 신고 처리와 분리된 경로(기각은 조치를 되돌리지 않는다).
+                        .antMatchers("/admin/accounts/**").hasRole("ADMIN")
                         .antMatchers("/admin/community/reports/**").hasRole("ADMIN")
                         // 결제 주문 수동 환불(운영 보정) — 어드민 전용. /payments/** 매처와 경로가 다르지만 명시.
                         .antMatchers("/admin/payments/**").hasRole("ADMIN")

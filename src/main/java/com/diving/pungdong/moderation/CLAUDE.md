@@ -19,6 +19,7 @@
 |---|---|---|
 | 게시물 | `branding_post.moderated_at` | 작성자의 공개 전환을 막을 때 이 컬럼만 |
 | 강의 | `course.blocked_at` | 둘러보기·상세·집계·신규 신청에서 이 컬럼만 |
+| 사용자 | `account.suspended_at` | 인증 필터·로그인·refresh 가 이 컬럼만 |
 
 **새 대상을 더할 때도 같은 모양을 지킬 것** — 대상 도메인이 `ContentReportJpaRepo` 를 읽기 시작하면
 그 순간 순환이 생긴다.
@@ -67,6 +68,11 @@
 | COMMENT | 유저 삭제와 같은 규칙(대댓글 있으면 자리 남김) | — |
 | COURSE | `blocked_at` — 둘러보기·상세·강의 수·연결 카드에서 빠지고 **신규 신청만** 막힌다 | 강사는 불가 |
 | CHAT_MESSAGE | 툼스톤(`deleted=true`) — 자리는 남고 본문만 가려진다 | — |
+| USER | `suspended_at` — 로그인·refresh 차단 + **살아 있던 토큰도 다음 요청에서** 무효 | `PATCH /admin/accounts/{nickName}/suspension` |
+
+🔴 **USER 조치(정지)는 콘텐츠를 지우지 않는다.** 개별 콘텐츠는 개별 신고로 조치하는 게 이 도메인의
+규칙이고, 정지가 글을 쓸어버리면 남의 스레드가 함께 끊긴다. 그리고 **`is_deleted`(탈퇴)에 얹지 말 것** —
+익명화 배치가 `isDeleted` 로 대상을 골라서, 합치면 정지 계정의 PII 까지 파기된다.
 
 🔴 **COURSE 조치는 거래를 끊지 않는다.** 이미 확정·결제된 수강·일정·환불 계산은 그대로다.
 `enrollment.getCourse()` 를 타는 경로가 많아서(수강 카드·환불 비율·채팅방 제목) 연관관계를 끊는 방식으로

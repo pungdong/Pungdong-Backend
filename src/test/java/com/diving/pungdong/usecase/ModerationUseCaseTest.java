@@ -40,7 +40,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 신고 — <b>커뮤니티 밖으로 넓어진 대상</b>(강의·채팅 메시지)과 어드민 큐.
  *
  * <p><b>읽는 법</b>: {@code @DisplayName} 을 위에서 아래로 = 사양.
- * {@code R*} 강의 신고 / {@code M*} 채팅 메시지 신고 / {@code Q*} 어드민 큐 / {@code G*} 가드.
+ * {@code R*} 강의 신고 / {@code M*} 채팅 메시지 신고 / {@code S*} 사용자 신고·계정 정지 /
+ * {@code Q*} 어드민 큐 / {@code G*} 가드.
  *
  * <p>게시물·댓글 신고(X*)는 {@code CommunityUseCaseTest} 에 그대로 있다 — 커뮤니티에서 태어난 규칙이라
  * 그쪽에 두는 게 읽기 좋다. 여기는 <b>대상이 늘면서 새로 생긴 규칙</b>만 담는다.
@@ -60,6 +61,7 @@ class ModerationUseCaseTest {
     @Autowired ObjectMapper objectMapper;
     @Autowired JwtTokenProvider jwt;
     @Autowired AccountJpaRepo accountRepo;
+    @Autowired org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
     @Autowired CourseJpaRepo courseRepo;
     @Autowired ContentReportJpaRepo reportRepo;
     @Autowired EnrollmentJpaRepo enrollmentRepo;
@@ -90,6 +92,13 @@ class ModerationUseCaseTest {
         return accountRepo.save(Account.builder()
                 .email(email).password("encoded").nickName(nick)
                 .roles(new HashSet<>(Set.of(role))).isDeleted(false).build());
+    }
+
+    /** 로그인 시나리오용 — 실제 인코딩된 비밀번호를 넣는다(raw 는 "rawpw"). */
+    private Account accountWithPassword(String email, String nick) {
+        return accountRepo.save(Account.builder()
+                .email(email).password(passwordEncoder.encode("rawpw")).nickName(nick)
+                .roles(new HashSet<>(Set.of(Role.STUDENT))).isDeleted(false).build());
     }
 
     private String token(Account a) {
@@ -158,6 +167,23 @@ class ModerationUseCaseTest {
                         .content("{\"targetType\":\"" + targetType + "\",\"targetId\":" + targetId
                                 + ",\"reason\":\"SPAM\"}"))
                 .andExpect(status().isOk());
+    }
+
+    /** 사용자 신고 — 이 타입만 닉네임으로 대상을 지정한다(순차 계정 id 비노출). */
+    private void reportUser(Account reporter, Account target) throws Exception {
+        mockMvc.perform(post("/reports")
+                        .header(HttpHeaders.AUTHORIZATION, token(reporter))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"targetType\":\"USER\",\"targetNickName\":\"" + target.getNickName()
+                                + "\",\"reason\":\"ABUSE\"}"))
+                .andExpect(status().isOk());
+    }
+
+    private void login(Account account, org.springframework.test.web.servlet.ResultMatcher expected) throws Exception {
+        mockMvc.perform(post("/sign/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"" + account.getEmail() + "\",\"password\":\"rawpw\"}"))
+                .andExpect(expected);
     }
 
     private void actionLatest(Account admin) throws Exception {
@@ -339,6 +365,118 @@ class ModerationUseCaseTest {
                                 + ",\"reason\":\"SPAM\"}"))
                 .andExpect(status().isBadRequest());
         assertThat(reportRepo.count()).isZero();
+    }
+
+    /* ════════════════ S — 사용자 신고 · 계정 정지 ════════════════ */
+
+    @Test
+    @DisplayName("S1: 사용자 신고는 닉네임으로 접수된다 (순차 계정 id 를 계약에 노출하지 않는다)")
+    void userReport_takesNickName() throws Exception {
+        Account reporter = account("s1r@c.com", "diverS1", Role.STUDENT);
+        Account troll = account("s1t@c.com", "trollS1", Role.STUDENT);
+
+        reportUser(reporter, troll);
+
+        assertThat(reportRepo.findAll().get(0).getTargetType()).isEqualTo(ReportTargetType.USER);
+        // 저장은 다른 타입과 같은 모양이다 — 폴리모픽 UNIQUE 가 id 축이라 변환은 서버가 한다.
+        assertThat(reportRepo.findAll().get(0).getTargetId()).isEqualTo(troll.getId());
+    }
+
+    @Test
+    @DisplayName("S2: 조치하면 계정이 정지돼 로그인이 막힌다 (조치는 실제로 무언가 일어난다)")
+    void userAction_suspendsAccount() throws Exception {
+        Account admin = account("s2a@c.com", "adminS2", Role.ADMIN);
+        Account reporter = account("s2r@c.com", "diverS2", Role.STUDENT);
+        Account troll = accountWithPassword("s2t@c.com", "trollS2");
+
+        login(troll, status().isOk());
+
+        reportUser(reporter, troll);
+        actionLatest(admin);
+
+        login(troll, status().isUnauthorized());
+        assertThat(accountRepo.findById(troll.getId())).get()
+                .extracting(Account::getSuspendedAt).isNotNull();
+    }
+
+    @Test
+    @DisplayName("S3: 정지되면 이미 발급된 토큰도 다음 요청에서 막힌다 (기기가 여럿이어도 한 번에)")
+    void suspension_killsLiveTokens() throws Exception {
+        Account admin = account("s3a@c.com", "adminS3", Role.ADMIN);
+        Account reporter = account("s3r@c.com", "diverS3", Role.STUDENT);
+        Account troll = accountWithPassword("s3t@c.com", "trollS3");
+
+        String liveToken = token(troll);
+        mockMvc.perform(get("/blocks").header(HttpHeaders.AUTHORIZATION, liveToken))
+                .andExpect(status().isOk());
+
+        reportUser(reporter, troll);
+        actionLatest(admin);
+
+        // 어드민은 남의 토큰 문자열을 모른다 — 블랙리스트로는 못 막고, 요청마다 계정을 다시 읽어서 막는다.
+        mockMvc.perform(get("/blocks").header(HttpHeaders.AUTHORIZATION, liveToken))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("S4: 정지돼도 기존 콘텐츠는 남는다 (개별 콘텐츠는 개별 신고로 조치한다)")
+    void suspension_keepsContent() throws Exception {
+        Account admin = account("s4a@c.com", "adminS4", Role.ADMIN);
+        Account reporter = account("s4r@c.com", "diverS4", Role.STUDENT);
+        Account troll = accountWithPassword("s4t@c.com", "trollS4");
+        Course c = course(troll, "정지된 사람의 강의");
+
+        reportUser(reporter, troll);
+        actionLatest(admin);
+
+        // 정지가 글·강의를 쓸어버리면 남의 스레드가 함께 끊긴다.
+        assertThat(courseRepo.findById(c.getId())).isPresent();
+    }
+
+    @Test
+    @DisplayName("S5: 어드민이 정지를 해제할 수 있다 (기각은 조치를 되돌리지 않으므로 별도 경로가 필요하다)")
+    void admin_canLiftSuspension() throws Exception {
+        Account admin = account("s5a@c.com", "adminS5", Role.ADMIN);
+        Account reporter = account("s5r@c.com", "diverS5", Role.STUDENT);
+        Account troll = accountWithPassword("s5t@c.com", "trollS5");
+
+        reportUser(reporter, troll);
+        actionLatest(admin);
+        login(troll, status().isUnauthorized());
+
+        mockMvc.perform(patch("/admin/accounts/" + troll.getNickName() + "/suspension")
+                        .header(HttpHeaders.AUTHORIZATION, token(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"suspended\":false}"))
+                .andExpect(status().isNoContent());
+
+        login(troll, status().isOk());
+    }
+
+    @Test
+    @DisplayName("S6: 정지 해제는 ADMIN 만 할 수 있다")
+    void liftSuspension_requiresAdmin() throws Exception {
+        Account troll = accountWithPassword("s6t@c.com", "trollS6");
+        Account other = account("s6o@c.com", "diverS6", Role.STUDENT);
+
+        mockMvc.perform(patch("/admin/accounts/" + troll.getNickName() + "/suspension")
+                        .header(HttpHeaders.AUTHORIZATION, token(other))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"suspended\":false}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("S7: 자기 자신은 신고할 수 없다")
+    void selfUserReport_rejected() throws Exception {
+        Account me = account("s7@c.com", "diverS7", Role.STUDENT);
+
+        mockMvc.perform(post("/reports")
+                        .header(HttpHeaders.AUTHORIZATION, token(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"targetType\":\"USER\",\"targetNickName\":\"" + me.getNickName()
+                                + "\",\"reason\":\"ABUSE\"}"))
+                .andExpect(status().isBadRequest());
     }
 
     /* ════════════════ Q — 어드민 큐 ════════════════ */

@@ -82,6 +82,21 @@ public class Account {
     private OffsetDateTime anonymizedAt;
 
     /**
+     * 어드민이 신고를 조치해 계정을 정지한 시각. {@code null} 이면 정상.
+     *
+     * <p><b>{@code isDeleted} 를 재사용하지 않은 이유</b>: 탈퇴는 본인이 하고 30일 뒤 PII 를 익명화하는
+     * 되돌릴 수 없는 절차이고, 정지는 어드민이 하고 해제할 수 있어야 한다. 한 컬럼에 얹으면 둘을
+     * 구분할 수 없어 <b>익명화 배치가 정지 계정의 PII 까지 파기</b>한다
+     * ({@code AccountJpaRepo.findIdsToAnonymize} 가 {@code isDeleted} 로 대상을 고른다).
+     *
+     * <p><b>효과는 접근 차단이다.</b> 로그인·토큰 갱신이 막히고, 이미 발급된 토큰도 다음 요청에서
+     * 걸린다({@code JwtAuthenticationFilter} 가 요청마다 계정을 다시 읽는다 — 기기가 여럿이어도 한 번에).
+     * <b>기존 콘텐츠는 지우지 않는다</b> — 개별 콘텐츠는 개별 신고로 조치하는 게 이 도메인의 규칙이고,
+     * 정지가 글을 쓸어버리면 남의 스레드가 함께 끊긴다.
+     */
+    private OffsetDateTime suspendedAt;
+
+    /**
      * 강사가 한 일정에서 동시에 수용 가능한 기본 인원 — "내가 커버 가능한 인원"의 단일 출처(account 종속).
      * 가용시간(window)은 이 값을 <b>스냅샷이 아니라 라이브로 참조</b>한다: 개별 override 가 없는 일정의
      * 유효정원 = 이 값. 바꾸면 override 안 한 일정들이 즉시 따라간다(전파 로직 불필요 — 저장이 아니라 참조라서).

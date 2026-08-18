@@ -1280,8 +1280,10 @@ export interface CommunityCommentRequest {
  * ⚠️ `reason === 'OTHER'` 면 `detail` 필수 — 없으면 400.
  * ⚠️ `CHAT_MESSAGE` 는 **그 방에 접근 가능한 사람만** 신고할 수 있다(아니면 400).
  *    시스템 메시지·이미 삭제된 메시지도 400.
+ * ⚠️ `USER` 만 `targetId` 가 아니라 **`targetNickName`** 을 보낸다(순차 계정 id 를 계약에 노출하지 않는다).
+ *    나머지 타입은 `targetId` 필수.
  */
-export type ReportTargetType = 'POST' | 'COMMENT' | 'COURSE' | 'CHAT_MESSAGE';
+export type ReportTargetType = 'POST' | 'COMMENT' | 'COURSE' | 'CHAT_MESSAGE' | 'USER';
 
 /** 신고 사유 6종. `OTHER` 면 `detail` 필수. */
 export type ReportReason = 'SPAM' | 'ABUSE' | 'SEXUAL' | 'COMMERCIAL' | 'FALSE_INFO' | 'OTHER';
@@ -1291,7 +1293,10 @@ export type ReportStatus = 'PENDING' | 'ACTIONED' | 'DISMISSED';
 
 export interface ContentReportRequest {
   targetType: ReportTargetType;
-  targetId: number;
+  /** `USER` 를 제외한 모든 타입에서 필수. */
+  targetId?: number;
+  /** `USER` 에서만 쓰고, 그때는 필수. */
+  targetNickName?: string;
   reason: ReportReason;
   detail?: string;   // 최대 500자
 }
@@ -1358,6 +1363,13 @@ export interface BlockedAccountResponse {
 //      COURSE       → 둘러보기·상세·강의 수·연결 카드에서 제외 + **신규 신청 차단**.
 //                     ⚠️ **이미 확정·결제된 수강은 그대로다** — 일정·결제·환불은 영향 없음.
 //      CHAT_MESSAGE → 툼스톤(자리는 남고 본문이 "삭제된 메시지입니다."로 바뀜)
+//      USER         → **계정 정지**. 로그인·토큰 갱신이 막히고 **이미 발급된 토큰도 다음 요청에서 401**
+//                     (기기가 여럿이어도 한 번에). ⚠️ 기존 콘텐츠는 지우지 않는다.
+//
+// 계정 정지/해제 (ROLE_ADMIN) — 신고 처리와 **분리된 경로**다(기각은 조치를 되돌리지 않는다).
+//   PATCH /admin/accounts/{nickName}/suspension  {suspended: boolean}  → 204
+//   ⚠️ 정지된 사용자의 클라이언트는 갑자기 401 을 받는다. 로그인 화면에서 다시 시도하면
+//      401 + msg("정지된 계정이에요. …")로 사유를 알 수 있다 — FE 는 그 msg 를 노출할 것.
 
 // ── 알림 (커뮤니티分) ──
 // 댓글·답글이 달리면 수신자에게 푸시 1건. data.type = 'COMMUNITY_COMMENT', data.postId·data.commentId 동봉.

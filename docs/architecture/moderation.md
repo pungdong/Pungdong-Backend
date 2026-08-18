@@ -4,7 +4,7 @@
 
 ## 1. 한 줄
 
-**한 테이블·한 큐**(`content_report`)로 네 종류의 대상(게시물·댓글·강의·채팅 메시지)을 받고, 어드민이
+**한 테이블·한 큐**(`content_report`)로 다섯 종류의 대상(게시물·댓글·강의·채팅 메시지·사용자)을 받고, 어드민이
 사람 눈으로 처리한다. 핵심 invariant 셋: **조치(`ACTIONED`)는 대상을 실제로 숨긴다**(상태만 바뀌면
 조치가 아니다), **의존은 한 방향이다**(대상 도메인은 신고를 읽지 않는다 — 조치 표식을 자기 컬럼으로
 갖는다), **자동 숨김 임계값은 없다**(조직적 신고로 정상 글이 사라지는 위험이 더 크다).
@@ -85,7 +85,7 @@ erDiagram
     Account ||--o{ ContentReport : reports
 
     ContentReport {
-      enum target_type "POST|COMMENT|COURSE|CHAT_MESSAGE — 폴리모픽, FK 없음"
+      enum target_type "POST|COMMENT|COURSE|CHAT_MESSAGE|USER — 폴리모픽, FK 없음"
       Long target_id
       Long reporter_account_id "UNIQUE(target_type, target_id, reporter)"
       enum reason "6종"
@@ -101,6 +101,9 @@ erDiagram
     }
     ChatMessage {
       boolean deleted "툼스톤 — 렌더 규칙은 원래 있었고 세우는 경로만 없었다"
+    }
+    Account {
+      datetime suspended_at "정지 — is_deleted 와 별개(익명화 배치가 파기하면 안 된다)"
     }
 ```
 
@@ -126,6 +129,7 @@ erDiagram
 | `GET /admin/reports?status=&targetType=` | 필요 | **ROLE_ADMIN** | — |
 | `GET /admin/reports/counts` | 필요 | **ROLE_ADMIN** | — |
 | `PATCH /admin/reports/{id}` | 필요 | **ROLE_ADMIN** | `ACTIONED` 는 대상을 실제로 숨긴다 |
+| `PATCH /admin/accounts/{nickName}/suspension` | 필요 | **ROLE_ADMIN** | 정지 **해제** 경로. 기각은 조치를 되돌리지 않으므로 별도로 있다 |
 
 매처는 `global/security/SecurityConfiguration`. ⚠️ `/admin/reports` 와 `/admin/reports/**` 를 함께 적고
 넓은 매처보다 **앞**에 둔다. 접수 경로 `/reports` 는 `/community/**` 밖이라 매처가 따로 필요하다.
@@ -142,7 +146,8 @@ erDiagram
 
 ## 7. 더 깊게: 테스트로 보기
 
-- `usecase/ModerationUseCaseTest` — `R*` 강의 신고(조치가 **실제로** 둘러보기·상세에서 지운다 /
+- `usecase/ModerationUseCaseTest` — `S*` 사용자 신고·정지(**살아 있던 토큰이 즉시 401** / 콘텐츠는 유지 /
+  해제 경로 / ADMIN 전용) · `R*` 강의 신고(조치가 **실제로** 둘러보기·상세에서 지운다 /
   신규 신청 차단 / **확정 수강은 유지**) · `M*` 채팅 메시지(툼스톤) · `G*` 가드(**비참여자 신고 불가** =
   IDOR) · `Q*` 어드민 큐(항목 탭 · 대상 작성자 · ADMIN 전용 · 구 경로 별칭).
 - `usecase/CommunityUseCaseTest` 의 `X1~X8` — 게시물·댓글 신고(접수·멱등·자기 것 불가·조치하면 숨겨짐).
