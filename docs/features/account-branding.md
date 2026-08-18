@@ -27,7 +27,7 @@
 둘 다 생략하면 FE 가 편집 화면에서 "아직 안 만든 것"과 "유저가 지운 것"을 구분 못 해 덮어쓸지 판단이 안 선다.
 
 ### 조회는 생성하지 않는다
-> **게시물 작성·숨김은 이제 커뮤니티가 소유한다(2026-08-18).** 두 화면의 관계 규칙(진리표·소유권 분할·함정)은 [features/post-surfaces.md](post-surfaces.md) 가 단일 출처다. 프로필 그리드에 뜨는 글도 커뮤니티 글이고, 작성 폼은 `POST|PUT /community/posts` 하나다(`showOnProfile: true` 가 프로필 그리드까지 올린다). 숨김도 `PATCH /community/posts/{id}/visibility` 하나 — 브랜딩 쪽 쌍둥이 엔드포인트는 삭제했다. 정책은 [features/community.md](community.md) §1·§1-1, 구현은 [architecture/branding.md](../architecture/branding.md) 권한 매트릭스.
+> **게시물 작성·숨김은 이제 커뮤니티가 소유한다(2026-08-18).** 두 화면의 관계 규칙(진리표·소유권 분할·함정)은 [features/post-surfaces.md](post-surfaces.md) 가 단일 출처다. 프로필 그리드에 뜨는 글도 커뮤니티 글이고, 작성 폼은 `POST|PUT /community/posts` 하나다(`showOnProfile: true` 가 프로필 그리드까지 올린다). 숨김도 `PATCH /community/posts/{id}/visibility` 하나 — 브랜딩 쪽 쌍둥이 엔드포인트는 삭제했다. 정책은 [features/post-surfaces.md](post-surfaces.md), 구현은 [architecture/branding.md](../architecture/branding.md) 권한 매트릭스.
 
 별도 생성 엔드포인트가 **없다.** 첫 쓰기(프로필 편집 / 첫 게시물 작성)가 곧 생성이다. 디자인상 "신규" 상태의 CTA 가 `첫 게시물 작성하기` 하나뿐이고 "프로필 만들기" 단계가 없기 때문이며, 무엇보다 **GET 에 side effect 를 넣지 않는다**(프리페치·재시도·캐시가 전부 쓰기를 유발한다). 생성 시 `is_published = true` — 그 시점엔 이미 내용이 하나는 들어 있어 빈 페이지가 공개될 일이 없다.
 
