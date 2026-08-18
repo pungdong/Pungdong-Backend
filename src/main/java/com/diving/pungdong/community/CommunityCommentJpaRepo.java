@@ -1,5 +1,7 @@
 package com.diving.pungdong.community;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -64,6 +66,49 @@ public interface CommunityCommentJpaRepo extends JpaRepository<CommunityComment,
     @Query("select count(c) from CommunityComment c "
             + "where c.post.id = :postId and c.isDeleted = false " + NOT_BLOCKED)
     long countVisibleForViewer(@Param("postId") Long postId, @Param("viewerId") Long viewerId);
+
+    /**
+     * "내 글에 달린 댓글" 의 술어. 아래 두 쿼리(목록·건수)가 <b>같은 문자열</b>을 쓴다 —
+     * 따로 적으면 한쪽만 고쳐져 목록은 3건인데 {@code totalElements} 는 5 가 된다.
+     *
+     * <p>네 갈래를 모두 뺀다.
+     * <ul>
+     *   <li><b>숨긴 글</b>({@code isHidden}) — 작성자가 내렸거나 어드민이 조치한 글이다. 커뮤니티 피드와
+     *       브랜딩 그리드 양쪽에서 빠지는 글의 댓글이 프로필 카드에만 남으면, 신고로 내려간 글이
+     *       거기서 계속 살아 있는 셈이 된다.</li>
+     *   <li><b>삭제된 댓글</b> — 미리보기에 "삭제된 댓글입니다." 가 뜨면 안 된다. 스레드와 달리
+     *       여기선 자리를 지킬 이유가 없다(부모 자리를 대신할 자식이 없는 평면 목록이다).</li>
+     *   <li><b>내가 쓴 댓글</b> — 내 글에 내가 단 댓글이 "최근 반응" 으로 올라오면 자기 반응을 남의
+     *       반응으로 읽는다. 알림 발행이 자기 자신을 거르는 것과 같은 기조다.</li>
+     *   <li><b>차단 관계</b>({@link #NOT_BLOCKED}) — 카드의 {@code commentCount} 와 같은 기준이라야
+     *       "댓글 3" 인데 미리보기 목록엔 2건인 상태가 생기지 않는다.</li>
+     * </ul>
+     *
+     * <p>글 주인이 곧 뷰어라 파라미터가 {@code :viewerId} 하나다 — 이 목록은 {@code /me} 경로에만 있고,
+     * 남의 글에 달린 댓글을 이 쿼리로 볼 방법은 없다(그게 열리면 그대로 사찰 도구가 된다).
+     */
+    String ON_MY_POSTS = "where c.post.branding.account.id = :viewerId "
+            + "and c.post.isHidden = false and c.isDeleted = false "
+            + "and c.account.id <> :viewerId " + NOT_BLOCKED;
+
+    /**
+     * 내 글에 달린 댓글 — <b>최신순 고정</b>. 정렬 파라미터는 없다(이 목록의 정의가 "가장 최근" 이다).
+     *
+     * <p><b>왜 서버가 모아줘야 하나.</b> 클라이언트가 만들려면 내 글을 전부 돌며 글마다 스레드를
+     * 조회해야 하는데(N+1), "어느 글에 방금 댓글이 달렸는지" 를 알 방법이 없어 <b>최신순을 보장할 수
+     * 없다</b> — 오래된 글에 달린 새 댓글을 놓친다.
+     *
+     * <p>대댓글도 담는다. 내 글에 달린 반응이라는 점에서 최상위 댓글과 다르지 않다.
+     *
+     * <p>인덱스는 기존 {@code ix_community_comment_thread(post_id, created_at)} 와
+     * {@code ix_branding_post_grid(branding_id, ...)} 로 충분하다. 전역 최신순 정렬에 filesort 가 붙지만
+     * 대상이 "내 글의 댓글" 로 좁아서 지금 규모에선 의미 없는 비용이고, 없애려면 댓글에 글 작성자 id 를
+     * 비정규화해야 하는데 <b>이 도메인은 카운터·비정규화를 두지 않는다</b>(동기화가 어긋날 경로만 는다).
+     */
+    @Query(value = "select c from CommunityComment c " + ON_MY_POSTS
+            + "order by c.createdAt desc, c.id desc",
+            countQuery = "select count(c) from CommunityComment c " + ON_MY_POSTS)
+    Page<CommunityComment> findOnMyPosts(@Param("viewerId") Long viewerId, Pageable pageable);
 
     /** 대댓글이 하나라도 있나 — 삭제를 soft 로 할지 hard 로 할지 가른다. */
     boolean existsByParentId(Long parentId);

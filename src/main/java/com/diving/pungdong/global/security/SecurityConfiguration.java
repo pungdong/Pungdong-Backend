@@ -65,6 +65,9 @@ public class SecurityConfiguration {
                         .antMatchers(HttpMethod.GET, "/community/posts/me").authenticated()
                         .antMatchers(HttpMethod.GET, "/community/posts/*").permitAll()
                         .antMatchers(HttpMethod.GET, "/community/posts/*/related").permitAll()
+                        // "내 글에 달린 댓글" 도 같은 이유로 리터럴이 먼저다 — 바로 아래 매처의 `*` 가
+                        // `me` 를 잡아 비로그인에게 열려버린다(경로만 보면 안 겹쳐 보이는 함정이다).
+                        .antMatchers(HttpMethod.GET, "/community/posts/me/comments").authenticated()
                         .antMatchers(HttpMethod.GET, "/community/posts/*/comments").permitAll()
                         .antMatchers(HttpMethod.GET, "/community/categories").permitAll()
                         .antMatchers(HttpMethod.GET, "/community/tags/popular").permitAll()

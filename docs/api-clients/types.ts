@@ -1300,6 +1300,41 @@ export interface CommunityComment {
 }
 
 /**
+ * GET /community/posts/me/comments?page=&size= (인증) — 배열은 `_embedded.comments`, PagedModel.
+ *
+ * **"내 글에 달린" 댓글이다 — "내가 쓴" 댓글이 아니다.** 프로필/마이페이지 브랜딩 카드의
+ * "가장 최근 댓글" 미리보기가 쓰고, 후속 "댓글 모아보기" 목록도 같은 응답을 페이지네이션해 쓴다.
+ *
+ * ⚠️ 정렬 파라미터가 **없다** — `createdAt DESC` 고정(이 목록의 정의가 "가장 최근"이다).
+ * ⚠️ size 상한 50(넘겨도 50으로 깎인다). 기본 20.
+ * ⚠️ 네 갈래가 **빠진다**: 숨긴 글(`hidden=true`)에 달린 댓글 · 삭제된 댓글 · 내가 쓴 댓글 ·
+ *    차단 관계인 사람의 댓글. 카드의 `commentCount` 와 같은 기준이라 수와 목록이 어긋나지 않는다.
+ * ⚠️ **대댓글도 온다**(내 글에 달린 반응인 건 같다). 최상위인지는 `parentCommentId` 유무로 본다.
+ * ⚠️ **0건은 정상이다** — 빈 PagedModel(`_embedded` 키 없음, `page.totalElements = 0`). 400 이 아니다.
+ * ⚠️ 알림함(`GET /me/notifications`)과 겹쳐 보이지만 다른 것을 준다: 알림함은 "댓글이 달렸다"는
+ *    **사건의 스냅샷**이라 그 뒤 수정·삭제돼도 남고, 이 목록은 **지금 그 댓글의 상태**다.
+ *    읽음 상태(unread dot)가 필요하면 알림함 쪽을 쓴다 — 이 응답엔 읽음 개념이 없다.
+ */
+export interface CommentOnMyPost {
+  id: number;
+  /** 원문. 2줄 클램프 등 잘라내기는 클라이언트가 한다(서버는 자르지 않는다). */
+  body: string;
+  /** UTC ISO-8601(offset 포함). 상대시간("3분 전")은 클라이언트가 만든다. */
+  createdAt: string;
+  /** 피드 카드·스레드와 같은 작성자 합성(강사 배지·강의 수 포함). */
+  author: CommunityAuthor;
+  /** 어느 글에 달렸나 — 탭하면 `GET /community/posts/{post.id}` 상세로. */
+  post: {
+    id: number;
+    title: string;
+    /** 첫 사진. 사진 없는 글이면 null(커뮤니티 전용 글은 사진이 필수가 아니다). */
+    thumbnailUrl: string | null;
+  };
+  /** 대댓글이면 부모 댓글 id, 최상위면 **키 자체가 없다**(0 이 오지 않는다). */
+  parentCommentId?: number;
+}
+
+/**
  * POST /community/posts/{postId}/comments · PUT /community/comments/{commentId} (인증)
  * ⚠️ `parentCommentId` 는 **최상위 댓글만** 가리킬 수 있다 — 대댓글에 달면 400.
  * ⚠️ 수정 시 `parentCommentId` 는 무시된다(부모 변경은 스레드 재배치라 본문 수정과 다른 동작).

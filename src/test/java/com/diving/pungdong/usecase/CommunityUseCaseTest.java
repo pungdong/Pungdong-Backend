@@ -1249,6 +1249,142 @@ class CommunityUseCaseTest {
                 .andExpect(status().isUnauthorized());
     }
 
+    /* ──── 내 글에 달린 댓글 (프로필 브랜딩 카드의 미리보기 · 후속 "댓글 모아보기") ──── */
+    // "내가 쓴 댓글" 이 아니라 정반대다. 클라이언트가 조립할 수 없어서 서버가 모아준다 — 글마다
+    // 스레드를 도는 N+1 인 데다, "어느 글에 방금 댓글이 달렸는지" 를 알 방법이 없어 최신순을
+    // 보장할 수 없다(오래된 글에 달린 새 댓글을 놓친다).
+
+    @Test
+    @DisplayName("C9: 내 글에 달린 댓글이 최신순으로 오고 어느 글인지(제목·썸네일)가 함께 실린다")
+    void commentsOnMyPosts_areNewestFirstWithPostRef() throws Exception {
+        Account me = account("c9@c.com", "diverC36", Role.STUDENT);
+        Account other = account("c9o@c.com", "diverC37", Role.STUDENT);
+        long postId = brandingPost(me, "TOUR", "문섬 3주차 로그");
+        comment(other, postId, "먼저 단 댓글", null);
+        comment(other, postId, "나중에 단 댓글", null);
+
+        mockMvc.perform(get("/community/posts/me/comments")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(2))
+                .andExpect(jsonPath("$._embedded.comments[0].body").value("나중에 단 댓글"))
+                .andExpect(jsonPath("$._embedded.comments[0].author.nickName").value("diverC37"))
+                .andExpect(jsonPath("$._embedded.comments[0].post.id").value((int) postId))
+                .andExpect(jsonPath("$._embedded.comments[0].post.title").value("문섬 3주차 로그"))
+                .andExpect(jsonPath("$._embedded.comments[0].post.thumbnailUrl").value(img("a")))
+                // 상대시간은 클라이언트가 만든다 — 서버는 offset 이 붙은 UTC 시각만 준다.
+                .andExpect(jsonPath("$._embedded.comments[0].createdAt").value(org.hamcrest.Matchers.endsWith("Z")));
+    }
+
+    @Test
+    @DisplayName("C10: 남의 글에 달린 댓글은 오지 않는다 (남의 글 반응을 들여다보는 창이 되면 안 된다)")
+    void commentsOnMyPosts_onlyMyOwnPosts() throws Exception {
+        Account me = account("c10@c.com", "diverC38", Role.STUDENT);
+        Account other = account("c10o@c.com", "diverC39", Role.STUDENT);
+        long mine = createPost(me, "QNA", "내 글", "본문");
+        long theirs = createPost(other, "QNA", "남의 글", "본문");
+        comment(other, mine, "내 글에 달린 댓글", null);
+        comment(me, theirs, "내가 남의 글에 단 댓글", null);
+
+        mockMvc.perform(get("/community/posts/me/comments")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(1))
+                .andExpect(jsonPath("$._embedded.comments[0].body").value("내 글에 달린 댓글"));
+    }
+
+    @Test
+    @DisplayName("C11: 내가 내 글에 단 댓글은 빠진다 (자기 반응을 남의 반응으로 읽게 된다)")
+    void commentsOnMyPosts_excludeMyOwnComments() throws Exception {
+        Account me = account("c11@c.com", "diverC40", Role.STUDENT);
+        long postId = createPost(me, "QNA", "내 글", "본문");
+        comment(me, postId, "내가 단 댓글", null);
+
+        mockMvc.perform(get("/community/posts/me/comments")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(0));
+    }
+
+    @Test
+    @DisplayName("C12: 대댓글도 함께 오고 parentCommentId 가 실린다 (내 글에 달린 반응인 건 같다)")
+    void commentsOnMyPosts_includeReplies() throws Exception {
+        Account me = account("c12@c.com", "diverC41", Role.STUDENT);
+        Account other = account("c12o@c.com", "diverC42", Role.STUDENT);
+        long postId = createPost(me, "QNA", "내 글", "본문");
+        long parent = comment(other, postId, "댓글", null);
+        comment(other, postId, "답글", parent);
+
+        mockMvc.perform(get("/community/posts/me/comments")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(2))
+                .andExpect(jsonPath("$._embedded.comments[0].body").value("답글"))
+                .andExpect(jsonPath("$._embedded.comments[0].parentCommentId").value((int) parent))
+                // 최상위 댓글엔 키가 아예 없다 — 0 을 내려보내면 "0번 댓글의 답글" 로 읽힌다.
+                .andExpect(jsonPath("$._embedded.comments[1].parentCommentId").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("C13: 삭제된 댓글은 빠진다 (미리보기에 '삭제된 댓글입니다.' 가 뜨면 안 된다)")
+    void commentsOnMyPosts_excludeDeleted() throws Exception {
+        Account me = account("c13@c.com", "diverC43", Role.STUDENT);
+        Account other = account("c13o@c.com", "diverC44", Role.STUDENT);
+        long postId = createPost(me, "QNA", "내 글", "본문");
+        long parent = comment(other, postId, "지울 댓글", null);
+        // 답글이 있어 soft delete 다 — 행은 남지만 이 목록엔 안 나와야 한다(스레드와 규칙이 다르다).
+        comment(other, postId, "남는 답글", parent);
+
+        mockMvc.perform(delete("/community/comments/" + parent)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(other)))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/community/posts/me/comments")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(1))
+                .andExpect(jsonPath("$._embedded.comments[0].body").value("남는 답글"));
+    }
+
+    @Test
+    @DisplayName("C14: 숨긴 글에 달린 댓글은 빠진다 (내린 글의 반응이 프로필 카드에만 남으면 어긋난다)")
+    void commentsOnMyPosts_excludeHiddenPosts() throws Exception {
+        Account me = account("c14@c.com", "diverC45", Role.STUDENT);
+        Account other = account("c14o@c.com", "diverC46", Role.STUDENT);
+        long postId = createPost(me, "QNA", "내릴 글", "본문");
+        comment(other, postId, "댓글", null);
+
+        mockMvc.perform(patch("/community/posts/" + postId + "/visibility")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"hidden\":true}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/community/posts/me/comments")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(0));
+    }
+
+    @Test
+    @DisplayName("C15: 글도 댓글도 없으면 빈 페이지 200 이다 (신규 유저의 기본 상태라 400 이면 안 된다)")
+    void commentsOnMyPosts_emptyIsOk() throws Exception {
+        Account me = account("c15@c.com", "diverC47", Role.STUDENT);
+
+        mockMvc.perform(get("/community/posts/me/comments")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(0))
+                .andExpect(jsonPath("$._embedded").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("C16: 비로그인은 401 이다 (스레드 조회의 permitAll 매처가 /me 까지 잡으면 500 이 된다)")
+    void commentsOnMyPosts_requireAuth() throws Exception {
+        mockMvc.perform(get("/community/posts/me/comments"))
+                .andExpect(status().isUnauthorized());
+    }
+
     /* ════════════════ N — 알림 ════════════════ */
     // 알림 파이프라인 자체(outbox → 워커 → FCM)는 NotificationOutboxFlowTest 가 검증한다.
     // 여기서 확인하는 건 **커뮤니티가 올바른 사람에게, 올바른 횟수로 발행하는가** — 자기알림 가드와
