@@ -33,9 +33,9 @@
    두 컬럼 다 nullable 이고(`V19`) 묶는 제약이 없다. `BrandingPostRequest.title` 은 `category` 와
    **별개의 선택 필드**로 설계돼 있어, 클라이언트가 `{mediaUrls, title}` 만 보내면 title-only 행이 생긴다.
    지금 그런 행이 없는 건 **현재 FE 폼들이 둘 다 안 보내서**지 서버가 막아서가 아니다.
-   🔴 **커뮤니티 수정 트랙이 `category == null` 을 "브랜딩발 글" 판정으로 쓰고 있다** —
-   브랜딩 폼에 제목 입력이 추가되면 그 판정이 깨진다. 배경·대응은
-   [docs/features/community.md](../../../../../../../docs/features/community.md) 의 D안 항목 옆.
+   ✅ **해소됨(2026-08-18, #285)**: `category`·`title` 이 둘 다 NOT NULL(V31) 이 되면서 title-only 행도,
+   `category == null` 을 "브랜딩발 글" 로 보던 판정도 사라졌다. 되살리지 말 것 —
+   관계 규칙은 [docs/features/post-surfaces.md](../../../../../../../docs/features/post-surfaces.md).
 
 6. **`RecordEventCode`(CWT/FIM/…)는 `discipline.Discipline`(FREEDIVING/SCUBA/…)과 다른 축이다.** 둘 다 "discipline" 이라 부르면 반드시 사고 난다 — 컬럼도 `event_code`.
 7. **`BrandingRecord.value` 의 컬럼명은 `record_value`** — `value` 는 H2(테스트 DB) 예약어라 그대로 쓰면 스키마 생성이 깨진다. API 필드명은 `value` 유지.
@@ -66,6 +66,7 @@
 - 계약의 단일 출처는 **contract v3** (`scratchpad/branding-api-contract.md`), 제품 결정은 `branding-decisions-final.md`.
 - 컨트롤러 시그니처/응답 바꾸면 **같은 PR 에서** [docs/api-clients/types.ts](../../../../../../../docs/api-clients/types.ts) 갱신.
 - 구현/ER 은 [docs/architecture/branding.md](../../../../../../../docs/architecture/branding.md), 정책·히스토리는 [docs/features/account-branding.md](../../../../../../../docs/features/account-branding.md).
+- **게시물을 건드리면** 커뮤니티와 공유하는 행이다 — 관계 규칙(진리표·소유권·함정)은 [docs/features/post-surfaces.md](../../../../../../../docs/features/post-surfaces.md) 를 **먼저** 읽을 것.
 
 ## 안전망 테스트
 

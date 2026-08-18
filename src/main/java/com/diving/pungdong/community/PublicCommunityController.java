@@ -34,7 +34,7 @@ public class PublicCommunityController {
     private final CommunityCommentService commentService;
 
     /**
-     * 피드. {@code category} 생략이면 전체(카테고리 없는 브랜딩발 글도 포함)다.
+     * 피드. {@code category} 생략이면 전체다(카테고리는 V31 부터 NOT NULL 이라 모든 글이 한 칸에 속한다).
      *
      * <p>{@code bookmarkedByMe=true} 는 "저장한 글" 목록이라 인증이 필요하다 — 비로그인이면 400 이
      * 아니라 <b>빈 페이지</b>가 자연스럽다(로그인 안 했으면 저장한 글이 없는 게 맞는 답이다).

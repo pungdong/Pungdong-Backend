@@ -1058,8 +1058,9 @@ export interface CommunityPostDetail extends HalLinks {
  * ⚠️ `mediaUrls` 를 빠뜨리면 사진이 지워질 뿐 아니라 **S3 객체가 즉시 영구 삭제**된다(복구 불가).
  * ⚠️ `mediaUrls: null` 은 400 이다. 비울 의도면 `[]` 를 명시할 것.
  * ⚠️ mediaUrls 는 업로드(POST /branding-images)로 받은 우리 CDN URL 만. 배열 순서 = 표시 순서.
- * ⚠️ `category`/`title` 은 필수라, 그 둘이 없는 **브랜딩발 글은 이 요청으로 표현할 수 없다** —
- *    `category == null` 인 글은 커뮤니티 PUT 대상이 아니다(브랜딩 수정 경로로 보낼 것).
+ * ℹ️ 예전엔 "`category == null` 인 브랜딩발 글은 이 요청으로 표현할 수 없으니 브랜딩 수정 경로로 보내라"
+ *    였다. **그 규칙은 없어졌다**(2026-08-18) — 두 필드가 NOT NULL 이라 그런 글 자체가 없고,
+ *    **모든 글이 이 PUT 의 대상**이다(프로필 글 포함, `showOnProfile` 로 표면을 고른다).
  */
 export interface CommunityPostRequest {
   category: CommunityCategory;   // 필수
@@ -1149,7 +1150,8 @@ export interface PopularTag {
 }
 
 // GET /community/posts/{postId}/related?limit=3 (비로그인 가능) — 배열은 `_embedded.posts`(CommunityPostCard).
-// 같은 카테고리·자기 제외·최신순. ⚠️ 카테고리가 없는 글(브랜딩발)은 **빈 배열** — 묶을 축이 없어서다.
+// 같은 카테고리·자기 제외·최신순. 카테고리는 항상 있으므로(NOT NULL) 묶을 축은 늘 있고,
+// 같은 카테고리 글이 없을 때만 빈 배열이다.
 
 /**
  * GET /community/posts/{postId}/comments (비로그인 가능) — 배열은 `_embedded.comments`.

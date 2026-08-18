@@ -227,7 +227,7 @@ erDiagram
 | `GET /community/posts` | **불필요** | — | `show_in_feed=1` + 미숨김만. 정렬·size 서버 고정. `?authorType=INSTRUCTOR` = 승인 강사 글만 |
 | `GET /community/posts/{id}` | **불필요** | — | 위와 같음. **단 오너 본인은 자기 글이면 숨김이어도 조회 가능** |
 | `GET /community/posts/{id}/comments` | **불필요** | — | 글이 보이면 스레드도 보인다. 페이지네이션 없음 |
-| `GET /community/posts/{id}/related` | **불필요** | — | 같은 카테고리·자기 제외. 카테고리 없는 글은 **빈 배열** |
+| `GET /community/posts/{id}/related` | **불필요** | — | 같은 카테고리·자기 제외. 같은 카테고리 글이 없으면 빈 배열 |
 | `GET /community/categories` · `/community/tags/popular` | **불필요** | — | 집계값만 |
 | `GET /community/posts/me` | 필요 | 인증만 | 내 글 **전부**(숨김·프로필 미노출 포함). 최신순. 리터럴이라 매처를 `/community/posts/*` permitAll **앞**에 둔다 |
 | `POST /community/posts` | 필요 | **인증만** | 작성자 = 세션. 연결 강의는 **내 코스**만 |
@@ -256,10 +256,11 @@ erDiagram
 `body`·`locationLabel`·`linkedCourseId`·`match.meetTime` 도 같다. 클라이언트는 **응답값을 그대로
 되실어야(라운드트립) 한다** — 폼이 편집하지 않는 필드도 마찬가지다.
 
-`create` 와 `update` 는 **같은 DTO**(`CommunityPostRequest`)를 쓴다. 그래서 `category`·`title` 이 필수이고,
-**둘 다 없는 브랜딩발 글은 이 요청으로 표현할 수 없다** — 커뮤니티 수정 경로의 대상이 아니다(FE 가
-`category == null` 이면 브랜딩 수정 화면으로 보낸다). `findMine` 에 `showInFeed` 가드가 없어 기술적으로는
-열리지만, 열어도 카테고리·제목을 발명해 넣어야 해서 의미가 없다 — 가드 추가는 백로그.
+`create` 와 `update` 는 **같은 DTO**(`CommunityPostRequest`)를 쓴다. 그래서 `category`·`title` 이 필수인데,
+V31 부터 두 컬럼이 NOT NULL 이라 **모든 글이 이 요청으로 표현된다** — 프로필 글도 포함이고, 표면은
+`showOnProfile` 이 고른다. (#283 시점에는 "둘 다 없는 브랜딩발 글은 대상이 아니므로 FE 가
+`category == null` 이면 브랜딩 수정 화면으로 보낸다" 였다. **그 판정은 소멸했다** — 되살리지 말 것.)
+`findMine` 이 `showOnProfile` 을 보지 않는 것도 같은 이유다(관계 규칙: [features/post-surfaces.md](../features/post-surfaces.md)).
 
 **"미래 일정" 검증은 DTO 가 아니라 서비스에 있다.** 요청만으로 판정할 수 없기 때문이다 — 저장된 일정과
 같으면 통과, 새로 잡거나 바꾸면 미래여야 한다. `@FutureOrPresent` 를 필드에 걸었더니 **일정이 지난
