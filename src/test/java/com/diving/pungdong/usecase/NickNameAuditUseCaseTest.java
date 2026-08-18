@@ -99,6 +99,16 @@ class NickNameAuditUseCaseTest {
         assertThat(auditService.run().getReservedWordHolders()).hasSize(1);
     }
 
+    @Test
+    @DisplayName("R3: 브랜드명을 품은 '풍덩공식' 도 잡아낸다 — 리포트가 가입 차단 규칙(NickNamePolicy)과 같은 판정을 쓴다")
+    void reservedCheckUsesTheSamePolicyAsSignUp() {
+        account("r3@test.com", "풍덩공식");
+
+        assertThat(auditService.run().getReservedWordHolders())
+                .extracting(NickNameAudit.AffectedAccount::getNickName)
+                .containsExactly("풍덩공식");
+    }
+
     /* ════════════════ U — URL 불가 ════════════════ */
 
     @Test
