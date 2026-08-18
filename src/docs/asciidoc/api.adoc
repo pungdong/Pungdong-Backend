@@ -227,6 +227,5 @@ operation::branding-post-public[]
 === 게시물 작성
 operation::branding-post-create[]
 
-[[resource-branding-post-visibility]]
-=== 게시물 숨기기 토글
-operation::branding-post-visibility[]
+// 게시물 숨기기 토글은 커뮤니티로 합쳤다 — PATCH /community/posts/{id}/visibility.
+// (숨김은 브랜딩 그리드·커뮤니티 피드에 함께 걸리는 전역 스위치라 경로가 하나여야 한다.)

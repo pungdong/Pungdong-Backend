@@ -145,7 +145,7 @@ erDiagram
   Account ||--o{ ContentReport : reports
 
   BrandingPost {
-    enum category "TOUR|TRAINING|MATCH|QNA, NULL 허용"
+    enum category "TOUR|TRAINING|MATCH|QNA, NOT NULL (V30)"
     String title "100, NULL 허용"
     boolean show_in_feed "커뮤니티 피드 노출"
     boolean show_on_profile "브랜딩 그리드 노출"
@@ -184,8 +184,8 @@ erDiagram
 
 - 🔴 **게시물 테이블·엔티티 클래스 이름이 `branding_post` / `BrandingPost` 인 것은 실수가 아니다.** ECS 롤링 배포 중에는 구버전 태스크가 살아 있어, 신버전이 부팅하며 RENAME 을 돌리면 그 태스크가 없는 테이블을 조회해 **브랜딩 페이지가 500** 이 된다(드레인될 때까지). 이름은 내부 구현이고 API 경로가 계약이라 바꿔서 얻는 게 없다. 정리하려면 트래픽 없는 시점에 테이블·클래스를 함께 바꾸는 별도 PR 로. (V19 는 순수 additive — `ADD COLUMN`/`ADD INDEX`/`CREATE TABLE` 뿐이다.)
   (V19 헤더 주석이 한때 "엔티티는 `CommunityPost` 로" 라고 적고 있었지만 실제로는 클래스명도 유지했다 — 머지 전이라 주석을 실제에 맞춰 고쳤다. **머지 뒤였다면 고치지 못한다**: 주석 한 글자만 바뀌어도 Flyway 체크섬이 달라져 이미 적용된 DB 가 부팅에 실패한다.)
-- **`category` 와 `title` 은 nullable 이다.** 브랜딩에서 올라온 글에는 둘 다 없을 수 있고, V19 이전 글에는 반드시 없다. `category` 가 null 이면 카테고리 필터·관련 글에 안 걸리고 "전체" 피드에만 뜬다. **없는 값을 임의 카테고리로 채우지 않는다** — 하이라이트가 전부 투어 자랑은 아니다.
-- **`show_in_feed`/`show_on_profile` 의 DB DEFAULT 는 기존 행 backfill 용이지 신규 쓰기용이 아니다.** 신규 글은 작성 경로(브랜딩 컨트롤러 / 커뮤니티 컨트롤러)가 두 값을 **명시 설정**한다. 기존 브랜딩 글은 `show_in_feed=0` — 유저가 동의한 적 없는 소급 노출을 만들지 않는다(되돌리려면 글마다 숨겨야 한다. 반대 방향이 훨씬 쉽다).
+- **`category` 는 V30 부터 NOT NULL 이다**(기존 행은 `TOUR` 로 backfill). 두 쓰기 경로 모두 필수로 받는다. 카테고리 없는 글을 남겨두면 **수정하려는 작성자가 없던 분류를 발명해야** 한다. backfill 이 "없는 값을 지어내지 않는다" 와 충돌하지 않는 이유는 대상이 실사용자 데이터가 아니어서다 — prod 최종 배포(a383968)에는 V17·V19 가 없어 이 테이블 자체가 존재하지 않는다. **`title` 은 여전히 nullable** (구 브랜딩 경로가 제목을 선택으로 받았다).
+- **`show_on_profile` 은 이제 작성자가 요청으로 고른다**(`CommunityPostRequest.showOnProfile`, 기본 false). V19~2026-08-18 에는 *작성 경로*가 정했다(브랜딩=true / 커뮤니티=false). `show_in_feed` 는 두 경로 모두 항상 1 이고, V30 에서 남아 있던 0 행(구 브랜딩 글)도 1 로 올렸다 — 통합 모델에는 "숨기지도 않았는데 피드에 없는 글"을 만드는 쓰기 경로가 없어, 남겨두면 화면에서 설명되지 않는 세 번째 축이 된다. 컬럼은 유지한다(피드 인덱스 선두 컬럼이고 "프로필 전용" 이 필요해지면 쓸 자리).
 - **같이가요 필드를 메인 테이블 nullable 컬럼으로 붙이지 않은 이유**: 4개 카테고리 중 하나에만 있다. JSON 컬럼도 기각 — `meet_date` 로 정렬·마감 판정을 하는데 JSON 은 색인이 안 걸려 풀스캔이 된다(태그를 JSON 이 아니라 자식 행으로 둔 것과 같은 이유).
 - ⚠️ **`CommunityPostMatch` 의 `@Id` 에 `@Column` 을 달면 부팅이 깨진다.** `@MapsId` + `@JoinColumn` 과 컬럼이 중복돼 "Repeated column" 으로 실패한다. `@Id` 는 매핑 없이 두고 `@MapsId` 에 맡긴다.
 - **좋아요·북마크·신고의 UNIQUE 가 멱등성의 근거다.** `(대상, 계정)` UNIQUE 덕에 `POST` 를 두 번 보내도 1건이다. 레거시 `lecture_mark`(강의 찜)에는 이 제약이 없어 중복 찜이 가능했다(v1 과 함께 삭제됨 — V27) — 베끼지 않는다. 올바른 선례는 `venue_favorite`.
@@ -229,9 +229,10 @@ erDiagram
 | `GET /community/posts/{id}/comments` | **불필요** | — | 글이 보이면 스레드도 보인다. 페이지네이션 없음 |
 | `GET /community/posts/{id}/related` | **불필요** | — | 같은 카테고리·자기 제외. 카테고리 없는 글은 **빈 배열** |
 | `GET /community/categories` · `/community/tags/popular` | **불필요** | — | 집계값만 |
+| `GET /community/posts/me` | 필요 | 인증만 | 내 글 **전부**(숨김·프로필 미노출 포함). 최신순. 리터럴이라 매처를 `/community/posts/*` permitAll **앞**에 둔다 |
 | `POST /community/posts` | 필요 | **인증만** | 작성자 = 세션. 연결 강의는 **내 코스**만 |
 | `PUT · DELETE /community/posts/{id}` | 필요 | 인증만 | 내 글 아니면 **400(존재 숨김)** |
-| `PATCH /community/posts/{id}/visibility` | 필요 | 인증만 | 동일. **어드민이 조치한 글은 다시 공개 불가**(400) |
+| `PATCH /community/posts/{id}/visibility` | 필요 | 인증만 | **모든 글의 유일한 숨김 경로**(프로필 글 포함, `show_on_profile` 을 보지 않는다). **어드민이 조치한 글은 다시 공개 불가**(400) |
 | `POST · DELETE /community/posts/{id}/like` · `/bookmark` | 필요 | 인증만 | 멱등. 숨긴 글에는 걸 수 없다(400) |
 | `POST /community/posts/{id}/comments` | 필요 | 인증만 | 대댓글의 부모는 최상위만 |
 | `PUT · DELETE /community/comments/{id}` | 필요 | 인증만 | 남의 댓글 **400** |
@@ -257,7 +258,8 @@ erDiagram
   → 좁히려면 **코스 도메인의 결정("누가 코스를 만들 수 있나")이 먼저**다. 커뮤니티에서 `isInstructor` 로 연결을 막으면 승인 대기 중인 강사가 자기 코스를 못 걸게 되어(레포 전반의 "승인 전 403 금지" 방침과 충돌) 다른 문제가 생긴다.
 - 🟢 **DRAFT 코스 연결은 "거르지 않고 두 번 고지" 로 닫혔다.** 요청은 200 으로 통과하고 공개 응답에서 `linkedCourse` 키만 빠지며, 코스를 OPEN 으로 바꾸면 그때 나타난다("준비 중인 강의를 미리 걸어둔다" 는 유효한 사용이라 서버는 막지 않는다). 침묵만 없애면 되므로 **FE 가 선택 시점(옵션 뱃지/라벨)과 선택 후(폼 안내) 두 번** 알린다 — 시트·드롭다운은 닫히면 안 읽히기 때문이다.
 - 🟡 **댓글 스레드에 크기 상한이 없다.** 한 글의 댓글을 언제나 전부 반환한다. 수백 개가 쌓이면 응답이 커진다 — 그때 **최상위만 페이징(대댓글은 계속 인라인)** 으로 켠다. 켜는 순간 응답이 `CollectionModel` → `PagedModel` 로 바뀐다.
-- 🟡 **브랜딩 경로의 숨김 되돌리기는 아직 막혀 있지 않다.** 어드민 조치를 작성자가 되돌리지 못하게 하는 가드는 커뮤니티 `visibility` 에만 있다 — 브랜딩 서비스가 `content_report` 를 읽으면 단방향 의존이 깨져서다. 프로필 글(=브랜딩발)이 조치당한 경우에만 열려 있는 좁은 틈이고, 닫으려면 moderation 상태를 게시물 자신의 컬럼으로 올리는 편이 맞다.
+- 🟢 **브랜딩 경로의 숨김 되돌리기 틈은 닫혔다(2026-08-18).** `PATCH /branding/me/posts/{id}/visibility` 를 **삭제**하고 숨김을 커뮤니티 경로 하나로 합쳤다. 그 경로는 어드민 조치(ACTIONED)를 확인하지 않아 프로필 글이 조치당했을 때 작성자가 되살릴 수 있었고, 반대로 `show_on_profile=true` 만 통과시켜 커뮤니티 전용 글은 숨기지도 못했다. **숨김은 컬럼 하나짜리 전역 스위치라 문이 둘이면 규칙이 갈린다** — moderation 컬럼을 새로 만드는 대신 문을 하나로 줄이는 쪽이 쌌다.
+- 🟢 **"내가 쓴 글"(`GET /community/posts/me`) 이 숨김의 회수 경로다.** 이게 없던 동안 `is_hidden=1 AND show_on_profile=0` 인 글은 어떤 목록에도 없어 상세 URL 로만 닿았다 — 되돌릴 화면이 없는 숨김은 사실상 삭제다.
 - 🟡 **레이트리밋이 없다.** 글·댓글 연타를 막는 쿨다운을 계약에 적었지만(D6) 구현하지 않았다. 좋아요·북마크·신고는 UNIQUE 로 멱등이라 연타에 안전하지만, **글·댓글은 그렇지 않다.**
 - 🟡 **`POPULAR` 의 7일 창·정렬식이 하드코딩**이다. 실사용 데이터 없이 정한 값이라 튜닝 여지가 있다. 좋아요만 보고 댓글을 안 본다.
 - 🟢 **검색 없음** — 계약 범위 밖(디자인의 검색 아이콘은 미렌더). 붙이면 `CourseSpecifications` 와 같은 MySQL `LIKE` 방식이 자연스럽다.

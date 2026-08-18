@@ -160,10 +160,14 @@ erDiagram
 | `PATCH /branding/me` | 필요 | 인증만 | 동일. 미생성이면 생성(upsert) |
 | `PUT /branding/me/records` | 필요 | 인증만 | 동일. **스냅샷 교체**(빈 배열 = 전부 삭제) |
 | `PATCH /branding/me/publish` | 필요 | 인증만 | 동일. **승인 게이트 없음** |
-| `GET /branding/me/posts` | 필요 | 인증만 | 내 것만 — **숨김 포함**. 프로필 미생성이면 빈 페이지 |
-| `POST /branding/me/posts` | 필요 | 인증만 | 미생성이면 생성(upsert). 연결 강의는 **내 코스**만 |
-| `PUT · DELETE /branding/me/posts/{id}` | 필요 | 인증만 | `post.branding.account.id == me.id` 아니면 **400** |
-| `PATCH /branding/me/posts/{id}/pin · /visibility` | 필요 | 인증만 | 동일 |
+| `GET /branding/me/posts` | 필요 | 인증만 | 내 것만 — **숨김 포함, `show_on_profile=true` 만**. 프로필 미생성이면 빈 페이지 |
+| `POST /branding/me/posts` 🔴레거시 | 필요 | 인증만 | 미생성이면 생성(upsert). 연결 강의는 **내 코스**만. **`category` 필수**(2026-08-18) |
+| `PUT · DELETE /branding/me/posts/{id}` 🔴레거시 | 필요 | 인증만 | `post.branding.account.id == me.id` 아니면 **400** |
+| `PATCH /branding/me/posts/{id}/pin` | 필요 | 인증만 | 동일. 고정은 **프로필 그리드에만 있는 개념**이라 여기 남는다 |
+
+🔴 **게시물 작성·수정은 커뮤니티의 통합 폼(`POST|PUT /community/posts` + `showOnProfile`)이 주 경로다** — 위 두 줄은 구버전 앱 호환으로만 남긴다. 같은 테이블·같은 행이고, 규칙(같이가요 강의연결 금지 등)은 통합 폼 쪽에만 모여 있다.
+
+🔴 **`PATCH /branding/me/posts/{id}/visibility` 는 삭제됐다**(2026-08-18) → `PATCH /community/posts/{id}/visibility`. 숨김은 브랜딩 그리드·커뮤니티 피드에 함께 걸리는 **전역 스위치**인데 문이 둘이라 규칙이 갈렸다: 이 경로는 `show_on_profile=true` 인 글만 통과시켜 커뮤니티 전용 글을 못 숨겼고, 어드민 조치(ACTIONED) 확인이 없어 신고로 내려간 글을 작성자가 되살릴 수 있었다. 오너가 숨긴 글을 되돌리는 화면은 이 그리드(프로필 글)와 `GET /community/posts/me`(전부)다.
 | `POST /branding-images` | 필요 | 인증만 | multipart → `{fileURL}` |
 
 **왜 `hasRole("INSTRUCTOR")` 가 아닌가** — (a) 일반 유저도 쓰고, (b) 강사도 **승인 전(pending/rejected)에 편집 화면이 존재**한다. 승인 전에는 `ROLE_INSTRUCTOR` 가 없어 role 로 막으면 그 화면이 403 이 된다. 레포도 같은 이유로 `/courses/**` 를 `authenticated()` 로 둔다.
