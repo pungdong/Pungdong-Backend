@@ -971,11 +971,14 @@ export interface CommunityMatch {
 /**
  * GET /community/posts (비로그인 가능) — 피드.
  * PagedModel — 배열은 `_embedded.posts`(빈 결과면 키 없음), 메타는 `page`.
- * 쿼리: `?category=&sort=&authorType=&bookmarkedByMe=&page=&size=` · size 상한 50.
+ * 쿼리: `?category=&sort=&authorType=&tag=&bookmarkedByMe=&page=&size=` · size 상한 50.
  * `sort` 는 **`CommunityFeedSort`(LATEST 기본 · POPULAR) 둘뿐** — 그 외 값은 400. 메인 피드의 최신/인기 pill 이 이걸 쓴다.
  * `authorType='INSTRUCTOR'` 는 "강사 글" pill — **승인된 강사**가 쓴 글만(작성자 칩 `isInstructor` 와 같은 축).
  *   생략 = 전체. 인기순·같이가요 피드에도 함께 걸린다.
  * ⚠️ `category=MATCH` 면 `sort` 와 무관하게 **일정 임박순**으로 자동 전환된다(정렬 pill 을 노출하지 않는 화면이라 서버 기본 동작으로 처리).
+ * `tag='문섬'` 은 사이드바 인기 태그를 눌렀을 때 쓰는 **정확 일치** 필터(부분일치 검색이 아니다).
+ *   `'#'` 없이 보낸다(`PopularTag.tag` 를 그대로). 정렬·카테고리와 자유롭게 조합된다.
+ *   빈 문자열은 **필터 없음**이고, 없는 태그는 400 이 아니라 **빈 페이지**다.
  * ⚠️ `bookmarkedByMe=true` 는 인증 필요 — 비로그인이면 에러가 아니라 **빈 페이지**.
  */
 export interface CommunityPostCard {
@@ -1123,7 +1126,10 @@ export type CommunityFeedSort = 'LATEST' | 'POPULAR';
  * ("일반 유저 글만" 은 화면에 없어서 만들지 않았다 — 죽은 값을 남기지 않는다).
  */
 export type CommunityAuthorType = 'INSTRUCTOR';
-// POPULAR = **최근 7일 안에서** 좋아요 많은 순. 기간을 자르지 않으면 오래된 인기글이 상단을 영구 점유한다.
+// POPULAR = **최근 7일 안에서 참여 점수(좋아요 + 댓글 + 북마크) 높은 순**.
+//   기간을 자르지 않으면 오래된 인기글이 상단을 영구 점유한다.
+//   ⚠️ 예전엔 좋아요만 셌다. 사이드바 `TrendingTopic` 과 **같은 식**이어야 해서 통일했다 —
+//   같은 화면에서 인기 탭 1등과 '지금 뜨는 토픽' 1등이 다르면 둘 중 하나는 고장으로 읽힌다.
 
 /**
  * POST·DELETE /community/posts/{postId}/like · /bookmark (인증)
@@ -1143,10 +1149,36 @@ export interface CommunityCategoryCount {
 }
 // HOT 뱃지 임계값(>50)은 클라이언트 상수다 — 서버는 숫자만 준다.
 
-/** GET /community/tags/popular?limit=8 (비로그인 가능) — 배열은 `_embedded.tags`. 건수 내림차순. */
+/**
+ * GET /community/tags/popular?limit=8 (비로그인 가능) — 배열은 `_embedded.tags`.
+ * 건수 내림차순, 동률이면 태그 사전순(순서가 매 요청 흔들리지 않는다).
+ * ⚠️ 집계 창은 **최근 30일**이다(피드 인기순의 7일보다 길다 — 태그는 글보다 성기게 쌓여서
+ *    7일로 자르면 사이드바가 통째로 비고, 안 자르면 초기 태그가 영구히 상단에 굳는다).
+ * 태그를 누르면 `GET /community/posts?tag=<tag>` 로 간다.
+ */
 export interface PopularTag {
   tag: string;   // '#' 없는 순수 문자열. 표시용 '#' 은 클라이언트가 붙인다
+  /** **그 태그를 단 글의 수**(태그 행 수가 아니다 — 한 글이 같은 태그를 두 번 담아도 1). */
   count: number;
+}
+// 저장 시 서버가 태그를 교정한다: 앞뒤 공백·선행 '#' 제거, 빈 값 버림, 같은 글 안 중복 제거(대소문자 무시).
+// 그래서 '#제주' 로 보내도 '제주' 로 저장되고 같은 버킷에 합산된다. 대소문자는 통일하지 않는다('OW' ≠ 'ow').
+
+/**
+ * GET /community/topics/trending?limit=5 (비로그인 가능) — 배열은 `_embedded.topics`.
+ * 웹 사이드바 "지금 뜨는 토픽". **목록 순서가 곧 순위**다(서버가 정렬해서 준다).
+ * ⚠️ 기준은 `CommunityFeedSort='POPULAR'` 와 **완전히 같다**(최근 7일 · 좋아요+댓글+북마크).
+ * ⚠️ 글이 모자라면 **모자란 대로** 짧게 온다. 카테고리 카운트처럼 빈 칸을 0 으로 채우지 않는다
+ *    (없는 글을 지어낼 수는 없다) — 0건이면 `_embedded` 키 자체가 없다.
+ */
+export interface TrendingTopic {
+  /** 클릭 시 `GET /community/posts/{postId}` 상세로. */
+  postId: number;
+  title: string;
+  /** 칩·아이콘용 — 제목만으로는 어느 카테고리 글인지 알 수 없다. */
+  category: CommunityCategory;
+  /** 화면 오른쪽 숫자 = 좋아요 + 댓글 + 북마크. 삭제된 댓글은 빠진다(카드의 commentCount 와 같은 기준). */
+  score: number;
 }
 
 // GET /community/posts/{postId}/related?limit=3 (비로그인 가능) — 배열은 `_embedded.posts`(CommunityPostCard).

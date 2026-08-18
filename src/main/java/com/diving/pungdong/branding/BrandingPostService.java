@@ -204,9 +204,7 @@ public class BrandingPostService {
         }
         post.replaceMedia(media);
 
-        post.replaceTags(request.getTags().stream()
-                .map(tag -> BrandingPostTag.builder().tag(tag).build())
-                .collect(Collectors.toList()));
+        post.replaceTags(BrandingPostTag.normalize(request.getTags()));
 
         post.setLinkedCourse(resolveLinkedCourse(request.getLinkedCourseId(), owner));
     }

@@ -41,6 +41,10 @@ public class PublicCommunityController {
      *
      * <p>{@code authorType=INSTRUCTOR} 는 웹 피드의 "강사 글" pill — 승인된 강사가 쓴 글만. 생략은 전체다.
      *
+     * <p>{@code tag} 는 사이드바의 인기 태그를 눌렀을 때 오는 <b>정확 일치</b> 필터다(부분일치는
+     * 검색이라 여기 범위가 아니다). 정렬·카테고리와 자유롭게 조합된다. 빈 값은 필터 없음으로 읽고,
+     * 없는 태그는 400 이 아니라 <b>빈 페이지</b>다 — 태그가 사라진 건 실패가 아니라 결과다.
+     *
      * <p><b>정렬은 화이트리스트 enum {@code sort=LATEST|POPULAR} 로만 받는다</b>(기본 LATEST).
      * 클라이언트가 준 정렬 문자열을 {@link Pageable} 에 태우지는 않는다 — 그러면 인덱스 없는 정렬이나
      * 내부 컬럼 탐색이 뚫린다. {@code category=MATCH} 는 이 값과 무관하게 <b>일정 임박순으로 자동
@@ -50,12 +54,13 @@ public class PublicCommunityController {
     public ResponseEntity<?> feed(@RequestParam(required = false) CommunityCategory category,
                                   @RequestParam(required = false, defaultValue = "LATEST") FeedSort sort,
                                   @RequestParam(required = false) AuthorType authorType,
+                                  @RequestParam(required = false) String tag,
                                   @RequestParam(required = false, defaultValue = "false") boolean bookmarkedByMe,
                                   @CurrentUser Account account,
                                   Pageable pageable,
                                   PagedResourcesAssembler<CommunityPostCardResponse> assembler) {
         return ResponseEntity.ok().body(assembler.toModel(
-                postService.feed(category, sort, authorType, bookmarkedByMe, account, pageable)));
+                postService.feed(category, sort, authorType, tag, bookmarkedByMe, account, pageable)));
     }
 
     /**
