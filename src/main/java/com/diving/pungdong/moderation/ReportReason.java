@@ -1,4 +1,4 @@
-package com.diving.pungdong.community;
+package com.diving.pungdong.moderation;
 
 /**
  * 신고 사유. 디자인에 사유 시트가 없어 BE 가 정의한 목록이고, 확정되면 FE 시트에 그대로 노출된다.

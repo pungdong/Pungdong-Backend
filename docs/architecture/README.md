@@ -34,6 +34,7 @@
 | 주소·위치정보 (address) | [address.md](address.md) | ✅ (juso 검색+좌표변환 BE 경유 · 로컬 stub · 좌표계 검증 후속) |
 | 브랜딩 페이지 (branding) | [branding.md](branding.md) | ✅ (계정당 1개 공개 프로필 · 공개 URL=닉네임 · 조회는 생성 안 함 · 자격/검수는 읽기 시점 합성 · 게시물은 후속) |
 | 커뮤니티 (community) | [community.md](community.md) | ✅ (게시물 테이블을 branding 과 **공유** · 노출은 브랜딩→커뮤니티 단방향 · 카운터 비저장 일괄집계 · 1-depth 댓글 · 신고 어드민 큐) |
+| 신고·조치 (moderation) | [moderation.md](moderation.md) | ✅ (한 테이블·한 큐 · 대상 4종(글·댓글·강의·채팅) · **조치=실제로 숨김** · 조치 표식은 대상 도메인 컬럼(순환 회피) · 강의 조치는 거래를 안 끊음) |
 | 유저 차단 (block) | [block.md](block.md) | ✅ (계정 쌍 1행 · **필터는 서버가 쿼리 안에서** · 상호 은닉(양방향) · 거래 관계는 범위 밖 · account 만 단방향 참조) |
 | 강사 가용시간 (availability) | [availability.md](availability.md) | ✅ (가용시간 window + 외부/수동 점유 hold · 5상태 파생 · enrollment 연동됨) |
 | 세션 단체 채팅 (chat) | [chat.md](chat.md) | ✅ (일정 1개 = 방 1개 · **방 PK=일정 id, FK 없음**(일정이 물리 삭제돼도 방 생존) · 상태 파생 · 커서 페이지네이션 + 전송 멱등 · 폴링+FCM) |

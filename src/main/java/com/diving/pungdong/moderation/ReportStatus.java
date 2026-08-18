@@ -1,4 +1,4 @@
-package com.diving.pungdong.community;
+package com.diving.pungdong.moderation;
 
 /**
  * 신고 처리 상태. 어드민이 사람 눈으로 판단하는 큐라 상태가 세 개면 충분하다.

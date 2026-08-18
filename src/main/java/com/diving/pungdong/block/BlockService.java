@@ -7,10 +7,10 @@ import com.diving.pungdong.block.dto.BlockedAccountResponse;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.global.persistence.IdempotentInsert;
+import com.diving.pungdong.global.persistence.PageClamp;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,10 +35,6 @@ import java.util.Set;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class BlockService {
-
-    /** 차단 목록 페이지 상한 — 커뮤니티와 같은 규칙(size 를 키운 전수 조회 방지). */
-    private static final int MAX_PAGE_SIZE = 50;
-    private static final int DEFAULT_PAGE_SIZE = 20;
 
     private final AccountBlockJpaRepo blockRepo;
     private final AccountJpaRepo accountRepo;
@@ -112,7 +108,7 @@ public class BlockService {
 
     /** 차단 관리 화면 — 내가 차단한 사람 목록(최근 차단순). */
     public Page<BlockedAccountResponse> myBlocks(Account currentUser, Pageable pageable) {
-        return blockRepo.findMine(currentUser.getId(), fixed(pageable)).map(this::toResponse);
+        return blockRepo.findMine(currentUser.getId(), PageClamp.fixed(pageable)).map(this::toResponse);
     }
 
     /* ─── 내부 ───────────────────────────────────────────── */
@@ -142,13 +138,6 @@ public class BlockService {
                 .avatarUrl(photo == null ? null : photo.getImageUrl())
                 .blockedAt(block.getCreatedAt())
                 .build();
-    }
-
-    /** 클라이언트 정렬을 버리고 size 상한을 건다 — 커뮤니티 {@code CommunityPaging} 과 같은 규칙. */
-    private Pageable fixed(Pageable pageable) {
-        int size = pageable.isPaged() ? Math.min(pageable.getPageSize(), MAX_PAGE_SIZE) : DEFAULT_PAGE_SIZE;
-        int page = pageable.isPaged() ? pageable.getPageNumber() : 0;
-        return PageRequest.of(page, size);
     }
 
     private Account loadAccount(Account currentUser) {

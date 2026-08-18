@@ -85,7 +85,11 @@
 
 ## 아직 안 한 것 (백로그)
 
-- 메시지 신고 — 커뮤니티 `ContentReport`(다형 타겟 + UNIQUE 멱등 + 어드민 큐) 패턴 복사
+- ~~메시지 신고~~ — **구현됨(2026-08-19)**. 패턴을 복사하지 않고 `moderation` 의 한 테이블·한 큐에
+  `CHAT_MESSAGE` 대상으로 합쳤다. 이 도메인은 seam 셋만 노출한다:
+  `ChatMessageService.requireReportableSender`(🔴 **방 접근 권한 판정** — 없으면 남의 방 메시지를
+  id 로 신고해 어드민 큐 미리보기로 대화를 읽을 수 있다) · `deleteByModerator`(툼스톤) ·
+  `moderationPreview`/`moderationSenderId`. **`deleted` 툼스톤을 세우는 유일한 경로가 이것이다.**
 - 첨부/이미지 — `global/storage/S3Uploader` + `ImageUploadPolicy` 재사용 가능(v1 은 텍스트 전용, `[+]` 숨김)
 - per-room 알림 mute — `notification_preference` 신설 필요
 - 메시지 삭제 API — `deleted` 컬럼과 툼스톤 문구만 있고 경로는 없다

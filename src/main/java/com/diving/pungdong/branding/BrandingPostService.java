@@ -335,7 +335,9 @@ public class BrandingPostService {
      * <b>그리드 카드는 바꾸지 않는다</b> — 카드엔 오너 개념이 없다.
      */
     private LinkedCourseResponse toLinkedCourse(Course course, boolean owner) {
-        if (course == null || (!owner && course.getStatus() == CourseStatus.DRAFT)) {
+        // 어드민이 조치한 강의는 오너에게도 카드로 내보내지 않는다 — DRAFT 와 달리 "아직 안 연 것" 이
+        // 아니라 "내려간 것" 이라, 클릭하면 공개 상세가 400 인 죽은 카드가 된다.
+        if (course == null || course.isBlocked() || (!owner && course.getStatus() == CourseStatus.DRAFT)) {
             return null;
         }
         return LinkedCourseResponse.builder()

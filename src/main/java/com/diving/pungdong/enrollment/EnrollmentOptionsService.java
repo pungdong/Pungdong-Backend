@@ -73,6 +73,9 @@ public class EnrollmentOptionsService {
     public EnrollmentOptionsResponse getOptions(Account student, Long courseId, LocalDate today) {
         Course course = courseRepo.findById(courseId)
                 .filter(c -> c.getStatus() == CourseStatus.OPEN)
+                // 슬롯 피커와 제출(EnrollmentService.openCourse)이 같은 조건을 봐야 한다 —
+                // 어긋나면 고를 수 있는 슬롯이 보이는데 제출만 400 이 난다.
+                .filter(c -> !c.isBlocked())
                 .orElseThrow(ResourceNotFoundException::new);
         return buildOptions(course.getInstructor(), course, firstMeetingRound(course), today, null);
     }

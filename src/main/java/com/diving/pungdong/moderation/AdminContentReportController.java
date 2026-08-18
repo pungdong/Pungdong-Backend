@@ -1,6 +1,6 @@
-package com.diving.pungdong.community;
+package com.diving.pungdong.moderation;
 
-import com.diving.pungdong.community.dto.ContentReportResponse;
+import com.diving.pungdong.moderation.dto.ContentReportResponse;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
@@ -23,19 +23,26 @@ import javax.validation.constraints.NotNull;
  * 어드민 FE 가 이미 그 패턴을 쓰고 있어 새 화면 관례를 만들 이유가 없다.
  */
 @RestController
-@RequestMapping(value = "/admin/community/reports", produces = MediaTypes.HAL_JSON_VALUE)
+@RequestMapping(value = {"/admin/reports", "/admin/community/reports"}, produces = MediaTypes.HAL_JSON_VALUE)
 @RequiredArgsConstructor
 public class AdminContentReportController {
 
     private final ContentReportService reportService;
 
-    /** 큐 목록. {@code status} 생략이면 전체 탭. 최신 접수순. */
+    /**
+     * 큐 목록. {@code status}·{@code targetType} 둘 다 생략 가능(생략 = 그 축 전체). 최신 접수순.
+     *
+     * <p>{@code targetType} 이 어드민 화면의 <b>항목 탭</b>이다(커뮤니티글 · 댓글 · 강의 · 채팅).
+     * 링크는 BE 가 만들지 않는다 — 어드민 FE 가 {@code targetType}+{@code targetId} 로 해당 글·상품
+     * 페이지 URL 을 조립한다(알림 딥링크와 같은 기존 규칙).
+     */
     @GetMapping
     public ResponseEntity<?> queue(@RequestParam(required = false) ReportStatus status,
+                                   @RequestParam(required = false) ReportTargetType targetType,
                                    @PageableDefault(size = 20, sort = "createdAt",
                                            direction = Sort.Direction.DESC) Pageable pageable,
                                    PagedResourcesAssembler<ContentReportResponse> assembler) {
-        return ResponseEntity.ok().body(assembler.toModel(reportService.queue(status, pageable)));
+        return ResponseEntity.ok().body(assembler.toModel(reportService.queue(status, targetType, pageable)));
     }
 
     /** 상태별 건수 — 탭 뱃지(대기/조치/기각). */

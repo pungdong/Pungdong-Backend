@@ -135,7 +135,9 @@ public class EnrollmentService {
             throw new ResourceNotFoundException(); // 없음/남의 수강 — 존재 숨김
         }
         Course course = enrollment.getCourse();
-        if (course == null || course.getStatus() != CourseStatus.OPEN) {
+        // 다음 회차를 새로 잡는 건 새 일정을 만드는 일이라 조치된 강의에서는 막는다.
+        // (이미 확정·결제된 회차는 그대로 살아 있다 — 조치가 거래를 끊지는 않는다.)
+        if (course == null || course.getStatus() != CourseStatus.OPEN || course.isBlocked()) {
             throw new BadRequestException();
         }
         Account instructor = requireInstructor(course);
@@ -931,9 +933,16 @@ public class EnrollmentService {
                 .orElseThrow(IdentityVerificationRequiredException::new);
     }
 
+    /**
+     * 신규 신청을 받을 수 있는 강의. {@code OPEN} 이면서 <b>어드민 조치로 차단되지 않은</b> 것.
+     *
+     * <p>차단은 강사가 만질 수 없는 축이라 여기서 따로 본다({@code CourseStatus} 로는 표현되지 않는다 —
+     * {@code Course.blockedAt} Javadoc). 없는 것으로 취급해 400 을 낸다(존재 숨김).
+     */
     private Course openCourse(Long courseId) {
         return courseRepo.findById(courseId)
                 .filter(c -> c.getStatus() == CourseStatus.OPEN)
+                .filter(c -> !c.isBlocked())
                 .orElseThrow(ResourceNotFoundException::new);
     }
 

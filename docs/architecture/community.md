@@ -197,6 +197,9 @@ erDiagram
   댓글은 스레드(메모리 필터)와 `commentCount`(`NOT_BLOCKED` 술어)를 **같은 기준**으로 맞춘다 —
   어긋나면 "댓글 3인데 2개 보임" 이 된다. 구현·정책은 [block.md](block.md) ·
   [features/moderation.md](../features/moderation.md).
+- **신고는 이제 `moderation` 패키지 소유다**(2026-08-19). 커뮤니티가 신고 테이블을 읽던 곳
+  (작성자의 숨김 해제 가드)은 **`branding_post.moderated_at` 컬럼**으로 바뀌었다 — 안 그러면
+  `community → moderation → community` 순환이 된다. **이 컬럼을 다시 신고 조회로 되돌리지 말 것.**
 - **`content_report` 만 FK 가 없다.** 게시물·댓글 두 종류를 가리키는 폴리모픽 참조라 DB 제약을 걸 수 없다. 대상 존재 확인은 **접수 시점에 서비스가** 한다.
 - **인덱스는 2개만 추가했다.** 피드용 `ix_community_feed(show_in_feed, is_hidden, category, created_at)` 와 인기 태그 집계용 `ix_branding_post_tag_tag`. ⚠️ 후자의 **커버링은 2026-08-18 에 깨졌다** — 인기 태그에 30일 창이 붙으면서 `branding_post` 조인이 필요해졌다. 창으로 좁힌 뒤 `post_id` 로 붙는 형태라 지금 규모에선 무시할 만해서 인덱스를 더하지 않았다. 브랜딩 그리드용은 **새로 만들지 않았다** — 기존 `ix_branding_post_grid` 가 이미 `branding_id` 로 좁히므로 그 위에 `show_on_profile` 필터를 얹는 비용은 무시할 수 있다. 거의 같은 인덱스를 하나 더 두면 쓰기 비용만 늘어난다.
 
@@ -249,9 +252,9 @@ erDiagram
 | `POST /community/posts/{id}/comments` | 필요 | 인증만 | 대댓글의 부모는 최상위만 |
 | `PUT · DELETE /community/comments/{id}` | 필요 | 인증만 | 남의 댓글 **400** |
 | `POST · DELETE /community/comments/{id}/like` | 필요 | 인증만 | 멱등. 삭제된 댓글엔 불가 |
-| `POST /community/reports` | 필요 | 인증만 | 자기 콘텐츠 400. 중복 **200 멱등** |
+| `POST /reports` (별칭 `/community/reports`) | 필요 | 인증만 | **[moderation.md](moderation.md) 소유**로 이관(2026-08-19). 자기 콘텐츠 400. 중복 **200 멱등** |
 | `POST · DELETE · GET /blocks` | 필요 | 인증만 | 유저 차단 — [block.md](block.md) 소유. 피드·상세·댓글·반응이 전부 차단을 본다 |
-| `GET · PATCH /admin/community/reports/**` | 필요 | **ROLE_ADMIN** | — |
+| `GET · PATCH /admin/reports/**` | 필요 | **ROLE_ADMIN** | **[moderation.md](moderation.md) 소유**. 구 경로 `/admin/community/reports/**` 는 한시 별칭 |
 | `POST /branding-images` | 필요 | 인증만 | 사진 업로드 — **기존 재사용, 신규 없음** |
 
 **왜 `hasRole("INSTRUCTOR")` 가 없나** — 커뮤니티는 전 role 공용이고, 강사 강조는 **권한이 아니라 표시**다. 강사 판정은 승인된 신청에서 서비스가 파생한다(승인 전 강사를 403 으로 막지 않는 레포 전반의 방침. [branding.md](branding.md) §5 와 같은 이유).

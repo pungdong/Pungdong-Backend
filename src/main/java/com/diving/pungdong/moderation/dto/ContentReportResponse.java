@@ -1,8 +1,8 @@
-package com.diving.pungdong.community.dto;
+package com.diving.pungdong.moderation.dto;
 
-import com.diving.pungdong.community.ReportReason;
-import com.diving.pungdong.community.ReportStatus;
-import com.diving.pungdong.community.ReportTargetType;
+import com.diving.pungdong.moderation.ReportReason;
+import com.diving.pungdong.moderation.ReportStatus;
+import com.diving.pungdong.moderation.ReportTargetType;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Builder;
 import lombok.Getter;
@@ -38,6 +38,16 @@ public class ContentReportResponse {
     /** 어드민 목록에서만 채워진다(신고자 닉네임). 접수 응답에서는 키가 없다. */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private final String reporterNickName;
+
+    /**
+     * 어드민 목록에서만 채워진다 — <b>조치 대상이 누구인지</b>(글·댓글·강의·메시지의 작성자).
+     * 대상이 이미 지워졌으면 키가 없다.
+     *
+     * <p>대상 타입이 넷으로 늘면서 필요해졌다. 없으면 어드민이 "누구를 조치하는지" 를 알려면 매번
+     * 대상 화면을 열어야 하고, 같은 사람이 여러 신고에 걸려 있는지 큐에서 알아볼 수 없다.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private final String targetAuthorNickName;
 
     /**
      * 신고 대상의 본문 미리보기 — 어드민이 목록에서 바로 판단할 수 있게. 대상이 이미 삭제됐으면 null.

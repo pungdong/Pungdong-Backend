@@ -1,5 +1,6 @@
 package com.diving.pungdong.notification;
 
+import com.diving.pungdong.global.persistence.PageClamp;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.notification.dto.UserNotificationResponse;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -32,7 +33,7 @@ public class UserNotificationService {
      */
     @Transactional(readOnly = true)
     public Page<UserNotificationResponse> feed(Long accountId, boolean unreadOnly, Pageable pageable) {
-        Pageable fixed = NotificationPaging.fixed(pageable);
+        Pageable fixed = PageClamp.fixed(pageable);
         Page<UserNotification> page = unreadOnly
                 ? repo.findByRecipientAccountIdAndReadAtIsNullOrderByCreatedAtDescIdDesc(accountId, fixed)
                 : repo.findByRecipientAccountIdOrderByCreatedAtDescIdDesc(accountId, fixed);

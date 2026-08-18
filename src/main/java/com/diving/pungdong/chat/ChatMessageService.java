@@ -5,6 +5,7 @@ import com.diving.pungdong.chat.dto.ChatMessageListResponse;
 import com.diving.pungdong.chat.dto.ChatMessageResponse;
 import com.diving.pungdong.chat.dto.ChatSendRequest;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
+import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.global.advice.exception.TooManyRequestsException;
 import com.diving.pungdong.notification.event.ChatMessageEvent;
 import lombok.RequiredArgsConstructor;
@@ -292,6 +293,62 @@ public class ChatMessageService {
                 ChatParticipant::getAccountId, ChatParticipant::getRole, (a, b) -> a));
         Map<Long, String> nickNames = roomService.nickNamesOf(new ArrayList<>(roles.keySet()));
         return new SenderIndex(roles, nickNames);
+    }
+
+    /* ─── 모더레이션 seam (moderation 패키지가 쓴다) ───────── */
+
+    /**
+     * 신고 대상으로 삼을 수 있는 메시지인지 확인하고 <b>작성자 계정 id</b> 를 돌려준다.
+     *
+     * <p><b>🔴 방 접근 권한을 반드시 본다.</b> 메시지 id 만으로 신고를 받으면 아무 방의 메시지나
+     * id 를 증가시켜 가며 신고할 수 있고, 어드민 큐에 실리는 <b>본문 미리보기가 남의 대화를 읽는
+     * 채널</b>이 된다(IDOR). 그래서 {@code roomService.requireAccessibleRoom} 을 그대로 태운다 —
+     * 목록 조회와 같은 판정이라 "내가 읽을 수 있는 메시지만 신고할 수 있다" 가 성립한다.
+     *
+     * <p>{@code sync=false} 는 목록·읽음 처리와 같다(참여자 reconcile 을 건너뛴다 — 신고는 방 상태를
+     * 바꿀 이유가 없다).
+     *
+     * <p><b>{@code SYSTEM} 메시지는 신고할 수 없다</b>(400) — 작성자가 없는 우리 문구라 조치할 대상이
+     * 아니다. 이미 삭제된 메시지도 마찬가지다.
+     *
+     * <p>방이 CLOSED 여도 신고는 된다 — 읽기와 같은 취급이다(막히는 건 전송뿐).
+     */
+    @Transactional(readOnly = true)
+    public Long requireReportableSender(Account reporter, Long messageId) {
+        ChatMessage message = messageRepo.findById(messageId).orElseThrow(ResourceNotFoundException::new);
+        roomService.requireAccessibleRoom(reporter, message.getRoomId(), false);
+        if (message.getKind() != ChatMessageKind.USER || message.getSenderAccountId() == null) {
+            throw new BadRequestException("시스템 메시지는 신고할 수 없어요.");
+        }
+        if (message.isDeleted()) {
+            throw new BadRequestException("이미 삭제된 메시지예요.");
+        }
+        return message.getSenderAccountId();
+    }
+
+    /**
+     * 어드민 조치 — 메시지를 툼스톤으로 만든다. 렌더 규칙({@link #DELETED_TEXT})은 이미 있었고
+     * <b>세우는 경로만 없었다</b>. 물리 삭제하지 않는 이유는 커뮤니티 댓글과 같다 — 대화 흐름에서
+     * 행이 사라지면 앞뒤 맥락이 끊기고, 커서 페이지네이션의 id 연속성도 깨진다.
+     */
+    @Transactional
+    public void deleteByModerator(Long messageId) {
+        messageRepo.findById(messageId).ifPresent(message -> message.setDeleted(true));
+    }
+
+    /** 어드민 큐용 작성자 계정 id. 없으면 {@code null}(시스템 메시지이거나 지워진 경우). */
+    @Transactional(readOnly = true)
+    public Long moderationSenderId(Long messageId) {
+        return messageRepo.findById(messageId).map(ChatMessage::getSenderAccountId).orElse(null);
+    }
+
+    /** 어드민 큐 미리보기용 원문. 이미 지워졌으면 {@code null} — 큐가 "대상 없음" 으로 렌더한다. */
+    @Transactional(readOnly = true)
+    public String moderationPreview(Long messageId) {
+        return messageRepo.findById(messageId)
+                .filter(message -> !message.isDeleted())
+                .map(ChatMessage::getText)
+                .orElse(null);
     }
 
     private static final class SenderIndex {

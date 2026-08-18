@@ -91,6 +91,7 @@ public class SecurityConfiguration {
                         .antMatchers("/admin/instructor-applications/**").hasRole("ADMIN")
                         // 신고 처리 큐 — 어드민 전용. /community/** 의 authenticated 매처보다 앞에 둬야
                         // ADMIN 검사가 실제로 걸린다(먼저 매치되는 매처가 이긴다).
+                        .antMatchers("/admin/reports", "/admin/reports/**").hasRole("ADMIN")
                         .antMatchers("/admin/community/reports/**").hasRole("ADMIN")
                         // 결제 주문 수동 환불(운영 보정) — 어드민 전용. /payments/** 매처와 경로가 다르지만 명시.
                         .antMatchers("/admin/payments/**").hasRole("ADMIN")
@@ -114,6 +115,9 @@ public class SecurityConfiguration {
                         .antMatchers("/branding/**").authenticated()
                         // 강사 전용이 아니다 — 일반 유저도 커뮤니티에 쓴다. hasRole 로 막으면 안 된다.
                         .antMatchers("/community/**").authenticated()
+                        // 신고 접수. 대상이 커뮤니티 밖(강의·채팅)으로 넓어져 경로가 /community/** 를 벗어났다 —
+                        // 별칭 /community/reports 는 그쪽 매처가 이미 덮는다.
+                        .antMatchers("/reports").authenticated()
                         // 유저 차단. ⚠️ ant 의 `*` 는 `/` 를 넘지 않으므로 `/blocks` 와 `/blocks/**` 를 함께
                         // 적는다 — 형제 경로를 빠뜨려 401 이 났던 전례가 커뮤니티에 있다.
                         .antMatchers("/blocks", "/blocks/**").authenticated()
