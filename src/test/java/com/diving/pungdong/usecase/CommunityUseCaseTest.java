@@ -62,7 +62,7 @@ class CommunityUseCaseTest {
     @Autowired com.diving.pungdong.community.CommunityPostBookmarkJpaRepo bookmarkRepo;
     @Autowired com.diving.pungdong.community.CommunityCommentJpaRepo commentRepo;
     @Autowired com.diving.pungdong.community.CommunityCommentLikeJpaRepo commentLikeRepo;
-    @Autowired com.diving.pungdong.community.ContentReportJpaRepo reportRepo;
+    @Autowired com.diving.pungdong.moderation.ContentReportJpaRepo reportRepo;
     @Autowired com.diving.pungdong.notification.NotificationOutboxJpaRepo outboxRepo;
     @Autowired com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo applicationRepo;
 
@@ -1323,7 +1323,7 @@ class CommunityUseCaseTest {
 
         report(reporter, "POST", postId, "SPAM");
 
-        assertThat(reportRepo.countByStatus(com.diving.pungdong.community.ReportStatus.PENDING)).isEqualTo(1);
+        assertThat(reportRepo.countByStatus(com.diving.pungdong.moderation.ReportStatus.PENDING)).isEqualTo(1);
     }
 
     @Test

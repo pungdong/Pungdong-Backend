@@ -1,4 +1,4 @@
-package com.diving.pungdong.community;
+package com.diving.pungdong.moderation;
 
 import com.diving.pungdong.account.Account;
 import lombok.*;

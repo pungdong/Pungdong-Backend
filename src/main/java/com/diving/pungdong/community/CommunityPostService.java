@@ -1,5 +1,6 @@
 package com.diving.pungdong.community;
 
+import com.diving.pungdong.global.persistence.PageClamp;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.account.ProfilePhoto;
@@ -48,7 +49,7 @@ import java.util.stream.Collectors;
 public class CommunityPostService {
 
     /** 클라이언트가 size 를 키워 전수 스크래핑하는 걸 막는다(브랜딩 그리드와 같은 상한). */
-    private static final int MAX_PAGE_SIZE = CommunityPaging.MAX_PAGE_SIZE;
+    private static final int MAX_PAGE_SIZE = PageClamp.MAX_PAGE_SIZE;
 
     /** 카드 그리드가 3장 + "+N" 오버레이 구조라 앞 3장만 싣는다. */
     private static final int CARD_THUMBNAIL_COUNT = 3;
@@ -74,8 +75,6 @@ public class CommunityPostService {
     private final CommunityPostLikeJpaRepo likeRepo;
     private final CommunityPostBookmarkJpaRepo bookmarkRepo;
     private final CommunityCommentJpaRepo commentRepo;
-    /** 숨김 해제 시 "어드민이 조치한 글인가" 를 본다 — 조치를 작성자가 무효화하지 못하게. */
-    private final ContentReportJpaRepo reportRepo;
     private final BrandingPostMediaJpaRepo mediaRepo;
     private final AccountBrandingJpaRepo brandingRepo;
     private final AccountJpaRepo accountRepo;
@@ -102,7 +101,7 @@ public class CommunityPostService {
                                                 boolean bookmarkedByMe,
                                                 Account viewer,
                                                 Pageable pageable) {
-        Pageable page = CommunityPaging.fixed(pageable);
+        Pageable page = PageClamp.fixed(pageable);
 
         // "저장한 글" 은 로그인해야 의미가 있다. 비로그인은 에러가 아니라 빈 페이지가 맞는 답이다 —
         // 로그인 안 한 사람에게 저장한 글이 없는 건 정상 상태지 실패가 아니다(레포 규칙).
@@ -187,7 +186,7 @@ public class CommunityPostService {
      * 카드에 {@code hidden}·{@code showOnProfile} 이 함께 실려 뱃지와 토글 상태를 그릴 수 있다.
      */
     public Page<CommunityPostCardResponse> myPosts(Account viewer, Pageable pageable) {
-        Page<BrandingPost> posts = postRepo.findAllMine(viewer.getId(), CommunityPaging.fixed(pageable));
+        Page<BrandingPost> posts = postRepo.findAllMine(viewer.getId(), PageClamp.fixed(pageable));
         return posts.map(cardMapperFor(posts.getContent(), viewer));
     }
 
@@ -331,8 +330,9 @@ public class CommunityPostService {
     @Transactional
     public CommunityPostDetailResponse updateHidden(Account currentUser, Long postId, boolean hidden) {
         BrandingPost post = requireMine(postId, currentUser.getId());
-        if (!hidden && reportRepo.existsByTargetTypeAndTargetIdAndStatus(
-                ReportTargetType.POST, postId, ReportStatus.ACTIONED)) {
+        // 조치 사실은 글 자신의 컬럼에 남아 있다 — 신고 테이블을 읽지 않는다(순환 의존 회피,
+        // BrandingPost.moderatedAt Javadoc). 되돌리는 건 어드민이 신고를 기각하는 경로다.
+        if (!hidden && post.getModeratedAt() != null) {
             throw new BadRequestException("신고로 비공개 처리된 글이라 다시 공개할 수 없어요.");
         }
         post.setHidden(hidden);
@@ -634,7 +634,8 @@ public class CommunityPostService {
      * 늘어난 날 한쪽만 고쳐지고, 그 차이는 "오너에게만 필드가 빠진다" 로 나타나 눈에 잘 안 띈다.
      */
     private LinkedCourseResponse toLinkedCourse(Course course, boolean includeDraft) {
-        if (course == null || (!includeDraft && course.getStatus() == CourseStatus.DRAFT)) {
+        // 조치된 강의는 오너(includeDraft)에게도 빼야 한다 — 누르면 공개 상세가 400 인 죽은 카드가 된다.
+        if (course == null || course.isBlocked() || (!includeDraft && course.getStatus() == CourseStatus.DRAFT)) {
             return null;
         }
         return LinkedCourseResponse.builder()

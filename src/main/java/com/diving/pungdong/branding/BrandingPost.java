@@ -101,6 +101,21 @@ public class BrandingPost {
     @Column(name = "is_hidden", nullable = false)
     private boolean isHidden;
 
+    /**
+     * 어드민이 신고를 조치한 시각. {@code null} 이면 조치된 적 없다.
+     *
+     * <p><b>{@code isHidden} 과 따로 있는 이유</b>: 숨김의 주인이 둘(작성자·어드민)인데 상태 컬럼이
+     * 하나뿐이면, 신고로 내려간 글을 작성자가 토글 한 번으로 되살려 조치가 무효가 된다.
+     * 이 컬럼이 "누가 내렸는지" 를 기억한다 — 값이 있으면 작성자는 다시 공개할 수 없다.
+     *
+     * <p><b>왜 신고 테이블을 읽지 않고 컬럼을 두나</b>: 신고는 {@code moderation} 패키지 소유인데
+     * 이 판정은 커뮤니티(작성자의 공개 전환)가 한다. 신고를 읽으면
+     * {@code community → moderation → community} 순환이 된다. 조치 사실을 대상 도메인에 남기면
+     * 각자 <b>자기 컬럼만</b> 보면 되고 의존이 한 방향으로 정리된다.
+     */
+    @Column(name = "moderated_at")
+    private OffsetDateTime moderatedAt;
+
     /** 연결된 강의 — 강사만 설정할 수 있고, 없으면 null. */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "linked_course_id")

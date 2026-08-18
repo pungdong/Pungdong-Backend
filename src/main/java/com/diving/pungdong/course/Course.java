@@ -88,6 +88,30 @@ public class Course {
      */
     private boolean seeded;
 
+    /**
+     * 어드민이 신고를 조치해 차단한 시각. {@code null} 이면 정상.
+     *
+     * <p><b>{@link CourseStatus} 로 표현하지 않은 이유</b>: DRAFT/OPEN/CLOSED 는 <b>강사가 스스로 바꾸는
+     * 영업 상태</b>다({@code PATCH /courses/{id}/status} 로 자유롭게 오간다). 조치를 CLOSED 로 내리면
+     * 강사가 즉시 되돌린다 — 어드민 조치는 강사가 만질 수 없는 별도 축이어야 한다.
+     * {@code seeded} 와 같은 모양의 "쓰기 경로가 없는 플래그" 다.
+     *
+     * <p><b>효과는 노출과 신규 신청까지다.</b> 둘러보기·공개 상세·강의 수 집계·게시물의 연결 강의 카드에서
+     * 빠지고, 새 수강신청·다음 회차 잡기가 막힌다. <b>이미 확정·결제된 수강은 건드리지 않는다</b> —
+     * 레포의 "확정 취소 없음" 원칙이고, 돈이 오간 관계를 조치가 일방적으로 끊으면 환불·분쟁이 된다.
+     *
+     * <p>⚠️ 이 플래그를 <b>연관관계를 끊는 방식</b>(enrollment 의 course 를 null 로)으로 구현하지 말 것.
+     * 수강 일정 카드·환불 계산·채팅방 제목이 전부 {@code enrollment.getCourse()} 를 타고 있어서
+     * 조용히 무너진다(환불 비율까지 바뀐다). 필터는 <b>조회 쿼리에만</b> 더한다.
+     */
+    @Column(name = "blocked_at")
+    private java.time.OffsetDateTime blockedAt;
+
+    /** 어드민 조치로 가려진 강의인가. 노출·신규 신청 판정의 단일 표현. */
+    public boolean isBlocked() {
+        return blockedAt != null;
+    }
+
     @OneToMany(mappedBy = "course", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @OrderBy("sortOrder asc, id asc")
     @Builder.Default

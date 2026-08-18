@@ -34,6 +34,7 @@ public final class CourseSpecifications {
 
     public static Specification<Course> matching(CourseBrowseCondition c) {
         return Specification.where(statusOpen())
+                .and(notBlocked())
                 .and(disciplineEq(c.getDisciplineCode()))
                 .and(keywordLike(c.getKeyword()))
                 .and(regionContains(c.getRegion()))
@@ -45,6 +46,17 @@ public final class CourseSpecifications {
 
     private static Specification<Course> statusOpen() {
         return (root, query, cb) -> cb.equal(root.get("status"), CourseStatus.OPEN);
+    }
+
+    /**
+     * 어드민이 신고를 조치해 차단한 강의 제외.
+     *
+     * <p><b>{@link #excludeSeeded()} 와 달리 조건 없이 항상 붙는다</b> — 데모 노출은 사이트 설정으로
+     * 켜고 끄는 축이지만 조치는 그런 게 아니다. 그래서 호출부가 고를 수 있는 자리가 아니라
+     * {@link #matching} 안에 박혀 있다({@code statusOpen} 과 같은 취급).
+     */
+    private static Specification<Course> notBlocked() {
+        return (root, query, cb) -> cb.isNull(root.get("blockedAt"));
     }
 
     /**

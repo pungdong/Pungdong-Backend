@@ -1,7 +1,7 @@
-package com.diving.pungdong.community.dto;
+package com.diving.pungdong.moderation.dto;
 
-import com.diving.pungdong.community.ReportReason;
-import com.diving.pungdong.community.ReportTargetType;
+import com.diving.pungdong.moderation.ReportReason;
+import com.diving.pungdong.moderation.ReportTargetType;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;

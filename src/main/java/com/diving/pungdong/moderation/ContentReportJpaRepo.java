@@ -1,8 +1,10 @@
-package com.diving.pungdong.community;
+package com.diving.pungdong.moderation;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
 
@@ -18,6 +20,21 @@ public interface ContentReportJpaRepo extends JpaRepository<ContentReport, Long>
     Page<ContentReport> findByStatusOrderByCreatedAtDesc(ReportStatus status, Pageable pageable);
 
     Page<ContentReport> findAllByOrderByCreatedAtDesc(Pageable pageable);
+
+    /**
+     * 어드민 큐 — 상태·항목 두 축을 <b>한 쿼리</b>로. 파라미터가 {@code null} 이면 그 축은 안 건다.
+     *
+     * <p>파생 메서드 이름을 축 조합마다 만들면 (전체·상태·항목·둘) 넷이 되고, 축이 하나 더 늘면
+     * 여덟이 된다. 어드민 화면이 "커뮤니티글 / 강의 / 채팅" 탭으로 갈리는 게 이 피처의 요구라
+     * 조합은 계속 늘어난다 — 처음부터 nullable 파라미터로 받는다.
+     */
+    @Query("select r from ContentReport r "
+            + "where (:status is null or r.status = :status) "
+            + "and (:targetType is null or r.targetType = :targetType) "
+            + "order by r.createdAt desc, r.id desc")
+    Page<ContentReport> findQueue(@Param("status") ReportStatus status,
+                                  @Param("targetType") ReportTargetType targetType,
+                                  Pageable pageable);
 
     /** 어드민 탭 뱃지용 상태별 건수. */
     long countByStatus(ReportStatus status);

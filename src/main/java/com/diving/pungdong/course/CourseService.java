@@ -83,6 +83,7 @@ public class CourseService {
         boolean showSeeded = siteSettings.current().showSeededCourses();
         Course course = courseRepo.findById(id)
                 .filter(c -> c.getStatus() == CourseStatus.OPEN)
+                .filter(c -> !c.isBlocked()) // 어드민 조치 — 둘러보기에서만 빼면 상세 URL 이 우회로가 된다
                 .filter(c -> showSeeded || !c.isSeeded()) // 데모 가림 시 상세도 숨김(존재 숨김)
                 .orElseThrow(ResourceNotFoundException::new);
         List<String> refs = course.getRounds().stream()
