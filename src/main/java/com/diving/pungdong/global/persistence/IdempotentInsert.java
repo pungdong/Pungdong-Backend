@@ -1,4 +1,4 @@
-package com.diving.pungdong.community;
+package com.diving.pungdong.global.persistence;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Component;
