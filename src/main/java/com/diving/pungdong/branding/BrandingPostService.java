@@ -1,6 +1,7 @@
 package com.diving.pungdong.branding;
 
 import com.diving.pungdong.account.Account;
+import com.diving.pungdong.block.BlockService;
 import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.account.ProfilePhoto;
 import com.diving.pungdong.branding.dto.*;
@@ -50,14 +51,28 @@ public class BrandingPostService {
 
     /** 본문에 실린 이미지 URL 이 우리가 발급한 것인지 검사한다. 커뮤니티 글과 같은 규칙을 공유한다. */
     private final PublicMediaUrlPolicy mediaUrlPolicy;
+    /** 공개 그리드·상세의 차단 판정. */
+    private final BlockService blockService;
 
     /* ─── 공개 ───────────────────────────────────────────── */
 
     /** 공개 그리드 — 숨김 제외, 고정 먼저 최신순. 정렬·크기는 서버가 고정한다. */
-    public Page<BrandingPostCardResponse> publicGrid(String nickName, Pageable pageable) {
+    public Page<BrandingPostCardResponse> publicGrid(String nickName, Pageable pageable, Account viewer) {
         AccountBranding branding = brandingRepo.findPublishedByNickName(nickName).stream()
                 .findFirst()
                 .orElseThrow(ResourceNotFoundException::new);
+
+        // 프로필 응답(BrandingService.publicProfile)과 같은 규칙: 상대가 나를 차단했으면 없는 것처럼,
+        // 내가 차단했으면 프로필은 열되 그리드는 비운다(해제 동선을 남긴다).
+        Long ownerId = branding.getAccount().getId();
+        if (viewer != null && !viewer.getId().equals(ownerId)) {
+            if (blockService.hasBlocked(ownerId, viewer.getId())) {
+                throw new ResourceNotFoundException();
+            }
+            if (blockService.hasBlocked(viewer.getId(), ownerId)) {
+                return Page.empty(fixedPage(pageable));
+            }
+        }
 
         Page<BrandingPost> posts = postRepo.findPublicGrid(branding.getId(), fixedPage(pageable));
         return toCards(posts, false);
@@ -84,6 +99,11 @@ public class BrandingPostService {
     public BrandingPostDetailResponse detail(Long postId, Account viewer) {
         BrandingPost post = postRepo.findById(postId).orElseThrow(ResourceNotFoundException::new);
         if (!isVisibleTo(post, viewer)) {
+            throw new ResourceNotFoundException();
+        }
+        // 차단 관계면 여기로도 열리지 않는다 — 그리드만 비우면 상세 URL 이 우회로가 된다.
+        if (viewer != null
+                && blockService.isBlockedBetween(viewer.getId(), post.getBranding().getAccount().getId())) {
             throw new ResourceNotFoundException();
         }
         return toDetail(post, isOwner(post, viewer));

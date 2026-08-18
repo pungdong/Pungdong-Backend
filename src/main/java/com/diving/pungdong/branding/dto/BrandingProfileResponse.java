@@ -64,6 +64,19 @@ public class BrandingProfileResponse {
     private BrandingProducts products;
 
     /**
+     * 내가 이 사람을 차단했나 — 프로필 상단의 "차단됨 · 차단 해제" 상태.
+     *
+     * <p><b>차단해도 프로필은 열린다</b>(글 그리드만 빈다). 400 으로 막으면 차단을 해제할 화면이
+     * 사라져 되돌릴 방법이 없어진다 — 숨긴 글에 "내가 쓴 글" 목록이 필요했던 것과 같은 이유다.
+     *
+     * <p><b>반대 방향은 이 필드로 드러나지 않는다.</b> 상대가 나를 차단한 경우는 프로필 자체가
+     * 400(존재 숨김)이다 — 차단당한 사실을 알려주지 않는다.
+     *
+     * <p>비로그인이면 항상 false. 필드명에 {@code is} 를 붙이지 않는 이유는 위 {@code instructor} 참고.
+     */
+    private boolean blockedByMe;
+
+    /**
      * 자격 뱃지 — 승인된 강사 신청의 자격증에서 파생. {@code profile} 도메인의 동명 DTO 와 형태가 같지만
      * 패키지 간 단방향 의존을 지키려고 복제한다(branding → profile 의존을 만들지 않는다).
      */

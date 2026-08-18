@@ -87,7 +87,7 @@ class BrandingPostControllerTest {
     @Test
     @DisplayName("공개 게시물 그리드 조회")
     void publicGrid() throws Exception {
-        given(postService.publicGrid(any(), any())).willReturn(new PageImpl<>(
+        given(postService.publicGrid(any(), any(), any())).willReturn(new PageImpl<>(
                 List.of(BrandingPostCardResponse.builder()
                         .id(1201L).thumbnailUrl("https://cdn.plop.cool/branding/a.jpg")
                         .mediaCount(5).pinned(true).build()),

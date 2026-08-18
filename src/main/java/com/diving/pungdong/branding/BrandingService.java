@@ -1,6 +1,7 @@
 package com.diving.pungdong.branding;
 
 import com.diving.pungdong.account.Account;
+import com.diving.pungdong.block.BlockService;
 import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.account.ProfilePhoto;
 import com.diving.pungdong.branding.dto.BrandingProducts;
@@ -52,6 +53,8 @@ public class BrandingService {
     private final EnrollmentJpaRepo enrollmentRepo;
     private final CourseJpaRepo courseRepo;
     private final SiteSettingsProvider siteSettings;
+    /** 공개 프로필의 차단 상태 판정. */
+    private final BlockService blockService;
 
     /* ─── 공개 조회 ───────────────────────────────────────── */
 
@@ -59,12 +62,23 @@ public class BrandingService {
      * 공개 프로필. 발행되지 않았거나 없는 닉네임이면 <b>400(존재 숨김)</b> — 이 레포는 404 를 쓰지 않는다
      * ({@code ResourceNotFoundException} → 400, {@code GET /courses/{id}/detail} 선례).
      */
-    public BrandingProfileResponse publicProfile(String nickName) {
+    public BrandingProfileResponse publicProfile(String nickName, Account viewer) {
         AccountBranding branding = brandingRepo.findPublishedByNickName(nickName).stream()
                 .findFirst()
                 .orElseThrow(ResourceNotFoundException::new);
 
         Account owner = branding.getAccount();
+
+        // 차단의 두 방향을 다르게 답한다.
+        //  · 상대가 나를 차단 → 400(존재 숨김). 차단당한 사실을 알려주지 않는다.
+        //  · 내가 차단      → 200 + blockedByMe. 여기가 유일한 해제 동선이라 막으면 되돌릴 수 없다.
+        boolean blockedByMe = false;
+        if (viewer != null && !viewer.getId().equals(owner.getId())) {
+            if (blockService.hasBlocked(owner.getId(), viewer.getId())) {
+                throw new ResourceNotFoundException();
+            }
+            blockedByMe = blockService.hasBlocked(viewer.getId(), owner.getId());
+        }
         List<InstructorApplication> approved = approvedApplicationsOf(owner.getId());
         boolean isInstructor = !approved.isEmpty();
 
@@ -81,6 +95,7 @@ public class BrandingService {
                 .records(recordDtosOf(branding))
                 .stats(statsOf(branding, owner, isInstructor))
                 .products(isInstructor ? productsOf(owner) : null)
+                .blockedByMe(blockedByMe)
                 .build();
     }
 

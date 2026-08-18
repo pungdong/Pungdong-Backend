@@ -1,5 +1,6 @@
 package com.diving.pungdong.community;
 
+import com.diving.pungdong.block.AccountBlock;
 import com.diving.pungdong.branding.BrandingPost;
 import com.diving.pungdong.branding.BrandingPostTag;
 import com.diving.pungdong.branding.CommunityCategory;
@@ -98,6 +99,39 @@ public final class CommunityPostSpecifications {
                             cb.equal(postTag.get("post").get("id"), root.get("id")),
                             cb.equal(postTag.get("tag"), tag)));
             return cb.exists(sub);
+        };
+    }
+
+    /**
+     * 차단 필터 — 뷰어와 <b>어느 방향으로든</b> 차단 관계인 작성자의 글을 뺀다. {@code null}(비로그인)이면
+     * 걸지 않는다.
+     *
+     * <p>{@link #authoredBy} 와 <b>같은 경로</b>({@code branding.account.id})를 타고 극성만 반대다.
+     * 조인이 아니라 {@code exists} 인 이유도 태그 필터와 같다 — 조인하면 차단 행 수만큼 글이 중복돼
+     * {@code totalElements} 가 부풀어 오른다.
+     *
+     * <p><b>양방향인 게 정책이다.</b> 내가 차단한 사람의 글도, 나를 차단한 사람의 글도 보이지 않는다.
+     * 단방향이면 "차단했는데 그 사람이 내 글에 계속 댓글을 단다" 는 상태가 남는다.
+     *
+     * <p>⚠️ 이 필터는 <b>Specification 경로만</b> 덮는다. 피드에는 전용 쿼리 경로가 둘 더 있고
+     * (인기순·같이가요) 그쪽은 {@code CommunityPostJpaRepo.BLOCK_FILTER} 로 같은 술어를 받는다 —
+     * 한쪽만 고치면 그 탭에서만 차단이 새어 나온다.
+     */
+    public static Specification<BrandingPost> notBlockedFor(Long viewerId) {
+        if (viewerId == null) {
+            return null;
+        }
+        return (root, query, cb) -> {
+            var sub = query.subquery(Long.class);
+            var block = sub.from(AccountBlock.class);
+            var authorId = root.get("branding").get("account").get("id");
+            sub.select(block.get("id"))
+                    .where(cb.or(
+                            cb.and(cb.equal(block.get("blocker").get("id"), viewerId),
+                                    cb.equal(block.get("blocked").get("id"), authorId)),
+                            cb.and(cb.equal(block.get("blocked").get("id"), viewerId),
+                                    cb.equal(block.get("blocker").get("id"), authorId))));
+            return cb.not(cb.exists(sub));
         };
     }
 

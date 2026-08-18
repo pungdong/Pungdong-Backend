@@ -38,6 +38,33 @@ public interface CommunityCommentJpaRepo extends JpaRepository<CommunityComment,
 
     long countByPostIdAndIsDeletedFalse(Long postId);
 
+    /**
+     * 차단 관계인 작성자의 댓글(과 그 답글)을 뺀 술어. 스레드가 <b>보여주는 것과 같은 기준</b>이어야
+     * 한다 — 수만 전체를 세면 "댓글 3인데 2개 보임" 이 된다(삭제 댓글을 세지 않는 것과 같은 이유).
+     *
+     * <p><b>절이 둘인 이유</b>: 차단한 사람의 최상위 댓글이 사라지면 그 아래 달린 남의 답글도 함께
+     * 사라진다(부모가 없으면 스레드에 붙을 자리가 없다). 그래서 작성자 조건과 <b>부모의 작성자</b>
+     * 조건을 모두 본다.
+     */
+    String NOT_BLOCKED = "and not exists (select 1 from AccountBlock ab "
+            + "where (ab.blocker.id = :viewerId and ab.blocked = c.account) "
+            + "or (ab.blocked.id = :viewerId and ab.blocker = c.account)) "
+            + "and (c.parent is null or not exists (select 1 from AccountBlock ap "
+            + "where (ap.blocker.id = :viewerId and ap.blocked = c.parent.account) "
+            + "or (ap.blocked.id = :viewerId and ap.blocker = c.parent.account))) ";
+
+    /** 카드의 댓글 수 — 로그인 뷰어 기준(차단 반영). 비로그인은 {@link #countByPostIds}. */
+    @Query("select c.post.id, count(c) from CommunityComment c "
+            + "where c.post.id in :postIds and c.isDeleted = false " + NOT_BLOCKED
+            + "group by c.post.id")
+    List<Object[]> countByPostIdsForViewer(@Param("postIds") Collection<Long> postIds,
+                                           @Param("viewerId") Long viewerId);
+
+    /** 상세의 댓글 수 — 로그인 뷰어 기준(차단 반영). */
+    @Query("select count(c) from CommunityComment c "
+            + "where c.post.id = :postId and c.isDeleted = false " + NOT_BLOCKED)
+    long countVisibleForViewer(@Param("postId") Long postId, @Param("viewerId") Long viewerId);
+
     /** 대댓글이 하나라도 있나 — 삭제를 soft 로 할지 hard 로 할지 가른다. */
     boolean existsByParentId(Long parentId);
 }
