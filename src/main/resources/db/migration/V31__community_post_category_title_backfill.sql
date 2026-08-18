@@ -1,4 +1,9 @@
--- V30 — 게시물 작성 경로 통합: 카테고리 backfill + NOT NULL, 그리고 남아 있던 피드 미노출 행 정리.
+-- V31 — 게시물 작성 경로 통합: 카테고리·제목 backfill + NOT NULL, 남아 있던 피드 미노출 행 정리.
+--
+-- ⚠️ 번호가 V30 이 아닌 이유: 이 작업 중에 PR #283(branding_post.caption 5000자 확장)이 먼저 머지돼
+--    V30 을 선점했다. 같은 번호가 둘이면 Flyway 가 resolve 단계에서 부팅을 거부한다("more than one
+--    migration version 30") — 앱이 아예 안 뜬다. 병렬 작업 중엔 **머지된 것뿐 아니라 열린 PR 이
+--    잡아둔 번호까지** 커밋 직전에 다시 확인할 것.
 --
 -- ## 왜 지금
 --
@@ -10,6 +15,9 @@
 -- 그러면 **카테고리 없는 글**이 문제로 남는다: 통합 폼으로 그 글을 수정하려면 카테고리를 골라야 하는데,
 -- 원래 없던 분류를 작성자가 발명해야 오타 하나를 고칠 수 있다. 그래서 기존 행을 채우고 컬럼을 조인다.
 --
+-- 같은 이유로 **제목(title)** 도 채운다. 통합 폼은 제목을 필수(2~100자)로 받으므로, 제목 없는 옛 글은
+-- 수정하려는 순간 없던 제목을 지어내야 한다. 두 필드가 같은 처지라 한 번에 정리한다.
+--
 -- ## 왜 TOUR 로 채우나 — "없는 값을 지어내지 않는다" 원칙과 충돌하지 않는가
 --
 -- 충돌하지 않는다. 채우는 대상이 **실사용자 데이터가 아니다**:
@@ -17,8 +25,10 @@
 --     즉 prod 에는 이 테이블 자체가 없고, 이 UPDATE 가 만나는 행은 0건이다.
 --   - 스테이징/로컬의 행은 전부 내부 테스트 글이다.
 -- 값으로 TOUR 를 고른 건 대상이 전부 **사진 필수였던 구 브랜딩 게시물**이라 "투어 자랑"이 가장 가깝기
--- 때문이다. 실사용자 글에 임의 분류를 붙이는 상황이었다면 backfill 대신 마이그레이션을 미루고
--- 작성자에게 고르게 했을 것이다.
+-- 때문이다. 제목은 본문(caption)에서 잘라 만들지 않고 고정 문자열('브랜딩 게시물')을 쓴다 — 잘라낸
+-- 앞부분은 그럴듯해 보이지만 작성자가 쓴 제목이 아니어서, 나중에 이게 사람이 쓴 값인지 채운 값인지
+-- 구분할 수 없다. 실사용자 글에 임의 값을 붙이는 상황이었다면 backfill 대신 마이그레이션을 미루고
+-- 작성자에게 채우게 했을 것이다.
 --
 -- ## show_in_feed 도 1 로 올린다
 --
@@ -35,31 +45,33 @@
 -- 건너뛴다 — 재실행 때 큰 테이블을 다시 재구성하지 않게(ECS 가 실패 태스크를 빠르게 재시작해 같은
 -- 마이그레이션이 동시/재시도 실행될 수 있다, 2026-06-28 prod 사고 #121).
 
--- 1. 카테고리 backfill — NOT NULL 로 조이기 전에 NULL 을 없앤다.
+-- 1. 카테고리·제목 backfill — NOT NULL 로 조이기 전에 NULL 을 없앤다.
 UPDATE `branding_post` SET `category` = 'TOUR' WHERE `category` IS NULL;
+UPDATE `branding_post` SET `title` = '브랜딩 게시물' WHERE `title` IS NULL OR `title` = '';
 
 -- 2. 피드 미노출로 남아 있던 구 브랜딩 글을 통합 모델에 맞춘다(숨김 여부는 건드리지 않는다).
 UPDATE `branding_post` SET `show_in_feed` = b'1' WHERE `show_in_feed` = b'0';
 
--- 3. category NOT NULL.
-DROP PROCEDURE IF EXISTS pd_category_not_null;
+-- 3. category·title NOT NULL.
+DROP PROCEDURE IF EXISTS pd_not_null;
 
 DELIMITER //
 
-CREATE PROCEDURE pd_category_not_null()
+CREATE PROCEDURE pd_not_null(IN col VARCHAR(64), IN ddl TEXT)
 BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.COLUMNS
              WHERE TABLE_SCHEMA = DATABASE()
                AND TABLE_NAME = 'branding_post'
-               AND COLUMN_NAME = 'category'
+               AND COLUMN_NAME = col
                AND IS_NULLABLE = 'YES') THEN
-    ALTER TABLE `branding_post`
-      MODIFY COLUMN `category` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL;
+    SET @sql = CONCAT('ALTER TABLE `branding_post` MODIFY COLUMN `', col, '` ', ddl);
+    PREPARE st FROM @sql; EXECUTE st; DEALLOCATE PREPARE st;
   END IF;
 END //
 
 DELIMITER ;
 
-CALL pd_category_not_null();
+CALL pd_not_null('category', 'varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL');
+CALL pd_not_null('title',    'varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL');
 
-DROP PROCEDURE pd_category_not_null;
+DROP PROCEDURE pd_not_null;
