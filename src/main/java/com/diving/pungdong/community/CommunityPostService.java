@@ -156,6 +156,18 @@ public class CommunityPostService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 내가 쓴 글 — 오너 전용 목록. <b>숨김도, 프로필에 안 올린 글도 전부</b> 온다.
+     *
+     * <p>이 목록이 없으면 "숨김 + 커뮤니티 전용" 글에 닿을 화면이 없다 — 브랜딩 오너 그리드는
+     * 프로필 글만 담고 커뮤니티 피드는 숨김을 뺀다. 되돌릴 화면이 없는 숨김은 사실상 삭제다.
+     * 카드에 {@code hidden}·{@code showOnProfile} 이 함께 실려 뱃지와 토글 상태를 그릴 수 있다.
+     */
+    public Page<CommunityPostCardResponse> myPosts(Account viewer, Pageable pageable) {
+        Page<BrandingPost> posts = postRepo.findAllMine(viewer.getId(), CommunityPaging.fixed(pageable));
+        return posts.map(cardMapperFor(posts.getContent(), viewer));
+    }
+
     /** 인기 태그 — 웹 sidebar. 건수 내림차순, 동률이면 사전순(순서가 매 요청 흔들리지 않게). */
     public List<PopularTagResponse> popularTags(int limit) {
         int size = Math.min(Math.max(limit, 1), MAX_PAGE_SIZE);
@@ -168,14 +180,12 @@ public class CommunityPostService {
     /**
      * 관련 글 — 웹 상세 우측 rail. 같은 카테고리·자기 제외·최신순.
      *
-     * <p>카테고리가 없는 글(브랜딩발)에는 관련 글이 없다 — 묶을 축이 없어서다. 임의로 전체 최신글을
+     * <p>카테고리는 V30 이후 NOT NULL 이라 묶을 축이 항상 있다(예전엔 브랜딩발 글에 카테고리가 없어
+     * 빈 목록을 돌려줬다). 같은 카테고리 글이 없으면 빈 목록인 건 그대로 — 임의로 전체 최신글을
      * 채우지 않는다("관련" 이라고 부르면서 무관한 걸 보여주는 게 더 나쁘다).
      */
     public List<CommunityPostCardResponse> related(Long postId, int limit, Account viewer) {
         BrandingPost post = postRepo.findVisibleInFeed(postId).orElseThrow(ResourceNotFoundException::new);
-        if (post.getCategory() == null) {
-            return List.of();
-        }
         int size = Math.min(Math.max(limit, 1), MAX_PAGE_SIZE);
         List<BrandingPost> posts = postRepo.findRelated(post.getCategory(), postId, PageRequest.of(0, size));
         return posts.stream().map(cardMapperFor(posts, viewer)).collect(Collectors.toList());
@@ -194,12 +204,12 @@ public class CommunityPostService {
                 .orElseGet(() -> brandingRepo.save(AccountBranding.builder()
                         .account(owner).isPublished(true).build()));
 
-        // 노출은 브랜딩 → 커뮤니티 단방향이다. 커뮤니티에서 쓴 글은 피드에만 있고 프로필 그리드엔
-        // 올라가지 않는다 — 브랜딩은 "남기고 싶은 하이라이트" 라서 흐름의 모든 글이 거기 갈 이유가 없다.
+        // 모든 글은 커뮤니티 글이다(showInFeed=true). 갈리는 건 "내 프로필에도 남길지" 하나뿐이고,
+        // 그건 작성자가 요청으로 고른다(showOnProfile) — apply() 가 설정한다. 기본은 false 라
+        // 안 보내면 예전처럼 피드에만 올라간다.
         BrandingPost post = BrandingPost.builder()
                 .branding(branding)
                 .showInFeed(true)
-                .showOnProfile(false)
                 .build();
 
         apply(post, request, owner);
@@ -208,7 +218,16 @@ public class CommunityPostService {
         return toDetail(post, owner);
     }
 
-    /** 수정 — 미디어·태그를 스냅샷으로 교체한다. */
+    /**
+     * 수정 — 미디어·태그를 스냅샷으로 교체한다. {@code showOnProfile} 도 같은 스냅샷 규칙을 따르므로
+     * <b>여기서 프로필 노출을 켜고 끌 수 있다</b> — 프로필에서 내리는 건 글 삭제가 아니다(글은 커뮤니티에
+     * 그대로 남고 좋아요·댓글도 유지된다).
+     *
+     * <p>이 관문은 {@code showOnProfile} 을 보지 <b>않는다</b> — 프로필 글이든 커뮤니티 전용 글이든 통합
+     * 작성 폼 하나로 고친다. 반대로 브랜딩 쪽 관문({@code BrandingPostJpaRepo#findMine})은 계속
+     * {@code showOnProfile=true} 를 요구한다: 그쪽은 카테고리 규칙(같이가요 강의연결 금지)을 모르기 때문에
+     * 커뮤니티 전용 글이 그 문으로 들어오면 가드를 우회하게 된다.
+     */
     @Transactional
     public CommunityPostDetailResponse update(Account currentUser, Long postId, CommunityPostRequest request) {
         Account owner = loadAccount(currentUser);
@@ -266,6 +285,14 @@ public class CommunityPostService {
     private void apply(BrandingPost post, CommunityPostRequest request, Account owner) {
         request.getMediaUrls().forEach(mediaUrlPolicy::requireOurs);
 
+        // 브랜딩 그리드는 사진 타일이다 — 사진 없는 글을 프로필에 올리면 썸네일이 없어 빈 칸이 된다.
+        // (구 브랜딩 작성 경로가 사진 1장 이상을 필수로 받은 것과 같은 이유. 커뮤니티 전용 글은
+        //  텍스트만으로 성립하므로 이 제약은 showOnProfile 을 켤 때만 건다.)
+        if (request.isShowOnProfile() && request.getMediaUrls().isEmpty()) {
+            throw new BadRequestException("프로필에도 남기려면 사진을 한 장 이상 올려주세요.");
+        }
+
+        post.setShowOnProfile(request.isShowOnProfile());
         post.setCategory(request.getCategory());
         post.setTitle(request.getTitle());
         post.setCaption(request.getBody());
@@ -368,6 +395,7 @@ public class CommunityPostService {
                     .likedByMe(likedByMe.contains(post.getId()))
                     .bookmarkedByMe(bookmarkedByMe.contains(post.getId()))
                     .hidden(post.isHidden())
+                    .showOnProfile(post.isShowOnProfile())
                     .linkedCourse(toLinkedCourse(post.getLinkedCourse()))
                     .match(toMatch(matches.get(post.getId())))
                     .build();
@@ -402,6 +430,7 @@ public class CommunityPostService {
                 .likedByMe(liked.contains(postId))
                 .bookmarkedByMe(bookmarked.contains(postId))
                 .hidden(post.isHidden())
+                .showOnProfile(post.isShowOnProfile())
                 .mine(mine)
                 .linkedCourse(toLinkedCourse(post.getLinkedCourse()))
                 .match(toMatch(matchRepo.findById(postId).orElse(null)))

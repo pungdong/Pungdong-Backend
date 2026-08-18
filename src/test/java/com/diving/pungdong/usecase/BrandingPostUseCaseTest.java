@@ -90,7 +90,7 @@ class BrandingPostUseCaseTest {
         MvcResult result = mockMvc.perform(post("/branding/me/posts")
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(owner))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"mediaUrls\":[" + urls + "],\"caption\":\"" + caption + "\"}"))
+                        .content("{\"category\":\"TOUR\",\"mediaUrls\":[" + urls + "],\"caption\":\"" + caption + "\"}"))
                 .andExpect(status().isOk())
                 .andReturn();
         return ((Number) com.jayway.jsonpath.JsonPath.read(
@@ -129,7 +129,7 @@ class BrandingPostUseCaseTest {
         mockMvc.perform(post("/branding/me/posts")
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"mediaUrls\":[\"" + img("a") + "\"],\"caption\":\"문섬 다녀왔어요\","
+                        .content("{\"category\":\"TOUR\",\"mediaUrls\":[\"" + img("a") + "\"],\"caption\":\"문섬 다녀왔어요\","
                                 + "\"tags\":[\"제주다이빙\",\"문섬\"],\"locationLabel\":\"제주 서귀포 문섬\"}"))
                 .andExpect(status().isOk());
 
@@ -153,7 +153,7 @@ class BrandingPostUseCaseTest {
         mockMvc.perform(put("/branding/me/posts/" + postId)
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"mediaUrls\":[\"" + img("c") + "\"],\"caption\":\"수정본\",\"tags\":[\"새태그\"]}"))
+                        .content("{\"category\":\"TOUR\",\"mediaUrls\":[\"" + img("c") + "\"],\"caption\":\"수정본\",\"tags\":[\"새태그\"]}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.media.length()").value(1))
                 .andExpect(jsonPath("$.media[0].url").value(img("c")))
@@ -218,6 +218,9 @@ class BrandingPostUseCaseTest {
     }
 
     /* ════════════════ H — 숨김 ════════════════ */
+    // 숨김 토글은 **커뮤니티 경로 하나**다(PATCH /community/posts/{id}/visibility). 숨김은 컬럼 하나짜리
+    // 전역 스위치라 어디서 켜든 두 표면에서 함께 빠진다 — 여기서는 "브랜딩 표면이 그 스위치에 반응하는지"를
+    // 잠근다. 브랜딩 쪽 쌍둥이 엔드포인트는 삭제했다(프로필 글만 통과 + 어드민 조치 우회로였다).
 
     @Test
     @DisplayName("H1: 숨긴 글은 공개 목록·상세에서 빠지지만 오너 목록엔 남는다 (삭제가 아니라 되돌릴 수 있는 상태)")
@@ -225,7 +228,7 @@ class BrandingPostUseCaseTest {
         Account me = account("h1@test.com", "diverP8", Role.STUDENT);
         long postId = createPost(me, "숨길 글", "a");
 
-        mockMvc.perform(patch("/branding/me/posts/" + postId + "/visibility")
+        mockMvc.perform(patch("/community/posts/" + postId + "/visibility")
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"hidden\":true}"))
@@ -247,11 +250,11 @@ class BrandingPostUseCaseTest {
         long postId = createPost(me, "숨겼다 풀 글", "a");
         String token = tokenFor(me);
 
-        mockMvc.perform(patch("/branding/me/posts/" + postId + "/visibility")
+        mockMvc.perform(patch("/community/posts/" + postId + "/visibility")
                         .header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"hidden\":true}"))
                 .andExpect(status().isOk());
-        mockMvc.perform(patch("/branding/me/posts/" + postId + "/visibility")
+        mockMvc.perform(patch("/community/posts/" + postId + "/visibility")
                         .header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"hidden\":false}"))
                 .andExpect(status().isOk());
@@ -266,7 +269,7 @@ class BrandingPostUseCaseTest {
         long hidden = createPost(me, "숨길 글", "a");
         createPost(me, "보이는 글", "b");
 
-        mockMvc.perform(patch("/branding/me/posts/" + hidden + "/visibility")
+        mockMvc.perform(patch("/community/posts/" + hidden + "/visibility")
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"hidden\":true}"))
                 .andExpect(status().isOk());
@@ -283,7 +286,7 @@ class BrandingPostUseCaseTest {
         long postId = createPost(me, "숨긴 글", "a");
         String token = tokenFor(me);
 
-        mockMvc.perform(patch("/branding/me/posts/" + postId + "/visibility")
+        mockMvc.perform(patch("/community/posts/" + postId + "/visibility")
                         .header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"hidden\":true}"))
                 .andExpect(status().isOk());
@@ -302,7 +305,7 @@ class BrandingPostUseCaseTest {
         Account stranger = account("h5b@test.com", "diverP23", Role.STUDENT);
         long postId = createPost(owner, "숨긴 글", "a");
 
-        mockMvc.perform(patch("/branding/me/posts/" + postId + "/visibility")
+        mockMvc.perform(patch("/community/posts/" + postId + "/visibility")
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(owner))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"hidden\":true}"))
                 .andExpect(status().isOk());
@@ -330,7 +333,7 @@ class BrandingPostUseCaseTest {
         mockMvc.perform(post("/branding/me/posts")
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"mediaUrls\":[\"" + img("a") + "\"],\"linkedCourseId\":" + mine.getId() + "}"))
+                        .content("{\"category\":\"TOUR\",\"mediaUrls\":[\"" + img("a") + "\"],\"linkedCourseId\":" + mine.getId() + "}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.linkedCourse.id").value(mine.getId().intValue()))
                 .andExpect(jsonPath("$.linkedCourse.status").value("OPEN"));
@@ -345,7 +348,7 @@ class BrandingPostUseCaseTest {
         mockMvc.perform(post("/branding/me/posts")
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"mediaUrls\":[\"" + img("a") + "\"],\"linkedCourseId\":" + draft.getId() + "}"))
+                        .content("{\"category\":\"TOUR\",\"mediaUrls\":[\"" + img("a") + "\"],\"linkedCourseId\":" + draft.getId() + "}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.linkedCourse").doesNotExist());
     }
@@ -360,7 +363,7 @@ class BrandingPostUseCaseTest {
         mockMvc.perform(post("/branding/me/posts")
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"mediaUrls\":[\"" + img("a") + "\"],\"linkedCourseId\":" + theirs.getId() + "}"))
+                        .content("{\"category\":\"TOUR\",\"mediaUrls\":[\"" + img("a") + "\"],\"linkedCourseId\":" + theirs.getId() + "}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.msg").value("내 강의만 연결할 수 있어요."));
     }
@@ -375,7 +378,7 @@ class BrandingPostUseCaseTest {
         mockMvc.perform(post("/branding/me/posts")
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"mediaUrls\":[\"https://evil.example.com/x.jpg\"]}"))
+                        .content("{\"category\":\"TOUR\",\"mediaUrls\":[\"https://evil.example.com/x.jpg\"]}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.msg").value("업로드로 받은 이미지 주소만 사용할 수 있어요."));
 
@@ -390,7 +393,19 @@ class BrandingPostUseCaseTest {
         mockMvc.perform(post("/branding/me/posts")
                         .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"mediaUrls\":[]}"))
+                        .content("{\"category\":\"TOUR\",\"mediaUrls\":[]}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("V3: 카테고리 없이 보내면 400 — 구 브랜딩 경로도 이제 카테고리가 필수다 (작성 폼 통합)")
+    void missingCategory_returns400() throws Exception {
+        Account me = account("v3@test.com", "diverP19", Role.STUDENT);
+
+        mockMvc.perform(post("/branding/me/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mediaUrls\":[\"" + img("a") + "\"]}"))
                 .andExpect(status().isBadRequest());
     }
 
@@ -419,7 +434,7 @@ class BrandingPostUseCaseTest {
         mockMvc.perform(get(publicPosts("diverP19"))).andExpect(status().isOk());
         mockMvc.perform(post("/branding/me/posts")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"mediaUrls\":[\"" + img("a") + "\"]}"))
+                        .content("{\"category\":\"TOUR\",\"mediaUrls\":[\"" + img("a") + "\"]}"))
                 .andExpect(status().isUnauthorized());
     }
 

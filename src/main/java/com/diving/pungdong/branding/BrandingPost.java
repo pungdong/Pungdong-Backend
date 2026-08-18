@@ -17,13 +17,16 @@ import java.util.List;
  * 그건 조인을 한 번 더 타는 boolean 이다. 두 테이블로 나누면 브랜딩 그리드가 UNION 이 되어 정렬·페이징이
  * 얹히고 좋아요·댓글·신고가 폴리모픽 FK 로 빠진다. 그래서 노출 플래그 두 개로 가른다.
  *
- * <p><b>노출은 브랜딩 → 커뮤니티 단방향이다.</b> 브랜딩은 하이라이트(남기고 싶은 것만), 커뮤니티는
- * 흐름(오늘의 이야기)이다. 하이라이트는 흐름에 실릴 가치가 있지만 흐름의 모든 글이 하이라이트일 이유는 없다.
+ * <p><b>모든 글은 커뮤니티 글이다({@code showInFeed=true}).</b> 갈리는 건 "작성자의 프로필 그리드에도
+ * 남길지"({@code showOnProfile}) 하나뿐이고, 그건 <b>작성자가 작성·수정에서 고른다</b>
+ * ({@code CommunityPostRequest.showOnProfile}, 기본 {@code false}).
  * <ul>
- *   <li>브랜딩에서 작성 → {@code showOnProfile=true}, {@code showInFeed=true}</li>
- *   <li>커뮤니티에서 작성 → {@code showOnProfile=false}, {@code showInFeed=true}</li>
+ *   <li>{@code showOnProfile=false} → 커뮤니티 피드에만</li>
+ *   <li>{@code showOnProfile=true}  → 피드 + 프로필 그리드(= 예전 브랜딩 글)</li>
  * </ul>
- * 두 플래그는 <b>작성 경로가 명시 설정</b>한다. DB 기본값은 기존 행 backfill 용이지 신규 쓰기용이 아니다.
+ * 2026-08-18 작성 폼 통합 전에는 <b>작성 경로</b>가 이 값을 정했다(브랜딩 경로=true / 커뮤니티 경로=false).
+ * 지금은 경로가 아니라 요청이 정한다 — 구 {@code POST /branding/me/posts} 는 구버전 앱 호환으로만 남아
+ * 있고 거기서 온 글은 여전히 {@code true} 다. DB 기본값은 기존 행 backfill 용이지 신규 쓰기용이 아니다.
  *
  * <p><b>클래스명이 {@code BrandingPost} 로 남아 있는 이유.</b> 물리 테이블명을 바꾸지 않았기 때문이다 —
  * ECS 롤링 배포 중 구버전 태스크가 살아 있는 동안 RENAME 이 돌면 그 태스크가 없는 테이블을 조회해
@@ -52,11 +55,15 @@ public class BrandingPost {
     private AccountBranding branding;
 
     /**
-     * 커뮤니티 카테고리. <b>nullable</b> — 브랜딩에서 작성한 글은 카테고리 개념이 없다.
-     * null 이면 카테고리 필터에 안 잡히고 "전체" 피드에만 노출된다.
+     * 커뮤니티 카테고리. <b>NOT NULL</b>(V30) — 모든 글은 커뮤니티 글이므로 분류축이 반드시 있다.
+     *
+     * <p>V19~V29 동안은 nullable 이었다: 브랜딩 작성 경로가 카테고리를 안 받던 시절의 글이 있었고,
+     * FE 배포 창(window) 동안 null 이 <b>정당한 값</b>이었기 때문이다. 작성 폼이 하나로 합쳐지면서
+     * (2026-08-18) 두 경로 모두 카테고리를 요구하게 됐고, 기존 행은 V30 에서 backfill 했다.
+     * 카테고리 없는 글이 남아 있으면 "오타 하나 고치려는 강사가 없던 카테고리를 발명해야" 수정이 된다.
      */
     @Enumerated(EnumType.STRING)
-    @Column(length = 16)
+    @Column(length = 16, nullable = false)
     private CommunityCategory category;
 
     /**

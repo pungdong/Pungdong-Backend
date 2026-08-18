@@ -58,6 +58,10 @@ public class SecurityConfiguration {
                         // 커뮤니티 읽기는 비로그인 허용. ant 의 `*` 는 `/` 를 넘지 않아 목록·상세를 따로 적는다.
                         // 쓰기(POST/PUT/DELETE/PATCH)는 아래 authenticated 매처가 잡는다.
                         .antMatchers(HttpMethod.GET, "/community/posts").permitAll()
+                        // "내가 쓴 글" 은 인증 필요 — 리터럴을 와일드카드 **앞**에 둔다. 뒤에 두면
+                        // /community/posts/* 의 permitAll 이 먼저 잡아 비로그인 요청이 컨트롤러까지 가고
+                        // @CurrentUser 가 null 로 들어온다(401 이 아니라 500 이 된다).
+                        .antMatchers(HttpMethod.GET, "/community/posts/me").authenticated()
                         .antMatchers(HttpMethod.GET, "/community/posts/*").permitAll()
                         .antMatchers(HttpMethod.GET, "/community/posts/*/related").permitAll()
                         .antMatchers(HttpMethod.GET, "/community/posts/*/comments").permitAll()

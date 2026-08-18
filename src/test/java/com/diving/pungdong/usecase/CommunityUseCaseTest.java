@@ -36,10 +36,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 커뮤니티 — 피드·상세·작성.
  *
  * <p><b>읽는 법</b>: {@code @DisplayName} 을 위에서 아래로 = 사양.
- * S* 성공 / X* 노출 방향 / F* 필터 / M* 같이가요 / A* 작성자 합성 / V* 검증 / H* 숨김 / R* 권한.
+ * S* 성공 / X* 노출 방향 / P* 프로필 노출 토글 / F* 필터 / M* 같이가요 / A* 작성자 합성 /
+ * V* 검증 / H* 숨김 / R* 권한.
  *
- * <p>이 피처에서 가장 틀리기 쉬운 건 <b>노출 방향</b>이다 — 브랜딩에 올리면 커뮤니티에도 가지만
- * 커뮤니티에 올린 글은 브랜딩에 가지 않는다. X* 가 그걸 양방향으로 못 박는다.
+ * <p>이 피처에서 가장 틀리기 쉬운 건 <b>노출</b>이다. 작성 폼이 하나로 합쳐진 뒤(2026-08-18)
+ * 규칙은 두 축이다 — {@code showOnProfile}(작성자가 고른다)과 {@code isHidden}(숨김이 이긴다).
+ * X* 는 두 쓰기 경로가 만드는 기본 상태를, P* 는 작성자가 그 축을 켜고 끄는 것을 못 박는다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -248,6 +250,267 @@ class CommunityUseCaseTest {
                 .andExpect(jsonPath("$.page.totalElements").value(1));
     }
 
+    /* ════════════════ P — 프로필 노출·숨김 (통합 작성 폼) ════════════════ */
+    // FE 와 합의한 TC 표(2026-08-18)를 그대로 잠근다. 상태 표기 (hidden, showOnProfile).
+    //
+    //   INV-1 직교   : hidden 토글은 showOnProfile 을 바꾸지 않고, 그 역도 같다   → P7·P9
+    //   INV-2 hidden : hidden=true 면 showOnProfile 과 무관하게 남에겐 어디에도 안 보임 → P6·P7
+    //   INV-3 오너   : 오너 조회엔 hidden 글도 나온다(안 나오면 삭제다)            → P6·P8
+    //
+    //   작성  C-1 생략=(F,F) P2 · C-2 true=(F,T) P1 · C-3 category 누락 400 V3
+    //   숨김  H-1 (F,T)→(T,T) P6 · H-2 (F,F)→(T,F) P8 · H-3 (T,T)→(F,T) P6 ·
+    //         H-4 (T,F)→(F,F) P9(풀기는 승격이 아니다) · H-5 멱등 P10 · H-6 남의 글 400 P11
+    //   프로필 P-1 강등 P3 · P-2 승격 P4 · P-3 숨김 글 승격 P7 · P-4 브랜딩 미생성 upsert P1
+    //   조회  Q-1 피드 P2 · Q-2 공개 그리드 P1 · Q-3 내가 쓴 글 P8 · Q-4 오너 그리드 P6 · Q-5 남의 숨김 상세 H1
+
+    /** 통합 폼으로 작성 — {@code showOnProfile} 을 실어 보낸다. 사진 1장 포함(프로필 타일용). */
+    private long createPostOnProfile(Account author, String title, boolean showOnProfile) throws Exception {
+        MvcResult result = mockMvc.perform(post("/community/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(author))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"" + title + "\",\"body\":\"본문\","
+                                + "\"mediaUrls\":[\"" + img("a") + "\"],\"showOnProfile\":" + showOnProfile + "}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        return ((Number) com.jayway.jsonpath.JsonPath.read(
+                result.getResponse().getContentAsString(), "$.id")).longValue();
+    }
+
+    @Test
+    @DisplayName("P1: showOnProfile=true 로 쓰면 한 번의 작성으로 커뮤니티 피드와 브랜딩 그리드 양쪽에 뜬다")
+    void showOnProfile_publishesToBothSurfaces() throws Exception {
+        Account me = account("p1@c.com", "diverU1", Role.STUDENT);
+        long id = createPostOnProfile(me, "프로필에도 남길 글", true);
+
+        mockMvc.perform(get("/community/posts"))
+                .andExpect(jsonPath("$.page.totalElements").value(1));
+        mockMvc.perform(get(brandingGrid("diverU1")))
+                .andExpect(jsonPath("$.page.totalElements").value(1));
+        mockMvc.perform(get("/community/posts/" + id))
+                .andExpect(jsonPath("$.showOnProfile").value(true));
+    }
+
+    @Test
+    @DisplayName("P2: 값을 안 보내면 기본은 false — 예전처럼 커뮤니티에만 올라간다 (프로필은 옵트인)")
+    void showOnProfile_defaultsToFalse() throws Exception {
+        Account me = account("p2@c.com", "diverU2", Role.STUDENT);
+        long id = createPost(me, "QNA", "그냥 질문", "본문");
+
+        mockMvc.perform(get("/community/posts"))
+                .andExpect(jsonPath("$.page.totalElements").value(1));
+        mockMvc.perform(get(brandingGrid("diverU2")))
+                .andExpect(jsonPath("$.page.totalElements").value(0));
+        mockMvc.perform(get("/community/posts/" + id))
+                .andExpect(jsonPath("$.showOnProfile").value(false));
+    }
+
+    @Test
+    @DisplayName("P3: 수정으로 프로필에서 내려도 글은 삭제되지 않는다 — 그리드에서만 빠지고 커뮤니티엔 그대로 있다")
+    void update_takingOffProfile_keepsPost() throws Exception {
+        Account me = account("p3@c.com", "diverU3", Role.STUDENT);
+        long id = createPostOnProfile(me, "내렸다 올렸다", true);
+
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"내렸다 올렸다\",\"body\":\"본문\","
+                                + "\"mediaUrls\":[\"" + img("a") + "\"],\"showOnProfile\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.showOnProfile").value(false));
+
+        assertThat(postRepo.findById(id)).isPresent();
+        mockMvc.perform(get("/community/posts/" + id)).andExpect(status().isOk());
+        mockMvc.perform(get("/community/posts"))
+                .andExpect(jsonPath("$.page.totalElements").value(1));
+        mockMvc.perform(get(brandingGrid("diverU3")))
+                .andExpect(jsonPath("$.page.totalElements").value(0));
+    }
+
+    @Test
+    @DisplayName("P4: 커뮤니티에만 있던 글도 수정으로 프로필에 올릴 수 있다 (되돌릴 수 있는 선택이다)")
+    void update_puttingOnProfile_addsToGrid() throws Exception {
+        Account me = account("p4@c.com", "diverU4", Role.STUDENT);
+        long id = createPostOnProfile(me, "나중에 하이라이트", false);
+
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"나중에 하이라이트\",\"body\":\"본문\","
+                                + "\"mediaUrls\":[\"" + img("a") + "\"],\"showOnProfile\":true}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get(brandingGrid("diverU4")))
+                .andExpect(jsonPath("$.page.totalElements").value(1));
+    }
+
+    @Test
+    @DisplayName("P5: 사진 없이 프로필에 올리려 하면 400 — 브랜딩 그리드는 사진 타일이라 빈 칸이 된다")
+    void showOnProfile_withoutMedia_returns400() throws Exception {
+        Account me = account("p5@c.com", "diverU5", Role.STUDENT);
+
+        mockMvc.perform(post("/community/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"사진 없는 글\",\"showOnProfile\":true}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("P6: 숨기면 프로필 그리드에서도 빠진다 (숨김이 이긴다) — 단 오너 목록엔 숨김 표시로 남는다")
+    void hidden_beatsShowOnProfile() throws Exception {
+        Account me = account("p6@c.com", "diverU6", Role.STUDENT);
+        long id = createPostOnProfile(me, "숨길 글", true);
+
+        mockMvc.perform(patch("/community/posts/" + id + "/visibility")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"hidden\":true}"))
+                .andExpect(status().isOk());
+
+        // 남에게는 두 표면 모두에서 사라진다
+        mockMvc.perform(get("/community/posts"))
+                .andExpect(jsonPath("$.page.totalElements").value(0));
+        mockMvc.perform(get(brandingGrid("diverU6")))
+                .andExpect(jsonPath("$.page.totalElements").value(0));
+
+        // 오너에게는 남는다 — 상세로 열리고, 오너 목록엔 숨김 표시가 붙는다(되돌릴 화면이 있어야 한다)
+        mockMvc.perform(get("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hidden").value(true))
+                .andExpect(jsonPath("$.showOnProfile").value(true));
+        mockMvc.perform(get("/branding/me/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(jsonPath("$.page.totalElements").value(1))
+                .andExpect(jsonPath("$._embedded.posts[0].hidden").value(true));
+
+        // 풀면 두 표면이 함께 돌아온다 — showOnProfile 은 T 그대로다(숨김 토글은 그 축을 안 건드린다)
+        mockMvc.perform(patch("/community/posts/" + id + "/visibility")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"hidden\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.showOnProfile").value(true));
+        mockMvc.perform(get("/community/posts"))
+                .andExpect(jsonPath("$.page.totalElements").value(1));
+        mockMvc.perform(get(brandingGrid("diverU6")))
+                .andExpect(jsonPath("$.page.totalElements").value(1));
+    }
+
+    @Test
+    @DisplayName("P7: 숨긴 글을 프로필에 올려도 숨김이 이긴다 — showOnProfile 만 켜지고 남에겐 여전히 안 보인다")
+    void promotingHiddenPost_staysHidden() throws Exception {
+        Account me = account("p7@c.com", "diverU7", Role.STUDENT);
+        long id = createPostOnProfile(me, "숨긴 채 승격", false);
+
+        mockMvc.perform(patch("/community/posts/" + id + "/visibility")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"hidden\":true}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(put("/community/posts/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"TOUR\",\"title\":\"숨긴 채 승격\",\"body\":\"본문\","
+                                + "\"mediaUrls\":[\"" + img("a") + "\"],\"showOnProfile\":true}"))
+                .andExpect(status().isOk())
+                // 승격은 숨김을 풀지 않는다(직교)
+                .andExpect(jsonPath("$.hidden").value(true))
+                .andExpect(jsonPath("$.showOnProfile").value(true));
+
+        mockMvc.perform(get("/community/posts"))
+                .andExpect(jsonPath("$.page.totalElements").value(0));
+        mockMvc.perform(get(brandingGrid("diverU7")))
+                .andExpect(jsonPath("$.page.totalElements").value(0));
+    }
+
+    @Test
+    @DisplayName("P8: '내가 쓴 글' 에는 숨긴 글도 프로필에 안 올린 글도 전부 온다 (되돌릴 화면이 없으면 숨김이 아니라 삭제다)")
+    void myPosts_includesHiddenAndProfileOffPosts() throws Exception {
+        Account me = account("p8@c.com", "diverU8", Role.STUDENT);
+        Account other = account("p8b@c.com", "diverU9", Role.STUDENT);
+        long onlyCommunity = createPostOnProfile(me, "커뮤니티 전용", false);
+        createPostOnProfile(me, "프로필에도", true);
+        createPost(other, "QNA", "남의 글", "본문");
+
+        // 커뮤니티 전용 글을 숨긴다 — 브랜딩 그리드에는 원래 없던 글이라 이 목록 말고는 닿을 데가 없다
+        mockMvc.perform(patch("/community/posts/" + onlyCommunity + "/visibility")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"hidden\":true}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/community/posts/me")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(2))  // 남의 글은 안 온다
+                // 최신순이라 [0]=프로필에도, [1]=커뮤니티 전용(숨김)
+                .andExpect(jsonPath("$._embedded.posts[0].title").value("프로필에도"))
+                .andExpect(jsonPath("$._embedded.posts[0].hidden").value(false))
+                .andExpect(jsonPath("$._embedded.posts[0].showOnProfile").value(true))
+                .andExpect(jsonPath("$._embedded.posts[1].title").value("커뮤니티 전용"))
+                .andExpect(jsonPath("$._embedded.posts[1].hidden").value(true))
+                .andExpect(jsonPath("$._embedded.posts[1].showOnProfile").value(false));
+
+        mockMvc.perform(get("/community/posts/me")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("P9: 숨김을 풀어도 프로필로 승격되지는 않는다 — (T,F) 를 풀면 (F,F) 다 (두 축은 직교)")
+    void unhiding_doesNotPromoteToProfile() throws Exception {
+        Account me = account("p9@c.com", "diverU10", Role.STUDENT);
+        long id = createPostOnProfile(me, "커뮤니티 전용", false);
+
+        mockMvc.perform(patch("/community/posts/" + id + "/visibility")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"hidden\":true}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(patch("/community/posts/" + id + "/visibility")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"hidden\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hidden").value(false))
+                .andExpect(jsonPath("$.showOnProfile").value(false));
+
+        mockMvc.perform(get("/community/posts"))
+                .andExpect(jsonPath("$.page.totalElements").value(1));
+        mockMvc.perform(get(brandingGrid("diverU10")))
+                .andExpect(jsonPath("$.page.totalElements").value(0));
+    }
+
+    @Test
+    @DisplayName("P10: 같은 숨김 요청을 두 번 보내도 상태가 같다 (멱등 — 재시도·연타에 안전)")
+    void hideTwice_isIdempotent() throws Exception {
+        Account me = account("p10@c.com", "diverU11", Role.STUDENT);
+        long id = createPostOnProfile(me, "두 번 숨기기", true);
+
+        for (int i = 0; i < 2; i++) {
+            mockMvc.perform(patch("/community/posts/" + id + "/visibility")
+                            .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                            .contentType(MediaType.APPLICATION_JSON).content("{\"hidden\":true}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.hidden").value(true))
+                    .andExpect(jsonPath("$.showOnProfile").value(true));
+        }
+    }
+
+    @Test
+    @DisplayName("P11: 남의 글은 숨길 수 없다 (400 — 403 이 아니라 존재 자체를 숨긴다)")
+    void hidingOthersPost_returns400() throws Exception {
+        Account owner = account("p11@c.com", "diverU12", Role.STUDENT);
+        Account stranger = account("p11b@c.com", "diverU13", Role.STUDENT);
+        long id = createPost(owner, "TOUR", "남의 글", "본문");
+
+        mockMvc.perform(patch("/community/posts/" + id + "/visibility")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(stranger))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"hidden\":true}"))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(get("/community/posts"))
+                .andExpect(jsonPath("$.page.totalElements").value(1));
+    }
+
     /* ════════════════ F — 필터 ════════════════ */
 
     @Test
@@ -419,6 +682,19 @@ class CommunityUseCaseTest {
     }
 
     /* ════════════════ H — 숨김 ════════════════ */
+
+    @Test
+    @DisplayName("V3: 카테고리 없이 쓰면 400 (V30 이후 필수 — 없는 카테고리 글은 더 이상 만들 수 없다)")
+    void missingCategory_returns400() throws Exception {
+        Account me = account("v3@c.com", "diverU14", Role.STUDENT);
+
+        mockMvc.perform(post("/community/posts")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"카테고리 없는 글\",\"body\":\"본문\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("카테고리를 골라주세요."));
+    }
 
     @Test
     @DisplayName("H1: 숨긴 글은 공개 피드에서 빠지지만 오너 본인 상세로는 열린다 (다시 공개를 누를 수 있어야 한다)")

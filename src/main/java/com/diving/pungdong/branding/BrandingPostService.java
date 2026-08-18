@@ -119,9 +119,9 @@ public class BrandingPostService {
                 .orElseGet(() -> brandingRepo.save(AccountBranding.builder()
                         .account(owner).isPublished(true).build()));
 
-        // 노출은 브랜딩 → 커뮤니티 단방향이다. 브랜딩에 올린 글은 하이라이트인 동시에
-        // 커뮤니티 피드에도 새 글로 나간다(사용자 결정). 두 플래그를 여기서 명시 설정한다 —
-        // DB DEFAULT 는 기존 행 backfill 용이지 신규 쓰기용이 아니다.
+        // 구버전 앱 호환 경로다 — 여기로 온 글은 통합 폼의 showOnProfile=true 와 같은 상태가 된다
+        // (프로필 그리드 + 커뮤니티 피드). 통합 폼에서는 작성자가 고르는 값이지만 이 경로엔 그 필드가
+        // 없으므로 예전 의미대로 고정한다. DB DEFAULT 는 기존 행 backfill 용이지 신규 쓰기용이 아니다.
         BrandingPost post = BrandingPost.builder()
                 .branding(branding)
                 .showOnProfile(true)
@@ -155,17 +155,18 @@ public class BrandingPostService {
         deleteObjectsQuietly(urls);
     }
 
+    /**
+     * 상단 고정 — <b>프로필 그리드에만 있는 개념</b>이라 여기 남는다(피드 정렬은 서버 고정).
+     *
+     * <p>짝이던 {@code updateHidden} 은 없앴다: 숨김은 커뮤니티·브랜딩 양쪽에 걸리는 전역 스위치인데
+     * 이 문은 {@code showOnProfile=true} 인 글만 통과시켜 커뮤니티 전용 글을 못 숨겼고, 어드민
+     * 조치(ACTIONED) 확인이 없어 신고로 내려간 글을 작성자가 되살릴 수 있었다. 숨김의 단일 경로는
+     * {@code PATCH /community/posts/{id}/visibility} 다.
+     */
     @Transactional
     public BrandingPostDetailResponse updatePinned(Account currentUser, Long postId, boolean pinned) {
         BrandingPost post = requireMine(postId, currentUser.getId());
         post.setPinned(pinned);
-        return toDetail(post);
-    }
-
-    @Transactional
-    public BrandingPostDetailResponse updateHidden(Account currentUser, Long postId, boolean hidden) {
-        BrandingPost post = requireMine(postId, currentUser.getId());
-        post.setHidden(hidden);
         return toDetail(post);
     }
 
