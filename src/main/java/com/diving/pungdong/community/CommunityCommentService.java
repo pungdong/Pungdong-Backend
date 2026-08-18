@@ -3,11 +3,15 @@ package com.diving.pungdong.community;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.branding.BrandingPost;
+import com.diving.pungdong.branding.BrandingPostMedia;
+import com.diving.pungdong.branding.BrandingPostMediaJpaRepo;
 import com.diving.pungdong.community.dto.CommunityAuthorResponse;
 import com.diving.pungdong.community.dto.CommunityCommentRequest;
 import com.diving.pungdong.community.dto.CommunityCommentResponse;
+import com.diving.pungdong.community.dto.MyPostCommentResponse;
 import com.diving.pungdong.community.dto.ReactionResponse;
 import com.diving.pungdong.global.persistence.IdempotentInsert;
+import com.diving.pungdong.global.persistence.PageClamp;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.block.BlockService;
@@ -15,10 +19,13 @@ import com.diving.pungdong.notification.event.CommunityCommentEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -47,6 +54,8 @@ public class CommunityCommentService {
     private final CommunityPostJpaRepo postRepo;
     private final AccountJpaRepo accountRepo;
     private final CommunityAuthorComposer authorComposer;
+    /** 미리보기 썸네일(첫 사진)용. 목록 전체를 한 번에 읽는다 — 댓글마다 읽으면 N+1 이다. */
+    private final BrandingPostMediaJpaRepo mediaRepo;
     /** 댓글 좋아요 동시 요청 — 제약 위반을 별도 트랜잭션에 가둔다. */
     private final IdempotentInsert idempotentInsert;
 
@@ -90,6 +99,72 @@ public class CommunityCommentService {
                 .map(parent -> toResponse(parent, authors, likeCounts, likedByMe, viewer,
                         repliesByParent.getOrDefault(parent.getId(), List.of())))
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * <b>내 글에 달린</b> 최근 댓글 — 프로필 브랜딩 카드의 미리보기이자, 후속 "댓글 모아보기" 목록.
+     * 이름이 헷갈리기 쉬운데 "내가 <b>쓴</b> 댓글" 이 아니라 정반대다.
+     *
+     * <p>정렬은 <b>최신순 고정</b>이고 파라미터가 없다 — 이 목록의 정의 자체가 "가장 최근" 이다.
+     * 무엇이 빠지는지(숨긴 글 · 삭제된 댓글 · 내 댓글 · 차단)는
+     * {@link CommunityCommentJpaRepo#ON_MY_POSTS} 가 이유와 함께 갖고 있다.
+     *
+     * <p><b>알림함({@code /me/notifications})과 겹쳐 보이지만 다른 것을 준다.</b> 알림함은 "댓글이 달렸다"
+     * 는 <b>사건의 스냅샷</b>이라 그 뒤 댓글이 수정·삭제돼도 그대로 남고, 본문 대신 알림 문구를 들고
+     * 있으며 글 썸네일이 없다. 이 목록은 <b>지금 그 댓글의 상태</b>다. 그래서 규칙이 갈리는 지점이
+     * 있다 — 지운 댓글은 알림함엔 남지만 여기선 사라진다. 의도된 차이다.
+     *
+     * <p>결과 0건은 정상이다(글이 없거나 아직 아무도 안 달았을 뿐) — 빈 페이지로 준다. 첫 게시물
+     * 이전의 유저가 이 화면의 기본 상태라, 없음을 4xx 로 만들면 모든 신규 유저가 에러를 본다.
+     */
+    public Page<MyPostCommentResponse> onMyPosts(Account currentUser, Pageable pageable) {
+        Page<CommunityComment> page = commentRepo.findOnMyPosts(currentUser.getId(), PageClamp.fixed(pageable));
+        return page.map(previewMapperFor(page.getContent()));
+    }
+
+    /**
+     * 미리보기 매퍼 — <b>페이지 전체에 대한 일괄 조회를 먼저 끝내고</b> 그 결과를 클로저로 들고
+     * 한 줄씩 만든다. 이렇게 하지 않으면 댓글마다 작성자·썸네일 쿼리가 나간다(피드 카드와 같은 패턴).
+     */
+    private Function<CommunityComment, MyPostCommentResponse> previewMapperFor(List<CommunityComment> comments) {
+        Map<Long, CommunityAuthorResponse> authors = authorComposer.compose(
+                comments.stream().map(CommunityComment::getAccount).collect(Collectors.toList()));
+        Map<Long, String> thumbnails = firstMediaUrlByPost(comments);
+
+        return comment -> {
+            BrandingPost post = comment.getPost();
+            return MyPostCommentResponse.builder()
+                    .id(comment.getId())
+                    .body(comment.getBody())
+                    .createdAt(comment.getCreatedAt())
+                    .author(authors.get(comment.getAccount().getId()))
+                    .post(MyPostCommentResponse.PostRef.builder()
+                            .id(post.getId())
+                            .title(post.getTitle())
+                            .thumbnailUrl(thumbnails.get(post.getId()))
+                            .build())
+                    // 최상위 댓글이면 null → 키가 생략된다.
+                    .parentCommentId(comment.isTopLevel() ? null : comment.getParent().getId())
+                    .build();
+        };
+    }
+
+    /**
+     * 글 → 대표 사진 url. 미디어 조회가 {@code sortOrder} 오름차순이라 <b>글마다 처음 만난 행</b>이
+     * 대표 사진이다. 사진이 없는 글(커뮤니티 전용 글은 사진이 필수가 아니다)은 키 자체가 없어
+     * 호출부가 null 로 읽는다.
+     */
+    private Map<Long, String> firstMediaUrlByPost(List<CommunityComment> comments) {
+        Set<Long> postIds = comments.stream()
+                .map(comment -> comment.getPost().getId()).collect(Collectors.toSet());
+        if (postIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, String> firstByPost = new HashMap<>();
+        for (BrandingPostMedia media : mediaRepo.findAllByPostIds(postIds)) {
+            firstByPost.putIfAbsent(media.getPost().getId(), media.getUrl());
+        }
+        return firstByPost;
     }
 
     /* ─── 쓰기 ───────────────────────────────────────────── */

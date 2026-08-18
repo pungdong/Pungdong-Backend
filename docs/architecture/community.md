@@ -231,6 +231,8 @@ erDiagram
 - **대댓글이 없는 댓글** → hard delete. 껍데기를 남길 이유가 없다.
 - **댓글 수 집계에서 삭제분은 뺀다.** "댓글 3" 인데 2개만 보이면 버그다.
 - **1-depth 는 DB 로 표현할 수 없어 서비스가 강제한다** — `parent.isTopLevel()` 확인.
+- **"내 글에 달린 댓글"(`GET /community/posts/me/comments`) 은 스레드와 규칙이 반대다.** 스레드는 삭제된 댓글의 **자리를 남기고**(자식이 붙어 있다), 이 목록은 **아예 뺀다** — 평면 목록이라 자리를 지킬 이유가 없고, 프로필 카드 미리보기에 "삭제된 댓글입니다." 가 뜨면 안 된다. 그래서 응답 타입도 `CommunityCommentResponse` 가 아니라 별도(`MyPostCommentResponse`)다. 빠지는 네 갈래(숨긴 글·삭제 댓글·내 댓글·차단)의 이유는 `CommunityCommentJpaRepo.ON_MY_POSTS` 가 갖고 있다.
+- **알림함(`/me/notifications`)과 겹쳐 보이지만 다른 것을 준다.** 알림함은 "댓글이 달렸다"는 **사건의 스냅샷**(수정·삭제돼도 남고, 본문 대신 알림 문구·썸네일 없음)이고 이 목록은 **지금 그 댓글의 상태**다. 지운 댓글이 알림함엔 남고 여기선 사라지는 건 의도된 차이다. 읽음 상태(unread dot)를 붙일 자리는 알림함 쪽(`user_notification.readAt`)이지 이 목록이 아니다.
 - **스레드는 한 번에 다 읽는다.** 최상위와 대댓글을 나눠 조회하면 그 사이에 달린 댓글이 유실된다. 응답이 `PagedModel` 이 아니라 **`CollectionModel`**(= `page` 키 없음)인 게 이 때문이다.
 
 ## 5. 보안 / 권한 매트릭스
@@ -242,6 +244,7 @@ erDiagram
 | `GET /community/posts` | **불필요** | — | `show_in_feed=1` + 미숨김만. 정렬·size 서버 고정. `?authorType=INSTRUCTOR` = 승인 강사 글만, `?tag=` = 정확 일치 |
 | `GET /community/posts/{id}` | **불필요** | — | 위와 같음. **단 오너 본인은 자기 글이면 숨김이어도 조회 가능** |
 | `GET /community/posts/{id}/comments` | **불필요** | — | 글이 보이면 스레드도 보인다. 페이지네이션 없음 |
+| `GET /community/posts/me/comments` | 필요 | 인증만 | **내 글에 달린** 댓글(내가 쓴 댓글이 아니다). 최신순 고정·페이징. 숨긴 글·삭제 댓글·내 댓글·차단분 제외. 리터럴이라 매처를 `/community/posts/*/comments` permitAll **앞**에 둔다 |
 | `GET /community/posts/{id}/related` | **불필요** | — | 같은 카테고리·자기 제외. 같은 카테고리 글이 없으면 빈 배열 |
 | `GET /community/categories` · `/community/tags/popular` · `/community/topics/trending` | **불필요** | — | 집계값만. 셋 다 리터럴 매처라 `/community/**` authenticated **앞**에 둔다 |
 | `GET /community/posts/me` | 필요 | 인증만 | 내 글 **전부**(숨김·프로필 미노출 포함). 최신순. 리터럴이라 매처를 `/community/posts/*` permitAll **앞**에 둔다 |

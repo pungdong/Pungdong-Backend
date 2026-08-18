@@ -437,4 +437,24 @@ class BlockUseCaseTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.page.totalElements").value(1));
     }
+
+    @Test
+    @DisplayName("B17: 차단한 사람의 댓글은 '내 글에 달린 댓글' 목록에서도 빠진다 (카드의 댓글 수와 같은 기준)")
+    void blocked_droppedFromCommentsOnMyPosts() throws Exception {
+        Account me = account("b17@c.com", "diverB17");
+        Account other = account("b17o@c.com", "trollB17");
+        Account third = account("b17t@c.com", "diverB17t");
+        long postId = createPost(me, "QNA", "내 글");
+        comment(other, postId, null);
+        comment(third, postId, null);
+
+        block(me, other);
+
+        // 목록만 거르고 수를 안 거르면 프로필 카드가 "댓글 2" 를 띄우고 미리보기엔 1건만 뜬다.
+        mockMvc.perform(get("/community/posts/me/comments")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(1))
+                .andExpect(jsonPath("$._embedded.comments[0].author.nickName").value("diverB17t"));
+    }
 }
