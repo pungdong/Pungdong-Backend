@@ -831,12 +831,12 @@ export interface BrandingPostDetail extends HalLinks {
   locationLabel?: string | null;
   /** UTC ISO-8601. "하루 전" 같은 상대시간은 FE가 만든다 — BE는 문자열을 만들지 않는다. */
   /**
-   * 카테고리·제목. 브랜딩 게시물은 caption 이 곧 본문이라 **둘 다 없을 수 있다**(키 생략).
-   * ⚠️ **수정 폼은 이 값을 그대로 되실어야 한다** — `BrandingPostRequest` 가 두 필드를 무조건
-   * 덮어쓰므로, 안 보내면 `null` 로 지워진다. 폼에 입력 UI 가 없어도 값은 보존해야 한다.
+   * 카테고리·제목. **항상 온다**(V31 에서 둘 다 NOT NULL + 기존 행 backfill).
+   * ⚠️ 수정 폼은 이 값을 그대로 되실어야 한다 — 안 보내면 이제 `null` 로 지워지는 대신 **400** 이다
+   *    (조용히 지워지는 것보다 실패하는 쪽이 낫다). 폼에 입력 UI 가 없어도 값은 보존해야 한다.
    */
-  category?: CommunityCategory;
-  title?: string;
+  category: CommunityCategory;
+  title: string;
   createdAt: string;
   pinned: boolean;
   /**
@@ -862,19 +862,25 @@ export interface BrandingPostDetail extends HalLinks {
 
 /**
  * POST /branding/me/posts · PUT /branding/me/posts/{id} (인증)
+ *
+ * 🔴 **레거시 — 구버전 앱 호환용이다.** 신규 작성·수정은 통합 폼 `POST|PUT /community/posts` 로 간다
+ *    (`CommunityPostRequest.showOnProfile: true` 가 여기서 쓴 글과 같은 상태를 만든다).
+ *    같은 테이블·같은 행이고, 통합 폼 쪽에만 규칙(같이가요 강의연결 금지 등)이 모여 있다.
+ * ⚠️ `category` 가 **필수가 됐다**(2026-08-18) — 안 보내면 400. 모든 글은 커뮤니티 글이라 분류축이 있어야 한다.
  * ⚠️ 수정도 **스냅샷 교체**다 — 보낸 mediaUrls/tags가 최종 상태가 된다.
  * ⚠️ mediaUrls는 업로드(POST /branding-images)로 받은 우리 CDN URL만 허용. 배열 순서 = 표시 순서, 0번이 썸네일.
  */
 export interface BrandingPostRequest {
+  category: CommunityCategory;  // 필수 (2026-08-18~)
   mediaUrls: string[];      // 1~10장
   /**
-   * ⚠️ **되싣지 않으면 지워진다.** 서버에 `@NotNull` 이 없고 서비스가 무조건 덮어쓴다
-   * (`BrandingPostService.apply`). 커뮤니티 글 수정이 브랜딩발 글을 이 폼으로 보내므로 실질 경로다 —
-   * 상세 응답의 값을 그대로 되실어라(라운드트립). `caption`·`tags` 등 나머지 키도 같다.
+   * ⚠️ **둘 다 필수다**(2026-08-18). 예전엔 `@NotNull` 이 없어 안 보내면 스냅샷 교체로 **조용히
+   * 지워졌다** — 이제 400 이다. 상세 응답의 값을 그대로 되실어라(라운드트립).
+   * `caption`·`tags` 등 나머지 키는 여전히 "생략 = 비우기" 다.
    */
-  category?: CommunityCategory;
-  /** ⚠️ 위 `category` 와 같다 — 되싣지 않으면 `null` 로 지워진다. 최대 100자. */
-  title?: string;
+  category: CommunityCategory;
+  /** 2~100자. 필수. */
+  title: string;
   caption?: string;         // 최대 2000자
   tags?: string[];          // 최대 10개, 각 30자
   locationLabel?: string;   // 최대 60자
@@ -884,8 +890,11 @@ export interface BrandingPostRequest {
 /** PATCH /branding/me/posts/{id}/pin */
 export interface BrandingPostPinRequest { pinned: boolean }
 
-/** PATCH /branding/me/posts/{id}/visibility — 삭제와 다르다(되돌릴 수 있고 공개 경로에서만 빠진다). */
-export interface BrandingPostVisibilityRequest { hidden: boolean }
+// 🔴 PATCH /branding/me/posts/{id}/visibility 는 **삭제됐다**(2026-08-18).
+//    숨김은 커뮤니티 피드·브랜딩 그리드에 함께 걸리는 **전역 스위치**라 경로가 하나여야 한다 →
+//    PATCH /community/posts/{id}/visibility 로 모든 글(프로필 글 포함)을 토글한다.
+//    (옛 경로는 showOnProfile=true 인 글만 통과시켜 커뮤니티 전용 글을 못 숨겼고,
+//     어드민 조치(ACTIONED) 확인이 없어 신고로 내려간 글을 작성자가 되살릴 수 있었다.)
 
 /** POST /branding-images (인증, multipart 파트명 `image`) — course-images와 동일 패턴. */
 export interface BrandingImageUploadResponse extends HalLinks { fileURL: string }
@@ -898,10 +907,19 @@ export interface BrandingPublishRequest {
 // ── 커뮤니티 (community) — docs/features/community.md ──
 // 글·사진·댓글·좋아요. 카테고리 4종. 강사 작성자를 시각적으로 구분해 프로필 → 강의 전환을 유도한다.
 //
-// ⚠️ 게시물 테이블은 브랜딩과 **공유**한다. 노출은 **브랜딩 → 커뮤니티 단방향**:
-//    - 브랜딩(POST /branding/me/posts)에 올린 글 → 프로필 그리드 + 커뮤니티 피드 **둘 다**
-//    - 커뮤니티(POST /community/posts)에 올린 글 → 피드에만. 프로필 그리드엔 안 나온다
-//    브랜딩은 "남기고 싶은 하이라이트", 커뮤니티는 "오늘의 흐름" 이라 방향이 한쪽이다.
+// ⚠️ 게시물 테이블은 브랜딩과 **공유**한다. 작성 경로도 하나로 합쳤다(2026-08-18):
+//    **모든 글은 커뮤니티 글이고, 내 프로필 그리드에도 남길지만 고른다**(CommunityPostRequest.showOnProfile).
+//    - showOnProfile:false (기본) → 커뮤니티 피드에만
+//    - showOnProfile:true         → 피드 + 내 브랜딩 그리드 (= 예전 "브랜딩 글")
+//    구 POST /branding/me/posts 는 **구버전 앱 호환으로만** 남는다 — 신규 작성·수정은 전부 /community/posts.
+//
+// 노출 진리표 (숨김이 이긴다. "안 보임" 은 남에게만이고 오너는 항상 본다):
+//    isHidden | showOnProfile | 커뮤니티 | 브랜딩 그리드 | 오너
+//    false    | false         | 보임    | 안 보임       | 보임
+//    false    | true          | 보임    | 보임          | 보임
+//    true     | false         | 안 보임 | 안 보임       | 상세로 보임 + hidden:true
+//    true     | true          | 안 보임 | 안 보임       | 오너 목록(GET /branding/me/posts)에 hidden:true 로 남음
+//    ⚠️ isHidden && !showOnProfile 인 글은 **목록 표면이 없다** — 오너도 상세 URL 로만 닿는다(BE 후속 과제).
 
 export type CommunityCategory = 'TOUR' | 'TRAINING' | 'MATCH' | 'QNA';
 // 라벨은 클라이언트 소유(투어 자랑/트레이닝/같이가요/궁금해요). BE 는 코드만 준다.
@@ -962,10 +980,10 @@ export interface CommunityMatch {
  */
 export interface CommunityPostCard {
   id: number;
-  /** 브랜딩에서 올라온 글은 카테고리가 없을 수 있다 → 그런 글은 "전체" 피드에만 뜬다. */
-  category?: CommunityCategory;
-  /** 브랜딩발 글은 제목이 없을 수 있다. 카드가 제목을 조건부 렌더하므로 없어도 깨지지 않는다. */
-  title?: string;
+  /** **항상 온다**(V31 에서 NOT NULL + 기존 행 backfill). 카테고리 없는 글은 더 이상 생기지 않는다. */
+  category: CommunityCategory;
+  /** **항상 온다**(V31 NOT NULL + backfill). 제목 없는 글은 더 이상 없다. */
+  title: string;
   bodyExcerpt?: string | null;   // 앞 200자 — FE 가 CSS 3줄 클램프
   author: CommunityAuthor;
   thumbnailUrls: string[];       // 앞 3장만 (카드가 3장 + "+N" 구조)
@@ -976,15 +994,30 @@ export interface CommunityPostCard {
   likedByMe: boolean; bookmarkedByMe: boolean;
   /** 공개 피드에선 항상 false. **오너가 자기 글을 볼 때만** true — 숨김 배지·토글 상태용. */
   hidden: boolean;
+  /** 내 프로필 그리드에도 올라간 글인지 — "내가 쓴 글" 의 "프로필 노출" 뱃지·승격/강등 버튼용. */
+  showOnProfile: boolean;
   linkedCourse?: LinkedCourse;   // 강사 글만. DRAFT·삭제 코스면 키 없음
   match?: CommunityMatch;        // MATCH 만
 }
 
+/**
+ * GET /community/posts/me?page=&size= (**인증**) — "내가 쓴 글".
+ * PagedModel — 배열은 `_embedded.posts`(CommunityPostCard), 메타는 `page`. 최신순 고정, size 상한 50.
+ *
+ * 내 글 **전부**가 온다 — 숨긴 글도, 프로필에 안 올린 글도. 카드의 `hidden`·`showOnProfile` 로
+ * 뱃지와 토글 상태를 그린다.
+ * ⚠️ 이 목록이 "숨김 + 커뮤니티 전용" 글의 **유일한 회수 경로**다(브랜딩 오너 그리드는 프로필 글만,
+ *    커뮤니티 피드는 숨김 제외). 비로그인은 401.
+ */
+// (응답 타입은 CommunityPostCard 그대로)
+
 /** GET /community/posts/{postId} (비로그인 가능). 숨김·미노출은 400(존재 숨김) — 단 오너 본인은 열린다. */
 export interface CommunityPostDetail extends HalLinks {
   id: number;
-  category?: CommunityCategory;
-  title?: string;
+  /** **항상 온다**(V31 NOT NULL). */
+  category: CommunityCategory;
+  /** **항상 온다**(V31 NOT NULL). */
+  title: string;
   body?: string | null;
   author: CommunityAuthor;
   media: { url: string; sortOrder: number }[];
@@ -996,6 +1029,12 @@ export interface CommunityPostDetail extends HalLinks {
   likeCount: number; commentCount: number; bookmarkCount: number;
   likedByMe: boolean; bookmarkedByMe: boolean;
   hidden: boolean;
+  /**
+   * 내 브랜딩(프로필) 그리드에도 올라간 글인지. **수정 폼 프리필용** —
+   * 요청의 showOnProfile 은 스냅샷이라, 이 값을 토글에 실어두고 저장 때 그대로 되돌려보내야
+   * 수정하다 글이 프로필에서 내려가지 않는다.
+   */
+  showOnProfile: boolean;
   /** 내 글이면 "더보기" 에 수정·삭제 노출. 카드엔 메뉴가 없어 불필요. */
   mine: boolean;
   /**
@@ -1039,6 +1078,17 @@ export interface CommunityPostRequest {
    * `CLOSED` 는 거르지도 고지하지도 않는다 — 응답에 그대로 오고 미니카드가 마감으로 그린다.
    */
   linkedCourseId?: number;
+  /**
+   * 내 브랜딩(프로필) 그리드에도 남길지. **기본 false**(옵트인).
+   *
+   * ⚠️ **스냅샷이다** — mediaUrls·tags 와 같은 규칙이라 PUT 에서 빼면 false 로 읽혀 **프로필에서 내려간다.**
+   *    수정 폼은 CommunityPostDetail.showOnProfile 을 그대로 다시 실어야 한다.
+   * ⚠️ 사진이 0장이면 true 로 못 켠다 → 400 "프로필에도 남기려면 사진을 한 장 이상 올려주세요."
+   *    (브랜딩 그리드는 사진 타일이라 썸네일 없는 글은 빈 칸이 된다.)
+   * ℹ️ 프로필에서 내리는 것 = 이 값을 false 로 PUT. **글 삭제가 아니다** — 커뮤니티엔 그대로 남고
+   *    좋아요·댓글도 유지된다.
+   */
+  showOnProfile?: boolean;
   /** category==='MATCH' 일 때 필수. */
   match?: {
     /**
@@ -1053,7 +1103,13 @@ export interface CommunityPostRequest {
   };
 }
 
-/** PATCH /community/posts/{postId}/visibility — 삭제와 다르다(되돌릴 수 있고 공개 경로에서만 빠진다). */
+/**
+ * PATCH /community/posts/{postId}/visibility — **모든 글의 유일한 숨김 경로**(프로필 글 포함).
+ *
+ * 숨김은 전역 스위치다: 켜면 커뮤니티 피드·브랜딩 그리드 양쪽에서 빠지고, 풀면 양쪽이 함께 돌아온다.
+ * 삭제와 다르다 — 오너에게는 남고(상세는 열린다, `hidden:true`) 되돌릴 수 있다.
+ * ⚠️ 어드민이 신고 조치(ACTIONED)한 글은 `hidden:false` 가 400 이다 — 되돌리는 건 어드민 기각뿐.
+ */
 export interface CommunityPostVisibilityRequest { hidden: boolean }
 
 // 사진 업로드는 **기존 POST /branding-images 를 그대로 쓴다**(같은 공개 버킷·같은 검증). 신규 엔드포인트 없음.

@@ -143,13 +143,16 @@ class BrandingPostControllerTest {
         mockMvc.perform(post("/branding/me/posts")
                         .header(HttpHeaders.AUTHORIZATION, token(account))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"mediaUrls\":[\"https://cdn.plop.cool/branding/a.jpg\"],"
+                        .content("{\"category\":\"TOUR\",\"title\":\"제주 문섬 다이빙\","
+                                + "\"mediaUrls\":[\"https://cdn.plop.cool/branding/a.jpg\"],"
                                 + "\"caption\":\"제주 문섬\",\"tags\":[\"제주다이빙\"],"
                                 + "\"locationLabel\":\"제주 서귀포 문섬\",\"linkedCourseId\":77}"))
                 .andExpect(status().isOk())
                 .andDo(document("branding-post-create",
                         requestHeaders(headerWithName(HttpHeaders.AUTHORIZATION).description("access token")),
                         requestFields(
+                                fieldWithPath("category").description("TOUR|TRAINING|MATCH|QNA. **필수**. 이 경로는 구버전 앱 호환용이고, 신규 작성은 `POST /community/posts` + `showOnProfile:true`"),
+                                fieldWithPath("title").description("제목 2~100자. **필수**(2026-08-18~)"),
                                 fieldWithPath("mediaUrls").description("업로드로 받은 CDN URL 1~10개. **배열 순서가 표시 순서**이고 0번이 썸네일"),
                                 fieldWithPath("caption").description("본문(최대 2000자)").optional(),
                                 fieldWithPath("tags").description("태그 최대 10개, 각 30자").optional(),
@@ -159,21 +162,7 @@ class BrandingPostControllerTest {
                         relaxedResponseFields(fieldWithPath("id").description("생성된 게시물 id"))));
     }
 
-    @Test
-    @DisplayName("게시물 숨기기 토글")
-    void toggleVisibility() throws Exception {
-        Account account = account();
-        given(postService.updateHidden(any(), any(), anyBoolean())).willReturn(detail());
-
-        mockMvc.perform(patch("/branding/me/posts/{postId}/visibility", 1201L)
-                        .header(HttpHeaders.AUTHORIZATION, token(account))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"hidden\":true}"))
-                .andExpect(status().isOk())
-                .andDo(document("branding-post-visibility",
-                        pathParameters(parameterWithName("postId").description("게시물 id")),
-                        requestFields(fieldWithPath("hidden")
-                                .description("숨김 여부. **삭제와 다르다** — 되돌릴 수 있고 공개 경로에서만 빠진다")),
-                        relaxedResponseFields(fieldWithPath("id").description("게시물 id"))));
-    }
+    // 숨김 토글 문서는 여기 없다 — 엔드포인트를 커뮤니티로 합쳤다
+    // (PATCH /community/posts/{id}/visibility). 숨김은 두 표면에 함께 걸리는 전역 스위치라
+    // 경로가 둘이면 규칙이 갈린다(이 경로는 프로필 글만 통과시켰고 어드민 조치 확인이 없었다).
 }

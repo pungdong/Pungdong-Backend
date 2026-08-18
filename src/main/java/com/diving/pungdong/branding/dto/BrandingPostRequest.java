@@ -5,6 +5,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.NotNull;
 import javax.validation.constraints.Size;
 import java.util.ArrayList;
@@ -14,37 +15,44 @@ import java.util.List;
  * 게시물 작성·수정 — 수정도 <b>스냅샷 교체</b>다(미디어·태그를 통째로 갈아끼운다). 사진 순서 변경이
  * 일상 동작이라 부분 갱신보다 원자적 교체가 안전하다(기록·course 와 같은 관례).
  *
- * <p><b>브랜딩에 올린 글은 커뮤니티 피드에도 새 글로 나간다</b>(노출은 브랜딩 → 커뮤니티 단방향).
- * 그래서 피드 카드가 필요로 하는 {@code category} 를 여기서 함께 받는다.
+ * <p><b>이 경로는 구버전 앱 호환으로만 남아 있다(2026-08-18).</b> 신규 작성·수정은 통합 폼
+ * {@code POST|PUT /community/posts}({@code CommunityPostRequest.showOnProfile=true})가 대신한다 —
+ * 같은 행을 만들고 규칙(같이가요 강의연결 금지 등)까지 한곳에서 검사한다. 여기에 필드를 더하기 전에
+ * <b>통합 폼으로 되는 일인지 먼저 확인할 것.</b>
+ *
+ * <p>여기서 온 글도 커뮤니티 피드에 새 글로 나간다({@code showInFeed=true}, {@code showOnProfile=true}).
  */
 @Getter @Setter
 @NoArgsConstructor
 public class BrandingPostRequest {
 
     /**
-     * 커뮤니티 카테고리. 없으면 4-up 그리드(카테고리 필터)에서 실종돼 "커뮤니티에도 올라갔다"는
-     * 요구가 반쪽이 되므로, <b>신규 글에는 사실상 필수</b>다. 다만 <b>필수 강제는 FE 가 한다.</b>
+     * 커뮤니티 카테고리. <b>필수</b>다(2026-08-18) — 모든 글은 커뮤니티 글이라 분류축 없이는
+     * 4-up 그리드에서 실종되고, 나중에 수정하려는 작성자가 없던 카테고리를 발명해야 한다.
      *
-     * <p><b>왜 BE 가 {@code @NotNull} 을 걸지 않나 — 배포 순서 때문이다.</b> 이 레포는 BE 를 먼저
-     * 배포한다. BE 가 카테고리를 강제하는 순간, 아직 이 필드를 보내지 않는 <b>배포된 브랜딩 FE 의
-     * 게시물 작성이 전부 400</b> 이 된다. FE 가 따라올 때까지 살아 있는 기능이 죽는다.
-     * (레포 규칙 "FE 검증은 UX 지 경계가 아니다" 와 상충하지 않는다 — 여기서 null 은 잘못된 입력이
-     * 아니라 <b>정당한 값</b>이다. V19 이전 글과 배포 창(window) 중의 글이 그렇다.)
+     * <p><b>예전엔 선택이었다 — 배포 순서 때문이었다.</b> BE 가 먼저 배포되므로 카테고리를 강제하면
+     * 아직 이 필드를 안 보내는 FE 의 게시물 작성이 전부 400 이 됐다. 그 창은 닫혔다: 신규 작성은 전부
+     * 통합 폼({@code POST /community/posts} + {@code showOnProfile})으로 가고, 이 엔드포인트는
+     * <b>구버전 앱 호환</b>으로만 남는다. 게다가 이 엔드포인트는 <b>프로덕션에 배포된 적이 없다</b>
+     * (prod 최종 배포 a383968 에는 V17/V19 자체가 없다) — 구버전 앱에서도 지금 동작하지 않으므로
+     * 필수로 조여도 되돌아갈 동작이 없다.
      *
-     * <p>기본값을 자동으로 넣지 않는 이유: 하이라이트가 전부 "투어 자랑"은 아니다. 임의로 채우면
-     * 잘못된 카테고리로 필터에 잡혀 피드 품질이 깎인다 — 없는 값을 지어내지 않는다는 레포 원칙.
-     *
-     * <p>FE 가 양 플랫폼에 배포된 뒤 {@code @NotNull} 로 조일 수 있다. 그때가 되면 이 주석도 지운다.
+     * <p>기본값을 자동으로 채우지 않는 이유는 그대로다: 하이라이트가 전부 "투어 자랑"은 아니다.
      */
+    @NotNull(message = "카테고리를 골라주세요.")
     private CommunityCategory category;
 
     /**
-     * 제목. <b>선택</b>이다 — 브랜딩 글은 caption 이 곧 본문이라, 필수로 만들면 유저가 같은 말을 두 번
-     * 쓰거나 대충 채운다. 긴 후기를 쓰는 사람에게 선택지만 준다.
+     * 제목. <b>필수</b>다(2026-08-18) — 카테고리와 같은 이유다. 통합 폼({@code /community/posts})이
+     * 제목을 2~100자 필수로 받으므로, 제목 없는 글은 통합 폼으로 여는 순간 작성자가 없던 제목을
+     * 지어내야 수정이 된다. DB 도 NOT NULL(V31) 이라 여기서 막지 않으면 저장 시점에 500 이 된다.
      *
-     * <p>비워도 피드 카드가 깨지지 않는다 — {@code PostCard} 가 제목을 조건부로 렌더한다.
+     * <p>예전엔 선택이었다("caption 이 곧 본문이라 같은 말을 두 번 쓰게 된다"). 작성 경로가 하나로
+     * 합쳐지면서 그 전제가 사라졌다 — 이 엔드포인트는 구버전 앱 호환으로만 남고, 신규 작성은 제목을
+     * 받는 폼 하나뿐이다.
      */
-    @Size(max = 100, message = "제목은 100자까지 쓸 수 있어요.")
+    @NotBlank(message = "제목을 입력해주세요.")
+    @Size(min = 2, max = 100, message = "제목은 2자 이상 100자까지 쓸 수 있어요.")
     private String title;
 
     /**

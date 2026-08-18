@@ -16,9 +16,13 @@ import java.util.List;
  * 커뮤니티 글 작성·수정. 수정도 <b>스냅샷 교체</b>다 — 보낸 {@code mediaUrls}/{@code tags} 가 최종 상태다
  * (브랜딩 게시물·기록·course 와 같은 관례).
  *
- * <p>브랜딩 작성 경로({@code BrandingPostRequest})와 필드가 겹치지만 <b>합치지 않는다.</b> 두 경로의
- * 필수 조건이 다르다 — 커뮤니티는 카테고리·제목이 필수고 사진이 선택인데, 브랜딩은 사진이 필수고
- * 카테고리는 FE 가 강제한다. 한 DTO 에 담으면 어느 쪽 규칙인지 검증 애노테이션으로 표현할 수 없다.
+ * <p><b>작성 폼은 이 하나다(2026-08-18 통합).</b> 브랜딩 글도 커뮤니티 글이고, 다른 건 "내 프로필에도
+ * 남길지"({@link #showOnProfile}) 하나뿐이라 작성 경로를 둘로 나눌 이유가 없다. 반대 방향(브랜딩 요청
+ * {@code BrandingPostRequest} 에 카테고리·제목을 더하는 쪽)은 고르지 않았다 — 그러면 같은 폼이 분기해
+ * 두 엔드포인트를 부르게 되고, 필드가 하나 늘 때마다 계약을 두 벌 고쳐야 한다.
+ *
+ * <p>{@code POST /branding/me/posts} 는 <b>구버전 앱 호환으로만</b> 남아 있다. 신규 작성·수정은 전부
+ * 이 DTO 를 탄다.
  */
 @Getter @Setter
 @NoArgsConstructor
@@ -58,6 +62,21 @@ public class CommunityPostRequest {
      * MATCH 카테고리 글에는 연결할 수 없다(영리활동 금지 가드).
      */
     private Long linkedCourseId;
+
+    /**
+     * 내 브랜딩(프로필) 그리드에도 남길지. <b>기본 {@code false}</b> — 안 보내면 커뮤니티 피드에만 올라간다.
+     * {@code true} 면 예전 {@code POST /branding/me/posts} 로 쓴 글과 같은 상태가 된다.
+     *
+     * <p><b>수정(PUT)에서도 바뀐다</b> — 프로필에서 내리는 건 글 삭제가 아니라 이 값만 {@code false} 로
+     * 가는 것이다(글·좋아요·댓글은 그대로 남고 커뮤니티에는 계속 보인다).
+     *
+     * <p>⚠️ 이 필드도 <b>스냅샷</b>이다(미디어·태그와 같은 관례). 수정 요청에서 빼면 JSON 기본값
+     * {@code false} 로 읽혀 <b>프로필에서 내려간다</b> — FE 는 수정 폼에도 현재 값을 실어야 한다.
+     *
+     * <p>사진이 한 장도 없으면 {@code true} 로 못 켠다 — 브랜딩 그리드는 사진 타일이라 빈 타일이 된다
+     * (서비스가 400).
+     */
+    private boolean showOnProfile;
 
     /** {@code category == MATCH} 일 때 필수. 아니면 무시된다. */
     @Valid

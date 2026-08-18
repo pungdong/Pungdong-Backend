@@ -21,11 +21,13 @@ public class CommunityPostCardResponse {
 
     private final Long id;
 
-    /** 브랜딩에서 올라온 글은 카테고리가 없을 수 있다 — 그런 글은 "전체" 피드에만 뜬다. */
-    @JsonInclude(JsonInclude.Include.NON_NULL)
+    /** V31 이후 <b>항상 있다</b> — 두 쓰기 경로 모두 카테고리를 요구하고 기존 행은 backfill 했다. */
     private final CommunityCategory category;
 
-    /** 브랜딩발 글은 제목이 없을 수 있다. 카드가 제목을 조건부로 렌더하므로 null 이어도 깨지지 않는다. */
+    /**
+     * 제목. <b>여전히 없을 수 있다</b> — 구 브랜딩 경로({@code POST /branding/me/posts})는 제목을
+     * 선택으로 받고, 그 시절 글도 남아 있다(통합 폼은 필수). 카드가 조건부로 렌더한다.
+     */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private final String title;
 
@@ -65,6 +67,12 @@ public class CommunityPostCardResponse {
      * <b>오너가 자기 글을 조회할 때만</b> true 가 올 수 있고, 그래야 "숨김" 배지와 토글 상태를 그릴 수 있다.
      */
     private final boolean hidden;
+
+    /**
+     * 내 프로필 그리드에도 올라간 글인지. "내가 쓴 글" 목록의 <b>"프로필 노출" 뱃지와 승격/강등 버튼</b>이
+     * 이 값으로 그려진다 — 없으면 FE 가 현재 상태를 모른 채 토글을 그려야 한다.
+     */
+    private final boolean showOnProfile;
 
     /** 강사가 연결했을 때만. DRAFT·삭제된 코스면 키 자체가 없다(비공개 코스가 새면 안 된다). */
     @JsonInclude(JsonInclude.Include.NON_NULL)

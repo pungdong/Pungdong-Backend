@@ -9,7 +9,9 @@
 - **`PublicBrandingController`** — `GET /instructors/{nickName}` + `/posts` (**비로그인 가능**).
 - **`PublicBrandingPostController`** — `GET /branding-posts/{id}` (비로그인).
 - **`BrandingController`** — `/branding/me/**` (인증). 조회·부분수정·발행토글·기록 교체.
-- **`BrandingPostController`** — `/branding/me/posts/**` (인증). 게시물 CRUD·고정·숨김.
+- **`BrandingPostController`** — `/branding/me/posts/**` (인증). 게시물 CRUD·고정.
+  🔴 **작성·수정은 레거시(구버전 앱 호환)** — 신규는 커뮤니티 통합 폼(`POST|PUT /community/posts` +
+  `showOnProfile`). **숨김 토글은 여기 없다** — `PATCH /community/posts/{id}/visibility` 하나다.
 - **`BrandingImageController`** — `POST /branding-images` (인증). 2-phase 업로드 1단계.
 - **서비스** — `BrandingService`(프로필 합성·편집) / `BrandingPostService`(목록·상세·CRUD·미디어 lifecycle).
 - **엔티티** — `AccountBranding` · `BrandingRecord` · `BrandingPost` · `BrandingPostMedia` · `BrandingPostTag`
@@ -37,7 +39,8 @@
 
 6. **`RecordEventCode`(CWT/FIM/…)는 `discipline.Discipline`(FREEDIVING/SCUBA/…)과 다른 축이다.** 둘 다 "discipline" 이라 부르면 반드시 사고 난다 — 컬럼도 `event_code`.
 7. **`BrandingRecord.value` 의 컬럼명은 `record_value`** — `value` 는 H2(테스트 DB) 예약어라 그대로 쓰면 스키마 생성이 깨진다. API 필드명은 `value` 유지.
-8. **숨김(`is_hidden`)은 삭제가 아니다.** 공개 목록·상세·게시물 수에서만 빠지고 **오너 목록엔 남는다** — 안 그러면 숨긴 글을 다시 켤 수 없다. 같은 이유로 **상세도 오너 본인에겐 열린다**(숨김·미발행 포함) — `GET /branding-posts/{id}` 는 보는 사람에 따라 갈린다. permitAll 이라 `@CurrentUser` 가 **null 일 수 있다.**
+8. **숨김(`is_hidden`)은 삭제가 아니고, 이 도메인 것도 아니다.** 공개 목록·상세·게시물 수에서만 빠지고 **오너 목록엔 남는다** — 안 그러면 숨긴 글을 다시 켤 수 없다. 같은 이유로 **상세도 오너 본인에겐 열린다**(숨김·미발행 포함) — `GET /branding-posts/{id}` 는 보는 사람에 따라 갈린다. permitAll 이라 `@CurrentUser` 가 **null 일 수 있다.**
+   ⚠️ **토글 엔드포인트는 커뮤니티에 있다**(`PATCH /community/posts/{id}/visibility`). 여기 있던 쌍둥이는 삭제했다 — 숨김은 두 표면에 함께 걸리는 전역 스위치인데, 이 문은 `show_on_profile=true` 만 통과시켜 커뮤니티 전용 글을 못 숨겼고 **어드민 조치(ACTIONED) 확인이 없어 신고로 내려간 글을 작성자가 되살릴 수 있었다.** 여기서 `setHidden` 을 다시 부활시키지 말 것.
 9. **그리드는 미디어를 일괄 조회해 그룹핑한다.** 카드마다 `post.getMedia()` 를 건드리면 N+1 이다.
    ⚠️ **연결 강의의 DRAFT 는 공개 응답에서만 숨긴다 — 오너 상세에는 싣는다**(2026-08-18). 오너에게까지
    감췄더니 이 상세가 **수정 폼 프리필 소스**인데 `linkedCourseId` 를 못 채워, 스냅샷 교체로 **저장하는 순간
@@ -47,6 +50,7 @@
    되돌리려면 둘을 함께 봐야 한다.
 10. **정렬·size 는 서버가 고정한다.** 클라이언트 `sort` 를 `Pageable` 에 태우면 pinned-우선이 깨지고 임의 필드 정렬이 뚫린다. `size` 상한 50.
 11. **`mediaUrls` 는 우리 CDN base 로 시작하는지 검증한다.** 없으면 본문에 임의 외부 이미지를 심을 수 있고, 삭제 로직이 남의 도메인을 지우려 든다.
+12. **`BrandingPostRequest.category`·`title` 은 필수다**(2026-08-18). 모든 글은 커뮤니티 글이라 분류축과 제목이 있어야 하고, DB 도 NOT NULL(V31) 이다. 예전엔 두 키를 생략하면 스냅샷 교체로 **조용히 지워졌다** — 지금은 400 이다(지워진 건 알아채기 어렵다).
 
 ## 공개 URL = 닉네임 (D3)
 

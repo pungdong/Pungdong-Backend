@@ -40,6 +40,21 @@ public interface CommunityPostJpaRepo extends JpaRepository<BrandingPost, Long>,
     Optional<BrandingPost> findMine(@Param("postId") Long postId, @Param("accountId") Long accountId);
 
     /**
+     * 내가 쓴 글 전부 — "내가 쓴 글" 화면. <b>숨김도 프로필 미노출도 포함</b>한다.
+     *
+     * <p><b>왜 별도 목록이 필요한가.</b> 오너가 자기 글을 볼 수 있는 목록이 브랜딩 오너 그리드
+     * 하나뿐이었는데 그건 {@code showOnProfile=true} 만 담는다. 그래서 "숨김 + 커뮤니티 전용" 글은
+     * 어느 목록에도 없어 <b>상세 URL 을 아는 사람만</b> 되돌릴 수 있었다 — 되돌릴 화면이 없으면
+     * 그건 숨김이 아니라 사실상 삭제다.
+     *
+     * <p>정렬은 최신순 + id tie-break(페이지 경계 안정). 필터가 계정 하나라 인덱스는 기존
+     * {@code ix_branding_post_grid(branding_id, ...)} 로 충분하다.
+     */
+    @Query("select p from BrandingPost p where p.branding.account.id = :accountId "
+            + "order by p.createdAt desc, p.id desc")
+    Page<BrandingPost> findAllMine(@Param("accountId") Long accountId, Pageable pageable);
+
+    /**
      * 같이가요 피드 — <b>일정 임박순</b>이 기본 정렬이다.
      *
      * <p>정렬 키가 게시물이 아니라 조인 테이블({@code community_post_match.meet_date})에 있어서
@@ -97,11 +112,12 @@ public interface CommunityPostJpaRepo extends JpaRepository<BrandingPost, Long>,
 
     /**
      * 카테고리별 최근 7일 글 수 — 피드 상단 4-up 그리드와 HOT 뱃지(&gt;50).
-     * 카테고리가 없는 글(브랜딩발)은 어느 칸에도 속하지 않으므로 제외한다.
+     * 카테고리는 V31 이후 NOT NULL 이라 모든 글이 정확히 한 칸에 속한다(예전엔 브랜딩발 글이
+     * 어느 칸에도 안 속해 `category is not null` 로 걸러야 했다).
      */
     @Query("select p.category, count(p) from BrandingPost p "
             + "where p.showInFeed = true and p.isHidden = false "
-            + "and p.category is not null and p.createdAt >= :since "
+            + "and p.createdAt >= :since "
             + "group by p.category")
     List<Object[]> countByCategorySince(@Param("since") OffsetDateTime since);
 
@@ -116,7 +132,7 @@ public interface CommunityPostJpaRepo extends JpaRepository<BrandingPost, Long>,
 
     /**
      * 관련 글 — 웹 상세 우측 rail. 같은 카테고리, 자기 자신 제외, 최신순.
-     * 카테고리가 없는 글에는 관련 글이 없다(호출부가 빈 목록으로 처리).
+     * 같은 카테고리 글이 없으면 빈 목록이다(호출부가 그대로 내려보낸다).
      */
     @Query("select p from BrandingPost p "
             + "where p.showInFeed = true and p.isHidden = false "

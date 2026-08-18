@@ -40,10 +40,11 @@ public final class CommunityPostSpecifications {
     }
 
     /**
-     * 카테고리 필터. {@code null} 이면 전체 — 이때 <b>카테고리 없는 글도 포함</b>된다.
+     * 카테고리 필터. 파라미터가 {@code null} 이면 필터를 걸지 않는다(= "전체" 피드).
      *
-     * <p>브랜딩에서 올라온 글은 카테고리가 없을 수 있어서, 4-up 그리드로 특정 카테고리에 진입하면
-     * 그 글들은 빠지고 "전체" 피드에서만 보인다. 없는 값을 임의 카테고리로 채우지 않는다.
+     * <p>글의 카테고리 자체는 V31 이후 <b>NOT NULL</b> 이다 — 작성 폼이 통합되면서 두 쓰기 경로 모두
+     * 카테고리를 요구하고, 기존 행은 backfill 했다. 그래서 "전체" 에만 뜨고 카테고리 칸에서는 실종되는
+     * 글은 더 이상 없다.
      */
     public static Specification<BrandingPost> category(CommunityCategory category) {
         if (category == null) {

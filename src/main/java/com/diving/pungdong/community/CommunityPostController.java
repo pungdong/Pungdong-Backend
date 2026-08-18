@@ -1,12 +1,15 @@
 package com.diving.pungdong.community;
 
 import com.diving.pungdong.account.Account;
-import com.diving.pungdong.branding.dto.PostVisibilityRequest;
+import com.diving.pungdong.community.dto.CommunityPostCardResponse;
 import com.diving.pungdong.community.dto.CommunityPostDetailResponse;
+import com.diving.pungdong.community.dto.PostVisibilityRequest;
 import com.diving.pungdong.community.dto.CommunityPostRequest;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.security.CurrentUser;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PagedResourcesAssembler;
 import org.springframework.hateoas.EntityModel;
 import org.springframework.hateoas.Link;
 import org.springframework.hateoas.MediaTypes;
@@ -31,6 +34,21 @@ public class CommunityPostController {
 
     private final CommunityPostService postService;
     private final CommunityReactionService reactionService;
+
+    /**
+     * 내가 쓴 글 — <b>숨김·프로필 미노출 포함</b>한 내 글 전부. 배열은 {@code _embedded.posts}.
+     *
+     * <p>리터럴 {@code /me} 는 공개 상세({@code GET /community/posts/{postId}})보다 <b>구체적</b>이라
+     * 라우팅이 이쪽으로 온다. 다만 시큐리티 매처는 패턴 순서대로라
+     * {@code GET /community/posts/*} 의 permitAll 앞에 {@code /community/posts/me} 를 따로 둬야
+     * 비로그인 요청이 여기까지 와서 {@code @CurrentUser} 가 null 이 되는 일이 없다.
+     */
+    @GetMapping("/me")
+    public ResponseEntity<?> myPosts(@CurrentUser Account account,
+                                     Pageable pageable,
+                                     PagedResourcesAssembler<CommunityPostCardResponse> assembler) {
+        return ResponseEntity.ok().body(assembler.toModel(postService.myPosts(account, pageable)));
+    }
 
     /** 작성 — 브랜딩 프로필이 없으면 여기서 만든다(첫 쓰기 = 생성). */
     @PostMapping
@@ -57,7 +75,13 @@ public class CommunityPostController {
         return ResponseEntity.noContent().build();
     }
 
-    /** 숨기기 — 삭제와 다르다(되돌릴 수 있고 공개 경로에서만 빠진다). */
+    /**
+     * 숨기기 — 삭제와 다르다(되돌릴 수 있고 공개 경로에서만 빠진다).
+     *
+     * <p><b>모든 글의 유일한 숨김 경로다.</b> 숨김은 전역 스위치(컬럼 하나)라 여기서 켜면 커뮤니티 피드와
+     * 브랜딩 그리드 양쪽에서 빠지고, 여기서 풀면 양쪽이 함께 돌아온다. 관문이 {@code showOnProfile} 을
+     * 보지 않으므로 <b>프로필에 올린 글이든 커뮤니티 전용 글이든</b> 이 경로 하나로 토글한다.
+     */
     @PatchMapping("/{postId}/visibility")
     public ResponseEntity<?> visibility(@CurrentUser Account account,
                                         @PathVariable Long postId,
