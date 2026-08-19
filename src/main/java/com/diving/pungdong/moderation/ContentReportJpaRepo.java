@@ -6,6 +6,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 /** 신고 접수·어드민 큐 조회. */
@@ -31,10 +33,25 @@ public interface ContentReportJpaRepo extends JpaRepository<ContentReport, Long>
     @Query("select r from ContentReport r "
             + "where (:status is null or r.status = :status) "
             + "and (:targetType is null or r.targetType = :targetType) "
+            + "and (:targetAuthorId is null or r.targetAuthorAccountId = :targetAuthorId) "
             + "order by r.createdAt desc, r.id desc")
     Page<ContentReport> findQueue(@Param("status") ReportStatus status,
                                   @Param("targetType") ReportTargetType targetType,
+                                  @Param("targetAuthorId") Long targetAuthorId,
                                   Pageable pageable);
+
+    /**
+     * 대상 작성자별 누적 신고 건수 — 큐의 한 페이지에 등장한 작성자들을 <b>한 번에</b> 센다.
+     *
+     * <p>행마다 세면 페이지 크기만큼 쿼리가 나간다(N+1). 어드민 화면이 이 숫자를 보고 "이 사람만 모아
+     * 보기" 로 넘어가는 동선이라 목록의 모든 행에 붙는 값이다.
+     *
+     * <p>상태·대상 종류를 가리지 않는 <b>전체 누적</b>이다 — 여기서 재는 건 "이 사람이 얼마나 자주
+     * 신고당하는가" 지 "지금 몇 건이 미처리인가" 가 아니다(그건 탭 뱃지가 이미 답한다).
+     */
+    @Query("select r.targetAuthorAccountId, count(r) from ContentReport r "
+            + "where r.targetAuthorAccountId in :authorIds group by r.targetAuthorAccountId")
+    List<Object[]> countByTargetAuthorIn(@Param("authorIds") Collection<Long> authorIds);
 
     /** 어드민 탭 뱃지용 상태별 건수. */
     long countByStatus(ReportStatus status);

@@ -60,6 +60,31 @@ public class ContentReport {
     @Column(name = "handled_at")
     private OffsetDateTime handledAt;
 
+    /**
+     * <b>조치 대상의 작성자</b>(글·댓글·강의·메시지를 올린 사람) — 접수 시점에 고정한다.
+     *
+     * <p>매번 대상을 열어 알아내면 <b>대상이 지워지는 순간 그 신고는 "누구에 대한 신고인지 모르는 행"</b>
+     * 이 된다. 접수 때 이미 작성자를 확인하고 있으므로(자기 것 신고 차단의 판정 근거) 그 값을 적어 둔다.
+     * 덕분에 <b>같은 사람에 대한 반복 신고</b>가 대상 종류·강의를 가로질러 한 쿼리로 잡힌다.
+     *
+     * <p>FK 를 걸지 않은 건 의도다 — 이 테이블은 폴리모픽 참조라 원래 FK 가 없고, 계정 삭제(익명화)가
+     * 신고 행 때문에 막히면 안 된다. V34 이전 행은 {@code null} 일 수 있다(백필했지만 대상이 이미
+     * 사라진 경우) — 어드민 응답은 그때만 대상을 열어보는 방식으로 폴백한다.
+     */
+    @Column(name = "target_author_account_id")
+    private Long targetAuthorAccountId;
+
+    /**
+     * 어드민이 처리하며 남기는 메모. 처리 시점에만 존재하는 정보라 지금 자리를 둔다.
+     *
+     * <p><b>왜 필요한가:</b> 조치({@code ACTIONED})는 대상별로 무겁다 — 강의면 사실상 판매 중단이다.
+     * 1:1 분쟁엔 과해서 어드민이 기각을 누르게 되는데, 그러면 "강사에게 경고 전달함" 과 "문제없음" 이
+     * 같은 행으로 보인다. 비파괴 조치 <b>상태값</b>을 늘리는 것과는 다른 문제다(그건 나중에 더해도
+     * 과거 신고에 소급 손실이 없다).
+     */
+    @Column(name = "admin_note", length = 500)
+    private String adminNote;
+
     @PrePersist
     void prePersist() {
         this.createdAt = OffsetDateTime.now(ZoneOffset.UTC);

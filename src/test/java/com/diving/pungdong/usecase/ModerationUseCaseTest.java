@@ -391,4 +391,124 @@ class ModerationUseCaseTest {
                 .andExpect(status().isOk());
         assertThat(reportRepo.count()).isEqualTo(1);
     }
+
+    @Test
+    @DisplayName("Q4: 같은 강사의 다른 강의에 걸린 신고가 한 사람의 누적으로 합산돼 보인다")
+    void adminQueue_aggregatesReportsPerTargetAuthor() throws Exception {
+        Account admin = account("q4a@c.com", "adminQ4", Role.ADMIN);
+        Account instructor = account("q4i@c.com", "coachQ4", Role.INSTRUCTOR);
+        Account other = account("q4o@c.com", "coachQ4o", Role.INSTRUCTOR);
+        Account student = account("q4s@c.com", "diverQ4", Role.STUDENT);
+        Course first = course(instructor, "문섬 어드밴스드");
+        Course second = course(instructor, "범섬 베이직");
+        Course unrelated = course(other, "섶섬 트립");
+
+        report(student, "COURSE", first.getId());
+        report(student, "COURSE", second.getId());
+        report(student, "COURSE", unrelated.getId());
+
+        // 강의별로 흩어져 있으면 "1건씩 세 건" 으로 보여 어디서도 안 걸린다 — 사람 축으로 합산한다.
+        mockMvc.perform(get("/admin/reports?targetType=COURSE")
+                        .header(HttpHeaders.AUTHORIZATION, token(admin)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.reports[?(@.targetAuthorNickName == 'coachQ4')]"
+                        + ".targetAuthorReportCount")
+                        .value(org.hamcrest.Matchers.contains(2, 2)))
+                .andExpect(jsonPath("$._embedded.reports[?(@.targetAuthorNickName == 'coachQ4o')]"
+                        + ".targetAuthorReportCount")
+                        .value(org.hamcrest.Matchers.contains(1)));
+    }
+
+    @Test
+    @DisplayName("Q5: 대상이 지워져도 '누구에 대한 신고인지' 는 남는다 (접수 시점에 고정한다)")
+    void adminQueue_keepsTargetAuthorAfterTargetIsGone() throws Exception {
+        Account admin = account("q5a@c.com", "adminQ5", Role.ADMIN);
+        Account instructor = account("q5i@c.com", "coachQ5", Role.INSTRUCTOR);
+        Account student = account("q5s@c.com", "diverQ5", Role.STUDENT);
+        Course c = course(instructor, "문섬 어드밴스드");
+
+        report(student, "COURSE", c.getId());
+        courseRepo.deleteById(c.getId());
+
+        // 대상을 열어 알아내는 방식이면 여기서 작성자가 사라지고, 그 행은 영영 판단할 수 없게 된다.
+        mockMvc.perform(get("/admin/reports")
+                        .header(HttpHeaders.AUTHORIZATION, token(admin)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.reports[0].targetAuthorNickName").value("coachQ5"))
+                // 본문 미리보기는 대상과 함께 사라지는 게 맞다(그건 대상에만 있는 정보다).
+                .andExpect(jsonPath("$._embedded.reports[0].targetPreview").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("Q6: 작성자 닉네임으로 그 사람에 대한 신고만 모아 볼 수 있다 (없는 닉네임은 빈 페이지)")
+    void adminQueue_filtersByTargetAuthorNickName() throws Exception {
+        Account admin = account("q6a@c.com", "adminQ6", Role.ADMIN);
+        Account instructor = account("q6i@c.com", "coachQ6", Role.INSTRUCTOR);
+        Account other = account("q6o@c.com", "coachQ6o", Role.INSTRUCTOR);
+        Account student = account("q6s@c.com", "diverQ6", Role.STUDENT);
+        report(student, "COURSE", course(instructor, "문섬 어드밴스드").getId());
+        report(student, "COURSE", course(other, "섶섬 트립").getId());
+
+        mockMvc.perform(get("/admin/reports?targetAuthorNickName=coachQ6")
+                        .header(HttpHeaders.AUTHORIZATION, token(admin)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(1))
+                .andExpect(jsonPath("$._embedded.reports[0].targetAuthorNickName").value("coachQ6"));
+
+        // 오타는 어드민 화면을 깨는 사건이 아니다 — 400 이 아니라 빈 결과다.
+        mockMvc.perform(get("/admin/reports?targetAuthorNickName=없는사람")
+                        .header(HttpHeaders.AUTHORIZATION, token(admin)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(0));
+    }
+
+    @Test
+    @DisplayName("Q7: 강의 신고에는 신고자가 그 강의를 신청한 적 있는지가 함께 실린다")
+    void adminQueue_showsWhetherReporterEnrolled() throws Exception {
+        Account admin = account("q7a@c.com", "adminQ7", Role.ADMIN);
+        Account instructor = account("q7i@c.com", "coachQ7", Role.INSTRUCTOR);
+        Account studentInside = account("q7s@c.com", "diverQ7", Role.STUDENT);
+        Account outsider = account("q7o@c.com", "diverQ7o", Role.STUDENT);
+        Course c = course(instructor, "문섬 어드밴스드");
+        enroll(studentInside, c, session(instructor));
+
+        report(studentInside, "COURSE", c.getId());
+        report(outsider, "COURSE", c.getId());
+
+        // "수강한 적 없는 사람의 신고" 와 "실제 수강생의 분쟁" 은 완전히 다른 사건인데
+        // 신고 본문만으로는 구분이 안 된다.
+        mockMvc.perform(get("/admin/reports?targetType=COURSE")
+                        .header(HttpHeaders.AUTHORIZATION, token(admin)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.reports[?(@.reporterNickName == 'diverQ7')]"
+                        + ".reporterEnrolled").value(org.hamcrest.Matchers.contains(true)))
+                .andExpect(jsonPath("$._embedded.reports[?(@.reporterNickName == 'diverQ7o')]"
+                        + ".reporterEnrolled").value(org.hamcrest.Matchers.contains(false)));
+    }
+
+    @Test
+    @DisplayName("Q8: 기각에도 처리 메모가 남는다 ('따로 경고함' 과 '문제없음' 이 같은 행이면 이력이 거짓이 된다)")
+    void adminHandle_keepsNoteOnDismissal() throws Exception {
+        Account admin = account("q8a@c.com", "adminQ8", Role.ADMIN);
+        Account instructor = account("q8i@c.com", "coachQ8", Role.INSTRUCTOR);
+        Account student = account("q8s@c.com", "diverQ8", Role.STUDENT);
+        Course c = course(instructor, "문섬 어드밴스드");
+
+        report(student, "COURSE", c.getId());
+        Long reportId = reportRepo.findAll().get(0).getId();
+
+        mockMvc.perform(patch("/admin/reports/" + reportId)
+                        .header(HttpHeaders.AUTHORIZATION, token(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"DISMISSED\",\"note\":\"강사에게 경고 전달, 강의는 유지\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.adminNote").value("강사에게 경고 전달, 강의는 유지"));
+
+        // 강의는 살아 있어야 한다 — 기각을 고른 이유가 그것이다(조치는 사실상 판매 중단이다).
+        assertThat(courseRepo.findById(c.getId())).get()
+                .extracting(Course::getBlockedAt).isNull();
+        assertThat(reportRepo.findById(reportId)).get()
+                .extracting(com.diving.pungdong.moderation.ContentReport::getAdminNote)
+                .isEqualTo("강사에게 경고 전달, 강의는 유지");
+    }
 }
