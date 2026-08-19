@@ -33,9 +33,13 @@ locals {
   # TOSS_*: 토스 결제위젯 키(테스트). INICIS_*: 이니시스 서명 키(테스트 MID INIpayTest 값). SANITY_TOKEN: legal 프록시용 Viewer read 토큰(legal/CLAUDE.md).
   # PORTONE_*: 본인확인(포트원 V2, 다날 CPID→채널키 매핑). 다날은 테스트 채널이 없어 staging/prod 동일 값.
   # IDENTITY_CRYPTO_KEY: CI/DI AES-256/GCM 키 — env 별 별도 랜덤 값.
+  # HASHIDS_SALT: 주문번호(PD-YYMMDD-코드)가 순차 payment_order.id 를 가리는 salt — env 별 별도 랜덤 값.
+  #   기본값이 application.yml 에 커밋돼 있고 이 레포는 public 이라, 주입하지 않으면 salt 가 공개값이 되어
+  #   난독화가 무력화된다(주문번호 → 누적 주문 수). ⚠️ 한 번 발급이 나간 뒤 바꾸면 옛 번호가 다른 id 로
+  #   디코드된다 — 지금은 decode 경로(OrderNoFormatter.parse)가 안 붙어 있어 교체가 무해한 시점이다.
   # ⚠️ staging-up 전에 위 시크릿 전부를 /plop/staging/<NAME> 에 미리 넣어야 task 가 기동된다
   # (secret 미존재면 ECS 가 task 시작 실패).
-  user_secret_names = ["JWT_SECRET", "ADMIN_MAIL_ID", "ADMIN_MAIL_PASSWORD", "JUSO_SEARCH_KEY", "JUSO_COORD_KEY", "TOSS_SECRET_KEY", "TOSS_CLIENT_KEY", "INICIS_HASH_KEY", "INICIS_API_KEY", "SANITY_TOKEN", "PORTONE_API_SECRET", "PORTONE_STORE_ID", "PORTONE_CHANNEL_KEY", "IDENTITY_CRYPTO_KEY"]
+  user_secret_names = ["JWT_SECRET", "ADMIN_MAIL_ID", "ADMIN_MAIL_PASSWORD", "JUSO_SEARCH_KEY", "JUSO_COORD_KEY", "TOSS_SECRET_KEY", "TOSS_CLIENT_KEY", "INICIS_HASH_KEY", "INICIS_API_KEY", "SANITY_TOKEN", "PORTONE_API_SECRET", "PORTONE_STORE_ID", "PORTONE_CHANNEL_KEY", "IDENTITY_CRYPTO_KEY", "HASHIDS_SALT"]
   user_secrets = {
     for n in local.user_secret_names :
     n => "arn:aws:ssm:${var.aws_region}:${local.account_id}:parameter${local.ssm_prefix}/${n}"
