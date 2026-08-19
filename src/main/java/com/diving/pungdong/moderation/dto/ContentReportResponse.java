@@ -57,4 +57,34 @@ public class ContentReportResponse {
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private final String targetPreview;
+
+    /**
+     * 이 <b>작성자</b>에 대한 누적 신고 수(상태·대상 종류 무관). 어드민 목록에서만 채워진다.
+     *
+     * <p>대상이 넷으로 흩어져 있어 <b>같은 강사의 여러 강의에 걸친 반복 신고가 서로 만나지 못했다</b> —
+     * 강의 셋에 1건씩이면 어느 행에서도 안 걸린다. 이 숫자가 "한 번 걸린 사람" 과 "계속 걸리는 사람" 을
+     * 가르고, {@code ?targetAuthorNickName=} 필터로 이어지는 진입점이다.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private final Long targetAuthorReportCount;
+
+    /**
+     * <b>강의 신고</b>에서만 채워진다 — 신고자가 그 강의를 <b>신청한 적 있는가</b>(상태 무관).
+     * 그 외 대상에서는 키가 없다.
+     *
+     * <p>"수강한 적 없는 사람의 강의 신고" 와 "실제 수강생의 분쟁 신고" 는 완전히 다른 사건인데
+     * 신고 본문만으로는 구분이 안 된다. 회차 일자·결제/환불 이력까지는 싣지 않는다 — 큐는 훑는
+     * 화면이고, 판단이 갈리는 건 이 한 비트다.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private final Boolean reporterEnrolled;
+
+    /**
+     * 어드민이 처리하며 남긴 메모. 어드민 목록에서만 채워진다.
+     *
+     * <p>조치({@code ACTIONED})가 대상별로 무거워서(강의면 사실상 판매 중단) 1:1 분쟁은 대개 기각으로
+     * 끝난다 — 메모가 없으면 "따로 경고함" 과 "문제없음" 이 같은 행으로 보인다.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private final String adminNote;
 }
