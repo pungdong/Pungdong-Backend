@@ -149,6 +149,34 @@ aws ecr describe-images --repository-name plop --image-ids imageTag=master-<sha>
 
 → GitHub Actions = *앱 이미지 배포*, Terraform = *인프라*. 매 머지에 terraform 을 엮지 않는다.
 
+### 🔴 terraform 에 적은 env 는 `apply` 없이는 **영원히** 반영되지 않는다 (2026-08-19)
+
+분리의 대가다. **앱 배포는 env 를 옛 revision 에서 그대로 승계한다.** `production-deploy` 는 task-def
+family 의 **최신 ACTIVE revision 을 베이스로 이미지만 갈아끼워** 새 revision 을 렌더하므로, terraform 이
+만들지 않은 revision 이 계속 파생되며 **낡은 env 가 무한히 복사된다.**
+
+**실제로 밟았다**: `infra/envs/production/main.tf` 에 2026-08-12 부터 `IDENTITY_VERIFICATION_MODE = "real"`
+이 적혀 있었는데, **running task def 는 일주일 넘게 `stub`** 이었다. terraform state 는 rev23 에 멈춰 있고
+live 는 워크플로가 찍어낸 rev24~27 이었다. 코드·시크릿(SSM)·문서 다 준비돼 있었고 **apply 한 번이 빠졌을 뿐**인데,
+증상은 "prod 본인확인이 조용히 가짜로 동작" 이다 — 에러도, 배포 실패도 없다.
+
+**그래서 env 를 바꿨으면 이 순서로 확인한다:**
+
+1. `terraform apply -var="image_tag=master-<sha>"` — ⚠️ **`-var` 를 빼면 안 된다.** `terraform.tfvars` 의
+   `image_tag` 핀은 낡아 있기 쉽고(2026-08-19 기준 `master-0745573`, 2026-06-30 값), 그대로 apply 하면
+   **떠 있는 이미지가 옛 sha 로 되돌아간다**(ECR 에서 만료됐으면 `CannotPull`).
+2. `aws ecs update-service --task-definition <family>:<새 revision>` — 서비스가 `ignore_changes=[task_definition]`
+   라 **apply 만으로는 안 옮겨간다.** ⚠️ 여기서 `--force-new-deployment` 는 **아무 소용이 없다** —
+   그건 *현재* revision 을 다시 띄울 뿐 revision 을 바꾸지 않는다.
+3. 검증은 **running task 의 task def revision + 그 revision 의 env/secrets** 로. `rolloutState: COMPLETED`
+   와 health UP 은 env 가 반영됐다는 증거가 **아니다**(옛 env 로도 똑같이 초록이다).
+
+**순서 팁**: env 변경과 코드 배포가 같이 나갈 땐 **terraform apply 를 먼저** 하고 그다음 `production-deploy`
+를 돌리면, 워크플로가 그 새 revision 을 베이스로 물어 **한 롤링에 끝난다**(update-service 를 손으로 할 필요가 없다).
+
+**시크릿을 추가할 땐 SSM 이 선행**이다 — `user_secret_names` 에 이름만 넣고 `/plop/<env>/<NAME>` 이 없으면
+secret fetch 실패로 **task 가 아예 안 뜬다**(§5 PG 스왑 항목과 같은 규칙).
+
 ### ⚠️ `infra/bootstrap` 은 **로컬 state** — 워크트리에서 apply 하지 말 것
 
 `envs/staging`·`envs/production` 은 S3 backend 지만 **`bootstrap` 은 backend 가 없다**(`main.tf` 주석: "bootstrap 은 거의 안 바뀜"). 그래서 `terraform.tfstate` 가 **메인 체크아웃 디렉토리에만** 파일로 존재하고 gitignore 라 워크트리엔 따라오지 않는다.
@@ -209,6 +237,26 @@ prod 에 Flyway 이미지를 처음 배포하며 3가지가 연쇄로 터졌다 
 - **prod 를 오래 미루지 말 것** — 자주 배포하면 각 마이그레이션이 작은 forward step, 이런 큰 retrofit 안 생김.
 
 > 운영 메모: private RDS 라 직접 접속 불가 — DB wipe/check 는 **prod VPC 안 one-off Fargate task**(mysql 이미지 + SSM 시크릿)로 했다. prod DB 는 현재 **빈 스키마**(데모 데이터 재시드 필요 시 별도).
+
+### 2026-08-19 — "prod 를 오래 미루지 말 것" 을 미룬 결과 (마이그레이션 21개 점프)
+
+위 방지책 마지막 줄을 지키지 못했다. prod 가 `master-a383968`(2026-08-10)에 9일간 멈춰 있는 사이 master 는
+**80커밋 · 미적용 마이그레이션 21개(V14~V34)** 앞서 나갔고, 따라잡기가 "작은 forward step" 이 아니라
+**한 번에 21개** 가 됐다. 결과는 무사고(`Successfully applied 21 migrations ... now at version v34`, ERROR 0건)였지만
+그건 운이 아니라 **각 마이그레이션이 멱등 규약을 지켰기 때문**이고, 리스크 자체는 컸다.
+
+**가장 위험했던 지점 — `V27`(v1 레거시 테이블 16개 DROP)의 배포 순서 게이트.** 그 파일은 스스로 요구한다:
+*"코드 삭제 PR 을 먼저 완전히 롤아웃한 뒤에 이 마이그레이션을 배포한다."* ECS 롤링은 새 태스크가 Flyway 를
+도는 동안 **옛 태스크가 아직 트래픽을 받기 때문**이다 — 옛 이미지에 남은 v1 코드(`DELETE /account` →
+`lectureService.closeAllLecture` → `SELECT ... FROM lecture`)가 방금 사라진 테이블을 때려 **MySQL 1146 → 500**.
+한 번에 배포하면 그 창이 그대로 열린다.
+
+- **쪼개는 법**: 중간 이미지(코드 삭제는 포함, V27 은 미포함 = `master-95251f2`)를 먼저 배포해 안정화한 뒤
+  최신을 배포한다. **ECR 리텐션 60 덕에 그 중간 이미지가 아직 살아 있었다**(§5 리텐션 항목의 실효).
+- **이번 선택**: 실사용자가 없어 1단계 직행. 실제로 그 창에 `DELETE /account` 호출이 없어 무사고.
+  **유저가 붙은 뒤엔 이 선택지가 사라진다** — 그때는 2단계가 유일한 안전한 길이다.
+- ⚠️ **DROP 은 롤백 지점을 없앤다.** 이미지를 되돌려도 스키마는 안 돌아오므로 구버전 코드의 v1 경로는
+  깨진 채다 = **전진 수정만 가능**. 배포 전에 "되돌릴 수 있는가" 를 이미지가 아니라 **스키마 기준**으로 물어야 한다.
 
 ---
 
