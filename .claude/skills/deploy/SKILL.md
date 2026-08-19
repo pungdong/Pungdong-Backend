@@ -32,8 +32,14 @@ description: Deploy pungdong BE to staging and/or production. Handles the stagin
    git log --oneline <현재sha>..<대상sha>            # 무엇이 올라가나
    git diff --name-status <현재sha> <대상sha> -- src/main/resources/db/migration/   # 스키마 델타
    ```
-4. **롤백 참조**: 배포 전 현재 이미지 태그를 기록해둔다.
-5. **prod면 사용자 확인** — 특히 (a) 여러 PR 점프 (b) 새 Flyway 마이그레이션 (c) 새 필수 env. 범위를 사용자에게 알리고 go 받기. **머지는 사용자 몫이듯, prod 배포도 명시 승인.**
+4. **롤백 참조**: 배포 전 현재 이미지 태그를 기록해둔다. ⚠️ 델타에 **DROP 마이그레이션**이 있으면 이미지를 되돌려도 스키마는 안 돌아온다 — "되돌릴 수 있는가" 는 이미지가 아니라 **스키마 기준**으로 묻는다.
+5. **env 도 델타다** — terraform 이 의도한 env 와 **running task def 의 env 가 갈려 있을 수 있다**(§2 env 드리프트, 2026-08-19 실제 사고).
+   ```
+   aws ecs describe-task-definition --task-definition <plop-staging|plop-prod> --region ap-northeast-2 --query 'taskDefinition.containerDefinitions[0].{env:environment,secrets:secrets[].name}'
+   grep -nE 'IDENTITY|PAYMENT_MODE|MID|user_secret_names' infra/envs/<staging|production>/main.tf
+   ```
+   다르면 이미지만 올려선 안 된다 — **terraform apply 를 먼저** 하고 배포한다(순서 이유는 §2).
+6. **prod면 사용자 확인** — 특히 (a) 여러 PR 점프 (b) 새 Flyway 마이그레이션 (c) 새 필수 env (d) **배포 순서 게이트가 걸린 마이그레이션**(파일 주석에 "코드 PR 을 먼저 롤아웃한 뒤" 류가 있으면 중간 이미지로 2단계 — 예: `V27` 레거시 DROP). 범위를 사용자에게 알리고 go 받기. **머지는 사용자 몫이듯, prod 배포도 명시 승인.**
 
 ---
 
@@ -87,6 +93,30 @@ gh run watch <run-id> --exit-status --interval 20
 
 워크플로가 하는 일(= 떠 있는 서비스 무중단 롤링): 현재 task def 조회 → 새 이미지로 revision 렌더 → `amazon-ecs-deploy-task-definition` + `wait-for-service-stability` + 헬스확인. terraform 안 탐 → staging의 ignore_changes 함정 **면역**.
 
+### 🔴 env 드리프트 — terraform 에 적은 env 는 apply 없이는 영원히 안 나간다 (2026-08-19)
+
+워크플로는 **task-def family 의 최신 revision 을 베이스로 이미지만 갈아끼운다** → terraform 이 만들지 않은
+revision 이 계속 파생되며 **낡은 env 가 무한 승계**된다. 실제로 prod 는 TF 에 `IDENTITY_VERIFICATION_MODE="real"`
+이 적힌 채 **일주일 넘게 `stub`** 으로 돌았다(TF state rev23, live 는 워크플로가 찍은 rev24~27). 배포는 매번
+"성공" 이었고 health 도 초록이었다 — **조용히 가짜로 동작**한 것이다.
+
+env/시크릿을 바꿨으면:
+
+1. **SSM 선행** — `user_secret_names` 에 이름만 넣고 `/plop/<env>/<NAME>` 이 없으면 secret fetch 실패로 task 가 **아예 안 뜬다**.
+   ```
+   aws ssm put-parameter --name /plop/<env>/<NAME> --type SecureString --value file:///<경로> --region ap-northeast-2
+   ```
+   (값이 로그·터미널에 남지 않게 `file://` 경유. `$(openssl rand ...)` 은 워크트리 세션에서 막힌다.)
+2. `terraform -chdir=infra/envs/<env> apply -var="image_tag=master-<sha>"` — ⚠️ **`-var` 필수.**
+   `terraform.tfvars` 핀이 낡아 있으면(prod 기준 `master-0745573`) 생략 시 **옛 이미지로 되돌아간다**.
+3. `aws ecs update-service --cluster <cluster> --service <svc> --task-definition <family>:<새 revision>`
+   — 서비스가 `ignore_changes=[task_definition]` 이라 apply 만으론 안 옮겨간다.
+   ⚠️ 여기서 `--force-new-deployment` 는 **무의미**(현재 revision 재기동일 뿐).
+4. 검증은 **running task 의 revision + 그 revision 의 env/secrets** 로. `COMPLETED` + health UP 은 env 반영의 증거가 아니다.
+
+**순서 팁**: env 변경 + 코드 배포가 함께면 **apply 먼저 → 그다음 `production-deploy`** 가 한 롤링에 끝난다(3번을 손으로 할 필요 없음).
+⚠️ **prod `terraform apply` 는 권한 분류기에 막힌다** — plan 을 저장해 사용자에게 `!` 실행을 요청하고, 이후 단계를 이어받는다.
+
 - **마이그레이션이 델타에 있으면** (프리플라이트 3): Flyway가 **앱 부팅 시** 자동 실행. 확인:
   - **멱등인가** — `CREATE TABLE IF NOT EXISTS` / `information_schema` 가드(MySQL은 `ADD/DROP COLUMN IF [NOT] EXISTS` 없음). ECS churn 동시실행 대비 필수([docs/architecture/deployment.md] 인시던트).
   - **fresh-DB로 이미 검증됐나** — staging에 먼저 배포돼 Flyway로 깔끔히 돌았으면(staging UP) 검증된 것. (H2 CI·`mysql <` 직접은 Flyway 실행을 검증 못 함.)
@@ -106,6 +136,7 @@ gh run watch <run-id> --exit-status --interval 20
 ## 흔한 함정 (요약)
 - **staging-up ≠ 이미지 새로고침** — 이미 떠 있으면 force-new-deployment. ([[admin_grant_and_staging_restart_ops]], [[feedback_staging_deploy_image_tag]])
 - **prod는 sha 핀**, floating `master-latest` 금지. production-deploy 기본값 `master-latest`라 `-f image_tag=master-<sha>` 명시.
+- **★ env 는 이미지를 따라오지 않는다** — 배포가 옛 revision 의 env 를 승계한다. terraform 에 적어둔 값은 `apply` + `update-service`(새 revision) 로만 반영된다(§2 env 드리프트).
 - **마이그레이션 멱등 + fresh-DB 검증** — 직접 `mysql <`나 H2 CI는 Flyway 실행을 검증 못 함. ([[feedback_migrations_idempotent]], [[prod_flyway_deploy_ops]])
 - **직접 `update-service`는 원칙상 워크플로 경유** — 단 "떠 있는 staging 이미지 새로고침"은 force-new-deployment가 정식 메커니즘(GH Actions 무료초과 시 prod도 예외 허용).
 - **"컨테이너/prod에서만 시간 어긋남" = TZ 누출** ([[feedback_container_tz_localdatetime]]).
