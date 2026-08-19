@@ -1407,8 +1407,25 @@ export interface ContentReport {
   reporterNickName?: string;
   /** 어드민 목록에만. 대상이 이미 지워졌으면 키가 없다. 강의는 제목, 채팅은 본문 앞 80자. */
   targetPreview?: string;
-  /** 어드민 목록에만. **조치 대상의 작성자**(글·댓글·강의·메시지를 올린 사람). 지워졌으면 키가 없다. */
+  /**
+   * 어드민 목록에만. **조치 대상의 작성자**(글·댓글·강의·메시지를 올린 사람).
+   * 접수 시점에 고정하므로 **대상이 지워져도 남는다**(V34 이전 신고 중 대상이 이미 사라진 것만 예외).
+   */
   targetAuthorNickName?: string;
+  /**
+   * 어드민 목록에만. 그 **작성자**에 대한 누적 신고 수(상태·대상 종류 무관).
+   * 강의 셋에 1건씩 걸린 반복 신고는 행마다 보면 "1건" 이라 안 걸린다 — 사람 축으로 합산한 값이다.
+   * 이 숫자를 누르면 `?targetAuthorNickName=` 필터로 넘어가는 게 의도된 동선.
+   */
+  targetAuthorReportCount?: number;
+  /**
+   * 어드민 목록에만, **`targetType === 'COURSE'` 일 때만**. 신고자가 그 강의를 **신청한 적 있는가**
+   * (상태 무관 — 취소·거절된 신청도 true). "수강한 적 없는 사람의 강의 신고" 와 "실제 수강생의 분쟁" 을
+   * 가르는 한 비트다. 회차 일자·결제/환불 이력 요약은 아직 없다(별도 상세 화면의 몫).
+   */
+  reporterEnrolled?: boolean;
+  /** 어드민 목록에만. 어드민이 처리하며 남긴 메모(500자). */
+  adminNote?: string;
 }
 
 // ── 유저 차단 (block) — docs/features/moderation.md ──
@@ -1444,11 +1461,16 @@ export interface BlockedAccountResponse {
 }
 
 // 어드민(ROLE_ADMIN) — 신고 처리 큐. 어드민 FE 용이라 모바일/웹 클라이언트는 쓰지 않는다.
-//   GET   /admin/reports?status=&targetType=&page=&size=  배열은 `_embedded.reports`
+//   GET   /admin/reports?status=&targetType=&targetAuthorNickName=&page=&size=  배열은 `_embedded.reports`
 //   GET   /admin/reports/counts                           {pending, actioned, dismissed}
-//   PATCH /admin/reports/{reportId}                       {status: 'ACTIONED' | 'DISMISSED'}
+//   PATCH /admin/reports/{reportId}                       {status: 'ACTIONED' | 'DISMISSED', note?: string}
 //   (구 경로 /admin/community/reports/** 도 당분간 함께 받는다 — 옮기면 제거)
 // ⚠️ `targetType` 이 화면의 **항목 탭**이다(커뮤니티글 · 댓글 · 강의 · 채팅). 생략하면 전체.
+// ⚠️ `targetAuthorNickName` 은 **사람 축**이다 — 그 사람에 대한 신고만 모인다(대상 종류를 가로지른다).
+//    없는 닉네임이면 **빈 페이지**(400 아님).
+// ⚠️ PATCH 의 `note` 는 선택(500자). **빈 값이면 기존 메모를 지우지 않는다.**
+//    조치가 대상별로 무거워서(강의면 사실상 판매 중단) 1:1 분쟁은 대개 기각으로 끝나는데,
+//    메모가 없으면 "따로 경고함" 과 "문제없음" 이 같은 행으로 남는다.
 // ⚠️ **링크는 BE 가 만들지 않는다** — `targetType` + `targetId` 로 FE 가 글/상품 페이지 URL 을 조립한다.
 // ⚠️ ACTIONED 는 **대상을 실제로 숨긴다**. 대상별로 효과가 다르다:
 //      POST         → 숨김(작성자가 되살릴 수 없음)
