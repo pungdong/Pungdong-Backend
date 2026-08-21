@@ -73,7 +73,8 @@ public class ProfilePhotoService {
 
         return ProfilePhotoInfo.builder()
                 .profilePhotoId(profilePhoto.getId())
-                .imageUrl(profilePhoto.getImageUrl())
+                // 공유 기본 이미지는 렌더 가능한 URL 이 아니다 — null 로 접어 "사진 없음" 을 표현한다.
+                .imageUrl(profilePhoto.displayUrl())
                 .build();
     }
 }
