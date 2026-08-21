@@ -19,7 +19,9 @@
 - **`CourseInstructorSummaryAdapter`** — **강의 상세**(`GET /courses/{id}/detail`)에 실리는 강사 카드 합성.
   인터페이스(`course.InstructorSummaryProvider`)는 course 가 갖고 구현만 여기 있다 — `branding → course`
   가 이미 있어 반대로 걸면 **패키지 순환**이라서다. 여기 실리는 값 중 브랜딩 소유는 tagline·bio 뿐이니
-  **프로필 미작성·비공개여도 카드는 나간다**(공개 프로필의 400 규칙과 별개). 단건 전용 — 목록에 붙이려면
+  **프로필을 만든 적 없어도 카드는 나간다**(공개 프로필의 400 규칙과 별개).
+  ⚠️ **단 tagline·bio 는 프로필의 공개 설정을 따른다** — 비공개면 그 둘만 빠지고 나머지는 남는다
+  (비공개 = "포트폴리오를 감춘다" 이고 그 둘이 곧 포트폴리오 본문이라서). 단건 전용 — 목록에 붙이려면
   배치 메서드를 따로(N+1).
 - **엔티티** — `AccountBranding` · `BrandingRecord` · `BrandingPost` · `BrandingPostMedia` · `BrandingPostTag`
   + `Medal`·`RecordEventCode`·`BrandingMediaKind` enum.

@@ -32,7 +32,8 @@ flowchart TB
 - **합성 방향은 단방향** — `account`·`instructorapplication` 은 branding 을 모른다. account 가 feature 도메인을 import 하지 않는 루트 규칙 때문에 합성을 별도 패키지로 뺐다(`profile` 패키지가 만든 선례).
 - 자격 뱃지(`certs`)·종목·검수상태·승인시각은 **저장하지 않고** 승인된 강사 신청에서 매 조회 시 파생한다.
 - **강의 상세의 강사 카드도 여기서 합성한다**(`CourseInstructorSummaryAdapter`). 인터페이스는 `course` 가 선언하고(`InstructorSummaryProvider`) 구현만 이 패키지에 둔다 — `branding → course` 가 이미 있어서(프로필의 강의 수) `course → branding` 을 더하면 **패키지 순환**이 되기 때문이다. 필요한 쪽이 계약을 선언하고, 양쪽을 다 아는 쪽이 구현한다.
-  ⚠️ **그 카드는 브랜딩 행의 존재/발행 여부에 매이지 않는다** — 실리는 값 중 브랜딩이 소유하는 건 tagline·bio 뿐이라 미작성·비공개 강사도 나머지(닉네임·아바타·인증마크·자격·강의 수)는 그대로 온다. 공개 프로필(`GET /instructors/{nickName}`)의 400 규칙과 **별개**다.
+  ⚠️ **그 카드는 브랜딩 행의 존재 여부에 매이지 않는다** — 실리는 값 중 브랜딩이 소유하는 건 tagline·bio 뿐이라 프로필을 만든 적 없는 강사도 나머지(닉네임·아바타·인증마크·자격·강의 수)는 그대로 온다. 공개 프로필(`GET /instructors/{nickName}`)의 400 규칙과 **별개**다.
+  ⚠️ **단 tagline·bio 는 발행 여부를 따른다**(2026-08-22) — 유저가 비공개로 내리면 그 둘은 강의 상세에서도 빠진다. 비공개의 뜻이 **"내 포트폴리오를 감춘다"** 로 정의돼 있고(`community.CommunityPostSpecifications.feedVisible` 주석 — 커뮤니티 글이 함께 사라지지 않는 근거) tagline·bio 가 곧 그 포트폴리오 본문이라서다. 규칙은 한 문장 — **값의 소유자가 그 값의 거동을 정한다.**
 
 ## 3. 흐름
 
