@@ -278,8 +278,9 @@ class CourseDetailUseCaseTest {
         mockMvc.perform(get("/courses/" + id + "/detail"))
                 .andExpect(status().isOk())
                 // 포트폴리오 본문은 함께 감춰진다 — 비공개의 뜻이 "내 포트폴리오를 감춘다" 라서.
-                .andExpect(jsonPath("$.instructor.tagline").doesNotExist())
-                .andExpect(jsonPath("$.instructor.bio").doesNotExist())
+                // 에러가 아니라 값만 빈다: 키는 있고 값이 명시적 null 이다(FE 가 "안 온 것" 과 구분 불필요).
+                .andExpect(jsonPath("$.instructor.tagline").value(nullValue()))
+                .andExpect(jsonPath("$.instructor.bio").value(nullValue()))
                 // 계정 사실·자격은 브랜딩 소유가 아니라 그대로 남는다 — 카드가 통째로 사라지면 안 된다.
                 .andExpect(jsonPath("$.instructor.nickName").value("i5"))
                 .andExpect(jsonPath("$.instructor.isInstructor").value(true))
