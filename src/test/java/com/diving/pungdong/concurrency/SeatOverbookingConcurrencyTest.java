@@ -26,6 +26,7 @@ import com.diving.pungdong.identityverification.IdentityVerificationStatus;
 import com.diving.pungdong.instructorapplication.InstructorApplication;
 import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
 import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
+import com.diving.pungdong.support.InstructorApprovalFixture;
 import com.diving.pungdong.venue.DaypartKind;
 import com.diving.pungdong.venue.TimeMode;
 import com.diving.pungdong.venue.Venue;
@@ -223,6 +224,10 @@ class SeatOverbookingConcurrencyTest extends MySqlConcurrencyTestBase {
         applicationRepo.save(InstructorApplication.builder()
                 .account(ins).disciplineCode("FREEDIVING").status(InstructorApplicationStatus.SUBMITTED)
                 .submittedAt(OffsetDateTime.now(ZoneOffset.UTC)).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
+        // 학생이 신청하려면 그 종목의 **승인**이 필요하다(course.InstructorApprovalPolicy, 2026-08-22).
+        // 위 SUBMITTED 는 가용시간 게이트("신청 보유")를 통과시키려는 것이고, 그것만으로는 부족하다 —
+        // 공유 픽스처로 승격해 다른 테스트와 같은 기준을 쓴다(각자 심으면 한쪽만 상태를 잘못 넣는다).
+        InstructorApprovalFixture.approveFreediving(applicationRepo, ins);
         return ins;
     }
 
