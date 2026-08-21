@@ -12,6 +12,11 @@
  *     `new Date(...)` 로 파싱해 **뷰어 로케일로 표시**(거래성 시각은 venue/마켓 TZ+라벨 — 후속 #173).
  *   • civil/local (슬롯·venue 운영시간 — date/startTime/endTime/blockStart/blockEnd/lectureTime): **offset 없음**(`2026-07-10`,`14:00:00`).
  *     그 장소의 벽시계라 **뷰어 TZ로 변환 금지**(그대로 표시). new Date() 절대시각 취급 금지.
+ *
+ * 🖼️ avatarUrl / profilePhotoUrl = **URL 또는 null**, 그 사이는 없다.
+ *   예전엔 사진을 올린 적 없는 계정에 공유 기본 이미지의 **레거시 맨 파일명**이 실려 나갔다(렌더 불가).
+ *   지금은 그 값을 서버가 null 로 접는다 — 계약(`미설정이면 null → FE 기본 아바타`)이 이제 사실이다.
+ *   따라서 값이 있으면 **그대로 <img src>** 에 쓰면 되고, 앞에 CDN base 를 붙이면 안 된다.
  */
 
 // ============================================================
@@ -1977,11 +1982,45 @@ export interface CourseDetailResponse extends HalLinks {
   description?: string;
   seeded: boolean; // 데모(샘플) 코스. siteSettings.showSeededCourses=false 면 이 상세는 400(존재 숨김)
   media: { kind: MediaKind; url: string; sortOrder: number }[];
+  /**
+   * 강사 카드 — 아바타·인증마크·한마디·자격·강의 수까지 **인라인**이라
+   * `GET /instructors/{nickName}` 을 따로 부르지 않는다. 강사 없는 레거시 코스만 null.
+   */
+  instructor: CourseDetailInstructor | null;
+  /** @deprecated `instructor.nickName`(+ 별도 필요시 id) 로 대체. 구버전 앱 호환으로 한동안 병기. */
   instructorId: number | null;
-  instructorName: string | null; // 강사 nickName
+  /** @deprecated 이름이 아니라 **닉네임**이었다. `instructor.nickName` 을 쓸 것. */
+  instructorName: string | null;
   rounds: CourseDetailRoundResponse[];
   venues: CourseDetailVenueResponse[]; // 회차 가로질러 dedupe + 합성 (진행 위치 섹션)
 }
+/**
+ * 강의 상세에 인라인된 강사 카드. 모양을 `CommunityAuthor`(피드·댓글의 강사 칩)와 맞춰 놨으니
+ * **같은 컴포넌트로 렌더**할 것.
+ *
+ * ⚠️ **브랜딩 프로필과 커플링돼 있지 않다.** 프로필을 만든 적 없는 강사도 이 객체는 온다 —
+ *    비는 건 `tagline`·`bio` 뿐이고 닉네임·아바타·인증마크·자격은 계정/강사신청 소유라 항상 채워진다.
+ *    프로필을 **비공개로 내려도**(그 경우 `/instructors/{nickName}` 은 400) 이 카드는 그대로 온다.
+ * ⚠️ `isInstructor` 는 **승인된** 강사 = 인증마크다. 강의 준비는 승인 전(신청 보유)에도 열려 있어서
+ *    심사 중인 사람의 강의가 상세에 올 수 있다 — 그때는 false 이고 `certs`·`lessonCount` 키가 없다.
+ */
+export interface CourseDetailInstructor {
+  /** 공개 프로필 진입 키 — GET /instructors/{nickName} 에 그대로 쓴다. */
+  nickName: string;
+  /** 미설정이면 null → FE 기본 아바타. */
+  avatarUrl?: string | null;
+  /** 항상 온다(생략 아님). 승인된 강사만 true = 인증마크. */
+  isInstructor: boolean;
+  /** 한 줄 소개("강사의 한마디"). 프로필 미작성·미입력이면 null. */
+  tagline?: string | null;
+  /** 자기소개 본문. 프로필 미작성·미입력이면 null. */
+  bio?: string | null;
+  /** 승인 강사만. 승인 전이면 **키 자체가 없다**(빈 배열 = "자격 없는 강사" 로 읽히므로). */
+  certs?: BrandingCertBadge[];
+  /** 승인 강사만. "강사 · 강의 N" 칩 — 브랜딩 `products.lessons`·커뮤니티 칩과 같은 숫자. */
+  lessonCount?: number;
+}
+
 export interface CourseDetailRoundResponse {
   roundKind: RoundKind;
   roundIndex: number | null; // REGULAR 1..N, EXTRA null
