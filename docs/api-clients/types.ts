@@ -2020,7 +2020,7 @@ export type CourseBrowseSort = 'LATEST' | 'PRICE_ASC' | 'PRICE_DESC';
  *   `code` 를 기대하는 에러 파서가 함께 깨진다.
  */
 export interface CourseBrowseParams {
-  disciplineCode: string; // 필수 — 종목별 카탈로그가 크게 달라 화면이 항상 한 종목으로 진입(메인 상단 select). 누락 시 400
+  disciplineCode: string; // 필수 — 종목별 카탈로그가 크게 달라 화면이 항상 한 종목으로 진입(메인 상단 select). 누락 시 400. ★단 "저장한 강의" 목록에서만 선택 → CourseSavedListParams
   keyword?: string; // 제목 OR 강사 nickName 부분 일치(대소문자 무시). `_`·`%` 는 LIKE 와일드카드로 동작한다(미이스케이프)
   region?: Region; // 생략 = 전체
   kinds?: CourseKind[]; // 평탄 멀티칩 — 체험·트레이닝 (자격은 levels 로). 생략 = 종류 무관
@@ -2029,9 +2029,33 @@ export interface CourseBrowseParams {
   minPrice?: number;
   maxPrice?: number;
   sort?: CourseBrowseSort; // 기본 LATEST
+  /**
+   * "저장한 강의" 목록. 별도 엔드포인트가 아니라 이 쿼리라서 카드 컴포넌트를 그대로 재사용한다
+   * (커뮤니티 피드와 같은 방식).
+   *
+   * ⚠️ 인증 필요 — 다만 비로그인이면 에러가 아니라 **빈 페이지**다(로그인 안 했으면 저장한 게
+   *   없는 게 맞는 답). 토큰을 안 붙이면 조용히 0건이므로, 0건이 보이면 토큰부터 의심할 것.
+   * ★ 이때만 `disciplineCode` 가 선택이다 — 종목으로 좁히면 다른 종목에서 저장한 게 안 보여
+   *   사용자가 "북마크가 날아갔다"고 읽는다. 종목별로 보고 싶으면 같이 보내면 된다.
+   * ★ 정렬은 **저장한 순이 아니다** — `CourseBrowseSort`(기본 LATEST=강의 등록 최신순)를 그대로 쓴다.
+   *   "저장한 순"은 BE 미구현(조인이 MySQL DISTINCT 와 충돌).
+   * ★ 저장해 둔 강의가 CLOSED 되면 이 목록에서 **빠진다**(저장 자체는 남아, 다시 OPEN 되면 돌아온다).
+   */
+  bookmarkedByMe?: boolean; // 기본 false
   page?: number; // 0-base
   size?: number; // 기본 20, 상한 50(초과분은 서버가 50 으로 자름). 0/음수/비숫자는 조용히 기본 20
 }
+
+/**
+ * "저장한 강의" 목록 호출의 파라미터 — 같은 엔드포인트(`GET /courses/browse`)지만 `disciplineCode` 가
+ * **선택**인 유일한 경우라 타입을 갈라 둔다. 일반 둘러보기(`CourseBrowseParams`)에서는 종목을 빼면
+ * 런타임 400 이므로 필수로 남겨 컴파일 타임에 잡는다.
+ */
+export type CourseSavedListParams =
+  Omit<CourseBrowseParams, 'disciplineCode' | 'bookmarkedByMe'> & {
+    disciplineCode?: string; // 생략 = 종목 무관(기본). 종목별로 보고 싶을 때만 채운다
+    bookmarkedByMe: true;
+  };
 
 /** 둘러보기 카드 1칸 — 상세(CourseResponse)와 달리 카드 표면 필드만. */
 export interface CourseCardResponse {
@@ -2052,6 +2076,20 @@ export interface CourseCardResponse {
   disciplineCode: string;
   seeded: boolean; // 데모(샘플) 코스 — FE 가 "샘플용" 태그로 구분 노출. siteSettings.showSeededCourses=false 면 목록에서 빠짐
   createdAt?: string;
+  /**
+   * 저장(북마크) 수. **내려주지만 노출 여부는 FE 가 정한다** — "N명이 저장"은 판매 신호지만 초기에
+   * 숫자가 낮으면 역효과라 표시를 끄는 쪽이 되돌리기 쉽다.
+   */
+  bookmarkCount: number;
+  /**
+   * 내가 저장했는지.
+   *
+   * 🔴 **토큰이 있을 때만 유의미하다. 비로그인은 에러가 아니라 조용히 `false`.** 둘러보기는 공개
+   *    읽기라, 웹이 캐시/개인화 유출을 피하려 **토큰리스로** 읽는 경로에서도 똑같이 `false` 가 온다
+   *    — 401 이 아니라서 "저장 안 함"과 구분되지 않는다. 개인화가 필요한 표면은 하이드레이션
+   *    아일랜드로 다시 읽을 것. (커뮤니티 `blockedByMe` 가 이 주석이 없어서 웹에서만 틀렸다.)
+   */
+  bookmarkedByMe: boolean;
 }
 
 /**
@@ -2103,6 +2141,16 @@ export interface CourseDetailResponse extends HalLinks {
   instructorName: string | null;
   rounds: CourseDetailRoundResponse[];
   venues: CourseDetailVenueResponse[]; // 회차 가로질러 dedupe + 합성 (진행 위치 섹션)
+  /** 저장(북마크) 수. 카드와 같다 — 내려주되 노출은 FE 가 정한다. */
+  bookmarkCount: number;
+  /**
+   * 내가 저장했는지 — 상세 헤더의 저장 버튼 초기 상태.
+   *
+   * 🔴 **토큰이 있을 때만 유의미하다. 비로그인은 에러가 아니라 조용히 `false`.** 이 상세는 공개
+   *    읽기라 토큰리스 캐시 경로에서도 `false` 가 온다 — `CourseCardResponse.bookmarkedByMe` 와 같은
+   *    함정이니 개인화가 필요하면 하이드레이션으로 다시 읽을 것.
+   */
+  bookmarkedByMe: boolean;
 }
 /**
  * 강의 상세에 인라인된 강사 카드. 모양을 `CommunityAuthor`(피드·댓글의 강사 칩)와 맞춰 놨으니
@@ -2155,6 +2203,25 @@ export interface CourseDetailTicketResponse {
   ticketRef: string;
   ticketName: string; // 이용권 이름 (예: "일반권 (3시간)")
   fees: { daypart: DaypartKind; fee: number }[]; // 평일/주말 입장료 — 시안의 단일 entry 아님
+}
+
+// ── 강의 저장(북마크) — POST·DELETE /courses/{courseId}/bookmark (인증) ──
+// docs/architecture/course.md §5 · 커뮤니티 글 북마크와 **동형**(계약 그대로 복제).
+/**
+ * 강의 저장/해제. 요청 바디 없음. 응답 모양은 커뮤니티 `ReactionResponse` 와 **동일**하다.
+ *
+ * ⚠️ **토글이 아니라 설정(POST)/해제(DELETE) 두 메서드이고, 둘 다 멱등**이다 — POST 는 "저장된
+ *    상태로 만들어라", DELETE 는 "저장 안 된 상태로 만들어라". 연타·재시도로 뒤집히지 않으니
+ *    낙관적 업데이트 후 이 값으로 덮어쓰면 항상 수렴한다.
+ * ⚠️ 비OPEN·차단·없는 강의에는 저장할 수 없다 → **400**(존재 숨김, 공개 상세와 같은 게이트).
+ * ⚠️ 게스트는 호출하지 말 것 — 토큰 없으면 **401** 이다. FE 는 로그인 게이트로 보낸다.
+ *
+ * 저장한 목록은 별도 엔드포인트가 없다 → `GET /courses/browse?bookmarkedByMe=true`
+ * (`CourseBrowseParams.bookmarkedByMe` 주석 참고).
+ */
+export interface CourseBookmarkResponse {
+  count: number;    // 갱신된 저장 수(사람 수)
+  active: boolean;  // 내 상태. POST 뒤 true, DELETE 뒤 false
 }
 
 // ============================================================
