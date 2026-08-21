@@ -14,6 +14,11 @@
   `showOnProfile`). **숨김 토글은 여기 없다** — `PATCH /community/posts/{id}/visibility` 하나다.
 - **`BrandingImageController`** — `POST /branding-images` (인증). 2-phase 업로드 1단계.
 - **서비스** — `BrandingService`(프로필 합성·편집) / `BrandingPostService`(목록·상세·CRUD·미디어 lifecycle).
+- **`CourseInstructorSummaryAdapter`** — **강의 상세**(`GET /courses/{id}/detail`)에 실리는 강사 카드 합성.
+  인터페이스(`course.InstructorSummaryProvider`)는 course 가 갖고 구현만 여기 있다 — `branding → course`
+  가 이미 있어 반대로 걸면 **패키지 순환**이라서다. 여기 실리는 값 중 브랜딩 소유는 tagline·bio 뿐이니
+  **프로필 미작성·비공개여도 카드는 나간다**(공개 프로필의 400 규칙과 별개). 단건 전용 — 목록에 붙이려면
+  배치 메서드를 따로(N+1).
 - **엔티티** — `AccountBranding` · `BrandingRecord` · `BrandingPost` · `BrandingPostMedia` · `BrandingPostTag`
   + `Medal`·`RecordEventCode`·`BrandingMediaKind` enum.
 - **`storage/`** — `BrandingImageStorage`(S3/Local 게이트). 프로필·리뷰 이미지처럼 `S3Uploader` 를 직접 쓰면

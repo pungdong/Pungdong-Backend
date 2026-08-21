@@ -2,6 +2,7 @@ package com.diving.pungdong.profile;
 
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.AccountJpaRepo;
+import com.diving.pungdong.account.ProfilePhoto;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
 import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
@@ -44,7 +45,7 @@ public class ProfileService {
                 .email(account.getEmail())
                 .nickName(account.getNickName())
                 .roles(account.getRoles())
-                .profilePhotoUrl(account.getProfilePhoto() == null ? null : account.getProfilePhoto().getImageUrl())
+                .profilePhotoUrl(ProfilePhoto.displayUrlOf(account))
                 .certs(certs)
                 .build();
     }

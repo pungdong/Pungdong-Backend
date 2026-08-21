@@ -51,6 +51,8 @@ public class CourseService {
     private final VenueRefResolver venueRefResolver;
     private final VenueEquipmentService equipmentService;
     private final SiteSettingsProvider siteSettings;
+    /** 공개 상세의 강사 카드 합성. 구현은 {@code branding} 에 있다 — {@link InstructorSummaryProvider} 참고. */
+    private final InstructorSummaryProvider instructorSummaryProvider;
 
     @Transactional
     public CourseResponse create(Account me, CourseCreateRequest req) {
@@ -93,7 +95,8 @@ public class CourseService {
         Map<String, com.diving.pungdong.venue.dto.VenueResponse> venueByRef = venueRefResolver.resolveVenues(refs);
         // 장비는 강사×위치 가격표 — 공개 상세도 그 코스 강사의 가격표를 합성.
         Map<String, VenueEquipmentResponse> equipByRef = equipmentMap(course.getInstructor(), course);
-        return CourseDetailResponse.from(course, venueByRef, equipByRef);
+        return CourseDetailResponse.from(course, venueByRef, equipByRef,
+                instructorSummaryProvider.summarize(course.getInstructor()));
     }
 
     /** 내 강의 목록 — 카드용. 위치별 장비 합성은 상세에서만(목록은 빈 맵). */

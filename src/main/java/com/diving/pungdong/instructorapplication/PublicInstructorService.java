@@ -1,6 +1,7 @@
 package com.diving.pungdong.instructorapplication;
 
 import com.diving.pungdong.account.Account;
+import com.diving.pungdong.account.ProfilePhoto;
 import com.diving.pungdong.instructorapplication.dto.PublicInstructorResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -37,7 +38,7 @@ public class PublicInstructorService {
         return accounts.map(account -> PublicInstructorResponse.builder()
                 .id(account.getId())
                 .nickName(account.getNickName())
-                .avatarUrl(account.getProfilePhoto() == null ? null : account.getProfilePhoto().getImageUrl())
+                .avatarUrl(ProfilePhoto.displayUrlOf(account))
                 .disciplineCodes(disciplinesByAccount.getOrDefault(account.getId(), List.of()))
                 .build());
     }
