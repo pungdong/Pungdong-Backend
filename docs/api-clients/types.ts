@@ -2020,8 +2020,10 @@ export interface CourseDetailResponse extends HalLinks {
  *    유저가 프로필을 **비공개로 내린 경우**(그 경우 `/instructors/{nickName}` 은 400) 이 카드도 계속
  *    오지만 **`tagline`·`bio` 만 null 이 된다** — 그 둘이 감춰진 프로필 페이지의 본문이라서.
  *    닉네임·아바타·인증마크·자격·강의 수는 그대로다. (지금은 비공개 토글 UI 자체가 없어 사실상 안 생긴다.)
- * ⚠️ `isInstructor` 는 **승인된** 강사 = 인증마크다. 강의 준비는 승인 전(신청 보유)에도 열려 있어서
- *    심사 중인 사람의 강의가 상세에 올 수 있다 — 그때는 false 이고 `certs`·`lessonCount` 키가 없다.
+ * ⚠️ `isInstructor` 는 **승인된** 강사 = 인증마크다. **강의 상세에서는 항상 true** 다(2026-08-22) —
+ *    공개·판매 자체가 그 종목 승인 강사에게만 열리므로 미승인 강사의 강의는 이 응답에 도달하지 않는다.
+ *    필드를 유지하는 건 커뮤니티 작성자 칩(`CommunityAuthor`)과 같은 컴포넌트를 쓰기 때문이고,
+ *    그쪽에서는 false 가 실제로 나온다. 상세에서 이 값으로 분기할 일은 없다.
  */
 export interface CourseDetailInstructor {
   /** 공개 프로필 진입 키 — GET /instructors/{nickName} 에 그대로 쓴다. */

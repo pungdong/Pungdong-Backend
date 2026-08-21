@@ -61,6 +61,7 @@ class ModerationUseCaseTest {
     @Autowired JwtTokenProvider jwt;
     @Autowired AccountJpaRepo accountRepo;
     @Autowired CourseJpaRepo courseRepo;
+    @Autowired com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo applicationRepo;
     @Autowired ContentReportJpaRepo reportRepo;
     @Autowired EnrollmentJpaRepo enrollmentRepo;
     @Autowired AvailabilitySessionJpaRepo sessionRepo;
@@ -81,6 +82,7 @@ class ModerationUseCaseTest {
         enrollmentRepo.deleteAll();
         courseRepo.deleteAll();
         sessionRepo.deleteAll();
+        applicationRepo.deleteAll();
         accountRepo.deleteAll();
     }
 
@@ -97,6 +99,8 @@ class ModerationUseCaseTest {
     }
 
     private Course course(Account instructor, String title) {
+        // OPEN 강의는 그 종목의 정식 강사 것이어야 공개 경로에 뜬다.
+        com.diving.pungdong.support.InstructorApprovalFixture.approveFreediving(applicationRepo, instructor);
         return courseRepo.save(Course.builder()
                 .instructor(instructor).title(title)
                 .kind(CourseKind.CERTIFICATION).organizationCode("AIDA").disciplineCode("FREEDIVING")

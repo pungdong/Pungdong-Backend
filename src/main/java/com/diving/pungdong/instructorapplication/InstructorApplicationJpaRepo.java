@@ -23,6 +23,16 @@ public interface InstructorApplicationJpaRepo extends JpaRepository<InstructorAp
     boolean existsByAccountIdAndDisciplineCode(Long accountId, String disciplineCode);
 
     /**
+     * 그 종목의 <b>정식 강사</b>인가 — 승인(APPROVED)된 신청 보유 여부. 위 {@link #existsByAccountIdAndDisciplineCode}
+     * (상태 무관)와 <b>짝이자 대비</b>다: 준비는 신청만으로 열어주고, <b>공개·판매는 승인에만</b> 허용한다.
+     *
+     * <p>종목까지 보는 이유: 승인은 {@code (account_id, discipline_code)} 단위라 "강사임" 은 계정 속성이
+     * 아니라 <b>종목별 속성</b>이다. 계정 단위로 보면 프리다이빙 승인자가 스쿠버 강의를 팔 수 있다.
+     */
+    boolean existsByAccountIdAndDisciplineCodeAndStatus(Long accountId, String disciplineCode,
+                                                        InstructorApplicationStatus status);
+
+    /**
      * 강사 트랙에 들어왔는가 — 종목 무관, 신청 보유 여부(상태 무관, SUBMITTED 포함). 가용시간 캘린더
      * (availability) 진입 게이트. 가용시간은 종목별이 아니라 강사 단위 도구라 종목 조건이 없다.
      */

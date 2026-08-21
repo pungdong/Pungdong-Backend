@@ -4,6 +4,8 @@ import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.account.Role;
 import com.diving.pungdong.course.CourseJpaRepo;
+import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
+import com.diving.pungdong.support.InstructorApprovalFixture;
 import com.diving.pungdong.global.security.JwtTokenProvider;
 import com.diving.pungdong.venue.Venue;
 import com.diving.pungdong.venue.VenueJpaRepo;
@@ -58,6 +60,7 @@ class CourseCreateUseCaseTest {
     @Autowired VenueJpaRepo venueRepo;
     @Autowired VenueEquipmentExtensionJpaRepo extensionRepo;
     @Autowired CourseJpaRepo courseRepo;
+    @Autowired InstructorApplicationJpaRepo applicationRepo;
     @Autowired RedisTemplate<String, String> redisTemplate;
 
     @BeforeEach
@@ -73,6 +76,7 @@ class CourseCreateUseCaseTest {
         courseRepo.deleteAll();
         extensionRepo.deleteAll();
         venueRepo.deleteAll();
+        applicationRepo.deleteAll();
         accountRepo.deleteAll();
     }
 
@@ -271,9 +275,10 @@ class CourseCreateUseCaseTest {
     }
 
     @Test
-    @DisplayName("T1 상태를 OPEN 으로 전이할 수 있다(검수 없음)")
+    @DisplayName("T1 그 종목의 승인 강사는 상태를 OPEN 으로 전이할 수 있다")
     void t1_status_open() throws Exception {
         Account me = account("t1@pungdong.com");
+        InstructorApprovalFixture.approveFreediving(applicationRepo, me);
         String location = createCourse(me, Map.of("title", "x", "kind", "TRIAL", "disciplineCode", "FREEDIVING",
                 "totalRounds", 1, "price", 1000, "rounds", List.of(round("1", customRef(me)))))
                 .andReturn().getResponse().getContentAsString();
@@ -283,6 +288,29 @@ class CourseCreateUseCaseTest {
                         .contentType(MediaType.APPLICATION_JSON).content(body(Map.of("status", "OPEN"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("OPEN"));
+    }
+
+    @Test
+    @DisplayName("T2 승인 전 강사도 코스를 만들고 고칠 수는 있지만, OPEN 전이만 400 이다 (준비는 허용·판매는 승인)")
+    void t2_pending_canPrepare_butNotPublish() throws Exception {
+        Account me = account("t2@pungdong.com");   // 승인 없음
+        String location = createCourse(me, Map.of("title", "준비중", "kind", "TRIAL", "disciplineCode", "FREEDIVING",
+                "totalRounds", 1, "price", 1000, "rounds", List.of(round("1", customRef(me)))))
+                .andReturn().getResponse().getContentAsString();
+        long id = ((Number) com.jayway.jsonpath.JsonPath.read(location, "$.id")).longValue();
+
+        // 검수를 기다리는 동안 준비하는 건 의도된 동선이다 — 여기서 막으면 하루를 통째로 버리게 된다.
+        mockMvc.perform(get("/courses/" + id).header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(patch("/courses/" + id + "/status").header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON).content(body(Map.of("status", "OPEN"))))
+                .andExpect(status().isBadRequest());
+
+        // 내리는 방향은 언제든 된다 — 게이트는 OPEN 에만 붙는다.
+        mockMvc.perform(patch("/courses/" + id + "/status").header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON).content(body(Map.of("status", "CLOSED"))))
+                .andExpect(status().isOk());
     }
 
     @Test

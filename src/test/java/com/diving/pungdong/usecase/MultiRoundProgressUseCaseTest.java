@@ -16,6 +16,7 @@ import com.diving.pungdong.enrollment.EnrollmentStatus;
 import com.diving.pungdong.global.security.JwtTokenProvider;
 import com.diving.pungdong.instructorapplication.InstructorApplication;
 import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
+import com.diving.pungdong.support.InstructorApprovalFixture;
 import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
 import com.diving.pungdong.venue.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -144,9 +145,8 @@ class MultiRoundProgressUseCaseTest {
         Account ins = account(email, nick, Role.INSTRUCTOR);
         ins.setDefaultCapacity(cap);
         accountRepo.save(ins);
-        applicationRepo.save(InstructorApplication.builder().account(ins).disciplineCode("FREEDIVING")
-                .status(InstructorApplicationStatus.SUBMITTED)
-                .submittedAt(OffsetDateTime.now(ZoneOffset.UTC)).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
+        // 승인까지 — 강의를 OPEN 하고 학생이 신청·결제하려면 그 종목의 정식 강사여야 한다.
+        InstructorApprovalFixture.approveFreediving(applicationRepo, ins);
         return ins;
     }
 
