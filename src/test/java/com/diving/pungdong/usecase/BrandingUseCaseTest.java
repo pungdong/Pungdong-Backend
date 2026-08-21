@@ -113,12 +113,55 @@ class BrandingUseCaseTest {
         mockMvc.perform(get("/branding/me").header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.exists").value(false))
-                // 만들지도 않은 프로필이 isPublished:false 로 내려가면 "비공개로 존재한다"처럼 읽히고,
-                // records:null 은 FE 가 배열로 다루다 터진다 — 둘 다 키 자체가 없어야 한다.
+                // 만들지도 않은 프로필이 isPublished:false 로 내려가면 "비공개로 존재한다"처럼 읽힌다.
                 .andExpect(jsonPath("$.isPublished").doesNotExist())
-                .andExpect(jsonPath("$.records").doesNotExist());
+                // records:null 은 FE 가 배열로 다루다 터진다 — 빈 배열이어야 한다.
+                .andExpect(jsonPath("$.records").isArray())
+                .andExpect(jsonPath("$.records").isEmpty());
 
         assertThat(brandingRepo.findByAccountId(me.getId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("C3: 아무것도 안 적었어도 닉네임·아바타는 온다 — 오너가 첫 작성 전에 공개 페이지를 미리볼 수 있어야 한다")
+    void notCreated_stillCarriesIdentity() throws Exception {
+        Account me = account("c3@test.com", "diverC3", Role.STUDENT);
+        me.setProfilePhoto(profilePhotoRepo.save(ProfilePhoto.builder()
+                .imageUrl("https://cdn.example.com/profile-photo/c3.png").build()));
+        accountRepo.save(me);
+
+        mockMvc.perform(get("/branding/me").header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.exists").value(false))
+                // 계정에서 파생되는 값이라 프로필 행과 무관하게 채워진다.
+                .andExpect(jsonPath("$.nickName").value("diverC3"))
+                .andExpect(jsonPath("$.avatarUrl").value("https://cdn.example.com/profile-photo/c3.png"))
+                .andExpect(jsonPath("$.isInstructor").value(false))
+                .andExpect(jsonPath("$.stats.posts").value(0))
+                // 비는 건 프로필 행이 소유하는 것뿐이다.
+                .andExpect(jsonPath("$.tagline").doesNotExist())
+                .andExpect(jsonPath("$.bio").doesNotExist());
+
+        // 그 닉네임으로 실제로 공개 페이지가 열려야 미리보기 버튼이 의미가 있다.
+        mockMvc.perform(get(publicUrl("diverC3"))).andExpect(status().isOk());
+
+        assertThat(brandingRepo.findByAccountId(me.getId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("C4: 아무것도 안 적은 승인 강사는 인증마크·자격·검수 상태까지 온다 (강사 워딩 분기가 첫 화면부터 맞아야 한다)")
+    void notCreated_instructorKeepsBadges() throws Exception {
+        Account me = account("c4@test.com", "diverC4", Role.INSTRUCTOR);
+        approveAsInstructor(me, "FREEDIVING", "AIDA");
+
+        mockMvc.perform(get("/branding/me").header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.exists").value(false))
+                .andExpect(jsonPath("$.isInstructor").value(true))
+                .andExpect(jsonPath("$.certs[0].organizationCode").value("AIDA"))
+                .andExpect(jsonPath("$.disciplineCodes[0]").value("FREEDIVING"))
+                .andExpect(jsonPath("$.reviewStatus").value("APPROVED"))
+                .andExpect(jsonPath("$.products.lessons").value(0));
     }
 
     @Test

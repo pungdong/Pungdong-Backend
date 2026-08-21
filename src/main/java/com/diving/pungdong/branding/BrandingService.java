@@ -107,12 +107,15 @@ public class BrandingService {
 
     /* ─── 오너 ───────────────────────────────────────────── */
 
-    /** 편집용 원본. 미생성이면 {@code exists=false} — <b>생성하지 않는다</b>. */
+    /**
+     * 편집용 원본. <b>생성하지 않는다</b> — 미작성이면 {@code exists=false} 로 알려줄 뿐이다.
+     *
+     * <p>미작성이어도 <b>계정에서 파생되는 값은 채워 보낸다</b>(닉네임·아바타·인증마크·자격·검수 상태).
+     * 비는 건 프로필 행이 소유하는 것뿐이다 — 공개 응답과 같은 규칙이다.
+     */
     public MyBrandingResponse myBranding(Account currentUser) {
         Account owner = loadAccount(currentUser);
-        return brandingRepo.findByAccountId(owner.getId())
-                .map(branding -> toMyBranding(branding, owner))
-                .orElseGet(MyBrandingResponse::notCreated);
+        return toMyBranding(brandingRepo.findByAccountId(owner.getId()).orElse(null), owner);
     }
 
     /**
@@ -193,23 +196,38 @@ public class BrandingService {
      *
      * <p>이렇게 두면 FE 가 오너 화면을 <b>호출 한 번</b>으로 그린다. 안 그러면 닉네임·아바타·자격은
      * {@code GET /account/profile} 을 따로 부르고, <b>수강생 수는 아예 못 그린다</b> — 그 값이 공개
-     * 응답에만 있는데 공개 엔드포인트는 미발행이면 400 이고, 오너 뷰는 바로 그 미발행 상태에서 편집하려
-     * 들어오는 화면이라서다. 쓰기 응답도 같은 형태라 FE 가 캐시 무효화에 쓸 닉네임을 바로 얻는다.
+     * 응답에만 있는데 공개 엔드포인트는 유저가 내린 비공개 상태에서 400 이고, 오너 뷰는 바로 그 상태에서
+     * 편집하려 들어오는 화면이라서다. 쓰기 응답도 같은 형태라 FE 가 캐시 무효화에 쓸 닉네임을 바로 얻는다.
+     *
+     * <p><b>{@code branding} 이 null 이어도 같은 규칙이다</b>(2026-08-22). 아직 아무것도 안 적은 계정도
+     * 닉네임·아바타·인증마크·자격·검수 상태는 <b>계정과 강사 신청에서 파생</b>되므로 그대로 채운다 —
+     * 비는 건 프로필 행이 소유하는 tagline·bio·활동지역·기록뿐이다. 값의 소유자가 그 값의 거동을 정한다는
+     * 같은 원칙이고, 공개 응답({@code publicProfile})이 이미 그렇게 답한다.
+     *
+     * <p><b>왜 필요한가</b>: 그 계정도 이제 공개 프로필이 열리므로, 오너에게 <b>"내 페이지가 남에게
+     * 이렇게 보인다"</b> 를 첫 작성 전에 보여줄 수 있어야 한다. 그러려면 링크를 만들 닉네임이 필요한데
+     * 예전엔 {@code {"exists": false}} 만 내려가서 FE 가 미리보기 버튼을 감출 수밖에 없었다.
+     *
+     * <p>⚠️ <b>{@code isPublished} 만은 미작성일 때 키를 생략한다.</b> 원시가 아니라 래퍼 {@code Boolean}
+     * 인 이유다 — 만들지도 않은 프로필이 {@code isPublished:false} 로 내려가면 "비공개로 존재한다" 처럼
+     * 읽힌다. 그건 파생값이 아니라 프로필 행의 상태라 파생할 것도 없다.
      */
-    private MyBrandingResponse toMyBranding(AccountBranding branding, Account owner) {
+    private MyBrandingResponse toMyBranding(@Nullable AccountBranding branding, Account owner) {
         List<InstructorApplication> approved = approvedApplicationsOf(owner.getId());
         boolean isInstructor = !approved.isEmpty();
         // 검수 배너는 '신청 이력이 있는' 오너에게만. 이력이 없으면 두 키를 모두 생략한다.
         Optional<InstructorApplication> latest = latestApplicationOf(owner.getId());
 
         return MyBrandingResponse.builder()
-                .exists(true)
-                .isPublished(branding.isPublished())
+                .exists(branding != null)
+                // 미작성이면 키 생략 — "비공개로 존재한다" 로 읽히면 안 된다(위 javadoc).
+                .isPublished(branding == null ? null : branding.isPublished())
                 .nickName(owner.getNickName())
                 .avatarUrl(avatarUrlOf(owner))
-                .tagline(branding.getTagline())
-                .bio(branding.getBio())
-                .locationLabel(branding.getLocationLabel())
+                // 여기 넷만 프로필 행 소유 — 미작성이면 이것만 빈다.
+                .tagline(branding == null ? null : branding.getTagline())
+                .bio(branding == null ? null : branding.getBio())
+                .locationLabel(branding == null ? null : branding.getLocationLabel())
                 .isInstructor(isInstructor)
                 .disciplineCodes(isInstructor ? disciplineCodesOf(approved) : null)
                 .certs(isInstructor ? certBadgesOf(approved) : null)

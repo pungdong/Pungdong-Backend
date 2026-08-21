@@ -884,6 +884,12 @@ export interface BrandingProducts {
  *    특히 stats.students는 유저가 비공개로 내린 상태에서 공개 응답이 400이라 여기서만 얻을 수 있다.
  * ⚠️ exists:false 는 "페이지가 없다"가 아니라 **"아직 아무것도 안 적었다"** 다 — 그 계정의 공개 프로필은
  *    이미 열린다(빈 프로필). 이 값은 오너 화면의 온보딩 CTA 분기용이다.
+ * ✅ **exists:false 여도 계정에서 파생되는 값은 채워서 온다**(2026-08-22): nickName · avatarUrl ·
+ *    isInstructor · certs · disciplineCodes · stats · products · reviewStatus · approvedAt.
+ *    비는 건 프로필 행이 소유하는 tagline · bio · locationLabel 과 빈 배열 records 뿐이다.
+ *    → **첫 작성 전에도 "공개 페이지 미리보기"(`/instructors/{nickName}`)를 열 수 있다.**
+ *    유일한 예외가 `isPublished` — 미작성이면 **키 자체가 없다**(false 면 "비공개로 존재한다" 로 읽히므로).
+ *    미작성 판정은 `exists === false` 로만 할 것.
  */
 export interface MyBrandingResponse extends HalLinks {
   exists: boolean;
