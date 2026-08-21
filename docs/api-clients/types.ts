@@ -1946,6 +1946,7 @@ export interface CourseCardResponse {
   isPackage: boolean;
   instructorId: number | null;
   instructorName: string | null; // 강사 nickName
+  instructorAvatarUrl: string | null; // 강사 프로필 사진(카드의 강사명 앞 원형 아바타). 미설정이면 null — 키는 있다
   locationName: string | null; // 대표 위치 이름
   regions: Region[]; // 회차 위치들이 속한 지역 묶음(들)
   price: number;

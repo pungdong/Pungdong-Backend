@@ -58,6 +58,7 @@ class CourseBrowseUseCaseTest {
     @Autowired AccountJpaRepo accountRepo;
     @Autowired VenueJpaRepo venueRepo;
     @Autowired CourseJpaRepo courseRepo;
+    @Autowired com.diving.pungdong.account.ProfilePhotoJpaRepo profilePhotoRepo;
     @Autowired RedisTemplate<String, String> redisTemplate;
 
     @BeforeEach
@@ -73,6 +74,7 @@ class CourseBrowseUseCaseTest {
         courseRepo.deleteAll();
         venueRepo.deleteAll();
         accountRepo.deleteAll();
+        profilePhotoRepo.deleteAll(); // account FK — 계정 삭제 후
     }
 
     /* ════════════════ seed 헬퍼 ════════════════ */
@@ -167,6 +169,29 @@ class CourseBrowseUseCaseTest {
                 .andExpect(jsonPath("$._embedded.courses[0].thumbnailUrl").value("http://img/cover.jpg"))
                 .andExpect(jsonPath("$._embedded.courses[0].price").value(350000))
                 .andExpect(jsonPath("$.page.totalElements").value(1));
+    }
+
+    @Test
+    @DisplayName("S1b 카드에 강사 아바타가 실린다 — 사진을 안 올린 강사는 null(키는 있다)")
+    void s1b_instructor_avatar() throws Exception {
+        Account withPhoto = account("s1b-a@pungdong.com");
+        withPhoto.setProfilePhoto(profilePhotoRepo.save(
+                com.diving.pungdong.account.ProfilePhoto.builder().imageUrl("https://cdn/a.png").build()));
+        accountRepo.save(withPhoto);
+        Account noPhoto = account("s1b-b@pungdong.com");
+
+        openCourse(withPhoto, trial("사진 있는 강사 강의"), "FREEDIVING", 90000,
+                customRefAt(withPhoto, "잠실 잠수풀", "서울특별시 송파구 올림픽로 25"), null);
+        openCourse(noPhoto, trial("사진 없는 강사 강의"), "FREEDIVING", 95000,
+                customRefAt(noPhoto, "올림픽수영장", "서울특별시 송파구 올림픽로 424"), null);
+
+        browse("?disciplineCode=FREEDIVING&keyword=사진 있는")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.courses[0].instructorAvatarUrl").value("https://cdn/a.png"));
+        browse("?disciplineCode=FREEDIVING&keyword=사진 없는")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.courses[0].instructorAvatarUrl").hasJsonPath())
+                .andExpect(jsonPath("$._embedded.courses[0].instructorAvatarUrl").value(nullValue()));
     }
 
     @Test
