@@ -84,8 +84,8 @@ public final class NickNamePolicy {
      * 경로, (2) 시스템/자리표시 값, (3) 단독으로 쓰면 사칭이지만 부분일치로 막으면 오탐이 큰 한글 단어.
      */
     private static final Set<String> RESERVED_EXACT = Set.of(
-            // 라우트 — 지금 실제로 부딪히는 값(public·suggested) + 이 네임스페이스에 생길 만한 값
-            "public", "suggested", "me", "new", "search", "about", "help", "login", "logout",
+            // 라우트 — 지금 실제로 부딪히는 값(public·suggested·browse) + 이 네임스페이스에 생길 만한 값
+            "public", "suggested", "browse", "me", "new", "search", "about", "help", "login", "logout",
             "signup", "signin", "api", "docs", "account", "accounts", "instructor", "instructors",
             "course", "courses", "community", "branding", "settings", "profile", "home",
             "terms", "privacy", "faq", "contact", "event", "events",
