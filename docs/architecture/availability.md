@@ -174,7 +174,7 @@ erDiagram
 |---|---|---|---|
 | GET `/instructor/availability/settings` | ✅ | 강사신청 보유(`existsByAccountId`) | 현재 계정 defaultCapacity |
 | PATCH `/instructor/availability/settings` | ✅ | 강사신청 보유 | capacity<1 = 400 |
-| POST `/instructor/availability/coverage` | ✅ | 강사신청 보유 | 시간 역전/빈 전개 = 400 |
+| POST `/instructor/availability/coverage` | ✅ | 강사신청 보유 | 시간 역전/빈 전개 = 400 / 끝 23:59~ 는 `23:59:59` 로 정규화(`DayEnd`) / `"24:00"` 은 역직렬화 400(-1011, msg 에 필드) |
 | DELETE `/instructor/availability/coverage` | ✅ | 강사신청 보유 | session 가로지르면 -1014 |
 | GET `/instructor/availability?from&to` | ✅ | — | 내 coverage[]+sessions[] 만 |
 | POST `/instructor/availability/sessions` | ✅ | 강사신청 보유 | 시간 역전/override<1/venueRef 무효 = 400 / 기존 일정과 시간 겹침 = -1015 (`SessionOverlapResult.conflicts[]` 에 겹친 일정 id·시각·위치 동봉) |
@@ -198,11 +198,12 @@ erDiagram
 ## 7. 더 깊게: 테스트로 보기
 
 - `src/test/.../usecase/AvailabilityUseCaseTest` — 실 H2 + 시큐리티 체인. 그룹 CV/SS/CAL/C/G/V/R. `@DisplayName` 을 위에서 아래로 읽으면 사양.
-  - CV1~CV*: coverage 열기 머지(10–12 + 12–14 → 10–14), 닫기 분할/축소, 닫기가 session 가로지름 → -1014
+  - CV1~CV*: coverage 열기 머지(10–12 + 12–14 → 10–14), 닫기 분할/축소, 닫기가 session 가로지름 → -1014, 하루 끝 23:59 → 23:59:59 정규화
   - SS1~SS*: 일정 원자 추가(coverage 자동 확장+머지), 같은 (위치,시간) 누적 join, 활성 신청 있는 session 삭제 거부, 외부 점유 정원 초과해도 기록→FULL, 시간 겹침 → -1015 + `conflicts[]`
   - CAL1~CAL*: `?from&to` 두 레이어 분리 읽기(coverage[]+sessions[])
   - C1~C*: 기본 정원 4, baseline 변경 라이브 전파, override 격리(baseline 무영향), override 해제, 유효정원<점유 시 확정 유지
   - G0/G1: 인증 401, 강사신청 없는 사용자 400
+  - V1~V*: 시간 역전 400, `"24:00"`/깨진 JSON/잘못된 `?from=` → 공통 envelope -1011(msg 에 필드명)
   - V1~V*: 시간 역전·정원<1·요일 빈 WEEKLY·기본정원<1·override<1 400
   - R1/R2: 남의 session 조회·점유 400
 - REST Docs `document(...)` 컨트롤러 테스트는 venue/course 와 동일하게 미작성(후속).

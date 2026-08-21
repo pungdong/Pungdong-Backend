@@ -318,6 +318,44 @@ class AvailabilityUseCaseTest {
                 .andExpect(status().isCreated());
     }
 
+    @Test
+    @DisplayName("CV5 끝시간을 23:59 로 열면 하루 끝 canonical 인 23:59:59 로 정규화돼 저장·응답된다(23:59:59 로 열어도 같은 결과)")
+    void normalizesDayEndCoverage() throws Exception {
+        Account in = account("cv5@pd.com", "강사cv5");
+        enterInstructorTrack(in);
+        String token = tokenFor(in);
+
+        mockMvc.perform(post("/instructor/availability/coverage")
+                .header(HttpHeaders.AUTHORIZATION, token).contentType(MediaType.APPLICATION_JSON)
+                .content(json(CoverageRequest.builder().date(MON)
+                        .startTime(LocalTime.of(15, 0)).endTime(LocalTime.of(23, 59)).build())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].endTime").value("23:59:59"));
+        assertThat(coverageRepo.findAll()).hasSize(1);
+        assertThat(coverageRepo.findAll().get(0).getEndTime()).isEqualTo(LocalTime.of(23, 59, 59));
+
+        // 23:59:59 로 다시 열어도 같은 끝 → 머지돼 1구간 유지(23:59 와 23:59:59 가 다른 구간으로 갈라지지 않는다)
+        openCoverage(token, LocalTime.of(10, 0), LocalTime.of(23, 59, 59));
+        assertThat(coverageRepo.findAll()).hasSize(1);
+        assertThat(coverageRepo.findAll().get(0).getStartTime()).isEqualTo(LocalTime.of(10, 0));
+        assertThat(coverageRepo.findAll().get(0).getEndTime()).isEqualTo(LocalTime.of(23, 59, 59));
+    }
+
+    @Test
+    @DisplayName("SS8 일정 끝을 23:59 로 추가해도 일정·coverage 모두 23:59:59 로 끝난다(하루 끝 표현 단일화)")
+    void normalizesDayEndSession() throws Exception {
+        Account in = account("ss8@pd.com", "강사ss8");
+        enterInstructorTrack(in);
+        mockMvc.perform(post("/instructor/availability/sessions")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(in)).contentType(MediaType.APPLICATION_JSON)
+                .content(json(SessionCreateRequest.builder().date(MON)
+                        .startTime(LocalTime.of(20, 0)).endTime(LocalTime.of(23, 59)).count(1).build())))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.endTime").value("23:59:59"));
+        assertThat(sessionRepo.findAll().get(0).getEndTime()).isEqualTo(LocalTime.of(23, 59, 59));
+        assertThat(coverageRepo.findAll().get(0).getEndTime()).isEqualTo(LocalTime.of(23, 59, 59));
+    }
+
     /* ─── CAL* 분리 조회 ─── */
 
     @Test

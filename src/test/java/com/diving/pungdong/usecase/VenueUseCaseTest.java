@@ -150,6 +150,26 @@ class VenueUseCaseTest {
     /* ─── 시나리오 ─────────────────────────────────────────── */
 
     @Test
+    @DisplayName("S0 운영블록·상시 클로즈가 23:59 로 끝나면 하루 끝 canonical 23:59:59 로 정규화돼 응답된다(강사 coverage 끝과 같은 표현)")
+    void s0_day_end_normalized() throws Exception {
+        Account inst = account("dayend@pungdong.com", "강사끝");
+        enterInstructorTrack(inst, "FREEDIVING");
+        VenueCreateRequest req = customVenue("야간 풀", "FREEDIVING", List.of("FREEDIVING"),
+                List.of(weekdayFixed(0, List.of(block(9, 0, 12, 0, 0), block(20, 0, 23, 59, 1))),
+                        VenueCreateRequest.Daypart.builder()
+                                .kind(DaypartKind.WEEKEND).sold(true).fee(0).timeMode(TimeMode.OPEN)
+                                .openStart(t(18, 0)).openEnd(t(23, 59)).holdHours(2).build()));
+
+        mockMvc.perform(post("/venues")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(inst))
+                        .contentType(MediaType.APPLICATION_JSON).content(json(req)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.tickets[0].dayparts[0].timeBlocks[0].endTime").value("12:00:00"))
+                .andExpect(jsonPath("$.tickets[0].dayparts[0].timeBlocks[1].endTime").value("23:59:59"))
+                .andExpect(jsonPath("$.tickets[0].dayparts[1].openEnd").value("23:59:59"));
+    }
+
+    @Test
     @DisplayName("S1 강사가 리뷰 대기(SUBMITTED) 중에도 커스텀 위치를 만들 수 있고, owner=본인·종목 잠금된다")
     void s1_instructor_creates_custom() throws Exception {
         Account inst = account("inst@pungdong.com", "강사");

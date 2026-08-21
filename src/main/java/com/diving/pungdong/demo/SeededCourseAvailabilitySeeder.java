@@ -3,6 +3,7 @@ package com.diving.pungdong.demo;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.availability.AvailabilityCoverage;
 import com.diving.pungdong.availability.AvailabilityCoverageJpaRepo;
+import com.diving.pungdong.availability.DayEnd;
 import com.diving.pungdong.course.Course;
 import com.diving.pungdong.course.CourseJpaRepo;
 import lombok.extern.slf4j.Slf4j;
@@ -65,14 +66,14 @@ public class SeededCourseAvailabilitySeeder implements ApplicationRunner {
                 n[0], LOOKAHEAD_WEEKS);
     }
 
-    /** 오늘~+8주 매일 coverage 가 없으면 00:00–23:59 전체 개방(기존 coverage 는 안 건드림). */
+    /** 오늘~+8주 매일 coverage 가 없으면 00:00–하루 끝({@link DayEnd#TIME}) 전체 개방(기존 coverage 는 안 건드림). */
     private void openFullAvailability(Account ins) {
         LocalDate end = LocalDate.now().plusWeeks(LOOKAHEAD_WEEKS);
         for (LocalDate d = LocalDate.now(); !d.isAfter(end); d = d.plusDays(1)) {
             if (coverageRepo.findByInstructorIdAndDate(ins.getId(), d).isEmpty()) {
                 coverageRepo.save(AvailabilityCoverage.builder()
                         .instructor(ins).date(d)
-                        .startTime(LocalTime.MIN).endTime(LocalTime.of(23, 59)).build());
+                        .startTime(LocalTime.MIN).endTime(DayEnd.TIME).build());
             }
         }
     }

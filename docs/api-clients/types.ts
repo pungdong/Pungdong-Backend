@@ -1518,10 +1518,15 @@ export interface BlockedAccountResponse {
 //   · GET /venue-favorites · POST /venue-favorites · DELETE /venue-favorites?venueRefId=
 // VenueResponse 는 custom(scope=CUSTOM)·official(scope=OFFICIAL) 공용 — builder 는 둘이 섞여 온다.
 
-/** 시간블록 1구간 (FIXED 모드의 "부"). 수강생이 이 중 하나를 고른다. */
+/**
+ * 시간블록 1구간 (FIXED 모드의 "부"). 수강생이 이 중 하나를 고른다.
+ * 하루 끝은 "23:59:59" — 커스텀 위치 생성 시 23:59 이상 끝은 BE 가 23:59:59 로 정규화(openEnd 도 동일).
+ * 강사 coverage 끝(CoverageRequest.endTime)과 같은 표현이어야 "블록 ⊆ coverage" 슬롯 판정이 안 어긋난다.
+ * OFFICIAL(Sanity) 블록은 스키마가 "HH:mm" 이라 최대 "23:59:00" — 항상 그 이하라 포함 성립.
+ */
 export interface VenueTimeBlock {
   startTime: string; // "08:00:00"
-  endTime: string; // "11:00:00"
+  endTime: string; // "11:00:00" · 하루 끝 "23:59:59"
   sortOrder: number;
 }
 
@@ -2107,6 +2112,12 @@ export interface CoverageRequest {
   dayOfWeeks?: Weekday[];
   /** "HH:mm" 또는 "HH:mm:ss". */
   startTime: string;
+  /**
+   * "HH:mm" 또는 "HH:mm:ss". ★ **하루 끝 = "23:59:59"** — BE 의 LocalTime 은 24:00 을 표현 못 해 `"24:00"` 은
+   * 400(-1011, msg "endTime 값의 형식이 올바르지 않습니다."). 타임라인을 끝까지 끌면 "23:59:59" 로 보내고,
+   * 응답의 "23:59:59" 는 격자 끝(24)으로 그릴 것. 23:59 이상으로 끝나는 값은 BE 가 전부 23:59:59 로 정규화해
+   * 저장·응답한다(coverage·session·커스텀 위치 블록 공통) — 끝 표현이 섞여 슬롯 ⊆ 판정이 어긋나는 걸 막는다.
+   */
   endTime: string;
 }
 
@@ -2128,6 +2139,7 @@ export interface CoverageRangeResponse {
 export interface SessionCreateRequest {
   date: string;
   startTime: string;
+  /** 하루 끝은 "23:59:59" (CoverageRequest.endTime 과 같은 규약 — "24:00" 은 400, 23:59~ 는 23:59:59 로 정규화). */
   endTime: string;
   /** 위치 토큰(선택) — "CUSTOM:<pk>"|"OFFICIAL:<sanityId>". 위치 없는 점유면 생략. */
   venueRefId?: string;

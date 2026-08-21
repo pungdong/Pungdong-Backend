@@ -72,6 +72,7 @@ public class AvailabilityService {
     @Transactional
     public List<CoverageRangeResponse> openCoverage(Account instructor, CoverageRequest req) {
         requireInstructorTrack(instructor);
+        req.setEndTime(DayEnd.normalizeEnd(req.getEndTime())); // 하루 끝(23:59~) 은 23:59:59 로 수렴(정규화 후 검증)
         requireValidRange(req.getStartTime(), req.getEndTime());
         Set<LocalDate> dates = expandDates(req);
         if (dates.isEmpty()) {
@@ -89,6 +90,7 @@ public class AvailabilityService {
     @Transactional
     public List<CoverageRangeResponse> closeCoverage(Account instructor, CoverageRequest req) {
         requireInstructorTrack(instructor);
+        req.setEndTime(DayEnd.normalizeEnd(req.getEndTime())); // 하루 끝(23:59~) 은 23:59:59 로 수렴(정규화 후 검증)
         requireValidRange(req.getStartTime(), req.getEndTime());
         Span cut = new Span(req.getStartTime(), req.getEndTime());
         if (sessionOverlaps(instructor, req.getDate(), cut)) {
@@ -108,6 +110,7 @@ public class AvailabilityService {
     @Transactional
     public AvailabilitySessionResponse addSession(Account instructor, SessionCreateRequest req) {
         requireInstructorTrack(instructor);
+        req.setEndTime(DayEnd.normalizeEnd(req.getEndTime())); // 하루 끝(23:59~) 은 23:59:59 로 수렴(정규화 후 검증)
         requireValidRange(req.getStartTime(), req.getEndTime());
         requireValidOverride(req.getCapacity());
         if (req.getCount() == null || req.getCount() < 1) {

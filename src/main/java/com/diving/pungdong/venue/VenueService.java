@@ -1,6 +1,7 @@
 package com.diving.pungdong.venue;
 
 import com.diving.pungdong.account.Account;
+import com.diving.pungdong.availability.DayEnd;
 import com.diving.pungdong.discipline.DisciplineService;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
@@ -218,6 +219,11 @@ public class VenueService {
     private VenueDaypart buildDaypart(VenueCreateRequest.Daypart d) {
         boolean weekend = d.getKind() == DaypartKind.WEEKEND;
         boolean sold = !weekend || d.isSold(); // 평일은 항상 판매
+        // 하루 끝(23:59~) 은 23:59:59 로 수렴 — 강사 coverage 끝과 같은 표현이어야 ⊆ 판정이 안 어긋난다(DayEnd).
+        d.setOpenEnd(DayEnd.normalizeEnd(d.getOpenEnd()));
+        if (d.getTimeBlocks() != null) {
+            d.getTimeBlocks().forEach(b -> b.setEndTime(DayEnd.normalizeEnd(b.getEndTime())));
+        }
 
         VenueDaypart daypart = VenueDaypart.builder()
                 .kind(d.getKind())
