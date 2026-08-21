@@ -3,6 +3,7 @@ package com.diving.pungdong.global.advice;
 import com.diving.pungdong.global.advice.exception.*;
 import com.diving.pungdong.global.model.CommonResult;
 import com.diving.pungdong.global.model.RateLimitedResult;
+import com.diving.pungdong.global.model.SessionOverlapResult;
 import com.diving.pungdong.global.ResponseService;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import lombok.RequiredArgsConstructor;
@@ -90,10 +91,19 @@ public class ExceptionAdvice {
         return responseService.getFailResult(Integer.parseInt(getMessage("coverageHasSession.code")), getMessage("coverageHasSession.msg"));
     }
 
+    /**
+     * 일정 시간 겹침(-1015) — body 에 <b>겹친 기존 일정 목록</b>({@code conflicts[]})을 더해 FE 가
+     * "○○ 14:00–16:00 일정과 겹칩니다" 를 그리고, 강사 캘린더에선 그 일정으로 이동할 수 있게 한다.
+     */
     @ExceptionHandler(SessionTimeOverlapException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public CommonResult sessionTimeOverlap(SessionTimeOverlapException e) {
-        return responseService.getFailResult(Integer.parseInt(getMessage("sessionTimeOverlap.code")), getMessage("sessionTimeOverlap.msg"));
+        SessionOverlapResult result = new SessionOverlapResult();
+        result.setSuccess(false);
+        result.setCode(Integer.parseInt(getMessage("sessionTimeOverlap.code")));
+        result.setMsg(getMessage("sessionTimeOverlap.msg"));
+        result.setConflicts(e.getConflicts());
+        return result;
     }
 
     @ExceptionHandler(PreLaunchException.class)

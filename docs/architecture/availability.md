@@ -177,7 +177,7 @@ erDiagram
 | POST `/instructor/availability/coverage` | ✅ | 강사신청 보유 | 시간 역전/빈 전개 = 400 |
 | DELETE `/instructor/availability/coverage` | ✅ | 강사신청 보유 | session 가로지르면 -1014 |
 | GET `/instructor/availability?from&to` | ✅ | — | 내 coverage[]+sessions[] 만 |
-| POST `/instructor/availability/sessions` | ✅ | 강사신청 보유 | 시간 역전/override<1/venueRef 무효 = 400 |
+| POST `/instructor/availability/sessions` | ✅ | 강사신청 보유 | 시간 역전/override<1/venueRef 무효 = 400 / 기존 일정과 시간 겹침 = -1015 (`SessionOverlapResult.conflicts[]` 에 겹친 일정 id·시각·위치 동봉) |
 | GET `/instructor/availability/sessions/{id}` | ✅ | — | 비소유 = 400(존재 숨김) |
 | DELETE `/instructor/availability/sessions/{id}` | ✅ | — | 비소유 = 400 / 활성(PENDING·ACCEPT_PENDING·CONFIRMED) 신청 있으면 400 |
 | PATCH `/instructor/availability/sessions/{id}/capacity` | ✅ | — | 비소유 = 400 / capacity<1 = 400 |
@@ -193,13 +193,13 @@ erDiagram
 - 🟡 **coverage 닫기 = 수동 정리 의존** — 닫기가 session 을 가로지르면 -1014 로 거부하고 BE 가 자동 정리하지 않는다(CS 유발 회피). 강사가 일정을 먼저 지워야 닫힌다. 해결안: FE 가드 + (필요 시) "일정 함께 정리" 확인 플로우.
 - 🟢 **유효정원 < 점유 허용(확정 바닥)** — baseline/override 를 점유보다 낮춰도 막지 않음. 확정 점유는 유지(취소 없음), 새 신청 수락만 차단. 옛 "정원 자동확장"을 대체한 의도된 단순화.
 - 🟢 **"새 baseline 을 기존 일정에 일괄 적용" 버튼 미구현** — 라이브 참조라 override 없는 session 은 자동 반영되므로 불필요하지만, override 한 session 까지 일괄로 되돌리는 액션은 후속(필요 시).
-- 🟢 **겹치는 session 허용** — 같은 날 시간 겹치는 session 을 막지 않음(1부/2부 분할 등 합법 케이스 다수). coverage 는 머지되지만 session 정체성에 venueRefId 가 들어가 같은 시간 다른 위치 session 공존 가능. 충돌 판단은 강사 몫(디자인 원칙 "사실은 보여주고 판단은 강사가").
+- 🟢 **겹치는 session 거부(-1015)** — 한 강사는 한 번에 한 세션이라 같은 날 시간 겹치는 session 은 `SessionOverlapGuard` 가 거부한다(정확히 같은 (위치,시간)은 join, 맞닿는 경계는 허용). 옛 "허용 + 강사 판단" 기조는 이중부킹·정원 이중계산으로 뒤집혔다. 거부 body 에 **겹친 일정 목록**(`conflicts[]`: sessionId·date·start/end·venueRefId·venueName)을 실어 FE 가 "○○ 일정과 겹칩니다" 를 그리고 그 슬롯으로 이동시킬 수 있다.
 
 ## 7. 더 깊게: 테스트로 보기
 
 - `src/test/.../usecase/AvailabilityUseCaseTest` — 실 H2 + 시큐리티 체인. 그룹 CV/SS/CAL/C/G/V/R. `@DisplayName` 을 위에서 아래로 읽으면 사양.
   - CV1~CV*: coverage 열기 머지(10–12 + 12–14 → 10–14), 닫기 분할/축소, 닫기가 session 가로지름 → -1014
-  - SS1~SS*: 일정 원자 추가(coverage 자동 확장+머지), 같은 (위치,시간) 누적 join, 활성 신청 있는 session 삭제 거부, 외부 점유 정원 초과해도 기록→FULL
+  - SS1~SS*: 일정 원자 추가(coverage 자동 확장+머지), 같은 (위치,시간) 누적 join, 활성 신청 있는 session 삭제 거부, 외부 점유 정원 초과해도 기록→FULL, 시간 겹침 → -1015 + `conflicts[]`
   - CAL1~CAL*: `?from&to` 두 레이어 분리 읽기(coverage[]+sessions[])
   - C1~C*: 기본 정원 4, baseline 변경 라이브 전파, override 격리(baseline 무영향), override 해제, 유효정원<점유 시 확정 유지
   - G0/G1: 인증 401, 강사신청 없는 사용자 400

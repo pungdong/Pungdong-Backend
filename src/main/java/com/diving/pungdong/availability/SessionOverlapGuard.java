@@ -2,13 +2,18 @@ package com.diving.pungdong.availability;
 
 import com.diving.pungdong.availability.CoverageMerger.Span;
 import com.diving.pungdong.global.advice.exception.SessionTimeOverlapException;
+import com.diving.pungdong.global.model.SessionOverlapResult;
+import com.diving.pungdong.venue.VenueRefResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * 일정 시간겹침 방지 — 한 강사는 한 번에 한 세션만 운영하므로, 새 일정이 같은 날 기존 일정과 시간상 겹치면
@@ -22,6 +27,7 @@ import java.util.Objects;
 public class SessionOverlapGuard {
 
     private final AvailabilitySessionJpaRepo sessionRepo;
+    private final VenueRefResolver venueRefResolver;
 
     /** 새 (위치,시간) 일정이 기존과 겹치면 예외. (정확히 같은 위치·시간 = join 대상이라 제외.) */
     public void requireNoOverlap(Long instructorId, LocalDate date, String venueRef, LocalTime start, LocalTime end) {
@@ -40,19 +46,41 @@ public class SessionOverlapGuard {
                                  Long ignoreSessionId) {
         List<AvailabilitySession> daySessions = sessionRepo.findByInstructorIdAndDate(instructorId, date).stream()
                 .filter(s -> ignoreSessionId == null || !ignoreSessionId.equals(s.getId()))
-                .collect(java.util.stream.Collectors.toList());
-        if (wouldOverlap(daySessions, venueRef, start, end)) {
-            throw new SessionTimeOverlapException();
+                .collect(Collectors.toList());
+        List<AvailabilitySession> overlapping = findOverlapping(daySessions, venueRef, start, end);
+        if (!overlapping.isEmpty()) {
+            throw new SessionTimeOverlapException(toConflicts(overlapping));
         }
     }
 
     /** daySessions(그 날 강사 일정) 중 (위치,시간) exact 가 아니면서 [start,end] 와 strict 하게 겹치는 게 있나. */
     public static boolean wouldOverlap(List<AvailabilitySession> daySessions, String venueRef,
                                        LocalTime start, LocalTime end) {
+        return !findOverlapping(daySessions, venueRef, start, end).isEmpty();
+    }
+
+    /** 겹치는 기존 일정들(시작 시각 순). exact (위치,시간) 은 join 이라 제외. */
+    public static List<AvailabilitySession> findOverlapping(List<AvailabilitySession> daySessions, String venueRef,
+                                                            LocalTime start, LocalTime end) {
         Span nw = new Span(start, end);
         return daySessions.stream()
                 .filter(s -> !(Objects.equals(s.getVenueRefId(), venueRef)
                         && s.getStartTime().equals(start) && s.getEndTime().equals(end))) // exact = join, 제외
-                .anyMatch(s -> new Span(s.getStartTime(), s.getEndTime()).overlaps(nw));
+                .filter(s -> new Span(s.getStartTime(), s.getEndTime()).overlaps(nw))
+                .sorted(Comparator.comparing(AvailabilitySession::getStartTime))
+                .collect(Collectors.toList());
+    }
+
+    /** 응답용 변환 — 위치 표시명은 한 번에 해석(미존재/미지정이면 null, 토큰은 보존). */
+    private List<SessionOverlapResult.Conflict> toConflicts(List<AvailabilitySession> sessions) {
+        List<String> refs = sessions.stream().map(AvailabilitySession::getVenueRefId)
+                .filter(Objects::nonNull).distinct().collect(Collectors.toList());
+        Map<String, VenueRefResolver.Resolved> names = refs.isEmpty() ? Map.of() : venueRefResolver.resolveAll(refs);
+        return sessions.stream()
+                .map(s -> new SessionOverlapResult.Conflict(
+                        s.getId(), s.getDate(), s.getStartTime(), s.getEndTime(), s.getVenueRefId(),
+                        s.getVenueRefId() == null || !names.containsKey(s.getVenueRefId())
+                                ? null : names.get(s.getVenueRefId()).getName()))
+                .collect(Collectors.toList());
     }
 }

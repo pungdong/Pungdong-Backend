@@ -287,20 +287,28 @@ class AvailabilityUseCaseTest {
     }
 
     @Test
-    @DisplayName("SS6 같은 강사의 기존 일정과 시간이 겹치는 새 일정은 거부(-1015). 맞닿는 건 허용")
+    @DisplayName("SS6 같은 강사의 기존 일정과 시간이 겹치는 새 일정은 거부(-1015)하고 body 에 겹친 일정(id·시각)을 싣는다. 맞닿는 건 허용")
     void rejectsOverlappingSession() throws Exception {
         Account in = account("ss6@pd.com", "강사ss6");
         enterInstructorTrack(in);
         String token = tokenFor(in);
-        addSession(token, LocalTime.of(14, 0), LocalTime.of(16, 0), 1); // 기존 14–16
+        long existing = addSession(token, LocalTime.of(14, 0), LocalTime.of(16, 0), 1); // 기존 14–16
 
-        // 13–17 (14–16 을 포함, 겹침) → 400 -1015
+        // 13–17 (14–16 을 포함, 겹침) → 400 -1015 + conflicts[] = 그 14–16 일정
         mockMvc.perform(post("/instructor/availability/sessions")
                 .header(HttpHeaders.AUTHORIZATION, token).contentType(MediaType.APPLICATION_JSON)
                 .content(json(SessionCreateRequest.builder().date(MON)
                         .startTime(LocalTime.of(13, 0)).endTime(LocalTime.of(17, 0)).count(1).build())))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(-1015));
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(-1015))
+                .andExpect(jsonPath("$.conflicts.length()").value(1))
+                .andExpect(jsonPath("$.conflicts[0].sessionId").value(existing))
+                .andExpect(jsonPath("$.conflicts[0].date").value(MON.toString()))
+                .andExpect(jsonPath("$.conflicts[0].startTime").value("14:00:00"))
+                .andExpect(jsonPath("$.conflicts[0].endTime").value("16:00:00"))
+                .andExpect(jsonPath("$.conflicts[0].venueRefId").isEmpty())
+                .andExpect(jsonPath("$.conflicts[0].venueName").isEmpty());
 
         // 16–18 (14–16 과 맞닿음, 안 겹침) → 201
         mockMvc.perform(post("/instructor/availability/sessions")

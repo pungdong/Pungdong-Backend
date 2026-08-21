@@ -3061,11 +3061,22 @@ export const ErrorCode = {
   // ── 도메인 코드 (아래는 전부 HTTP 400) ──
   NO_PERMISSIONS: -1008,
   RESOURCE_NOT_FOUND: -1009, // 없음/비소유 통일(존재 숨김)
-  /** 범용 400. reschedule/prepare 등에서 여러 실패 사유가 이 코드를 공유하니 이걸로 사유를 가리지 말 것. */
+  /**
+   * 범용 400. reschedule/prepare 등에서 여러 실패 사유가 이 코드를 공유하니 이걸로 사유를 가리지 말 것.
+   * ★ **형식 오류도 이 코드**다 — `@Valid` 실패뿐 아니라 JSON 역직렬화/쿼리 파라미터 변환 단계의 실패
+   *   (예: `endTime: "24:00"`, `?from=2030-13-99`)도 Spring 기본 `{timestamp,status,error,path}` 가 아니라
+   *   이 envelope 로 온다. msg = `"<field> 값의 형식이 올바르지 않습니다."` (필드 경로는 `a.b[2].c` 꼴,
+   *   값은 에코 안 함). JSON 자체가 깨져 필드를 특정 못 하면 일반 문구. 사용자용 한국어라 그대로 표시 가능.
+   */
   BAD_REQUEST: -1011,
   EMAIL_DUPLICATION: -1012,
   COVERAGE_HAS_SESSION: -1014,
-  /** 그 시간에 강사의 다른 일정이 있음. 일정 추가/신청/일정변경(reschedule·pick-slot) 공통. */
+  /**
+   * 그 시간에 강사의 다른 일정이 있음. 일정 추가/신청/일정변경(reschedule·pick-slot) 공통.
+   * ★ body 는 `SessionOverlapResult` — `conflicts[]` 에 겹친 기존 일정(sessionId·date·startTime·endTime·
+   *   venueRefId·venueName)이 실려 온다. "○○ 14:00–16:00 일정과 겹칩니다" 로 안내하고, 강사 캘린더에선
+   *   `sessionId` 로 그 슬롯 상세(GET /instructor/availability/sessions/{id})에 바로 보낼 수 있다.
+   */
   SESSION_TIME_OVERLAP: -1015,
   /**
    * 옮기려는 슬롯이 지금보다 **비싸서** 추가 결제 없이는 못 바꿈.
@@ -3121,6 +3132,27 @@ export const ErrorCode = {
  */
 export interface RateLimitedResult extends CommonResult {
   retryAfterSeconds: number;
+}
+
+/**
+ * -1015 SESSION_TIME_OVERLAP 의 400 body — 공통 실패 envelope 에 **겹친 기존 일정 목록**을 더한다.
+ * 일정 추가(POST /instructor/availability/sessions)·수강신청·일정변경·제안 선택 어디서 나오든 같은 모양.
+ * `conflicts` 는 시작 시각 순, 비어 있지 않다.
+ */
+export interface SessionOverlapResult extends CommonResult {
+  conflicts: ConflictingSession[];
+}
+
+/** 겹친 일정 한 건. venueName 은 위치 미지정/해석 실패면 null(venueRefId 토큰은 보존). */
+export interface ConflictingSession {
+  sessionId: number;
+  /** "YYYY-MM-DD" */
+  date: string;
+  /** "HH:mm:ss" */
+  startTime: string;
+  endTime: string;
+  venueRefId: string | null;
+  venueName: string | null;
 }
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
