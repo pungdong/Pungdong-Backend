@@ -63,7 +63,9 @@ public interface AccountBrandingJpaRepo extends JpaRepository<AccountBranding, L
      *   <li>{@code keyword} 는 {@code null} 을 넘기면 조건이 꺼진다(문자열 파라미터라 안전).</li>
      *   <li>{@code organizationCodes} 는 <b>절대 빈 리스트를 넘기지 않는다</b> — JPQL {@code in ()} 은
      *       유효한 SQL 이 아니다. 필터가 꺼졌을 땐 {@code :orgFilterOff = true} 로 단락시키고 리스트에는
-     *       더미 1개를 넣는다(평가되지 않는다).</li>
+     *       더미 1개를 넣는다. (DB 가 {@code or} 를 단락 평가할 의무는 없으므로 {@code in ('')} 이 실제로
+     *       실행될 수 있다 — 다만 좌변이 참이라 <b>결과에 영향이 없다</b>. "평가되지 않는다" 가 아니라
+     *       "평가돼도 무해하다" 가 정확한 표현이다.)</li>
      * </ul>
      */
     String BROWSE_POPULATION =

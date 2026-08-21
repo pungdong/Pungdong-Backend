@@ -56,12 +56,16 @@ class LaunchFlagsUseCaseTest {
     @Autowired AccountJpaRepo accountRepo;
     @Autowired com.diving.pungdong.identityverification.IdentityVerificationJpaRepo identityVerificationRepo;
     @Autowired CourseJpaRepo courseRepo;
+    @Autowired com.diving.pungdong.branding.AccountBrandingJpaRepo brandingRepo;
+    @Autowired com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo applicationRepo;
 
     @MockBean SiteSettingsProvider siteSettings;
 
     @AfterEach
     void cleanUp() {
         courseRepo.deleteAll();
+        applicationRepo.deleteAll();
+        brandingRepo.deleteAll();
         identityVerificationRepo.deleteAll(); // account FK — 계정 삭제 전
         accountRepo.deleteAll();
     }
@@ -147,6 +151,57 @@ class LaunchFlagsUseCaseTest {
         mockMvc.perform(get("/courses/browse").param("disciplineCode", "FREEDIVING").param("size", "50"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.page.totalElements").value(2));
+    }
+
+    @Test
+    @DisplayName("S3: 데모 노출 OFF면 강사 카드의 '강의 N' 에서도 seeded 가 빠진다 (카드와 목록이 같은 말을 한다)")
+    void instructorBrowseCountHidesSeededWhenOff() throws Exception {
+        Account inst = account("inst-s3@plop.cool", "s3inst");
+        brandingRepo.save(com.diving.pungdong.branding.AccountBranding.builder()
+                .account(inst).isPublished(true).build());
+        applicationRepo.save(com.diving.pungdong.instructorapplication.InstructorApplication.builder()
+                .account(inst).disciplineCode("FREEDIVING")
+                .status(com.diving.pungdong.instructorapplication.InstructorApplicationStatus.APPROVED)
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
+        openCourse(inst, "실강사 강의", false);
+        openCourse(inst, "샘플 강의", true);
+
+        // OFF — 강사 카드는 1, 그 강사 강의 목록도 1. 두 숫자가 어긋나면 "강의 2" 를 눌렀는데 1건이 뜬다.
+        given(siteSettings.current()).willReturn(new SiteSettings(true, false, 24, 12, 6));
+        mockMvc.perform(get("/instructors/browse").param("disciplineCode", "FREEDIVING"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.instructors[0].openCourseCount").value(1));
+
+        // ON — 둘 다 2
+        given(siteSettings.current()).willReturn(new SiteSettings(true, true, 24, 12, 6));
+        mockMvc.perform(get("/instructors/browse").param("disciplineCode", "FREEDIVING"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.instructors[0].openCourseCount").value(2));
+    }
+
+    @Test
+    @DisplayName("S4: 데모 노출 OFF면 '강의 있음' 토글도 seeded 만 가진 강사를 뺀다 (카운트와 필터가 한 기준)")
+    void instructorBrowseHasOpenCourseHidesSeededWhenOff() throws Exception {
+        Account inst = account("inst-s4@plop.cool", "s4inst");
+        brandingRepo.save(com.diving.pungdong.branding.AccountBranding.builder()
+                .account(inst).isPublished(true).build());
+        applicationRepo.save(com.diving.pungdong.instructorapplication.InstructorApplication.builder()
+                .account(inst).disciplineCode("FREEDIVING")
+                .status(com.diving.pungdong.instructorapplication.InstructorApplicationStatus.APPROVED)
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
+        openCourse(inst, "샘플만 있는 강사", true); // seeded 하나뿐
+
+        given(siteSettings.current()).willReturn(new SiteSettings(true, false, 24, 12, 6));
+        mockMvc.perform(get("/instructors/browse")
+                        .param("disciplineCode", "FREEDIVING").param("hasOpenCourse", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(0));
+
+        given(siteSettings.current()).willReturn(new SiteSettings(true, true, 24, 12, 6));
+        mockMvc.perform(get("/instructors/browse")
+                        .param("disciplineCode", "FREEDIVING").param("hasOpenCourse", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(1));
     }
 
     @Test
