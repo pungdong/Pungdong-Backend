@@ -809,7 +809,7 @@ export interface InstructorBrowseParams {
 }
 
 /** 강사 둘러보기 카드 1칸. */
-export interface InstructorBrowseCard {
+export interface InstructorBrowseCardResponse {
   /** 공개 프로필 진입 키. `/instructors/{nickName}`. **id 는 오지 않는다**(anti-IDOR). */
   nickName: string;
   /** 미설정이면 null. **키가 사라지지 않는다** — `null` 로 온다. */
@@ -835,7 +835,7 @@ export interface InstructorBrowseCard {
 
 /** GET /instructors/browse 응답 — 카드는 `_embedded.instructors`(빈 결과면 키 없음), 메타는 `page`. */
 export interface InstructorBrowseResponse extends HalLinks {
-  _embedded?: { instructors: InstructorBrowseCard[] };
+  _embedded?: { instructors: InstructorBrowseCardResponse[] };
   page: { size: number; totalElements: number; totalPages: number; number: number };
 }
 
