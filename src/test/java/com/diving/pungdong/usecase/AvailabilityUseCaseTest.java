@@ -287,20 +287,28 @@ class AvailabilityUseCaseTest {
     }
 
     @Test
-    @DisplayName("SS6 같은 강사의 기존 일정과 시간이 겹치는 새 일정은 거부(-1015). 맞닿는 건 허용")
+    @DisplayName("SS6 같은 강사의 기존 일정과 시간이 겹치는 새 일정은 거부(-1015)하고 body 에 겹친 일정(id·시각)을 싣는다. 맞닿는 건 허용")
     void rejectsOverlappingSession() throws Exception {
         Account in = account("ss6@pd.com", "강사ss6");
         enterInstructorTrack(in);
         String token = tokenFor(in);
-        addSession(token, LocalTime.of(14, 0), LocalTime.of(16, 0), 1); // 기존 14–16
+        long existing = addSession(token, LocalTime.of(14, 0), LocalTime.of(16, 0), 1); // 기존 14–16
 
-        // 13–17 (14–16 을 포함, 겹침) → 400 -1015
+        // 13–17 (14–16 을 포함, 겹침) → 400 -1015 + conflicts[] = 그 14–16 일정
         mockMvc.perform(post("/instructor/availability/sessions")
                 .header(HttpHeaders.AUTHORIZATION, token).contentType(MediaType.APPLICATION_JSON)
                 .content(json(SessionCreateRequest.builder().date(MON)
                         .startTime(LocalTime.of(13, 0)).endTime(LocalTime.of(17, 0)).count(1).build())))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(-1015));
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(-1015))
+                .andExpect(jsonPath("$.conflicts.length()").value(1))
+                .andExpect(jsonPath("$.conflicts[0].sessionId").value(existing))
+                .andExpect(jsonPath("$.conflicts[0].date").value(MON.toString()))
+                .andExpect(jsonPath("$.conflicts[0].startTime").value("14:00:00"))
+                .andExpect(jsonPath("$.conflicts[0].endTime").value("16:00:00"))
+                .andExpect(jsonPath("$.conflicts[0].venueRefId").isEmpty())
+                .andExpect(jsonPath("$.conflicts[0].venueName").isEmpty());
 
         // 16–18 (14–16 과 맞닿음, 안 겹침) → 201
         mockMvc.perform(post("/instructor/availability/sessions")
@@ -308,6 +316,44 @@ class AvailabilityUseCaseTest {
                 .content(json(SessionCreateRequest.builder().date(MON)
                         .startTime(LocalTime.of(16, 0)).endTime(LocalTime.of(18, 0)).count(1).build())))
                 .andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("CV5 끝시간을 23:59 로 열면 하루 끝 canonical 인 23:59:59 로 정규화돼 저장·응답된다(23:59:59 로 열어도 같은 결과)")
+    void normalizesDayEndCoverage() throws Exception {
+        Account in = account("cv5@pd.com", "강사cv5");
+        enterInstructorTrack(in);
+        String token = tokenFor(in);
+
+        mockMvc.perform(post("/instructor/availability/coverage")
+                .header(HttpHeaders.AUTHORIZATION, token).contentType(MediaType.APPLICATION_JSON)
+                .content(json(CoverageRequest.builder().date(MON)
+                        .startTime(LocalTime.of(15, 0)).endTime(LocalTime.of(23, 59)).build())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].endTime").value("23:59:59"));
+        assertThat(coverageRepo.findAll()).hasSize(1);
+        assertThat(coverageRepo.findAll().get(0).getEndTime()).isEqualTo(LocalTime.of(23, 59, 59));
+
+        // 23:59:59 로 다시 열어도 같은 끝 → 머지돼 1구간 유지(23:59 와 23:59:59 가 다른 구간으로 갈라지지 않는다)
+        openCoverage(token, LocalTime.of(10, 0), LocalTime.of(23, 59, 59));
+        assertThat(coverageRepo.findAll()).hasSize(1);
+        assertThat(coverageRepo.findAll().get(0).getStartTime()).isEqualTo(LocalTime.of(10, 0));
+        assertThat(coverageRepo.findAll().get(0).getEndTime()).isEqualTo(LocalTime.of(23, 59, 59));
+    }
+
+    @Test
+    @DisplayName("SS8 일정 끝을 23:59 로 추가해도 일정·coverage 모두 23:59:59 로 끝난다(하루 끝 표현 단일화)")
+    void normalizesDayEndSession() throws Exception {
+        Account in = account("ss8@pd.com", "강사ss8");
+        enterInstructorTrack(in);
+        mockMvc.perform(post("/instructor/availability/sessions")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(in)).contentType(MediaType.APPLICATION_JSON)
+                .content(json(SessionCreateRequest.builder().date(MON)
+                        .startTime(LocalTime.of(20, 0)).endTime(LocalTime.of(23, 59)).count(1).build())))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.endTime").value("23:59:59"));
+        assertThat(sessionRepo.findAll().get(0).getEndTime()).isEqualTo(LocalTime.of(23, 59, 59));
+        assertThat(coverageRepo.findAll().get(0).getEndTime()).isEqualTo(LocalTime.of(23, 59, 59));
     }
 
     /* ─── CAL* 분리 조회 ─── */
@@ -409,6 +455,57 @@ class AvailabilityUseCaseTest {
                 .header(HttpHeaders.AUTHORIZATION, token).contentType(MediaType.APPLICATION_JSON)
                 .content(capacityBody(0)))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("V3 endTime 에 \"24:00\" 을 보내면 400 이되 공통 envelope(-1011) 로, msg 가 endTime 을 가리킨다(LocalTime 은 24:00 불가)")
+    void rejectsTwentyFourOClockWithEnvelope() throws Exception {
+        Account in = account("v3@pd.com", "강사v3");
+        enterInstructorTrack(in);
+        String body = "{\"mode\":\"ONCE\",\"date\":\"" + MON + "\",\"startTime\":\"15:00\",\"endTime\":\"24:00\"}";
+        mockMvc.perform(post("/instructor/availability/coverage")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(in)).contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(-1011))
+                .andExpect(jsonPath("$.msg").value("endTime 값의 형식이 올바르지 않습니다."));
+
+        // 일정 추가도 같은 필드 타입 — 같은 응답
+        String session = "{\"date\":\"" + MON + "\",\"startTime\":\"15:00\",\"endTime\":\"24:00\",\"count\":1}";
+        mockMvc.perform(post("/instructor/availability/sessions")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(in)).contentType(MediaType.APPLICATION_JSON)
+                .content(session))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(-1011))
+                .andExpect(jsonPath("$.msg").value("endTime 값의 형식이 올바르지 않습니다."));
+    }
+
+    @Test
+    @DisplayName("V4 JSON 자체가 깨진 body 는 필드를 특정할 수 없어 일반 -1011 문구로 400")
+    void rejectsMalformedJsonWithEnvelope() throws Exception {
+        Account in = account("v4@pd.com", "강사v4");
+        enterInstructorTrack(in);
+        mockMvc.perform(post("/instructor/availability/coverage")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(in)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"date\": "))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(-1011))
+                .andExpect(jsonPath("$.msg").value("보내신 요청 정보가 옳지 않습니다."));
+    }
+
+    @Test
+    @DisplayName("V5 캘린더 조회의 from 이 날짜 형식이 아니면 400 -1011, msg 가 from 을 가리킨다")
+    void rejectsMalformedQueryParamWithEnvelope() throws Exception {
+        Account in = account("v5@pd.com", "강사v5");
+        enterInstructorTrack(in);
+        mockMvc.perform(get("/instructor/availability")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(in))
+                .param("from", "2030-13-99").param("to", MON.toString()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(-1011))
+                .andExpect(jsonPath("$.msg").value("from 값의 형식이 올바르지 않습니다."));
     }
 
     @Test

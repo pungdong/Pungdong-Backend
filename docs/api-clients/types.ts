@@ -12,6 +12,11 @@
  *     `new Date(...)` 로 파싱해 **뷰어 로케일로 표시**(거래성 시각은 venue/마켓 TZ+라벨 — 후속 #173).
  *   • civil/local (슬롯·venue 운영시간 — date/startTime/endTime/blockStart/blockEnd/lectureTime): **offset 없음**(`2026-07-10`,`14:00:00`).
  *     그 장소의 벽시계라 **뷰어 TZ로 변환 금지**(그대로 표시). new Date() 절대시각 취급 금지.
+ *
+ * 🖼️ avatarUrl / profilePhotoUrl = **URL 또는 null**, 그 사이는 없다.
+ *   예전엔 사진을 올린 적 없는 계정에 공유 기본 이미지의 **레거시 맨 파일명**이 실려 나갔다(렌더 불가).
+ *   지금은 그 값을 서버가 null 로 접는다 — 계약(`미설정이면 null → FE 기본 아바타`)이 이제 사실이다.
+ *   따라서 값이 있으면 **그대로 <img src>** 에 쓰면 되고, 앞에 CDN base 를 붙이면 안 된다.
  */
 
 // ============================================================
@@ -730,11 +735,18 @@ export interface RejectInstructorApplicationRequest {
 }
 
 /**
- * GET /instructors/public (비로그인) — 수강생 둘러보기 홈 "풍덩 공식 강사" 카드. 승인(APPROVED) 신청을 가진 실가입 강사만.
- * PagedModel — 배열은 `_embedded.instructors`, 페이지 메타는 `page`. `page.totalElements` → "N명" + 아바타 일부 + "+N" 파생.
- * 공개 필드만(PII 없음 — 이름/이메일/연락처 미포함). Pageable 쿼리(`?page=&size=`) 지원, 기본 정렬은 최근 가입(id desc).
+ * GET /instructors/public (비로그인) — 승인(APPROVED) 신청을 가진 실가입 강사 전체 디렉토리.
+ * PagedModel — 배열은 `_embedded.instructors`, 페이지 메타는 `page`. 공개 필드만(PII 없음 — 이름/이메일/연락처
+ * 미포함). Pageable 쿼리(`?page=&size=`) 지원, 기본 정렬은 최근 가입(id desc).
  * ★ **size 상한 50 / 기본 20**(서버 clamp). 정렬은 서버 고정이라 클라이언트 `?sort=` 는 버려진다 — 없는 필드를
  *   넣어도 500 이 아니라 그냥 무시된다.
+ *
+ * ⚠️ **@deprecated — 현재 호출자 0.** 홈의 "풍덩 공식 강사" 카드는 이 목록이 **아니라**
+ *    `GET /instructors/suggested` 를 쓴다(승인 + **프로필 발행**까지 된 강사, "N명"은 그쪽 `totalCount`).
+ *    이 주석이 오래 "홈 카드" 라고 잘못 적혀 있었다 — 홈이 2026-08-18 에 suggested 로 갈아탔는데
+ *    BE 쪽 설명이 따라가지 않았다. 새로 붙일 화면이 있으면 **suggested 를 먼저 검토**할 것.
+ *    필터·검색·정렬이 필요하면 `GET /instructors/browse` 다(이쪽엔 그런 게 없다).
+ *    제거는 배포된 구버전 앱 빌드 확인 후(→ `instructorId`/`instructorName` 과 같은 조건).
  */
 export interface PublicInstructorResponse {
   id: number;
@@ -742,8 +754,9 @@ export interface PublicInstructorResponse {
   avatarUrl?: string | null;   // 프로필 사진(미설정이면 없음/null → FE 기본 아바타)
   disciplineCodes: string[];   // 승인 종목들, 예 ['FREEDIVING','SCUBA']
 }
-// ⚠️ 이 목록은 **브랜딩 프로필 발행 여부를 보지 않는다** — 카드를 눌러 /instructors/{nickName} 로 가면
-//    미발행 강사는 400 이 난다. "누를 수 있는 강사"가 필요하면 아래 /instructors/suggested 를 쓴다.
+// ℹ️ 이 목록은 브랜딩 프로필 발행 여부를 보지 않는다. 예전엔 그래서 "눌러도 400 인 카드"가 생겼지만,
+//    이제 프로필은 모든 계정에 있어 카드는 항상 열린다(유저가 직접 비공개로 내린 경우만 400).
+//    즉 **더 이상 지뢰가 아니다** — 다만 "내용이 있는 강사"를 원하면 아래 /instructors/suggested 쪽이 맞다.
 
 /**
  * GET /instructors/suggested?limit=5 (비로그인) — **무작위 추천 강사**.
@@ -752,8 +765,9 @@ export interface PublicInstructorResponse {
  *
  * ⚠️ **매 요청 다시 뽑는다.** 새로고침하면 다른 강사가 온다(한 명만 계속 노출되면 나머지에게 순서가 안 온다).
  *    캐싱하지 말 것 — 캐싱하면 이 위젯의 목적이 사라진다.
- * ⚠️ **모집단이 /instructors/public 과 다르다**: 승인 + **프로필 발행**까지 된 강사만. 그래서 카드의
- *    nickName 은 항상 `/instructors/{nickName}` 로 열린다(갈 곳 없는 카드가 생기지 않는다).
+ * ⚠️ **모집단이 /instructors/public 과 다르다**: 승인 + **프로필 발행**까지 된 강사만. 프로필 행은 첫
+ *    쓰기(프로필 편집·글 작성)로 생기므로 "한 번이라도 뭔가 남긴 강사" 의 근사치다 — 지금은 어느 쪽이든
+ *    카드가 열리므로(모든 계정에 프로필이 있다) 이 조건은 도달 가능성이 아니라 **내용 있음**의 기준이다.
  * ⚠️ 강사가 limit 보다 적으면 **있는 만큼만** 온다. 0명이면 `instructors: []` + `totalCount: 0` (에러가 아니다).
  * ⚠️ **토큰을 실으면 차단한 강사가 빠진다**(`totalCount` 도 줄어든다). 비로그인 응답과 다를 수 있다.
  * limit 상한 20(초과하면 20 으로 잘린다). 기본 5.
@@ -865,10 +879,18 @@ export interface BrandingCertBadge {
 
 /**
  * GET /instructors/{nickName} (비로그인) — 공개 브랜딩 페이지 / 내 프로필.
- * 없는 닉네임·미발행·탈퇴는 모두 400(존재 숨김) — 이 레포는 404 를 쓰지 않는다.
+ *
+ * ✅ **모든 살아있는 계정에 프로필이 있다**(2026-08-21). 프로필을 만든 적 없는 사람도 **200** 이고,
+ *    tagline·bio·locationLabel 이 null · records 가 [] · stats.posts 가 0 인 **빈 프로필**이 온다.
+ *    닉네임·아바타·isInstructor·certs 는 브랜딩과 무관한 값이라 그대로 채워진다.
+ *    → **"프로필 없는 사용자" 폴백 분기는 더 필요 없다.** 커뮤니티 작성자·댓글 작성자·강의 상세의 강사를
+ *      클릭하는 모든 경로가 항상 열린다(예전엔 댓글만 단 유저를 누르면 400 이었다).
+ *
+ * ⚠️ 그래도 **400 인 경우는 셋**: 없는 닉네임·탈퇴 계정 / **유저가 직접 비공개로 내린 프로필**
+ *    (PATCH /branding/me/publish 로 false) / 상대가 나를 차단. (이 레포는 404 를 쓰지 않는다.)
  *
  * ⚠️ 필드가 "없다"는 두 가지 뜻이다:
- *   - tagline·bio·locationLabel 은 유저가 지우면 null 이 명시적으로 내려온다
+ *   - tagline·bio·locationLabel 은 유저가 지웠거나 아직 안 적었으면 null 이 명시적으로 내려온다
  *   - disciplineCodes·certs 는 강사가 아니면 키 자체가 빠진다(undefined)
  */
 export interface BrandingProfileResponse extends HalLinks {
@@ -931,7 +953,15 @@ export interface BrandingProducts {
  *
  * ⚠️ 공개 응답(BrandingProfileResponse)의 필드를 그대로 포함한다 — 오너 뷰가 퍼블릭과 같은 명함이라서.
  *    그래서 오너 화면을 이 호출 하나로 그릴 수 있고, 쓰기 응답에서 nickName을 얻어 캐시 무효화에 쓸 수 있다.
- *    특히 stats.students는 공개 응답이 미발행 시 400이라 여기서만 얻을 수 있다.
+ *    특히 stats.students는 유저가 비공개로 내린 상태에서 공개 응답이 400이라 여기서만 얻을 수 있다.
+ * ⚠️ exists:false 는 "페이지가 없다"가 아니라 **"아직 아무것도 안 적었다"** 다 — 그 계정의 공개 프로필은
+ *    이미 열린다(빈 프로필). 이 값은 오너 화면의 온보딩 CTA 분기용이다.
+ * ✅ **exists:false 여도 계정에서 파생되는 값은 채워서 온다**(2026-08-22): nickName · avatarUrl ·
+ *    isInstructor · certs · disciplineCodes · stats · products · reviewStatus · approvedAt.
+ *    비는 건 프로필 행이 소유하는 tagline · bio · locationLabel 과 빈 배열 records 뿐이다.
+ *    → **첫 작성 전에도 "공개 페이지 미리보기"(`/instructors/{nickName}`)를 열 수 있다.**
+ *    유일한 예외가 `isPublished` — 미작성이면 **키 자체가 없다**(false 면 "비공개로 존재한다" 로 읽히므로).
+ *    미작성 판정은 `exists === false` 로만 할 것.
  */
 export interface MyBrandingResponse extends HalLinks {
   exists: boolean;
@@ -1566,10 +1596,15 @@ export interface BlockedAccountResponse {
 //   · GET /venue-favorites · POST /venue-favorites · DELETE /venue-favorites?venueRefId=
 // VenueResponse 는 custom(scope=CUSTOM)·official(scope=OFFICIAL) 공용 — builder 는 둘이 섞여 온다.
 
-/** 시간블록 1구간 (FIXED 모드의 "부"). 수강생이 이 중 하나를 고른다. */
+/**
+ * 시간블록 1구간 (FIXED 모드의 "부"). 수강생이 이 중 하나를 고른다.
+ * 하루 끝은 "23:59:59" — 커스텀 위치 생성 시 23:59 이상 끝은 BE 가 23:59:59 로 정규화(openEnd 도 동일).
+ * 강사 coverage 끝(CoverageRequest.endTime)과 같은 표현이어야 "블록 ⊆ coverage" 슬롯 판정이 안 어긋난다.
+ * OFFICIAL(Sanity) 블록은 스키마가 "HH:mm" 이라 최대 "23:59:00" — 항상 그 이하라 포함 성립.
+ */
 export interface VenueTimeBlock {
   startTime: string; // "08:00:00"
-  endTime: string; // "11:00:00"
+  endTime: string; // "11:00:00" · 하루 끝 "23:59:59"
   sortOrder: number;
 }
 
@@ -2057,11 +2092,49 @@ export interface CourseDetailResponse extends HalLinks {
   description?: string;
   seeded: boolean; // 데모(샘플) 코스. siteSettings.showSeededCourses=false 면 이 상세는 400(존재 숨김)
   media: { kind: MediaKind; url: string; sortOrder: number }[];
+  /**
+   * 강사 카드 — 아바타·인증마크·한마디·자격·강의 수까지 **인라인**이라
+   * `GET /instructors/{nickName}` 을 따로 부르지 않는다. 강사 없는 레거시 코스만 null.
+   */
+  instructor: CourseDetailInstructor | null;
+  /** @deprecated `instructor.nickName`(+ 별도 필요시 id) 로 대체. 구버전 앱 호환으로 한동안 병기. */
   instructorId: number | null;
-  instructorName: string | null; // 강사 nickName
+  /** @deprecated 이름이 아니라 **닉네임**이었다. `instructor.nickName` 을 쓸 것. */
+  instructorName: string | null;
   rounds: CourseDetailRoundResponse[];
   venues: CourseDetailVenueResponse[]; // 회차 가로질러 dedupe + 합성 (진행 위치 섹션)
 }
+/**
+ * 강의 상세에 인라인된 강사 카드. 모양을 `CommunityAuthor`(피드·댓글의 강사 칩)와 맞춰 놨으니
+ * **같은 컴포넌트로 렌더**할 것.
+ *
+ * ⚠️ **브랜딩 프로필과 커플링돼 있지 않다.** 프로필을 만든 적 없는 강사도 이 객체는 온다 —
+ *    비는 건 `tagline`·`bio` 뿐이고 닉네임·아바타·인증마크·자격은 계정/강사신청 소유라 항상 채워진다.
+ *    유저가 프로필을 **비공개로 내린 경우**(그 경우 `/instructors/{nickName}` 은 400) 이 카드도 계속
+ *    오지만 **`tagline`·`bio` 만 null 이 된다** — 그 둘이 감춰진 프로필 페이지의 본문이라서.
+ *    닉네임·아바타·인증마크·자격·강의 수는 그대로다. (지금은 비공개 토글 UI 자체가 없어 사실상 안 생긴다.)
+ * ⚠️ `isInstructor` 는 **승인된** 강사 = 인증마크다. **강의 상세에서는 항상 true** 다(2026-08-22) —
+ *    공개·판매 자체가 그 종목 승인 강사에게만 열리므로 미승인 강사의 강의는 이 응답에 도달하지 않는다.
+ *    필드를 유지하는 건 커뮤니티 작성자 칩(`CommunityAuthor`)과 같은 컴포넌트를 쓰기 때문이고,
+ *    그쪽에서는 false 가 실제로 나온다. 상세에서 이 값으로 분기할 일은 없다.
+ */
+export interface CourseDetailInstructor {
+  /** 공개 프로필 진입 키 — GET /instructors/{nickName} 에 그대로 쓴다. */
+  nickName: string;
+  /** 미설정이면 null → FE 기본 아바타. */
+  avatarUrl?: string | null;
+  /** 항상 온다(생략 아님). 승인된 강사만 true = 인증마크. */
+  isInstructor: boolean;
+  /** 한 줄 소개("강사의 한마디"). 프로필 미작성·미입력이면 null. */
+  tagline?: string | null;
+  /** 자기소개 본문. 프로필 미작성·미입력이면 null. */
+  bio?: string | null;
+  /** 승인 강사만. 승인 전이면 **키 자체가 없다**(빈 배열 = "자격 없는 강사" 로 읽히므로). */
+  certs?: BrandingCertBadge[];
+  /** 승인 강사만. "강사 · 강의 N" 칩 — 브랜딩 `products.lessons`·커뮤니티 칩과 같은 숫자. */
+  lessonCount?: number;
+}
+
 export interface CourseDetailRoundResponse {
   roundKind: RoundKind;
   roundIndex: number | null; // REGULAR 1..N, EXTRA null
@@ -2136,6 +2209,12 @@ export interface CoverageRequest {
   dayOfWeeks?: Weekday[];
   /** "HH:mm" 또는 "HH:mm:ss". */
   startTime: string;
+  /**
+   * "HH:mm" 또는 "HH:mm:ss". ★ **하루 끝 = "23:59:59"** — BE 의 LocalTime 은 24:00 을 표현 못 해 `"24:00"` 은
+   * 400(-1011, msg "endTime 값의 형식이 올바르지 않습니다."). 타임라인을 끝까지 끌면 "23:59:59" 로 보내고,
+   * 응답의 "23:59:59" 는 격자 끝(24)으로 그릴 것. 23:59 이상으로 끝나는 값은 BE 가 전부 23:59:59 로 정규화해
+   * 저장·응답한다(coverage·session·커스텀 위치 블록 공통) — 끝 표현이 섞여 슬롯 ⊆ 판정이 어긋나는 걸 막는다.
+   */
   endTime: string;
 }
 
@@ -2157,6 +2236,7 @@ export interface CoverageRangeResponse {
 export interface SessionCreateRequest {
   date: string;
   startTime: string;
+  /** 하루 끝은 "23:59:59" (CoverageRequest.endTime 과 같은 규약 — "24:00" 은 400, 23:59~ 는 23:59:59 로 정규화). */
   endTime: string;
   /** 위치 토큰(선택) — "CUSTOM:<pk>"|"OFFICIAL:<sanityId>". 위치 없는 점유면 생략. */
   venueRefId?: string;
@@ -3090,11 +3170,22 @@ export const ErrorCode = {
   // ── 도메인 코드 (아래는 전부 HTTP 400) ──
   NO_PERMISSIONS: -1008,
   RESOURCE_NOT_FOUND: -1009, // 없음/비소유 통일(존재 숨김)
-  /** 범용 400. reschedule/prepare 등에서 여러 실패 사유가 이 코드를 공유하니 이걸로 사유를 가리지 말 것. */
+  /**
+   * 범용 400. reschedule/prepare 등에서 여러 실패 사유가 이 코드를 공유하니 이걸로 사유를 가리지 말 것.
+   * ★ **형식 오류도 이 코드**다 — `@Valid` 실패뿐 아니라 JSON 역직렬화/쿼리 파라미터 변환 단계의 실패
+   *   (예: `endTime: "24:00"`, `?from=2030-13-99`)도 Spring 기본 `{timestamp,status,error,path}` 가 아니라
+   *   이 envelope 로 온다. msg = `"<field> 값의 형식이 올바르지 않습니다."` (필드 경로는 `a.b[2].c` 꼴,
+   *   값은 에코 안 함). JSON 자체가 깨져 필드를 특정 못 하면 일반 문구. 사용자용 한국어라 그대로 표시 가능.
+   */
   BAD_REQUEST: -1011,
   EMAIL_DUPLICATION: -1012,
   COVERAGE_HAS_SESSION: -1014,
-  /** 그 시간에 강사의 다른 일정이 있음. 일정 추가/신청/일정변경(reschedule·pick-slot) 공통. */
+  /**
+   * 그 시간에 강사의 다른 일정이 있음. 일정 추가/신청/일정변경(reschedule·pick-slot) 공통.
+   * ★ body 는 `SessionOverlapResult` — `conflicts[]` 에 겹친 기존 일정(sessionId·date·startTime·endTime·
+   *   venueRefId·venueName)이 실려 온다. "○○ 14:00–16:00 일정과 겹칩니다" 로 안내하고, 강사 캘린더에선
+   *   `sessionId` 로 그 슬롯 상세(GET /instructor/availability/sessions/{id})에 바로 보낼 수 있다.
+   */
   SESSION_TIME_OVERLAP: -1015,
   /**
    * 옮기려는 슬롯이 지금보다 **비싸서** 추가 결제 없이는 못 바꿈.
@@ -3150,6 +3241,27 @@ export const ErrorCode = {
  */
 export interface RateLimitedResult extends CommonResult {
   retryAfterSeconds: number;
+}
+
+/**
+ * -1015 SESSION_TIME_OVERLAP 의 400 body — 공통 실패 envelope 에 **겹친 기존 일정 목록**을 더한다.
+ * 일정 추가(POST /instructor/availability/sessions)·수강신청·일정변경·제안 선택 어디서 나오든 같은 모양.
+ * `conflicts` 는 시작 시각 순, 비어 있지 않다.
+ */
+export interface SessionOverlapResult extends CommonResult {
+  conflicts: ConflictingSession[];
+}
+
+/** 겹친 일정 한 건. venueName 은 위치 미지정/해석 실패면 null(venueRefId 토큰은 보존). */
+export interface ConflictingSession {
+  sessionId: number;
+  /** "YYYY-MM-DD" */
+  date: string;
+  /** "HH:mm:ss" */
+  startTime: string;
+  endTime: string;
+  venueRefId: string | null;
+  venueName: string | null;
 }
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];

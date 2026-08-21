@@ -1,6 +1,8 @@
 package com.diving.pungdong.course;
 
 import com.diving.pungdong.course.dto.CourseBrowseCondition;
+import com.diving.pungdong.instructorapplication.InstructorApplication;
+import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
@@ -8,6 +10,8 @@ import org.springframework.util.StringUtils;
 import javax.persistence.criteria.Join;
 import javax.persistence.criteria.JoinType;
 import javax.persistence.criteria.Predicate;
+import javax.persistence.criteria.Root;
+import javax.persistence.criteria.Subquery;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -35,6 +39,7 @@ public final class CourseSpecifications {
     public static Specification<Course> matching(CourseBrowseCondition c) {
         return Specification.where(statusOpen())
                 .and(notBlocked())
+                .and(instructorApproved())
                 .and(disciplineEq(c.getDisciplineCode()))
                 .and(keywordLike(c.getKeyword()))
                 .and(regionContains(c.getRegion()))
@@ -57,6 +62,29 @@ public final class CourseSpecifications {
      */
     private static Specification<Course> notBlocked() {
         return (root, query, cb) -> cb.isNull(root.get("blockedAt"));
+    }
+
+    /**
+     * <b>정식 강사(그 종목 승인)의 강의만</b> — {@link #notBlocked()} 와 같이 조건 없이 항상 붙는다.
+     *
+     * <p>강사 검수가 수동이라 신청자는 승인 전에도 강의를 만들어 둘 수 있다(의도된 정책). 그 강의가
+     * 둘러보기에 뜨면 <b>아직 정식 강사가 아닌 사람의 상품이 팔린다.</b> 정책·다른 경로는
+     * {@link InstructorApprovalPolicy}.
+     *
+     * <p>메모리 필터가 아니라 <b>쿼리 안의 exists</b> 인 이유는 차단 필터와 같다 — 페이지를 받아 걸러내면
+     * 페이지가 짧아지고 {@code totalElements} 가 거짓이 된다.
+     */
+    private static Specification<Course> instructorApproved() {
+        return (root, query, cb) -> {
+            Subquery<Long> approved = query.subquery(Long.class);
+            Root<InstructorApplication> application = approved.from(InstructorApplication.class);
+            approved.select(application.get("id"));
+            approved.where(
+                    cb.equal(application.get("account"), root.get("instructor")),
+                    cb.equal(application.get("disciplineCode"), root.get("disciplineCode")),
+                    cb.equal(application.get("status"), InstructorApplicationStatus.APPROVED));
+            return cb.exists(approved);
+        };
     }
 
     /**

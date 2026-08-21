@@ -15,25 +15,18 @@ public interface AccountBrandingJpaRepo extends JpaRepository<AccountBranding, L
     /** 오너 조회 — 없으면 비어 있다(생성은 첫 쓰기가 한다, contract §4.5). */
     Optional<AccountBranding> findByAccountId(Long accountId);
 
-    /**
-     * 공개 프로필 — 닉네임으로 연다(D3, handle 폐기). 발행됐고 탈퇴하지 않은 계정만.
-     *
-     * <p><b>왜 단건이 아니라 List 인가</b>: {@code account.nick_name} 에 아직 UNIQUE 인덱스가 없다
-     * (중복 dedupe 는 실데이터 사전 점검 후 별도 마이그레이션). 단건 조회로 두면 중복이 하나라도 있을 때
-     * {@code IncorrectResultSizeDataAccessException} 으로 500 이 난다. 그래서 결정적으로 정렬해
-     * 가장 오래된 계정을 고른다 — UNIQUE 가 붙은 뒤에도 동작이 달라지지 않는다.
-     */
-    @Query("select b from AccountBranding b join b.account a "
-            + "where a.nickName = :nickName and a.isDeleted = false and b.isPublished = true "
-            + "order by a.id asc")
-    List<AccountBranding> findPublishedByNickName(@Param("nickName") String nickName);
+    // 닉네임으로 공개 프로필을 여는 진입점은 여기가 아니라 PublicProfileResolver 다 —
+    // 프로필 행이 없는 계정도 200(빈 프로필)이라, "발행된 행" 이 아니라 "살아있는 계정"에서 출발한다
+    // (account.AccountJpaRepo.findActiveByNickName). 옛 findPublishedByNickName 은 그래서 삭제됐다.
 
     /**
      * 추천 카드에 <b>실을 수 있는</b> 강사 계정 id 전부 — 승인된 강사 중 <b>프로필을 발행한</b> 사람만.
      *
-     * <p><b>발행 조건이 핵심이다.</b> 카드를 누르면 {@code GET /instructors/{nickName}} 으로 가는데
-     * 그 상세는 {@code isPublished = true} 만 연다({@link #findPublishedByNickName}) — 미발행 강사를
-     * 추천하면 <b>누르면 400 이 나는 카드</b>가 된다. 갈 곳 없는 추천은 추천이 아니다.
+     * <p><b>발행 조건의 근거가 바뀌었다(2026-08-21).</b> 예전엔 "안 걸면 <b>누르면 400 이 나는 카드</b>가
+     * 된다" 였는데, 이제 프로필은 모든 계정에 있어서({@code PublicProfileResolver}) 갈 곳 없는 카드라는
+     * 문제는 사라졌다. 그래도 조건을 남기는 이유는 <b>추천은 보여줄 게 있는 사람이어야</b> 해서다 —
+     * 이 행은 첫 쓰기(프로필 편집·글 작성)로 생기므로 "한 번이라도 뭔가 남긴 강사" 의 근사치가 된다.
+     * 단, 유저가 직접 내린 비공개({@code isPublished=false})는 그 자체로 제외 사유다.
      * (기존 디렉토리 {@code GET /instructors/public} 에는 없는 조건이다. 그쪽은 "몇 명이 검수를
      * 통과했나" 를 세는 목록이고, 이쪽은 "지금 보여줄 수 있는 사람" 이다.)
      *
@@ -88,6 +81,18 @@ public interface AccountBrandingJpaRepo extends JpaRepository<AccountBranding, L
      * 같아야 한다.</b> 아니면 카드엔 "강의 3" 인데 그 강사 강의 목록은 0건인 화면이 나온다. 그래서
      * OPEN · 미차단 · 데모 가림 설정까지 그대로 건다. 종목 한정인 이유는 이 화면이 항상 한 종목
      * 컨텍스트로 진입하기 때문(결정 A2).
+     *
+     * <p><b>⚠️ {@code CourseSpecifications} 에는 있는데 여기 없는 조건이 하나 있다 — 의도적이다.</b>
+     * 둘러보기는 <b>"그 종목 승인 강사의 강의만"</b> 을 추가로 건다({@code course.InstructorApprovalPolicy},
+     * 2026-08-22). 여기서 반복하지 않는 이유는 <b>{@link #BROWSE_POPULATION} 이 이미 같은 것을 요구하기
+     * 때문</b>이다 — 이 조인이 세는 강의는 전부 {@code c.instructor = b.account} 이고
+     * {@code c.disciplineCode = :disciplineCode} 인데, 모수가 바로 그 계정·그 종목의 APPROVED 를 요구한다.
+     * 즉 승인 술어는 <b>구성상 항상 참</b>이라 붙여도 결과가 같다.
+     *
+     * <p>🔴 <b>그래서 이 패리티는 모수에 묶여 있다.</b> 나중에 {@code BROWSE_POPULATION} 에서 승인 조건을
+     * 느슨하게 하면(예: 미승인 강사도 목록에 넣기로 하면) 이 카운트가 <b>둘러보기가 감추는 강의까지 세기
+     * 시작한다</b> — 그때는 여기에 승인 조건을 명시적으로 추가해야 한다. 모수를 건드리는 사람이 이 문단을
+     * 보게 하려고 여기 적어 둔다.
      */
     String OPEN_COURSE_JOIN =
             "left join Course c on c.instructor = b.account and c.disciplineCode = :disciplineCode "

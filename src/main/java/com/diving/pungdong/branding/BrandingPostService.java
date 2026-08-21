@@ -53,18 +53,25 @@ public class BrandingPostService {
     private final PublicMediaUrlPolicy mediaUrlPolicy;
     /** 공개 그리드·상세의 차단 판정. */
     private final BlockService blockService;
+    /** 닉네임 → 주인 + (있다면) 프로필 행. 프로필 응답과 같은 규칙을 공유한다. */
+    private final PublicProfileResolver publicProfileResolver;
 
     /* ─── 공개 ───────────────────────────────────────────── */
 
-    /** 공개 그리드 — 숨김 제외, 고정 먼저 최신순. 정렬·크기는 서버가 고정한다. */
+    /**
+     * 공개 그리드 — 숨김 제외, 고정 먼저 최신순. 정렬·크기는 서버가 고정한다.
+     *
+     * <p>주인 찾기는 프로필 응답과 <b>같은 규칙</b>({@link PublicProfileResolver}) — 아직 아무것도 적지
+     * 않은 계정은 400 이 아니라 <b>빈 페이지</b>다. 프로필은 열리는데 그리드만 400 이면 화면이 반쪽으로
+     * 깨진다.
+     */
     public Page<BrandingPostCardResponse> publicGrid(String nickName, Pageable pageable, Account viewer) {
-        AccountBranding branding = brandingRepo.findPublishedByNickName(nickName).stream()
-                .findFirst()
-                .orElseThrow(ResourceNotFoundException::new);
+        PublicProfileResolver.PublicProfile resolved = publicProfileResolver.resolve(nickName);
+        AccountBranding branding = resolved.getBranding();
 
         // 프로필 응답(BrandingService.publicProfile)과 같은 규칙: 상대가 나를 차단했으면 없는 것처럼,
         // 내가 차단했으면 프로필은 열되 그리드는 비운다(해제 동선을 남긴다).
-        Long ownerId = branding.getAccount().getId();
+        Long ownerId = resolved.getOwner().getId();
         if (viewer != null && !viewer.getId().equals(ownerId)) {
             if (blockService.hasBlocked(ownerId, viewer.getId())) {
                 throw new ResourceNotFoundException();
@@ -72,6 +79,9 @@ public class BrandingPostService {
             if (blockService.hasBlocked(viewer.getId(), ownerId)) {
                 return Page.empty(fixedPage(pageable));
             }
+        }
+        if (branding == null) {
+            return Page.empty(fixedPage(pageable)); // 프로필 행이 없으면 글도 있을 수 없다
         }
 
         Page<BrandingPost> posts = postRepo.findPublicGrid(branding.getId(), fixedPage(pageable));
@@ -354,7 +364,6 @@ public class BrandingPostService {
     }
 
     private String avatarUrlOf(Account account) {
-        ProfilePhoto photo = account.getProfilePhoto();
-        return photo == null ? null : photo.getImageUrl();
+        return ProfilePhoto.displayUrlOf(account);
     }
 }

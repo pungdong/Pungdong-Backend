@@ -82,6 +82,9 @@ class LaunchFlagsUseCaseTest {
     }
 
     private Course openCourse(Account instructor, String title, boolean seeded) {
+        // OPEN 강의는 그 종목의 정식 강사 것이어야 조회에 뜬다(데모 시드도 예외가 아니다 —
+        // 데모 노출은 showSeededCourses 라는 별개 축이 담당한다).
+        com.diving.pungdong.support.InstructorApprovalFixture.approveFreediving(applicationRepo, instructor);
         return courseRepo.save(Course.builder()
                 .instructor(instructor).title(title).kind(CourseKind.TRIAL)
                 .disciplineCode("FREEDIVING").status(CourseStatus.OPEN)

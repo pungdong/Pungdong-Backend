@@ -3,17 +3,21 @@ package com.diving.pungdong.global.advice;
 import com.diving.pungdong.global.advice.exception.*;
 import com.diving.pungdong.global.model.CommonResult;
 import com.diving.pungdong.global.model.RateLimitedResult;
+import com.diving.pungdong.global.model.SessionOverlapResult;
 import com.diving.pungdong.global.ResponseService;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.MessageSource;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import javax.servlet.http.HttpServletRequest;
 
@@ -87,10 +91,19 @@ public class ExceptionAdvice {
         return responseService.getFailResult(Integer.parseInt(getMessage("coverageHasSession.code")), getMessage("coverageHasSession.msg"));
     }
 
+    /**
+     * 일정 시간 겹침(-1015) — body 에 <b>겹친 기존 일정 목록</b>({@code conflicts[]})을 더해 FE 가
+     * "○○ 14:00–16:00 일정과 겹칩니다" 를 그리고, 강사 캘린더에선 그 일정으로 이동할 수 있게 한다.
+     */
     @ExceptionHandler(SessionTimeOverlapException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public CommonResult sessionTimeOverlap(SessionTimeOverlapException e) {
-        return responseService.getFailResult(Integer.parseInt(getMessage("sessionTimeOverlap.code")), getMessage("sessionTimeOverlap.msg"));
+        SessionOverlapResult result = new SessionOverlapResult();
+        result.setSuccess(false);
+        result.setCode(Integer.parseInt(getMessage("sessionTimeOverlap.code")));
+        result.setMsg(getMessage("sessionTimeOverlap.msg"));
+        result.setConflicts(e.getConflicts());
+        return result;
     }
 
     @ExceptionHandler(PreLaunchException.class)
@@ -141,6 +154,59 @@ public class ExceptionAdvice {
             return responseService.getFailResult(Integer.parseInt(getMessage("badRequest.code")), e.getMessage());
         }
         return responseService.getFailResult(Integer.parseInt(getMessage("badRequest.code")), getMessage("badRequest.msg"));
+    }
+
+    /**
+     * 요청 body 를 <b>역직렬화하는 단계</b>에서 터진 형식 오류 — {@code @Valid} 보다 앞이라 컨트롤러의
+     * {@code BindingResult} 경로를 타지 못한다. 핸들러가 없으면 Spring 기본 {@code /error} 로 빠져
+     * {@code {timestamp,status,error,path}} 가 나가고, FE 는 {@code success/code/msg} 가 없어 "알 수 없는 오류"
+     * 로만 보여줄 수 있었다(예: {@code endTime: "24:00"} — {@code LocalTime} 은 24:00 을 표현 못 한다).
+     *
+     * <p>같은 {@code -1011} 이되 msg 에 <b>어느 필드</b>가 틀렸는지 싣는다(형식 규칙은 공개 계약이라 숨길 secret
+     * 이 없다 — 루트 CLAUDE.md "Validate input shape"). 값 자체는 에코하지 않는다(길이·PII 무관하게 일관).
+     * JSON 자체가 깨져 필드를 특정 못 하면 일반 {@code badRequest.msg}.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public CommonResult unreadableRequest(HttpMessageNotReadableException e, HttpServletRequest request) {
+        String field = fieldPathOf(e.getCause());
+        log.info("[request] 역직렬화 실패 {} {} field={}", request.getMethod(), request.getRequestURI(), field);
+        return invalidFieldFormat(field);
+    }
+
+    /** 쿼리/경로 파라미터 타입 변환 실패(예: {@code ?from=2030-13-99}) — body 형식 오류와 같은 envelope. */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public CommonResult argumentTypeMismatch(MethodArgumentTypeMismatchException e, HttpServletRequest request) {
+        log.info("[request] 파라미터 변환 실패 {} {} field={}", request.getMethod(), request.getRequestURI(), e.getName());
+        return invalidFieldFormat(e.getName());
+    }
+
+    private CommonResult invalidFieldFormat(String field) {
+        int code = Integer.parseInt(getMessage("badRequest.code"));
+        if (field == null || field.isEmpty()) {
+            return responseService.getFailResult(code, getMessage("badRequest.msg"));
+        }
+        return responseService.getFailResult(code, getMessage("invalidFieldFormat.msg", new Object[]{field}));
+    }
+
+    /** Jackson 매핑 예외의 경로를 {@code a.b[2].c} 꼴로. 매핑 예외가 아니면(JSON 자체 깨짐 등) null. */
+    private static String fieldPathOf(Throwable cause) {
+        if (!(cause instanceof JsonMappingException)) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (JsonMappingException.Reference ref : ((JsonMappingException) cause).getPath()) {
+            if (ref.getFieldName() != null) {
+                if (sb.length() > 0) {
+                    sb.append('.');
+                }
+                sb.append(ref.getFieldName());
+            } else if (ref.getIndex() >= 0) {
+                sb.append('[').append(ref.getIndex()).append(']');
+            }
+        }
+        return sb.length() == 0 ? null : sb.toString();
     }
 
     /**

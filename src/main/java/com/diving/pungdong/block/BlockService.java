@@ -132,10 +132,9 @@ public class BlockService {
 
     private BlockedAccountResponse toResponse(AccountBlock block) {
         Account blocked = block.getBlocked();
-        ProfilePhoto photo = blocked.getProfilePhoto();
         return BlockedAccountResponse.builder()
                 .nickName(blocked.getNickName())
-                .avatarUrl(photo == null ? null : photo.getImageUrl())
+                .avatarUrl(ProfilePhoto.displayUrlOf(blocked))
                 .blockedAt(block.getCreatedAt())
                 .build();
     }

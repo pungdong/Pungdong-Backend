@@ -112,13 +112,13 @@ erDiagram
 
 | 엔드포인트 | 인증 | 소유권 |
 |---|---|---|
-| `GET /courses/browse` | **불필요(공개)** | OPEN 코스만 노출. 필터(종목·지역·종류·레벨·단체·가격)+검색(제목·강사명)+정렬+페이지. **size 상한 50/기본 20**(`PageClamp`). 빈 결과=200 |
-| `GET /courses/{id}/detail` | **불필요(공개)** | OPEN 코스만 — 비OPEN/없음 400(존재 숨김). venue 합성(위치명·입장료·장비) |
+| `GET /courses/browse` | **불필요(공개)** | OPEN + **그 종목 승인 강사**의 코스만 노출. 필터(종목·지역·종류·레벨·단체·가격)+검색(제목·강사명)+정렬+페이지. **size 상한 50/기본 20**(`PageClamp`). 빈 결과=200 |
+| `GET /courses/{id}/detail` | **불필요(공개)** | OPEN + **승인 강사**만 — 그 외 400(존재 숨김). venue 합성(위치명·입장료·장비) |
 | `POST /courses` | 필요 | instructor=현재 계정. venueRefId 는 내 custom / 캐시된 official 만 |
 | `GET /courses/mine` | 필요 | 내 코스만 |
 | `GET /courses/{id}` | 필요 | 내 코스만(편집용 원본) — 아니면 400(존재 숨김) |
 | `PUT /courses/{id}` | 필요 | 내 코스만 — 스냅샷 교체 |
-| `PATCH /courses/{id}/status` | 필요 | 내 코스만 — DRAFT/OPEN/CLOSED |
+| `PATCH /courses/{id}/status` | 필요 | 내 코스만. **OPEN 전환만 그 종목 승인(APPROVED) 필요** — DRAFT/CLOSED 로 내리는 건 자유 |
 | `POST /course-images` | 필요 | multipart → {fileURL} (사진만) |
 
 ## 6. 알려진 설계 간극 / 확장 자리
@@ -135,8 +135,20 @@ erDiagram
   내 강의 목록 표기가 후속.
 - 🟡 **일정 변경·결제 준비는 `blocked_at` 도 `CLOSED` 도 보지 않는다.** 기존 구멍이고, 예약 게이트를
   한 헬퍼로 모을 때 함께 정리한다.
+- ✅ **공개·판매는 그 종목 승인 강사만**(2026-08-22, `InstructorApprovalPolicy`). 강사 검수가 수동이라
+  하루쯤 걸리는데, 신청자가 그동안 **강의·일정을 만들어 두는 것은 의도적으로 허용**한다 — 다만 승인 전에는
+  정식 강사가 아니므로 **그 강의가 노출되면 안 된다.** 그전까지는 그 선이 코드에 없어서, **강사 신청을
+  한 번도 안 한 계정도** 강의를 OPEN 해 둘러보기에 띄우고 **결제까지 받을 수 있었다.**
+  게이트는 발행(OPEN 전환)과 조회·신청 **양쪽**에 건다 — 발행만 막으면 **열어 둔 뒤 반려된** 강의가
+  계속 팔린다(반려는 `CourseStatus` 를 건드리지 않는다). `blocked_at` 과 같은 이유로 읽기 경로가 넷이다:
+  둘러보기 · 공개 상세 · 슬롯 피커 · 신청 제출.
+  ⚠️ **데모(seeded) 예외를 코드에 넣지 않았다** — 데모 노출은 `showSeededCourses` 라는 별개 축이고,
+  무엇보다 prod 데모 코스는 `seeded` 표식이 누락된 이력이 있어 시드 예외가 정작 거기서 안 먹는다.
+  데모 강사는 **어드민에서 실제로 승인**해 규칙을 그대로 통과시킨다.
 
-- 🟢 **공개 둘러보기(`GET /courses/browse`) + 상세(`GET /courses/{id}/detail`) 구현** — OPEN 코스 목록/검색/필터 + 카드→상세(legacy `/lecture/list`·상세 대체). 상세는 강사용 `GET /{id}`(원본 ticketRef·daypart) 와 달리 **venue 합성**: venueRefId→`VenueResponse`(`VenueRefResolver.resolveVenues`)로 위치명·type·주소(area)·**입장료(이용권×평일/주말 daypart fee, `VenueDaypart.fee`)**·장비를 풀어 내려준다. 시안의 단일 `entry` 가 아니라 이용권명+daypart별 fee(예 "일반권 (3시간) · 평일 48,000/주말 55,000"). 평점·강사 경력·확정일정 등은 review/booking 도입 후속(현재 instructorName 만).
+- 🟢 **공개 둘러보기(`GET /courses/browse`) + 상세(`GET /courses/{id}/detail`) 구현** — OPEN 코스 목록/검색/필터 + 카드→상세(legacy `/lecture/list`·상세 대체). 상세는 강사용 `GET /{id}`(원본 ticketRef·daypart) 와 달리 **venue 합성**: venueRefId→`VenueResponse`(`VenueRefResolver.resolveVenues`)로 위치명·type·주소(area)·**입장료(이용권×평일/주말 daypart fee, `VenueDaypart.fee`)**·장비를 풀어 내려준다. 시안의 단일 `entry` 가 아니라 이용권명+daypart별 fee(예 "일반권 (3시간) · 평일 48,000/주말 55,000"). 평점·확정일정 등은 review/booking 도입 후속.
+- 🟢 **강사 카드 인라인(`instructor`)** — 아바타·인증마크(승인 여부)·한마디(tagline)·자기소개(bio)·자격 뱃지·공개 강의 수를 상세 응답에 **합성해 싣는다**. 예전엔 `instructorName`(= 실은 닉네임) 하나뿐이라 클라이언트가 `GET /instructors/{nickName}` 을 **순차로 한 번 더** 불러야 했고, 그 엔드포인트는 프로필 미발행이면 400 이라 폴백 분기가 따라다녔다. **핵심은 그 값들이 애초에 브랜딩 소유가 아니었다는 것** — 아바타는 `account`, 인증마크·자격은 `instructorapplication` 소유고 브랜딩 행이 가진 건 tagline·bio 뿐이다. 그래서 프로필을 만든 적 없는 강사도 카드는 온다(그 둘만 null). **단 tagline·bio 는 프로필의 공개 설정을 따른다** — 유저가 비공개로 내리면 그 둘만 빠진다(비공개 = "포트폴리오를 감춘다", 그 둘이 곧 본문). 나머지는 계정·강사신청 소유라 남는다.
+  합성은 `course.InstructorSummaryProvider`(인터페이스) ← `branding.CourseInstructorSummaryAdapter`(구현). **의존 방향을 지키려고 갈라 둔 것**이다 — `branding → course` 가 이미 있어(프로필의 강의 수) `course → branding` 을 더하면 순환이다. 필요한 쪽이 계약만 선언하고, 양쪽을 다 아는 `branding` 이 구현한다. ⚠️ **단건 상세 전용** — 카드 목록에 붙이려면 배치 메서드를 따로 둘 것(N+1). `instructorId`·`instructorName` 은 구버전 앱 호환으로 병기 중이며 deprecated.
 - 🟡 **둘러보기 정렬 = 최신·가격만** — 시안의 `인기순`/`가까운 일정`은 코스에 평점·확정일정 신호가 아직 없어 미구현(부킹·리뷰 도입 시 추가). 카드의 `meta`(주말·총 N회차) 중 회차수만 확정, 평일/주말 daypart 파생은 후속.
 - 🟡 **둘러보기 목록 N+1** — 카드 매핑이 코스별 media/levels/regions(LAZY)를 건드림(페이지 20 기준 소수 쿼리, MVP 허용). fetch-join/프로젝션은 후속 최적화.
 - 🟡 **ticketRef 깊은 검증 안 함** — 회차 위치의 이용권 선택을 그대로 보관(그 위치에 실제 있는 이용권인지 미검증). 부킹/availability 연동 때 검증 + 가격·시간 해석.
@@ -154,6 +166,7 @@ erDiagram
 - `P1` 레벨 2개 → `isPackage=true` / `P2` 추가세션 → EXTRA 회차 + 비용 정책
 - `E1` 코스 상세에서 위치별 장비가 강사×위치 가격표로부터 합성
 - `V1`~`V4` 자격인데 레벨 없음 / 회차수 불일치 / 없는 종목 / 남의 custom 위치 → 400
+- `T1` 승인 강사는 OPEN 전이 가능 / **`T2` 승인 전엔 준비(생성·조회·CLOSED)는 되지만 OPEN 만 400**
 - `R1` 남의 코스 상세 400(숨김) / `T1` 상태 OPEN 전이 / `L1` 내 강의 목록 = 내 것만
 
 `usecase/CourseBrowseUseCaseTest` (공개 둘러보기 — 주소 박은 CUSTOM 위치로 지역 파생 검증):
@@ -170,4 +183,6 @@ erDiagram
 
 - `S1` OPEN 코스 공개 상세(비로그인) → 정체성·강사·회차
 - `S2` **입장료 합성** — 위치 이용권의 평일/주말 fee 가 daypart 별로 정확(단일 entry 아님)
+- **`I2` 승인 전 강사는 OPEN 자체가 400 / `I2-1` 다른 종목만 승인받았으면 그 종목 강의도 OPEN 불가(승인은 종목별)**
+- `I1` 브랜딩 프로필 미작성 강사도 카드가 온다(tagline·bio 만 빈다) / `I2` 승인 전 = `isInstructor:false` + certs·lessonCount 키 없음(+ boolean 키 이중화 방지) / `I3` 승인 강사 = 인증마크·자격·강의 수 / `I4` tagline·bio 인라인 / `I5` **프로필 비공개(`/instructors/{nickName}` 400)여도 카드는 남는다** / `I6` 공유 기본 사진 → `avatarUrl` null
 - `V1` DRAFT(미공개) 상세 400(존재 숨김) / `V2` 없는 id 400

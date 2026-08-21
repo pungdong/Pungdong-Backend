@@ -2,6 +2,7 @@ package com.diving.pungdong.branding;
 
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.AccountJpaRepo;
+import com.diving.pungdong.account.ProfilePhoto;
 import com.diving.pungdong.block.BlockService;
 import com.diving.pungdong.branding.dto.SuggestedInstructorResponse;
 import com.diving.pungdong.branding.dto.SuggestedInstructorsResponse;
@@ -88,8 +89,7 @@ public class SuggestedInstructorService {
                 .filter(java.util.Objects::nonNull)
                 .map(account -> SuggestedInstructorResponse.builder()
                         .nickName(account.getNickName())
-                        .avatarUrl(account.getProfilePhoto() == null
-                                ? null : account.getProfilePhoto().getImageUrl())
+                        .avatarUrl(ProfilePhoto.displayUrlOf(account))
                         .disciplineCodes(disciplines.getOrDefault(account.getId(), List.of()))
                         .build())
                 .collect(Collectors.toList());

@@ -23,6 +23,9 @@ import java.util.stream.Collectors;
  *
  * <p>입장료는 시안의 단일 {@code entry} 가 아니라 — 코스가 그 위치에서 고른 이용권의 {@code daypart} 별
  * fee(`VenueDaypart.fee`). "일반권 (3시간) · 평일 48,000 / 주말 55,000" 식.
+ *
+ * <p><b>강사도 합성한다</b>({@link CourseInstructorResponse}) — 아바타·인증마크·한마디·자격·강의 수까지
+ * 인라인이라 상세 화면이 <b>호출 한 번</b>으로 그려진다.
  */
 @Getter @Setter
 @Builder
@@ -45,8 +48,22 @@ public class CourseDetailResponse {
     private boolean seeded;
     private List<Media> media;
 
-    /** 강사 — 이름만. 경력·자격·평점은 강사 프로필/리뷰 통합 후속. */
+    /**
+     * 강사 카드 — 아바타·인증마크·한마디·자격·강의 수. 여기 인라인돼 있어 클라이언트가
+     * {@code GET /instructors/{nickName}} 을 <b>따로 부르지 않는다</b>. 프로필 미작성 강사도 온다
+     * (tagline·bio 만 null). 근거는 {@link CourseInstructorResponse}.
+     */
+    private CourseInstructorResponse instructor;
+
+    /**
+     * @deprecated {@link #instructor} 로 대체됐다. 구버전 클라이언트 호환을 위해 한동안 병기한다.
+     *             {@code instructorName} 은 이름이 아니라 <b>닉네임</b>이었다 — 그 오해가 필드를
+     *             가른 이유 중 하나다.
+     */
+    @Deprecated
     private Long instructorId;
+    /** @deprecated {@code instructor.nickName} 을 쓸 것. */
+    @Deprecated
     private String instructorName;
 
     private List<Round> rounds;
@@ -55,7 +72,8 @@ public class CourseDetailResponse {
 
     public static CourseDetailResponse from(Course c,
                                             Map<String, VenueResponse> venueByRef,
-                                            Map<String, VenueEquipmentResponse> equipByRef) {
+                                            Map<String, VenueEquipmentResponse> equipByRef,
+                                            CourseInstructorResponse instructor) {
         return CourseDetailResponse.builder()
                 .id(c.getId())
                 .title(c.getTitle())
@@ -69,6 +87,7 @@ public class CourseDetailResponse {
                 .description(c.getDescription())
                 .seeded(c.isSeeded())
                 .media(c.getMedia().stream().map(Media::from).collect(Collectors.toList()))
+                .instructor(instructor)
                 .instructorId(c.getInstructor() == null ? null : c.getInstructor().getId())
                 .instructorName(c.getInstructor() == null ? null : c.getInstructor().getNickName())
                 .rounds(c.getRounds().stream().map(Round::from).collect(Collectors.toList()))

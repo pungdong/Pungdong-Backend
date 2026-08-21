@@ -664,8 +664,7 @@ public class CommunityPostService {
     }
 
     private String avatarUrlOf(Account account) {
-        ProfilePhoto photo = account.getProfilePhoto();
-        return photo == null ? null : photo.getImageUrl();
+        return ProfilePhoto.displayUrlOf(account);
     }
 
     private String excerpt(String body) {

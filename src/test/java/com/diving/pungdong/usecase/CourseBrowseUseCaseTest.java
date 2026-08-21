@@ -4,6 +4,8 @@ import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.account.Role;
 import com.diving.pungdong.course.CourseJpaRepo;
+import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
+import com.diving.pungdong.support.InstructorApprovalFixture;
 import com.diving.pungdong.global.security.JwtTokenProvider;
 import com.diving.pungdong.venue.Venue;
 import com.diving.pungdong.venue.VenueJpaRepo;
@@ -60,6 +62,7 @@ class CourseBrowseUseCaseTest {
     @Autowired CourseJpaRepo courseRepo;
     @Autowired com.diving.pungdong.account.ProfilePhotoJpaRepo profilePhotoRepo;
     @Autowired RedisTemplate<String, String> redisTemplate;
+    @Autowired InstructorApplicationJpaRepo applicationRepo;
 
     @BeforeEach
     void flushOfficialCache() {
@@ -73,6 +76,7 @@ class CourseBrowseUseCaseTest {
     void cleanUp() {
         courseRepo.deleteAll();
         venueRepo.deleteAll();
+        applicationRepo.deleteAll();
         accountRepo.deleteAll();
         profilePhotoRepo.deleteAll(); // account FK — 계정 삭제 후
     }
@@ -116,6 +120,8 @@ class CourseBrowseUseCaseTest {
     /** 코스 작성(POST) → OPEN 전이까지. 둘러보기는 OPEN 만 노출하므로 seed 의 기본 단위. */
     private long openCourse(Account me, Map<String, Object> typeFields, String disciplineCode,
                             int price, String venueRef, String mediaUrl) throws Exception {
+        // 발행(OPEN)은 그 종목의 정식 강사만 — 둘러보기에 뜨려면 승인이 있어야 한다.
+        InstructorApprovalFixture.approve(applicationRepo, me, disciplineCode);
         Map<String, Object> body = new HashMap<>(typeFields);
         body.put("disciplineCode", disciplineCode);
         body.put("price", price);

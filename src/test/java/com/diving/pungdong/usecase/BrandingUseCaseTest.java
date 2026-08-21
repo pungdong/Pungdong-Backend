@@ -113,12 +113,55 @@ class BrandingUseCaseTest {
         mockMvc.perform(get("/branding/me").header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.exists").value(false))
-                // 만들지도 않은 프로필이 isPublished:false 로 내려가면 "비공개로 존재한다"처럼 읽히고,
-                // records:null 은 FE 가 배열로 다루다 터진다 — 둘 다 키 자체가 없어야 한다.
+                // 만들지도 않은 프로필이 isPublished:false 로 내려가면 "비공개로 존재한다"처럼 읽힌다.
                 .andExpect(jsonPath("$.isPublished").doesNotExist())
-                .andExpect(jsonPath("$.records").doesNotExist());
+                // records:null 은 FE 가 배열로 다루다 터진다 — 빈 배열이어야 한다.
+                .andExpect(jsonPath("$.records").isArray())
+                .andExpect(jsonPath("$.records").isEmpty());
 
         assertThat(brandingRepo.findByAccountId(me.getId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("C3: 아무것도 안 적었어도 닉네임·아바타는 온다 — 오너가 첫 작성 전에 공개 페이지를 미리볼 수 있어야 한다")
+    void notCreated_stillCarriesIdentity() throws Exception {
+        Account me = account("c3@test.com", "diverC3", Role.STUDENT);
+        me.setProfilePhoto(profilePhotoRepo.save(ProfilePhoto.builder()
+                .imageUrl("https://cdn.example.com/profile-photo/c3.png").build()));
+        accountRepo.save(me);
+
+        mockMvc.perform(get("/branding/me").header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.exists").value(false))
+                // 계정에서 파생되는 값이라 프로필 행과 무관하게 채워진다.
+                .andExpect(jsonPath("$.nickName").value("diverC3"))
+                .andExpect(jsonPath("$.avatarUrl").value("https://cdn.example.com/profile-photo/c3.png"))
+                .andExpect(jsonPath("$.isInstructor").value(false))
+                .andExpect(jsonPath("$.stats.posts").value(0))
+                // 비는 건 프로필 행이 소유하는 것뿐이다.
+                .andExpect(jsonPath("$.tagline").doesNotExist())
+                .andExpect(jsonPath("$.bio").doesNotExist());
+
+        // 그 닉네임으로 실제로 공개 페이지가 열려야 미리보기 버튼이 의미가 있다.
+        mockMvc.perform(get(publicUrl("diverC3"))).andExpect(status().isOk());
+
+        assertThat(brandingRepo.findByAccountId(me.getId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("C4: 아무것도 안 적은 승인 강사는 인증마크·자격·검수 상태까지 온다 (강사 워딩 분기가 첫 화면부터 맞아야 한다)")
+    void notCreated_instructorKeepsBadges() throws Exception {
+        Account me = account("c4@test.com", "diverC4", Role.INSTRUCTOR);
+        approveAsInstructor(me, "FREEDIVING", "AIDA");
+
+        mockMvc.perform(get("/branding/me").header(HttpHeaders.AUTHORIZATION, tokenFor(me)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.exists").value(false))
+                .andExpect(jsonPath("$.isInstructor").value(true))
+                .andExpect(jsonPath("$.certs[0].organizationCode").value("AIDA"))
+                .andExpect(jsonPath("$.disciplineCodes[0]").value("FREEDIVING"))
+                .andExpect(jsonPath("$.reviewStatus").value("APPROVED"))
+                .andExpect(jsonPath("$.products.lessons").value(0));
     }
 
     @Test
@@ -187,6 +230,61 @@ class BrandingUseCaseTest {
                 .andExpect(jsonPath("$.isPublished").value(false));
 
         mockMvc.perform(get(publicUrl("diverS3")))
+                .andExpect(status().isBadRequest());
+    }
+
+    /* ════════════════ P — 기본 프로필 (모든 계정에 있다) ════════════════ */
+
+    @Test
+    @DisplayName("P1: 아무것도 적지 않은 계정도 닉네임으로 열린다 — 빈 프로필 200, 그래도 행은 생기지 않는다")
+    void defaultProfile_isOpenWithoutRow() throws Exception {
+        Account me = account("p1@test.com", "diverP1", Role.STUDENT);
+
+        mockMvc.perform(get(publicUrl("diverP1")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nickName").value("diverP1"))
+                // 프로필 행이 소유하는 값만 빈다.
+                .andExpect(jsonPath("$.tagline").doesNotExist())
+                .andExpect(jsonPath("$.bio").doesNotExist())
+                .andExpect(jsonPath("$.records").isArray())
+                .andExpect(jsonPath("$.records").isEmpty())
+                .andExpect(jsonPath("$.stats.posts").value(0));
+
+        // 조회는 여전히 생성하지 않는다 — 기본 프로필은 저장이 아니라 파생이다.
+        assertThat(brandingRepo.findByAccountId(me.getId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("P2: 그 계정의 공개 그리드도 400 이 아니라 빈 페이지다 (프로필만 열리고 그리드가 깨지면 반쪽)")
+    void defaultProfile_gridIsEmptyNotError() throws Exception {
+        account("p2@test.com", "diverP2", Role.STUDENT);
+
+        mockMvc.perform(get(URI.create(publicUrl("diverP2") + "/posts")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(0));
+    }
+
+    @Test
+    @DisplayName("P3: 프로필을 만든 적 없는 승인 강사도 인증마크·자격이 온다 (강의 상세·커뮤니티에서 눌러 들어오는 경로)")
+    void defaultProfile_keepsInstructorBadges() throws Exception {
+        Account owner = account("p3@test.com", "diverP3", Role.INSTRUCTOR);
+        approveAsInstructor(owner, "FREEDIVING", "AIDA");
+
+        mockMvc.perform(get(publicUrl("diverP3")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isInstructor").value(true))
+                .andExpect(jsonPath("$.certs[0].organizationCode").value("AIDA"))
+                .andExpect(jsonPath("$.disciplineCodes[0]").value("FREEDIVING"));
+    }
+
+    @Test
+    @DisplayName("P4: 탈퇴한 계정은 프로필이 없어도 열리지 않는다 — 400 (기본 프로필은 살아있는 계정만)")
+    void defaultProfile_notForDeletedAccount() throws Exception {
+        Account me = account("p4@test.com", "diverP4", Role.STUDENT);
+        me.setIsDeleted(true);
+        accountRepo.save(me);
+
+        mockMvc.perform(get(publicUrl("diverP4")))
                 .andExpect(status().isBadRequest());
     }
 
