@@ -48,6 +48,8 @@ import java.util.stream.Collectors;
 public class CourseService {
 
     private final CourseJpaRepo courseRepo;
+    /** 카드·상세의 저장 수/내 저장 여부. 토글 자체는 {@link CourseBookmarkService} 가 쓴다. */
+    private final CourseBookmarkJpaRepo bookmarkRepo;
     private final DisciplineService disciplineService;
     private final VenueRefValidator venueRefValidator;
     private final VenueRefResolver venueRefResolver;
@@ -85,15 +87,8 @@ public class CourseService {
      * 공개 강의 상세 — 둘러보기 카드 → 상세(OPEN 코스 누구나). 강사용 {@link #get} 과 달리 venue 를 합성:
      * 위치 이름·type·주소, <b>입장료(이용권×daypart fee)</b>, 위치별 장비. 비OPEN/없음은 400(존재 숨김).
      */
-    public CourseDetailResponse publicDetail(Long id) {
-        boolean showSeeded = siteSettings.current().showSeededCourses();
-        Course course = courseRepo.findById(id)
-                .filter(c -> c.getStatus() == CourseStatus.OPEN)
-                .filter(c -> !c.isBlocked()) // 어드민 조치 — 둘러보기에서만 빼면 상세 URL 이 우회로가 된다
-                .filter(c -> showSeeded || !c.isSeeded()) // 데모 가림 시 상세도 숨김(존재 숨김)
-                // 승인 전(또는 반려된) 강사의 강의 — 둘러보기에서만 빼면 이 URL 이 우회로가 된다.
-                .filter(instructorApprovalPolicy::isApproved)
-                .orElseThrow(ResourceNotFoundException::new);
+    public CourseDetailResponse publicDetail(Long id, Account viewer) {
+        Course course = requirePubliclyVisible(id);
         List<String> refs = course.getRounds().stream()
                 .flatMap(r -> r.getVenues().stream())
                 .map(RoundVenue::getVenueRefId)
@@ -102,7 +97,28 @@ public class CourseService {
         // 장비는 강사×위치 가격표 — 공개 상세도 그 코스 강사의 가격표를 합성.
         Map<String, VenueEquipmentResponse> equipByRef = equipmentMap(course.getInstructor(), course);
         return CourseDetailResponse.from(course, venueByRef, equipByRef,
-                instructorSummaryProvider.summarize(course.getInstructor()));
+                instructorSummaryProvider.summarize(course.getInstructor()),
+                bookmarkRepo.countByCourseId(id),
+                viewer != null && bookmarkRepo.findByCourseIdAndAccountId(id, viewer.getId()).isPresent());
+    }
+
+    /**
+     * <b>공개 표면에 실제로 노출되는 강의</b>만 통과시킨다 — 공개 상세와 <b>저장(북마크)</b>이 같은 이
+     * 게이트를 쓴다. 둘이 각자 조건을 들고 있으면 한쪽만 조여져 다른 쪽이 우회로가 된다(그 실수를 이
+     * 도메인은 이미 두 번 했다 — 차단 강의와 미승인 강사가 상세 URL 로 새어 나갔다).
+     *
+     * <p>없음·비OPEN·차단·데모가림·미승인 강사는 모두 <b>같은 응답</b>(400, 존재 숨김)이다. 왜가 갈리면
+     * 그 자체로 존재를 알려주는 채널이 된다.
+     */
+    public Course requirePubliclyVisible(Long id) {
+        boolean showSeeded = siteSettings.current().showSeededCourses();
+        return courseRepo.findById(id)
+                .filter(c -> c.getStatus() == CourseStatus.OPEN)
+                .filter(c -> !c.isBlocked()) // 어드민 조치 — 둘러보기에서만 빼면 상세 URL 이 우회로가 된다
+                .filter(c -> showSeeded || !c.isSeeded()) // 데모 가림 시 상세도 숨김(존재 숨김)
+                // 승인 전(또는 반려된) 강사의 강의 — 둘러보기에서만 빼면 이 URL 이 우회로가 된다.
+                .filter(instructorApprovalPolicy::isApproved)
+                .orElseThrow(ResourceNotFoundException::new);
     }
 
     /** 내 강의 목록 — 카드용. 위치별 장비 합성은 상세에서만(목록은 빈 맵). */
@@ -130,17 +146,53 @@ public class CourseService {
      * 무한 스크롤 클라이언트가 {@code _links.next} 를 쓰기 시작하는 순간 터지므로 여기서 끊는다.
      * ({@code /instructors/public} 은 Sort 를 다시 싣지 않아 원래 이 문제가 없다.)
      */
-    public Page<CourseCardResponse> browse(CourseBrowseCondition condition, Pageable pageable) {
+    public Page<CourseCardResponse> browse(CourseBrowseCondition condition, Account viewer, Pageable pageable) {
         Pageable fixed = PageClamp.fixed(pageable);
+
+        // "저장한 강의" 는 로그인해야 의미가 있다. 비로그인은 에러가 아니라 빈 페이지가 맞는 답이다 —
+        // 로그인 안 한 사람에게 저장한 강의가 없는 건 정상 상태지 실패가 아니다(레포 규칙, 커뮤니티 동일).
+        if (condition.isBookmarkedByMe() && viewer == null) {
+            return Page.empty(fixed);
+        }
+
         PageRequest request = PageRequest.of(
                 fixed.getPageNumber(), fixed.getPageSize(), sortOf(condition.getSort()));
         Specification<Course> spec = CourseSpecifications.matching(condition);
         if (!siteSettings.current().showSeededCourses()) {
             spec = spec.and(CourseSpecifications.excludeSeeded()); // 런칭 후 데모 가림
         }
-        Page<CourseCardResponse> page = courseRepo.findAll(spec, request).map(CourseCardResponse::from);
-        return new PageImpl<>(page.getContent(),
-                PageRequest.of(request.getPageNumber(), request.getPageSize()), page.getTotalElements());
+        if (condition.isBookmarkedByMe()) {
+            spec = spec.and(CourseSpecifications.bookmarkedBy(viewer.getId()));
+        }
+        Page<Course> courses = courseRepo.findAll(spec, request);
+        return new PageImpl<>(
+                courses.map(cardMapperFor(courses.getContent(), viewer)).getContent(),
+                PageRequest.of(request.getPageNumber(), request.getPageSize()), courses.getTotalElements());
+    }
+
+    /**
+     * 카드의 저장 상태·저장 수를 <b>페이지 단위 일괄 조회</b>로 채운다 — 카드마다 세면 N+1 이다.
+     * 추가 비용은 페이지당 최대 2쿼리(집계 1 + 내 저장 1)이고, 비로그인은 1쿼리다(내 저장을 안 읽는다).
+     *
+     * <p>{@code bookmarkedByMe} 는 <b>토큰이 있을 때만 의미가 있다.</b> 공개 둘러보기라 비로그인이면
+     * 에러가 아니라 조용히 전부 false 로 온다 — FE 가 토큰리스로 캐시 경로를 타면 같은 일이 벌어진다
+     * (커뮤니티에서 이미 겪은 함정이라 {@code types.ts} 에 명시해 뒀다).
+     */
+    private java.util.function.Function<Course, CourseCardResponse> cardMapperFor(List<Course> courses,
+                                                                                 Account viewer) {
+        List<Long> ids = courses.stream().map(Course::getId).collect(Collectors.toList());
+        Map<Long, Long> counts = new HashMap<>();
+        Set<Long> mine = new java.util.HashSet<>();
+        if (!ids.isEmpty()) {
+            for (Object[] row : bookmarkRepo.countByCourseIds(ids)) {
+                counts.put((Long) row[0], (Long) row[1]);
+            }
+            if (viewer != null) {
+                mine.addAll(bookmarkRepo.findBookmarkedCourseIds(viewer.getId(), ids));
+            }
+        }
+        return c -> CourseCardResponse.from(c,
+                counts.getOrDefault(c.getId(), 0L), mine.contains(c.getId()));
     }
 
     private Sort sortOf(CourseBrowseCondition.Sort sort) {

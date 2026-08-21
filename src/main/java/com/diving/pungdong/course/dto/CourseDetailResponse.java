@@ -70,11 +70,27 @@ public class CourseDetailResponse {
     /** 진행 위치 — 회차 가로질러 dedupe + venue 합성(입장료·장비). */
     private List<Venue> venues;
 
+    /**
+     * 저장(북마크) 수. 카드와 같은 판단 — 내려주고 노출은 FE 가 정한다
+     * ({@link CourseCardResponse#getBookmarkCount()} 참고).
+     */
+    private long bookmarkCount;
+
+    /**
+     * 내가 저장했는지. <b>토큰이 있을 때만 의미가 있다</b> — 공개 상세라 비로그인은 에러가 아니라
+     * 조용히 {@code false} 다({@link CourseCardResponse#isBookmarkedByMe()} 와 같은 함정).
+     */
+    private boolean bookmarkedByMe;
+
     public static CourseDetailResponse from(Course c,
                                             Map<String, VenueResponse> venueByRef,
                                             Map<String, VenueEquipmentResponse> equipByRef,
-                                            CourseInstructorResponse instructor) {
+                                            CourseInstructorResponse instructor,
+                                            long bookmarkCount,
+                                            boolean bookmarkedByMe) {
         return CourseDetailResponse.builder()
+                .bookmarkCount(bookmarkCount)
+                .bookmarkedByMe(bookmarkedByMe)
                 .id(c.getId())
                 .title(c.getTitle())
                 .kind(c.getKind())
