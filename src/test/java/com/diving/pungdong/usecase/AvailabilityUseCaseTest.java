@@ -412,6 +412,57 @@ class AvailabilityUseCaseTest {
     }
 
     @Test
+    @DisplayName("V3 endTime 에 \"24:00\" 을 보내면 400 이되 공통 envelope(-1011) 로, msg 가 endTime 을 가리킨다(LocalTime 은 24:00 불가)")
+    void rejectsTwentyFourOClockWithEnvelope() throws Exception {
+        Account in = account("v3@pd.com", "강사v3");
+        enterInstructorTrack(in);
+        String body = "{\"mode\":\"ONCE\",\"date\":\"" + MON + "\",\"startTime\":\"15:00\",\"endTime\":\"24:00\"}";
+        mockMvc.perform(post("/instructor/availability/coverage")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(in)).contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(-1011))
+                .andExpect(jsonPath("$.msg").value("endTime 값의 형식이 올바르지 않습니다."));
+
+        // 일정 추가도 같은 필드 타입 — 같은 응답
+        String session = "{\"date\":\"" + MON + "\",\"startTime\":\"15:00\",\"endTime\":\"24:00\",\"count\":1}";
+        mockMvc.perform(post("/instructor/availability/sessions")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(in)).contentType(MediaType.APPLICATION_JSON)
+                .content(session))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(-1011))
+                .andExpect(jsonPath("$.msg").value("endTime 값의 형식이 올바르지 않습니다."));
+    }
+
+    @Test
+    @DisplayName("V4 JSON 자체가 깨진 body 는 필드를 특정할 수 없어 일반 -1011 문구로 400")
+    void rejectsMalformedJsonWithEnvelope() throws Exception {
+        Account in = account("v4@pd.com", "강사v4");
+        enterInstructorTrack(in);
+        mockMvc.perform(post("/instructor/availability/coverage")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(in)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"date\": "))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(-1011))
+                .andExpect(jsonPath("$.msg").value("보내신 요청 정보가 옳지 않습니다."));
+    }
+
+    @Test
+    @DisplayName("V5 캘린더 조회의 from 이 날짜 형식이 아니면 400 -1011, msg 가 from 을 가리킨다")
+    void rejectsMalformedQueryParamWithEnvelope() throws Exception {
+        Account in = account("v5@pd.com", "강사v5");
+        enterInstructorTrack(in);
+        mockMvc.perform(get("/instructor/availability")
+                .header(HttpHeaders.AUTHORIZATION, tokenFor(in))
+                .param("from", "2030-13-99").param("to", MON.toString()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(-1011))
+                .andExpect(jsonPath("$.msg").value("from 값의 형식이 올바르지 않습니다."));
+    }
+
+    @Test
     @DisplayName("R1 남의 일정을 조회하면 400(존재 숨김)")
     void cannotReadOthersSession() throws Exception {
         Account owner = account("r1a@pd.com", "주인");
