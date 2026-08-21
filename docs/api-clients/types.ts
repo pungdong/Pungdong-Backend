@@ -738,11 +738,14 @@ export interface RejectInstructorApplicationRequest {
  * GET /instructors/public (비로그인) — 승인(APPROVED) 신청을 가진 실가입 강사 전체 디렉토리.
  * PagedModel — 배열은 `_embedded.instructors`, 페이지 메타는 `page`. 공개 필드만(PII 없음 — 이름/이메일/연락처
  * 미포함). Pageable 쿼리(`?page=&size=`) 지원, 기본 정렬은 최근 가입(id desc).
+ * ★ **size 상한 50 / 기본 20**(서버 clamp). 정렬은 서버 고정이라 클라이언트 `?sort=` 는 버려진다 — 없는 필드를
+ *   넣어도 500 이 아니라 그냥 무시된다.
  *
  * ⚠️ **@deprecated — 현재 호출자 0.** 홈의 "풍덩 공식 강사" 카드는 이 목록이 **아니라**
  *    `GET /instructors/suggested` 를 쓴다(승인 + **프로필 발행**까지 된 강사, "N명"은 그쪽 `totalCount`).
  *    이 주석이 오래 "홈 카드" 라고 잘못 적혀 있었다 — 홈이 2026-08-18 에 suggested 로 갈아탔는데
  *    BE 쪽 설명이 따라가지 않았다. 새로 붙일 화면이 있으면 **suggested 를 먼저 검토**할 것.
+ *    필터·검색·정렬이 필요하면 `GET /instructors/browse` 다(이쪽엔 그런 게 없다).
  *    제거는 배포된 구버전 앱 빌드 확인 후(→ `instructorId`/`instructorName` 과 같은 조건).
  */
 export interface PublicInstructorResponse {
@@ -785,6 +788,69 @@ export interface SuggestedInstructor {
   avatarUrl?: string | null;
   /** 승인 종목 코드. 한글 라벨("프리다이빙")은 `GET /disciplines` 의 `name` 으로 매핑한다. */
   disciplineCodes: string[];
+}
+
+// ── 강사 둘러보기 (instructor browse) — 홈 "풍덩 공식 강사" 더보기 ──
+// docs/features/course-discovery.md (정책) · docs/architecture/branding.md (구현)
+// GET /instructors/browse — 공개(비로그인 가능). 페이지네이션(PagedModel/HAL), size 상한 50 / 기본 20.
+//
+// ★ **강사 목록이 셋이다. 모수가 전부 다르다** — 화면 하나에서 섞어 쓰면 숫자가 어긋난다.
+//   /instructors/public    승인 강사 전부. **발행을 안 본다** → 눌러도 400 인 카드가 섞인다. "몇 명이 검수를 통과했나".
+//   /instructors/suggested 승인 ∧ 발행 중 **무작위 N명**. 매번 다시 뽑는다(페이지네이션 불가).
+//   /instructors/browse    승인(그 종목) ∧ 발행. **필터·검색·정렬·페이지네이션이 되는 유일한 목록.** ← 더보기 화면은 이것
+//
+// ★ 카드는 반드시 열린다 — 모수가 "발행된 프로필" 이라 `/instructors/{nickName}` 이 400 나지 않는다.
+
+/** 강사 둘러보기 정렬. 평점순은 리뷰 도메인이 없어 아직 없다(생기면 추가). */
+export type InstructorBrowseSort = 'LATEST' | 'COURSE_COUNT_DESC';
+
+/**
+ * GET /instructors/browse 쿼리 파라미터. 배열은 반복 키(`?organizationCodes=AIDA&organizationCodes=PADI`)
+ * 또는 콤마 구분(`?organizationCodes=AIDA,PADI`) 둘 다 동작한다 — 반복 키 쪽을 권장(빈 값이 섞일 여지가 없다).
+ *
+ * ★ **지역·자격레벨 필터가 없다** — 강사의 활동지역은 자유 텍스트(`locationLabel`)라 `Region` 으로 파생할 수
+ *   없고, 강사 쪽엔 자격 등급 필드 자체가 없다(`CertLevel` 은 강의 전용). 강의 둘러보기와 필터 축이 다르다.
+ * ★ `sort` 에는 위 enum 값만. Pageable 형식(`?sort=id,asc`)은 무시가 아니라 **400**(강의 둘러보기와 동일).
+ */
+export interface InstructorBrowseParams {
+  disciplineCode: string; // 필수 — 누락/공백이면 400. 없는 코드는 400 이 아니라 빈 결과(200)
+  keyword?: string; // 강사 nickName 부분 일치(대소문자 무시). `_`·`%` 는 LIKE 와일드카드로 동작한다(미이스케이프)
+  organizationCodes?: string[]; // 자격 단체. **요청 종목의 자격증만** 본다(스쿠버 AIDA 는 프리다이빙 필터에 안 걸림)
+  hasOpenCourse?: boolean; // true 면 그 종목에 공개중 강의가 1개 이상인 강사만. false 는 보내지 말고 생략할 것
+  sort?: InstructorBrowseSort; // 기본 LATEST
+  page?: number; // 0-base
+  size?: number; // 기본 20, 상한 50
+}
+
+/** 강사 둘러보기 카드 1칸. */
+export interface InstructorBrowseCardResponse {
+  /** 공개 프로필 진입 키. `/instructors/{nickName}`. **id 는 오지 않는다**(anti-IDOR). */
+  nickName: string;
+  /** 미설정이면 null. **키가 사라지지 않는다** — `null` 로 온다. */
+  avatarUrl: string | null;
+  /** 한 줄 소개(≤60자). 유저가 비웠으면 null. */
+  tagline: string | null;
+  /**
+   * 활동지역 자유 텍스트(≤60자, 예 "잠실 · 송파").
+   * ⚠️ **`Region` 이 아니다** — 파싱하거나 지역 필터·칩으로 쓰지 말 것. 표시 전용.
+   */
+  locationLabel: string | null;
+  /** 그 강사의 **승인 종목 전부**(요청 종목만이 아니다). 최소 1개. */
+  disciplineCodes: string[];
+  /** **요청 종목** 승인 신청의 자격증 단체(중복 제거·정렬). 자격증이 필요 없는 종목이면 `[]`. */
+  organizationCodes: string[];
+  /**
+   * **요청 종목**의 공개중 강의 수. 0 가능.
+   * 세는 기준이 `GET /courses/browse` 가 실제로 보여주는 것과 같다(OPEN·미차단·데모 가림 반영) —
+   * 그래서 "강의 3" 카드를 눌러 그 강사 강의를 찾으면 3건이 나온다.
+   */
+  openCourseCount: number;
+}
+
+/** GET /instructors/browse 응답 — 카드는 `_embedded.instructors`(빈 결과면 키 없음), 메타는 `page`. */
+export interface InstructorBrowseResponse extends HalLinks {
+  _embedded?: { instructors: InstructorBrowseCardResponse[] };
+  page: { size: number; totalElements: number; totalPages: number; number: number };
 }
 
 // ── 브랜딩 페이지 / 내 프로필 (branding) — docs/features/account-branding.md ──
@@ -1910,6 +1976,11 @@ export interface CourseStatusRequest {
 // docs/features/course-discovery.md (정책) · docs/architecture/course.md (구현)
 // GET /courses/browse — 공개(비로그인 가능). OPEN 코스만. 페이지네이션(PagedModel/HAL).
 //   빈 결과는 에러 아님 → 200 + 빈 페이지(page.totalElements 0). "결과 N개" = page.totalElements.
+//   ★ size 상한 50 / 기본 20 (서버 clamp). size=100000 을 보내면 50 으로 잘린다.
+//     size 를 0·음수·비숫자로 보내면 400 이 아니라 **기본값 20 으로 되돌아온다**(Spring 리졸버가 삼킨다).
+//     즉 "size 를 잘못 보내면 에러가 날 것" 이라고 가정한 방어 코드는 작동하지 않는다.
+//   ★ 다음 페이지가 있는지는 `page.number + 1 < page.totalPages`. 절대 `받은 개수 < size` 로 판정하지 말 것
+//     (마지막 페이지가 정확히 size 로 떨어지면 영원히 끝나지 않는다).
 
 /**
  * 지역 묶음 — 둘러보기 필터 칩, 그리고 코스빌더 위치 picker 의 지역 칩(`VenueResponse.region`)이 공유.
@@ -1943,10 +2014,14 @@ export type CourseBrowseSort = 'LATEST' | 'PRICE_ASC' | 'PRICE_DESC';
  *   & level ∈ levels)` 로 묶음. (※ 코스 *작성* 화면은 반대로 cascade — 종류 라디오→자격이면 레벨. 필터만
  *   탐색 편의로 평탄화.)
  * ★ 단체 칩 '상관없음' = organizationCodes 생략. 가격 밴드는 FE 가 칩을 min/max 로 변환해 전송.
+ * ★ **`sort` 에는 아래 enum 값만 넣는다.** Spring Pageable 형식(`?sort=price,asc`)을 보내면 정렬이
+ *   무시되는 게 아니라 **400** 이다 — 이 파라미터 이름이 enum 에 바인딩돼 변환에서 터진다. 게다가 그
+ *   400 은 `{success,code,msg}` 봉투가 아니라 Boot 기본 에러(`{timestamp,status,error,path}`)라,
+ *   `code` 를 기대하는 에러 파서가 함께 깨진다.
  */
 export interface CourseBrowseParams {
   disciplineCode: string; // 필수 — 종목별 카탈로그가 크게 달라 화면이 항상 한 종목으로 진입(메인 상단 select). 누락 시 400
-  keyword?: string; // 제목 부분 일치
+  keyword?: string; // 제목 OR 강사 nickName 부분 일치(대소문자 무시). `_`·`%` 는 LIKE 와일드카드로 동작한다(미이스케이프)
   region?: Region; // 생략 = 전체
   kinds?: CourseKind[]; // 평탄 멀티칩 — 체험·트레이닝 (자격은 levels 로). 생략 = 종류 무관
   levels?: CertLevel[]; // 평탄 멀티칩 — L1·L2·L3 (kinds 와 OR 합집합). 생략 = 레벨 무관
@@ -1955,7 +2030,7 @@ export interface CourseBrowseParams {
   maxPrice?: number;
   sort?: CourseBrowseSort; // 기본 LATEST
   page?: number; // 0-base
-  size?: number;
+  size?: number; // 기본 20, 상한 50(초과분은 서버가 50 으로 자름). 0/음수/비숫자는 조용히 기본 20
 }
 
 /** 둘러보기 카드 1칸 — 상세(CourseResponse)와 달리 카드 표면 필드만. */
@@ -1969,6 +2044,7 @@ export interface CourseCardResponse {
   isPackage: boolean;
   instructorId: number | null;
   instructorName: string | null; // 강사 nickName
+  instructorAvatarUrl: string | null; // 강사 프로필 사진(카드의 강사명 앞 원형 아바타). 미설정이면 null — 키는 있다
   locationName: string | null; // 대표 위치 이름
   regions: Region[]; // 회차 위치들이 속한 지역 묶음(들)
   price: number;
@@ -1986,6 +2062,11 @@ export interface CourseBrowseResponse extends HalLinks {
   _embedded?: { courses: CourseCardResponse[] };
   page: { size: number; totalElements: number; totalPages: number; number: number };
 }
+// ★ 다음 페이지는 `page` 값으로 직접 만드는 것을 권장한다(`page + 1`). `_links.next` 도 이제 정상이지만,
+//   이 링크는 2026-08-22 에 **양방향으로** 깨져 있었다: (a) 서버 내부 정렬이 `sort=createdAt,id,desc` 로
+//   실려 따라가면 400, (b) 그걸 고치자 이번엔 `sort` 가 통째로 사라져 **정렬이 조용히 기본값으로 되돌아갔다**
+//   (같은 강의가 두 페이지에 나오고 일부는 도달 불가). 둘 다 막았고 테스트(P4·P5)로 고정했지만,
+//   파라미터를 직접 조립하는 쪽이 여전히 깨질 여지가 적다.
 
 // ── 공개 강의 상세 (course public detail) — 카드 → 상세 ──
 // docs/features/course-discovery.md (정책) · docs/architecture/course.md (구현)

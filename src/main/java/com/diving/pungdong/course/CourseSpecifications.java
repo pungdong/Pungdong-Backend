@@ -100,12 +100,27 @@ public final class CourseSpecifications {
                 : (root, query, cb) -> cb.equal(root.get("disciplineCode"), disciplineCode);
     }
 
+    /**
+     * 검색어 — <b>제목 OR 강사 닉네임</b> 부분일치(대소문자 무시).
+     *
+     * <p>강사명까지 잡는 이유: 사용자는 "김민지 선생님 수업"을 찾을 때 강사 이름을 친다. 제목만 보던
+     * 시절엔 그 검색이 0건이었고, 루트 {@code CLAUDE.md} 는 이미 "제목/강사 LIKE" 라고 <b>적혀 있었다</b>
+     * (문서가 앞서 있었던 셈).
+     *
+     * <p>강사 조인은 <b>LEFT</b> 다 — INNER 면 강사가 없는(계정이 지워진) 코스가 제목이 맞는데도
+     * 검색에서 사라진다. {@code @ManyToOne} 이라 행이 늘지 않으므로 {@code distinct} 는 붙이지 않는다.
+     */
     private static Specification<Course> keywordLike(String keyword) {
         if (!StringUtils.hasText(keyword)) {
             return null;
         }
         String like = "%" + keyword.trim().toLowerCase() + "%";
-        return (root, query, cb) -> cb.like(cb.lower(root.get("title")), like);
+        return (root, query, cb) -> {
+            Join<Object, Object> instructor = root.join("instructor", JoinType.LEFT);
+            return cb.or(
+                    cb.like(cb.lower(root.get("title")), like),
+                    cb.like(cb.lower(instructor.get("nickName")), like));
+        };
     }
 
     private static Specification<Course> regionContains(com.diving.pungdong.venue.Region region) {

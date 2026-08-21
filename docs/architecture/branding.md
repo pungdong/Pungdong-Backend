@@ -11,9 +11,11 @@
 ```mermaid
 flowchart TB
   subgraph branding["branding 패키지 (BE)"]
-    PBC[PublicBrandingController<br/>GET /instructors/&#123;nickName&#125;<br/>GET /instructors/suggested] --> BS[BrandingService]
+    PBC[PublicBrandingController<br/>GET /instructors/&#123;nickName&#125;<br/>GET /instructors/suggested<br/>GET /instructors/browse] --> BS[BrandingService]
     PBC --> SIS[SuggestedInstructorService<br/>무작위 추천 강사]
+    PBC --> IBS[InstructorBrowseService<br/>필터·검색·정렬 목록]
     SIS --> BR
+    IBS --> BR
     BC[BrandingController<br/>/branding/me/**] --> BS
     BS --> BR[AccountBrandingJpaRepo]
     BR --> E[(AccountBranding<br/>→ BrandingRecord)]
@@ -22,13 +24,23 @@ flowchart TB
   CISA -. implements .-> ISP[course.InstructorSummaryProvider]
   BS -. 단방향 .-> ACC[account.Account<br/>닉네임·프로필사진]
   BS -. 단방향 .-> IA[instructorapplication<br/>승인 자격·검수상태·승인시각]
+  IBS -. 단방향 .-> CO[course.Course<br/>공개중 강의 수]
   FE["수강생/방문자"] -- "비로그인 조회" --> PBC
   FE2["오너(강사·일반)"] -- "편집·발행" --> BC
 
   classDef ext fill:#eef
-  class ACC,IA ext
+  class ACC,IA,CO ext
 ```
 
+- **강사 목록이 셋이고 모수가 전부 다르다** — 이 표를 모르고 고치면 "N명" 이 화면마다 달라진다.
+
+| 엔드포인트 | 모수 | 페이지네이션 | 쓰임 |
+|---|---|---|---|
+| `/instructors/public` (instructorapplication 패키지) | 승인 강사 전부 — **발행을 안 본다** | ✅ | "몇 명이 검수를 통과했나". 눌러도 400 인 카드가 섞인다 |
+| `/instructors/suggested` | 승인 ∧ 발행, **무작위 N명** | ❌(설계) | 사이드바·홈 위젯. 매 요청 다시 뽑는다 |
+| `/instructors/browse` | 승인(그 종목) ∧ 발행 | ✅ | **더보기 화면.** 필터·검색·정렬이 되는 유일한 목록 |
+
+- **왜 강사 둘러보기가 instructorapplication 이 아니라 여기 있나** — 모수 조건(`isPublished`)과 카드 필드(`tagline`·`locationLabel`)가 이 도메인 것이고, `openCourseCount` 는 course 를 읽는다. branding 은 그 둘을 단방향 참조해도 되지만 **반대는 순환**이다. `/instructors/suggested` 가 같은 이유로 먼저 여기 있었다 — URL 네임스페이스와 패키지 소유가 일치하지 않는 건 의도다.
 - **합성 방향은 단방향** — `account`·`instructorapplication` 은 branding 을 모른다. account 가 feature 도메인을 import 하지 않는 루트 규칙 때문에 합성을 별도 패키지로 뺐다(`profile` 패키지가 만든 선례).
 - 자격 뱃지(`certs`)·종목·검수상태·승인시각은 **저장하지 않고** 승인된 강사 신청에서 매 조회 시 파생한다.
 - **강의 상세의 강사 카드도 여기서 합성한다**(`CourseInstructorSummaryAdapter`). 인터페이스는 `course` 가 선언하고(`InstructorSummaryProvider`) 구현만 이 패키지에 둔다 — `branding → course` 가 이미 있어서(프로필의 강의 수) `course → branding` 을 더하면 **패키지 순환**이 되기 때문이다. 필요한 쪽이 계약을 선언하고, 양쪽을 다 아는 쪽이 구현한다.
@@ -163,10 +175,11 @@ erDiagram
 
 ## 5. 보안 / 권한 매트릭스
 
-매처는 `global/security/SecurityConfiguration`. **`/instructors/*` 는 리터럴 `/instructors/public`·`/instructors/suggested` 보다 뒤에** 둔다(그래야 두 목록 엔드포인트가 가려지지 않는다). 같은 이유로 그 두 단어는 **닉네임 예약어**다(`global/validation/NickNamePolicy` — 가입·변경이 400 으로 막힌다. 규칙 전체는 [sign-up.md](sign-up.md) '닉네임 정책') — 안 막으면 그 닉네임을 가진 계정의 프로필이 영영 안 열린다. ⚠️ ant 의 `*` 는 `/` 를 넘지 않으므로 하위 경로는 매처를 따로 추가해야 한다.
+매처는 `global/security/SecurityConfiguration`. **`/instructors/*` 는 리터럴 `/instructors/public`·`/instructors/suggested`·`/instructors/browse` 보다 뒤에** 둔다(그래야 목록 엔드포인트들이 가려지지 않는다). 같은 이유로 그 세 단어는 **닉네임 예약어**다(`global/validation/NickNamePolicy` — 가입·변경이 400 으로 막힌다. 규칙 전체는 [sign-up.md](sign-up.md) '닉네임 정책') — 안 막으면 그 닉네임을 가진 계정의 프로필이 영영 안 열린다. ⚠️ ant 의 `*` 는 `/` 를 넘지 않으므로 하위 경로는 매처를 따로 추가해야 한다.
 
 | 엔드포인트 | 인증 | 역할 | 소유권 |
 |---|---|---|---|
+| `GET /instructors/browse?disciplineCode=&…` | **불필요** | — | 승인(그 종목) + **발행**(`is_published=true`) + 미탈퇴. 필터(단체·강의보유)·검색(닉네임)·정렬(최신/강의많은순)·페이지네이션. 400 은 `disciplineCode` 누락과 `sort` 값 오류뿐 — 없는 종목 코드·조건 불일치는 빈 페이지 200. size 상한 50. ⚠️ **프로필 행이 없는 계정은 빠진다** — 상세는 이제 빈 프로필 200 으로 열리지만(아래 행), 이 목록은 `AccountBranding` 행 + 발행을 요구한다 |
 | `GET /instructors/suggested?limit=5` | **불필요** | — | 승인 + **발행**된 강사 중 무작위. (발행 조건의 근거가 바뀌었다 — 이제 프로필은 모든 계정에 있어 '갈 곳 없는 카드' 문제는 없다. 남긴 이유는 **추천은 뭔가 남긴 사람이어야** 해서. 행은 첫 쓰기로 생긴다.) 토큰을 실으면 **차단한 강사가 빠진다**(`totalCount` 도) |
 | `GET /instructors/{nickName}` | **불필요** | — | **모든 살아있는 계정에 있다** — 프로필 행이 없으면 빈 프로필 200. 400 은 셋뿐: 없는 닉네임·탈퇴 / **유저가 내린 비공개**(`is_published=false`) / 상대가 나를 차단. 차단은 방향에 따라 다르다 — 내가 차단 → **200 + `blockedByMe`**(유일한 해제 동선), 상대가 나를 차단 → **400** ([block.md](block.md)) |
 | `GET /instructors/{nickName}/posts` | **불필요** | — | 위 + `is_hidden=false` 만. **프로필 행이 없으면 빈 페이지**(400 아님 — 프로필만 열리고 그리드가 깨지면 화면이 반쪽). 정렬·size 는 서버 고정 |
@@ -212,6 +225,16 @@ erDiagram
 - `R1` 비로그인 401 / `R2` 강사가 아니어도 편집·발행 가능 / `R3` `/instructors/public` 이 가려지지 않는다
 
 `usecase/PublicInstructorUseCaseTest` 의 `S*` 가 추천 강사(`/instructors/suggested`)를 덮는다 — 발행 강사만 / 미승인 제외 / limit 보다 적으면 있는 만큼 / `totalCount` 는 자르지 않음 / 탈퇴 제외 / 멀티 종목 1장 / **카드의 닉네임으로 상세가 실제로 열린다**.
+
+`usecase/InstructorBrowseUseCaseTest` (강사 둘러보기 `/instructors/browse`):
+
+- `S1` 카드 7필드 + **`id` 가 안 나간다** / `S2` 빈 값은 키 생략이 아니라 `null`, 단체는 빈 배열
+- `S3` 종목 / `S4` 닉네임 검색 / `S5` 단체 OR 합집합 / **`S5b` 단체는 요청 종목 자격증만**(종목 코드는 반대로 승인 종목 전부)
+- `S6` '강의 있음' 토글 / `S7` 강의 많은순 / **`S8` 전원 동점이어도 페이지 간 중복 없음**(tie-break)
+- `S9` **카드의 닉네임으로 상세가 실제로 열린다**
+- `O1` 미발행 제외 — 같은 테스트가 **그 프로필이 실제로 400 이라는 것까지** 확인한다(왜 빼야 하는지가 테스트에 있다) / `O2` 미승인·반려 제외 / `O3` 탈퇴 제외
+- **`O4` "강의 N" 은 강의 둘러보기가 보여주는 것만 센다** — DRAFT·CLOSED·차단·타 종목 제외. 이게 어긋나면 "강의 3" 카드를 눌렀는데 목록이 0건이 된다
+- `V1` 종목 누락 400 / `V2` 빈 결과는 200 + `_embedded` 키 없음 / `P1` size 상한 50 / `P2` Pageable 형식 정렬은 400
 
 `usecase/BrandingPostUseCaseTest` (게시물):
 

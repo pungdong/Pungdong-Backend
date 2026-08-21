@@ -36,6 +36,14 @@ public class CourseCardResponse {
     private boolean isPackage;
     private Long instructorId;
     private String instructorName;
+    /**
+     * 강사 프로필 사진 — 카드의 강사명 앞 원형 아바타. 미설정이면 null.
+     *
+     * <p>추가 비용은 <b>페이지당 쿼리 1개</b>다: {@code Account.profilePhoto} 는 소유측
+     * {@code @OneToOne(LAZY)} 이고 {@code default_batch_fetch_size: 100} 이라 한 페이지의 강사 사진이
+     * IN 절 하나로 함께 온다(강사 프로필/추천 카드가 이미 쓰는 접근 패턴). 카드마다 따로 나가지 않는다.
+     */
+    private String instructorAvatarUrl;
     /** 대표 위치 이름(카드 location). */
     private String locationName;
     /** 회차 위치들이 속한 지역 묶음(들). */
@@ -58,6 +66,8 @@ public class CourseCardResponse {
                 .isPackage(c.isPackage())
                 .instructorId(c.getInstructor() == null ? null : c.getInstructor().getId())
                 .instructorName(c.getInstructor() == null ? null : c.getInstructor().getNickName())
+                .instructorAvatarUrl(c.getInstructor() == null || c.getInstructor().getProfilePhoto() == null
+                        ? null : c.getInstructor().getProfilePhoto().getImageUrl())
                 .locationName(c.getPrimaryLocationName())
                 .regions(c.getRegions())
                 .price(c.getPrice())

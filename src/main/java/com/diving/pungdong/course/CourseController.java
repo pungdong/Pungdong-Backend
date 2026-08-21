@@ -2,6 +2,7 @@ package com.diving.pungdong.course;
 
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
+import com.diving.pungdong.global.hateoas.WhitelistSortLinks;
 import com.diving.pungdong.global.security.CurrentUser;
 import com.diving.pungdong.course.dto.CourseBrowseCondition;
 import com.diving.pungdong.course.dto.CourseCardResponse;
@@ -106,6 +107,9 @@ public class CourseController {
                 .build();
         Page<CourseCardResponse> page = courseService.browse(condition, pageable);
         PagedModel<EntityModel<CourseCardResponse>> model = assembler.toModel(page);
+        // assembler 는 요청의 sort 를 지우고 Page 의 Sort 를 붙이는데, 서비스가 Sort 를 버렸으므로
+        // 그냥 사라진다 → next 를 따라가면 기본 정렬로 계산돼 항목이 중복·누락된다. 되붙인다.
+        WhitelistSortLinks.apply(model, condition.getSort());
         model.add(Link.of("/docs/api.html#resource-courses-browse").withRel("profile"));
         return ResponseEntity.ok().body(model);
     }
