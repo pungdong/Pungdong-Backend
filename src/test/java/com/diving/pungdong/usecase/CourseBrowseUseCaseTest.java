@@ -361,8 +361,11 @@ class CourseBrowseUseCaseTest {
     }
 
     @Test
-    @DisplayName("P2 size 를 안 보내면 기본 20 이다")
+    @DisplayName("P2 size 를 안 보내면 한 페이지는 20개다")
     void p2_default_size() throws Exception {
+        // 이 20 을 만드는 건 PageClamp.DEFAULT_PAGE_SIZE 가 아니라 Spring 리졸버의 fallback 이다
+        // (리졸버는 unpaged 를 주지 않아 PageClamp 의 기본값 가지가 실행되지 않는다). FE 계약으로서의
+        // "기본 20" 을 고정하는 테스트이지, clamp 구현을 검증하는 테스트가 아니다.
         browse("?disciplineCode=FREEDIVING")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.page.size").value(20));
@@ -371,6 +374,8 @@ class CourseBrowseUseCaseTest {
     @Test
     @DisplayName("P3 정렬 창구는 화이트리스트 enum 하나뿐 — Pageable 형식(sort=price,asc)은 400 이지 임의 정렬이 아니다")
     void p3_client_sort_is_not_a_backdoor() throws Exception {
+        // 이 방어는 clamp 가 아니라 컨트롤러의 enum 파라미터가 한다(이 PR 이전에도 같았다).
+        // 계약서가 "무시된다" 가 아니라 "400 이다" 라고 적어야 하는 근거를 고정해두는 회귀 가드.
         Account me = account("p3@pungdong.com");
         String ref = customRefAt(me, "잠실 잠수풀", "서울특별시 송파구 올림픽로 25");
         openCourse(me, certification("비싼 과정", "AIDA", List.of("LEVEL_2")), "FREEDIVING", 350000, ref, null);
@@ -383,6 +388,28 @@ class CourseBrowseUseCaseTest {
         browse("?disciplineCode=FREEDIVING&sort=PRICE_ASC")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$._embedded.courses[0].title").value("싼 체험"));
+    }
+
+    @Test
+    @DisplayName("P4 서버가 만든 HAL 링크(self·next)를 그대로 따라가도 200 이다 — 링크에 내부 정렬이 새지 않는다")
+    void p4_hal_links_are_followable() throws Exception {
+        Account me = account("p4@pungdong.com");
+        String ref = customRefAt(me, "잠실 잠수풀", "서울특별시 송파구 올림픽로 25");
+        openCourse(me, trial("체험1"), "FREEDIVING", 90000, ref, null);
+        openCourse(me, trial("체험2"), "FREEDIVING", 95000, ref, null);
+
+        String body = browse("?disciplineCode=FREEDIVING&size=1")
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        // self 는 물론 next 도 실제로 호출 가능해야 한다. 예전엔 assembler 가 서버 내부 정렬을
+        // sort=createdAt,id,desc 로 링크에 실었고, 그 값이 enum 파라미터로 되돌아와 400 이 났다.
+        for (String rel : List.of("self", "next")) {
+            String href = JsonPath.read(body, "$._links." + rel + ".href");
+            org.assertj.core.api.Assertions.assertThat(href).doesNotContain("sort=");
+            mockMvc.perform(get(java.net.URI.create(href)))
+                    .andExpect(status().isOk());
+        }
     }
 
     /* ════════════════ V — 비노출 · 빈 결과 ════════════════ */
