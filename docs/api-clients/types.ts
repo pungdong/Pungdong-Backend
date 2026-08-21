@@ -733,6 +733,8 @@ export interface RejectInstructorApplicationRequest {
  * GET /instructors/public (비로그인) — 수강생 둘러보기 홈 "풍덩 공식 강사" 카드. 승인(APPROVED) 신청을 가진 실가입 강사만.
  * PagedModel — 배열은 `_embedded.instructors`, 페이지 메타는 `page`. `page.totalElements` → "N명" + 아바타 일부 + "+N" 파생.
  * 공개 필드만(PII 없음 — 이름/이메일/연락처 미포함). Pageable 쿼리(`?page=&size=`) 지원, 기본 정렬은 최근 가입(id desc).
+ * ★ **size 상한 50 / 기본 20**(서버 clamp). 정렬은 서버 고정이라 클라이언트 `?sort=` 는 버려진다 — 없는 필드를
+ *   넣어도 500 이 아니라 그냥 무시된다.
  */
 export interface PublicInstructorResponse {
   id: number;
@@ -1876,6 +1878,9 @@ export interface CourseStatusRequest {
 // docs/features/course-discovery.md (정책) · docs/architecture/course.md (구현)
 // GET /courses/browse — 공개(비로그인 가능). OPEN 코스만. 페이지네이션(PagedModel/HAL).
 //   빈 결과는 에러 아님 → 200 + 빈 페이지(page.totalElements 0). "결과 N개" = page.totalElements.
+//   ★ size 상한 50 / 기본 20 (서버 clamp). size=100000 을 보내면 50 으로 잘린다.
+//   ★ 무한 스크롤 종료 조건은 `page.number + 1 < page.totalPages`. 절대 `받은 개수 < size` 로 판정하지 말 것
+//     (마지막 페이지가 정확히 size 로 떨어지면 영원히 끝나지 않는다).
 
 /**
  * 지역 묶음 — 둘러보기 필터 칩, 그리고 코스빌더 위치 picker 의 지역 칩(`VenueResponse.region`)이 공유.
@@ -1909,10 +1914,13 @@ export type CourseBrowseSort = 'LATEST' | 'PRICE_ASC' | 'PRICE_DESC';
  *   & level ∈ levels)` 로 묶음. (※ 코스 *작성* 화면은 반대로 cascade — 종류 라디오→자격이면 레벨. 필터만
  *   탐색 편의로 평탄화.)
  * ★ 단체 칩 '상관없음' = organizationCodes 생략. 가격 밴드는 FE 가 칩을 min/max 로 변환해 전송.
+ * ★ **`sort` 에는 아래 enum 값만 넣는다.** Spring Pageable 형식(`?sort=price,asc`)을 보내면 정렬이
+ *   무시되는 게 아니라 **400** 이다 — 이 파라미터 이름이 enum 에 바인딩돼 변환에서 터진다. 게다가 그
+ *   400 은 `{success,code,msg}` 봉투가 아니라 **빈 바디**라, code 를 기대하는 에러 파서가 함께 깨진다.
  */
 export interface CourseBrowseParams {
   disciplineCode: string; // 필수 — 종목별 카탈로그가 크게 달라 화면이 항상 한 종목으로 진입(메인 상단 select). 누락 시 400
-  keyword?: string; // 제목 부분 일치
+  keyword?: string; // 제목 OR 강사 nickName 부분 일치(대소문자 무시)
   region?: Region; // 생략 = 전체
   kinds?: CourseKind[]; // 평탄 멀티칩 — 체험·트레이닝 (자격은 levels 로). 생략 = 종류 무관
   levels?: CertLevel[]; // 평탄 멀티칩 — L1·L2·L3 (kinds 와 OR 합집합). 생략 = 레벨 무관
@@ -1921,7 +1929,7 @@ export interface CourseBrowseParams {
   maxPrice?: number;
   sort?: CourseBrowseSort; // 기본 LATEST
   page?: number; // 0-base
-  size?: number;
+  size?: number; // 기본 20, 상한 50(초과분은 서버가 50 으로 자름). 0/음수는 400
 }
 
 /** 둘러보기 카드 1칸 — 상세(CourseResponse)와 달리 카드 표면 필드만. */
