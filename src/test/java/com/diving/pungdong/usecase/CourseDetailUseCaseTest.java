@@ -258,25 +258,34 @@ class CourseDetailUseCaseTest {
     }
 
     @Test
-    @DisplayName("I5 프로필을 비공개로 내려도 강의 상세의 강사 카드는 남는다 (공개 프로필 400 과 무관)")
-    void i5_unpublished_profile_still_inlined() throws Exception {
+    @DisplayName("I5 프로필을 비공개로 내리면 한마디·자기소개만 빠지고, 강사 카드 자체는 남는다")
+    void i5_unpublished_profile_hidesBlurbOnly() throws Exception {
         Account inst = account("i5@pungdong.com");
+        approveAsInstructor(inst, "FREEDIVING", "AIDA");
         String[] ref = seedVenueWithTicket(inst, 48000, 55000);
         long id = openCourse(inst, ref[0], ref[1]);
         mockMvc.perform(patch("/branding/me").header(HttpHeaders.AUTHORIZATION, tokenFor(inst))
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"tagline\":\"한마디\"}"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"tagline\":\"한마디\",\"bio\":\"자기소개\"}"))
                 .andExpect(status().isOk());
         mockMvc.perform(patch("/branding/me/publish").header(HttpHeaders.AUTHORIZATION, tokenFor(inst))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"published\":false}"))
                 .andExpect(status().isOk());
 
-        // 공개 프로필은 닫혔지만
+        // 공개 프로필은 닫히고
         mockMvc.perform(get("/instructors/i5")).andExpect(status().isBadRequest());
-        // 강의를 열어 둔 이상 그 강의의 강사 카드는 보여야 한다.
+
         mockMvc.perform(get("/courses/" + id + "/detail"))
                 .andExpect(status().isOk())
+                // 포트폴리오 본문은 함께 감춰진다 — 비공개의 뜻이 "내 포트폴리오를 감춘다" 라서.
+                // 에러가 아니라 값만 빈다: 키는 있고 값이 명시적 null 이다(FE 가 "안 온 것" 과 구분 불필요).
+                .andExpect(jsonPath("$.instructor.tagline").value(nullValue()))
+                .andExpect(jsonPath("$.instructor.bio").value(nullValue()))
+                // 계정 사실·자격은 브랜딩 소유가 아니라 그대로 남는다 — 카드가 통째로 사라지면 안 된다.
                 .andExpect(jsonPath("$.instructor.nickName").value("i5"))
-                .andExpect(jsonPath("$.instructor.tagline").value("한마디"));
+                .andExpect(jsonPath("$.instructor.isInstructor").value(true))
+                .andExpect(jsonPath("$.instructor.certs[0].organizationCode").value("AIDA"))
+                .andExpect(jsonPath("$.instructor.lessonCount").value(1));
     }
 
     @Test
