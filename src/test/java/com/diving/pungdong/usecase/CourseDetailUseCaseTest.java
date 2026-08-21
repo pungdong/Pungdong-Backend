@@ -89,8 +89,11 @@ class CourseDetailUseCaseTest {
         return jwtTokenProvider.createAccessToken(String.valueOf(a.getId()), a.getRoles());
     }
 
-    /** 승인된 강사 신청 + 자격증 1건 — 인증마크(isInstructor)·certs 의 출처. */
+    /** 승인된 강사 신청 + 자격증 1건 — 인증마크(isInstructor)·certs 의 출처. 두 번 불러도 1건. */
     private void approveAsInstructor(Account account, String disciplineCode, String organizationCode) {
+        if (applicationRepo.findByAccountIdAndDisciplineCode(account.getId(), disciplineCode).isPresent()) {
+            return;
+        }
         InstructorApplication application = InstructorApplication.builder()
                 .account(account)
                 .disciplineCode(disciplineCode)
@@ -125,8 +128,14 @@ class CourseDetailUseCaseTest {
         return objectMapper.writeValueAsString(m);
     }
 
-    /** 코스 작성(POST) → OPEN 전이. 그 위치(venueRefId)에서 이용권(ticketRef)을 평일에 쓴다. */
+    /**
+     * 코스 작성(POST) → OPEN 전이. 그 위치(venueRefId)에서 이용권(ticketRef)을 평일에 쓴다.
+     *
+     * <p><b>강사 승인을 먼저 심는다</b> — 발행(OPEN)은 그 종목의 정식 강사만 할 수 있다.
+     * 이 코스들은 전부 FREEDIVING 이다.
+     */
     private long openCourse(Account me, String venueRefId, String ticketRef) throws Exception {
+        approveAsInstructor(me, "FREEDIVING", "AIDA");
         Map<String, Object> body = new HashMap<>();
         body.put("title", "AIDA2 프리다이빙 과정");
         body.put("kind", "CERTIFICATION");
@@ -208,20 +217,61 @@ class CourseDetailUseCaseTest {
     }
 
     @Test
-    @DisplayName("I2 승인 전이면 isInstructor=false 이고 certs·lessonCount 키 자체가 없다 (인증마크는 승인에만)")
-    void i2_pending_instructor_has_no_badge() throws Exception {
-        Account inst = account("i2@pungdong.com");
+    @DisplayName("I2 승인 전 강사는 강의를 OPEN 할 수 없다 — 그래서 상세에 심사 중인 강사가 뜰 일이 없다")
+    void i2_pending_instructor_cannotPublish() throws Exception {
+        Account inst = account("i2@pungdong.com");   // 강사 신청 자체가 없는 계정
         String[] ref = seedVenueWithTicket(inst, 48000, 55000);
-        long id = openCourse(inst, ref[0], ref[1]);
 
-        mockMvc.perform(get("/courses/" + id + "/detail"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.instructor.isInstructor").value(false))
-                // 빈 배열/0 은 "자격 없는 강사"·"강의 0개 강사" 로 읽힌다 — 키를 아예 뺀다.
-                .andExpect(jsonPath("$.instructor.certs").doesNotExist())
-                .andExpect(jsonPath("$.instructor.lessonCount").doesNotExist())
-                // 원시 boolean 의 Jackson 함정 — 키가 둘로 갈라지면 안 된다.
-                .andExpect(jsonPath("$.instructor.instructor").doesNotExist());
+        // 코스 작성까지는 된다 — 검수를 기다리는 동안 준비하는 건 허용된 동선이다.
+        Map<String, Object> body = new HashMap<>();
+        body.put("title", "심사 중 과정");
+        body.put("kind", "TRIAL");
+        body.put("disciplineCode", "FREEDIVING");
+        body.put("price", 90000);
+        body.put("totalRounds", 1);
+        body.put("rounds", List.of(Map.of("description", "1회차",
+                "venues", List.of(Map.of("venueRefId", ref[0],
+                        "tickets", List.of(Map.of("ticketRef", ref[1], "daypart", "WEEKDAY")))))));
+        String created = mockMvc.perform(post("/courses").header(HttpHeaders.AUTHORIZATION, tokenFor(inst))
+                        .contentType(MediaType.APPLICATION_JSON).content(json(body)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long id = ((Number) JsonPath.read(created, "$.id")).longValue();
+
+        // 발행만 막힌다. 여기서 조용히 성공시키면 강사는 "왜 아무도 안 들어오지" 를 알 수 없다.
+        mockMvc.perform(patch("/courses/" + id + "/status").header(HttpHeaders.AUTHORIZATION, tokenFor(inst))
+                        .contentType(MediaType.APPLICATION_JSON).content(json(Map.of("status", "OPEN"))))
+                .andExpect(status().isBadRequest());
+
+        // 상세도 당연히 안 열린다(DRAFT).
+        mockMvc.perform(get("/courses/" + id + "/detail")).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("I2-1 다른 종목만 승인받았으면 그 종목 강의도 OPEN 할 수 없다 (승인은 종목별)")
+    void i2_1_approvedForAnotherDiscipline_cannotPublish() throws Exception {
+        Account inst = account("i21@pungdong.com");
+        approveAsInstructor(inst, "SCUBA", "PADI");   // 스쿠버만 승인
+        String[] ref = seedVenueWithTicket(inst, 48000, 55000);
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("title", "프리다이빙 과정");
+        body.put("kind", "TRIAL");
+        body.put("disciplineCode", "FREEDIVING");    // 승인받지 않은 종목
+        body.put("price", 90000);
+        body.put("totalRounds", 1);
+        body.put("rounds", List.of(Map.of("description", "1회차",
+                "venues", List.of(Map.of("venueRefId", ref[0],
+                        "tickets", List.of(Map.of("ticketRef", ref[1], "daypart", "WEEKDAY")))))));
+        String created = mockMvc.perform(post("/courses").header(HttpHeaders.AUTHORIZATION, tokenFor(inst))
+                        .contentType(MediaType.APPLICATION_JSON).content(json(body)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long id = ((Number) JsonPath.read(created, "$.id")).longValue();
+
+        mockMvc.perform(patch("/courses/" + id + "/status").header(HttpHeaders.AUTHORIZATION, tokenFor(inst))
+                        .contentType(MediaType.APPLICATION_JSON).content(json(Map.of("status", "OPEN"))))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -235,6 +285,8 @@ class CourseDetailUseCaseTest {
         mockMvc.perform(get("/courses/" + id + "/detail"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.instructor.isInstructor").value(true))
+                // 원시 boolean 의 Jackson 함정 — 키가 둘로 갈라지면 안 된다.
+                .andExpect(jsonPath("$.instructor.instructor").doesNotExist())
                 .andExpect(jsonPath("$.instructor.certs[0].disciplineCode").value("FREEDIVING"))
                 .andExpect(jsonPath("$.instructor.certs[0].organizationCode").value("AIDA"))
                 .andExpect(jsonPath("$.instructor.lessonCount").value(1));

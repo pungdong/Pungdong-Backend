@@ -77,6 +77,8 @@ public class EnrollmentService {
     private final VenueRefResolver venueRefResolver;
     private final VenueEquipmentService equipmentService;
     private final BookableSlotDeriver slotDeriver;
+    /** 공개·판매는 그 종목 승인 강사만. 슬롯 피커(EnrollmentOptionsService)와 같은 조건. */
+    private final com.diving.pungdong.course.InstructorApprovalPolicy instructorApprovalPolicy;
     private final SessionCleaner sessionCleaner;
     private final SessionOverlapGuard overlapGuard;
     private final com.diving.pungdong.global.sitesettings.SiteSettingsProvider siteSettings;
@@ -137,7 +139,8 @@ public class EnrollmentService {
         Course course = enrollment.getCourse();
         // 다음 회차를 새로 잡는 건 새 일정을 만드는 일이라 조치된 강의에서는 막는다.
         // (이미 확정·결제된 회차는 그대로 살아 있다 — 조치가 거래를 끊지는 않는다.)
-        if (course == null || course.getStatus() != CourseStatus.OPEN || course.isBlocked()) {
+        if (course == null || course.getStatus() != CourseStatus.OPEN || course.isBlocked()
+                || !instructorApprovalPolicy.isApproved(course)) {
             throw new BadRequestException();
         }
         Account instructor = requireInstructor(course);
@@ -938,11 +941,16 @@ public class EnrollmentService {
      *
      * <p>차단은 강사가 만질 수 없는 축이라 여기서 따로 본다({@code CourseStatus} 로는 표현되지 않는다 —
      * {@code Course.blockedAt} Javadoc). 없는 것으로 취급해 400 을 낸다(존재 숨김).
+     *
+     * <p><b>강사 승인도 여기서 본다.</b> 발행 시점에 막아도 <b>열어 둔 뒤 반려된</b> 경로가 남는다 —
+     * 반려는 {@code CourseStatus} 를 건드리지 않으므로 그 강의는 계속 OPEN 이다. 돈이 오가는 문이라
+     * 조회(둘러보기·상세)와 같은 조건을 여기서도 확인한다({@code course.InstructorApprovalPolicy}).
      */
     private Course openCourse(Long courseId) {
         return courseRepo.findById(courseId)
                 .filter(c -> c.getStatus() == CourseStatus.OPEN)
                 .filter(c -> !c.isBlocked())
+                .filter(instructorApprovalPolicy::isApproved)
                 .orElseThrow(ResourceNotFoundException::new);
     }
 

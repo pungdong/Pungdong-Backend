@@ -19,6 +19,7 @@ import com.diving.pungdong.identityverification.IdentityVerificationJpaRepo;
 import com.diving.pungdong.identityverification.IdentityVerificationStatus;
 import com.diving.pungdong.instructorapplication.InstructorApplication;
 import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
+import com.diving.pungdong.support.InstructorApprovalFixture;
 import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
 import com.diving.pungdong.venue.*;
 import com.diving.pungdong.venue.equipment.VenueEquipmentExtension;
@@ -134,11 +135,13 @@ class EnrollmentUseCaseTest {
         return jwtTokenProvider.createAccessToken(String.valueOf(a.getId()), a.getRoles());
     }
 
+    /**
+     * 정식 강사로 만든다. 예전엔 {@code SUBMITTED} 를 심었는데, 가용시간 게이트가 "신청 보유" 만 봐서
+     * 그걸로 충분했기 때문이다 — 그러나 <b>강의를 OPEN 하고 학생이 신청·결제하려면 승인이 필요하다</b>
+     * ({@code course.InstructorApprovalPolicy}). 승인 전 강사의 강의는 애초에 팔리면 안 된다.
+     */
     private void enterInstructorTrack(Account a) {
-        applicationRepo.save(InstructorApplication.builder()
-                .account(a).disciplineCode("FREEDIVING")
-                .status(InstructorApplicationStatus.SUBMITTED)
-                .submittedAt(OffsetDateTime.now(ZoneOffset.UTC)).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
+        InstructorApprovalFixture.approveFreediving(applicationRepo, a);
     }
 
     /** 잠실풀 — 일반권, 평일·주말 FIXED 블록 09–12·14–17(둘 다 fee 15,000 → 날짜 무관 결정적). */

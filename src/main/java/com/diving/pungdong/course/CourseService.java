@@ -53,6 +53,8 @@ public class CourseService {
     private final SiteSettingsProvider siteSettings;
     /** 공개 상세의 강사 카드 합성. 구현은 {@code branding} 에 있다 — {@link InstructorSummaryProvider} 참고. */
     private final InstructorSummaryProvider instructorSummaryProvider;
+    /** 공개·판매는 그 종목 승인 강사만. 준비(생성·수정·일정)는 게이트하지 않는다. */
+    private final InstructorApprovalPolicy instructorApprovalPolicy;
 
     @Transactional
     public CourseResponse create(Account me, CourseCreateRequest req) {
@@ -87,6 +89,8 @@ public class CourseService {
                 .filter(c -> c.getStatus() == CourseStatus.OPEN)
                 .filter(c -> !c.isBlocked()) // 어드민 조치 — 둘러보기에서만 빼면 상세 URL 이 우회로가 된다
                 .filter(c -> showSeeded || !c.isSeeded()) // 데모 가림 시 상세도 숨김(존재 숨김)
+                // 승인 전(또는 반려된) 강사의 강의 — 둘러보기에서만 빼면 이 URL 이 우회로가 된다.
+                .filter(instructorApprovalPolicy::isApproved)
                 .orElseThrow(ResourceNotFoundException::new);
         List<String> refs = course.getRounds().stream()
                 .flatMap(r -> r.getVenues().stream())
@@ -134,9 +138,16 @@ public class CourseService {
         }
     }
 
+    /**
+     * 상태 전이. <b>OPEN(발행) 만 승인 게이트가 붙는다</b> — DRAFT/CLOSED 로 내리는 건 언제든 된다.
+     * 승인 전 강사가 강의를 만들어 두는 것 자체는 막지 않는다({@link InstructorApprovalPolicy} 참고).
+     */
     @Transactional
     public CourseResponse updateStatus(Account me, Long id, CourseStatus status) {
         Course course = requireOwned(me, id);
+        if (status == CourseStatus.OPEN) {
+            instructorApprovalPolicy.requireApprovedToPublish(course);
+        }
         course.setStatus(status);
         course.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         return CourseResponse.from(course, equipmentMap(me, course));

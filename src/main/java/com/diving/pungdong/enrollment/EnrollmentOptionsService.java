@@ -68,6 +68,8 @@ public class EnrollmentOptionsService {
     private final VenueRefResolver venueRefResolver;
     private final VenueEquipmentService equipmentService;
     private final BookableSlotDeriver slotDeriver;
+    /** 공개·판매는 그 종목 승인 강사만 — 제출 경로(EnrollmentService.openCourse)와 같은 조건. */
+    private final com.diving.pungdong.course.InstructorApprovalPolicy instructorApprovalPolicy;
 
     /** 1회차 신청 옵션 — 코스 첫 만남 회차의 교집합. */
     public EnrollmentOptionsResponse getOptions(Account student, Long courseId, LocalDate today) {
@@ -76,6 +78,7 @@ public class EnrollmentOptionsService {
                 // 슬롯 피커와 제출(EnrollmentService.openCourse)이 같은 조건을 봐야 한다 —
                 // 어긋나면 고를 수 있는 슬롯이 보이는데 제출만 400 이 난다.
                 .filter(c -> !c.isBlocked())
+                .filter(instructorApprovalPolicy::isApproved)
                 .orElseThrow(ResourceNotFoundException::new);
         return buildOptions(course.getInstructor(), course, firstMeetingRound(course), today, null);
     }
