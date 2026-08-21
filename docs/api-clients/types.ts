@@ -776,6 +776,68 @@ export interface SuggestedInstructor {
   disciplineCodes: string[];
 }
 
+// ── 강사 둘러보기 (instructor browse) — 홈 "풍덩 공식 강사" 더보기 ──
+// docs/features/course-discovery.md (정책) · docs/architecture/branding.md (구현)
+// GET /instructors/browse — 공개(비로그인 가능). 페이지네이션(PagedModel/HAL), size 상한 50 / 기본 20.
+//
+// ★ **강사 목록이 셋이다. 모수가 전부 다르다** — 화면 하나에서 섞어 쓰면 숫자가 어긋난다.
+//   /instructors/public    승인 강사 전부. **발행을 안 본다** → 눌러도 400 인 카드가 섞인다. "몇 명이 검수를 통과했나".
+//   /instructors/suggested 승인 ∧ 발행 중 **무작위 N명**. 매번 다시 뽑는다(페이지네이션 불가).
+//   /instructors/browse    승인(그 종목) ∧ 발행. **필터·검색·정렬·페이지네이션이 되는 유일한 목록.** ← 더보기 화면은 이것
+//
+// ★ 카드는 반드시 열린다 — 모수가 "발행된 프로필" 이라 `/instructors/{nickName}` 이 400 나지 않는다.
+
+/** 강사 둘러보기 정렬. 평점순은 리뷰 도메인이 없어 아직 없다(생기면 추가). */
+export type InstructorBrowseSort = 'LATEST' | 'COURSE_COUNT_DESC';
+
+/**
+ * GET /instructors/browse 쿼리 파라미터. 배열은 반복 키(`?organizationCodes=AIDA&organizationCodes=PADI`).
+ *
+ * ★ **지역·자격레벨 필터가 없다** — 강사의 활동지역은 자유 텍스트(`locationLabel`)라 `Region` 으로 파생할 수
+ *   없고, 강사 쪽엔 자격 등급 필드 자체가 없다(`CertLevel` 은 강의 전용). 강의 둘러보기와 필터 축이 다르다.
+ * ★ `sort` 에는 위 enum 값만. Pageable 형식(`?sort=id,asc`)은 무시가 아니라 **400**(강의 둘러보기와 동일).
+ */
+export interface InstructorBrowseParams {
+  disciplineCode: string; // 필수 — 누락/공백이면 400. 없는 코드는 400 이 아니라 빈 결과(200)
+  keyword?: string; // 강사 nickName 부분 일치(대소문자 무시)
+  organizationCodes?: string[]; // 자격 단체. **요청 종목의 자격증만** 본다(스쿠버 AIDA 는 프리다이빙 필터에 안 걸림)
+  hasOpenCourse?: boolean; // true 면 그 종목에 공개중 강의가 1개 이상인 강사만. false 는 보내지 말고 생략할 것
+  sort?: InstructorBrowseSort; // 기본 LATEST
+  page?: number; // 0-base
+  size?: number; // 기본 20, 상한 50
+}
+
+/** 강사 둘러보기 카드 1칸. */
+export interface InstructorBrowseCard {
+  /** 공개 프로필 진입 키. `/instructors/{nickName}`. **id 는 오지 않는다**(anti-IDOR). */
+  nickName: string;
+  /** 미설정이면 null. **키가 사라지지 않는다** — `null` 로 온다. */
+  avatarUrl: string | null;
+  /** 한 줄 소개(≤60자). 유저가 비웠으면 null. */
+  tagline: string | null;
+  /**
+   * 활동지역 자유 텍스트(≤60자, 예 "잠실 · 송파").
+   * ⚠️ **`Region` 이 아니다** — 파싱하거나 지역 필터·칩으로 쓰지 말 것. 표시 전용.
+   */
+  locationLabel: string | null;
+  /** 그 강사의 **승인 종목 전부**(요청 종목만이 아니다). 최소 1개. */
+  disciplineCodes: string[];
+  /** **요청 종목** 승인 신청의 자격증 단체(중복 제거·정렬). 자격증이 필요 없는 종목이면 `[]`. */
+  organizationCodes: string[];
+  /**
+   * **요청 종목**의 공개중 강의 수. 0 가능.
+   * 세는 기준이 `GET /courses/browse` 가 실제로 보여주는 것과 같다(OPEN·미차단·데모 가림 반영) —
+   * 그래서 "강의 3" 카드를 눌러 그 강사 강의를 찾으면 3건이 나온다.
+   */
+  openCourseCount: number;
+}
+
+/** GET /instructors/browse 응답 — 카드는 `_embedded.instructors`(빈 결과면 키 없음), 메타는 `page`. */
+export interface InstructorBrowseResponse extends HalLinks {
+  _embedded?: { instructors: InstructorBrowseCard[] };
+  page: { size: number; totalElements: number; totalPages: number; number: number };
+}
+
 // ── 브랜딩 페이지 / 내 프로필 (branding) — docs/features/account-branding.md ──
 // 강사에겐 "브랜딩 페이지", 일반 유저에겐 "내 프로필". 같은 스키마·같은 엔드포인트를 쓰고 응답 필드만 role 로 갈린다.
 // ⚠️ 공개 URL 식별자는 id 가 아니라 nickName. FE 는 encodeURIComponent 로 인코딩해 보낸다.
