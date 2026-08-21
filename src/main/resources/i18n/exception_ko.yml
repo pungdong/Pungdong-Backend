@@ -34,6 +34,10 @@ badRequest:
   code: "-1011"
   msg: "보내신 요청 정보가 옳지 않습니다."
 
+# 역직렬화/파라미터 변환 단계 형식 오류 — code 는 badRequest(-1011) 공유, msg 만 필드를 특정한다. {0}=필드 경로.
+invalidFieldFormat:
+  msg: "{0} 값의 형식이 올바르지 않습니다."
+
 emailDuplication:
   code: "-1012"
   msg: "이메일이 중복되었습니다"

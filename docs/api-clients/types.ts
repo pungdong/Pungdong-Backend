@@ -1518,10 +1518,15 @@ export interface BlockedAccountResponse {
 //   · GET /venue-favorites · POST /venue-favorites · DELETE /venue-favorites?venueRefId=
 // VenueResponse 는 custom(scope=CUSTOM)·official(scope=OFFICIAL) 공용 — builder 는 둘이 섞여 온다.
 
-/** 시간블록 1구간 (FIXED 모드의 "부"). 수강생이 이 중 하나를 고른다. */
+/**
+ * 시간블록 1구간 (FIXED 모드의 "부"). 수강생이 이 중 하나를 고른다.
+ * 하루 끝은 "23:59:59" — 커스텀 위치 생성 시 23:59 이상 끝은 BE 가 23:59:59 로 정규화(openEnd 도 동일).
+ * 강사 coverage 끝(CoverageRequest.endTime)과 같은 표현이어야 "블록 ⊆ coverage" 슬롯 판정이 안 어긋난다.
+ * OFFICIAL(Sanity) 블록은 스키마가 "HH:mm" 이라 최대 "23:59:00" — 항상 그 이하라 포함 성립.
+ */
 export interface VenueTimeBlock {
   startTime: string; // "08:00:00"
-  endTime: string; // "11:00:00"
+  endTime: string; // "11:00:00" · 하루 끝 "23:59:59"
   sortOrder: number;
 }
 
@@ -2109,6 +2114,12 @@ export interface CoverageRequest {
   dayOfWeeks?: Weekday[];
   /** "HH:mm" 또는 "HH:mm:ss". */
   startTime: string;
+  /**
+   * "HH:mm" 또는 "HH:mm:ss". ★ **하루 끝 = "23:59:59"** — BE 의 LocalTime 은 24:00 을 표현 못 해 `"24:00"` 은
+   * 400(-1011, msg "endTime 값의 형식이 올바르지 않습니다."). 타임라인을 끝까지 끌면 "23:59:59" 로 보내고,
+   * 응답의 "23:59:59" 는 격자 끝(24)으로 그릴 것. 23:59 이상으로 끝나는 값은 BE 가 전부 23:59:59 로 정규화해
+   * 저장·응답한다(coverage·session·커스텀 위치 블록 공통) — 끝 표현이 섞여 슬롯 ⊆ 판정이 어긋나는 걸 막는다.
+   */
   endTime: string;
 }
 
@@ -2130,6 +2141,7 @@ export interface CoverageRangeResponse {
 export interface SessionCreateRequest {
   date: string;
   startTime: string;
+  /** 하루 끝은 "23:59:59" (CoverageRequest.endTime 과 같은 규약 — "24:00" 은 400, 23:59~ 는 23:59:59 로 정규화). */
   endTime: string;
   /** 위치 토큰(선택) — "CUSTOM:<pk>"|"OFFICIAL:<sanityId>". 위치 없는 점유면 생략. */
   venueRefId?: string;
@@ -3063,11 +3075,22 @@ export const ErrorCode = {
   // ── 도메인 코드 (아래는 전부 HTTP 400) ──
   NO_PERMISSIONS: -1008,
   RESOURCE_NOT_FOUND: -1009, // 없음/비소유 통일(존재 숨김)
-  /** 범용 400. reschedule/prepare 등에서 여러 실패 사유가 이 코드를 공유하니 이걸로 사유를 가리지 말 것. */
+  /**
+   * 범용 400. reschedule/prepare 등에서 여러 실패 사유가 이 코드를 공유하니 이걸로 사유를 가리지 말 것.
+   * ★ **형식 오류도 이 코드**다 — `@Valid` 실패뿐 아니라 JSON 역직렬화/쿼리 파라미터 변환 단계의 실패
+   *   (예: `endTime: "24:00"`, `?from=2030-13-99`)도 Spring 기본 `{timestamp,status,error,path}` 가 아니라
+   *   이 envelope 로 온다. msg = `"<field> 값의 형식이 올바르지 않습니다."` (필드 경로는 `a.b[2].c` 꼴,
+   *   값은 에코 안 함). JSON 자체가 깨져 필드를 특정 못 하면 일반 문구. 사용자용 한국어라 그대로 표시 가능.
+   */
   BAD_REQUEST: -1011,
   EMAIL_DUPLICATION: -1012,
   COVERAGE_HAS_SESSION: -1014,
-  /** 그 시간에 강사의 다른 일정이 있음. 일정 추가/신청/일정변경(reschedule·pick-slot) 공통. */
+  /**
+   * 그 시간에 강사의 다른 일정이 있음. 일정 추가/신청/일정변경(reschedule·pick-slot) 공통.
+   * ★ body 는 `SessionOverlapResult` — `conflicts[]` 에 겹친 기존 일정(sessionId·date·startTime·endTime·
+   *   venueRefId·venueName)이 실려 온다. "○○ 14:00–16:00 일정과 겹칩니다" 로 안내하고, 강사 캘린더에선
+   *   `sessionId` 로 그 슬롯 상세(GET /instructor/availability/sessions/{id})에 바로 보낼 수 있다.
+   */
   SESSION_TIME_OVERLAP: -1015,
   /**
    * 옮기려는 슬롯이 지금보다 **비싸서** 추가 결제 없이는 못 바꿈.
@@ -3123,6 +3146,27 @@ export const ErrorCode = {
  */
 export interface RateLimitedResult extends CommonResult {
   retryAfterSeconds: number;
+}
+
+/**
+ * -1015 SESSION_TIME_OVERLAP 의 400 body — 공통 실패 envelope 에 **겹친 기존 일정 목록**을 더한다.
+ * 일정 추가(POST /instructor/availability/sessions)·수강신청·일정변경·제안 선택 어디서 나오든 같은 모양.
+ * `conflicts` 는 시작 시각 순, 비어 있지 않다.
+ */
+export interface SessionOverlapResult extends CommonResult {
+  conflicts: ConflictingSession[];
+}
+
+/** 겹친 일정 한 건. venueName 은 위치 미지정/해석 실패면 null(venueRefId 토큰은 보존). */
+export interface ConflictingSession {
+  sessionId: number;
+  /** "YYYY-MM-DD" */
+  date: string;
+  /** "HH:mm:ss" */
+  startTime: string;
+  endTime: string;
+  venueRefId: string | null;
+  venueName: string | null;
 }
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
