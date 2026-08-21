@@ -14,6 +14,8 @@
   `showOnProfile`). **숨김 토글은 여기 없다** — `PATCH /community/posts/{id}/visibility` 하나다.
 - **`BrandingImageController`** — `POST /branding-images` (인증). 2-phase 업로드 1단계.
 - **서비스** — `BrandingService`(프로필 합성·편집) / `BrandingPostService`(목록·상세·CRUD·미디어 lifecycle).
+- **`PublicProfileResolver`** — 닉네임 → 주인 + (있다면) 프로필 행. **프로필 응답과 공개 그리드가 이걸 공유한다** —
+  갈리면 프로필은 열리는데 그리드만 400 이 나는 식으로 어긋난다.
 - **엔티티** — `AccountBranding` · `BrandingRecord` · `BrandingPost` · `BrandingPostMedia` · `BrandingPostTag`
   + `Medal`·`RecordEventCode`·`BrandingMediaKind` enum.
 - **`storage/`** — `BrandingImageStorage`(S3/Local 게이트). 프로필·리뷰 이미지처럼 `S3Uploader` 를 직접 쓰면
@@ -23,12 +25,15 @@
 
 1. **강사 전용 기능이 아니다.** 일반 유저도 "내 프로필"로 똑같이 쓴다(사용자 결정 D2). 그래서 테이블이 `instructor_branding` 이 아니라 **`account_branding`** 이고, `/branding/**` 매처가 `hasRole("INSTRUCTOR")` 가 아니라 **`authenticated()`** 다. role 로 막으면 (a) 일반 유저가 못 쓰고 (b) **승인 전(pending/rejected) 강사의 편집 화면이 403** 이 된다.
 2. **조회는 절대 생성하지 않는다.** `GET /branding/me` 는 미생성이면 `{exists:false}` 를 돌려줄 뿐이다. 생성은 첫 쓰기(`PATCH /branding/me`, 후속 PR 의 게시물 작성)가 한다 — GET 에 side effect 가 붙으면 프리페치·재시도·캐시가 전부 쓰기를 유발한다.
+2-1. ⚠️ **그런데 "행이 없다" 는 "페이지가 없다" 가 아니다**(2026-08-21). 공개 프로필은 **모든 살아있는 계정에 있고**, 행이 없으면 빈 프로필이 **200** 으로 나간다. 행이 소유하는 건 tagline·bio·활동지역·기록·게시물뿐이고 닉네임·아바타·인증마크·자격·강의 수는 전부 파생이라, **행 없이도 빈 프로필이 완전하게 계산된다.** 그래서 기본 프로필은 저장이 아니라 파생이고 위 규칙(조회는 생성하지 않는다)과 충돌하지 않는다 — **가입 시 행을 미리 만드는 식으로 "고치지" 말 것.**
+   **400 은 셋뿐**: 없는 닉네임·탈퇴 / **유저가 내린 비공개**(`is_published=false` — "안 적었다" 와 구분한다) / 상대가 나를 차단. 이 판정의 단일 출처는 `PublicProfileResolver`.
+   왜 바꿨나: **댓글만 단 유저는 브랜딩 행이 안 생기는데**(글 작성은 upsert 하지만 `CommunityCommentService` 는 안 한다) 댓글 응답엔 닉네임이 실리고 계약은 "그대로 `/instructors/{nickName}` 에 쓴다" 였다 → 클릭하면 400. 정책·히스토리는 [features/account-branding.md](../../../../../../../docs/features/account-branding.md) D10.
 3. **`PATCH` 의 "키 생략"과 "명시적 null" 은 다른 뜻이다.** 생략 = 변경 없음, `null` = 비우기. `BrandingUpdateRequest` 가 setter 호출 여부로 이를 구분한다(`*Present` 플래그, `@JsonIgnore`).
 4. **응답의 "없음"도 두 종류다.** Phase 2 미구현 필드는 **키 생략**, 유저가 지운 값은 **`null` 명시**. 강사 전용 필드(`certs`·`disciplineCodes`)만 `@JsonInclude(NON_NULL)` 을 필드 단위로 건다.
 5. **`boolean isX` 는 Jackson 이 `x` 로 직렬화한다.** `isInstructor`·`isPublished` 에 `@JsonProperty` 를 명시한 이유 — 빼면 계약이 깨진다.
    ⚠️ **그런데 `@JsonProperty` 만으로는 부족하고, 원시 `boolean` 이면 오히려 키가 둘로 늘어난다.** Lombok 이 원시 `boolean isInstructor` 에 대해 만드는 게터는 `isInstructor()` 이고 Jackson 은 이걸 프로퍼티 **`instructor`** 로 본다 — 필드의 `@JsonProperty("isInstructor")` 와 **서로 다른 두 프로퍼티**가 되어 `{"instructor":true,"isInstructor":true}` 가 나간다. 래퍼 `Boolean` 이면 게터가 `getIsInstructor()` 라 프로퍼티명이 `isInstructor` 로 일치해 합쳐진다 — `MyBrandingResponse` 가 멀쩡한 게 이 차이 때문이지 설계가 아니다.
    **원시 boolean 을 쓸 거면 필드명에서 `is` 를 떼고**(`private boolean instructor`) `@JsonProperty("isInstructor")` 를 병기한다. `community` 의 `CommunityAuthorResponse` 가 그 형태다.
-   🔴 **`BrandingProfileResponse.isInstructor` 는 아직 원시 boolean 이라 실제로 키가 둘 나간다**(`GET /instructors/{nickName}` 로 실측). REST Docs 가 `relaxedResponseFields` 라 문서화 안 된 여분 키를 잡아주지 못했다.
+   ✅ **해소됨**: `BrandingProfileResponse` 는 필드명이 `instructor` + `@JsonProperty("isInstructor")` 라 키가 하나다. (한때 실제로 둘 나갔고, REST Docs 가 `relaxedResponseFields` 라 여분 키를 잡아주지 못했다 — 되돌리지 말 것.)
 5-1. ⚠️ **`category` 와 `title` 은 독립이다 — "함께 있거나 함께 없다" 는 보장이 아니다.**
    두 컬럼 다 nullable 이고(`V19`) 묶는 제약이 없다. `BrandingPostRequest.title` 은 `category` 와
    **별개의 선택 필드**로 설계돼 있어, 클라이언트가 `{mediaUrls, title}` 만 보내면 title-only 행이 생긴다.
@@ -71,4 +76,4 @@
 ## 안전망 테스트
 
 `src/test/.../usecase/BrandingUseCaseTest` — 실 H2 + 실 시큐리티.
-C* 생성 규칙(조회가 생성하지 않는다 / 첫 PATCH 가 생성) · S* 성공 · I* 강사·일반 분기 · **E* 닉네임 인코딩(한글·공백·`.`·`+` 성공, `/` 거부)** · V* 검증 · R* 권한(+ `/instructors/public` 이 가려지지 않는지).
+C* 생성 규칙(조회가 생성하지 않는다 / 첫 PATCH 가 생성) · **P* 기본 프로필(행 없어도 200 · 그리드 빈 페이지 · 프로필 없는 승인 강사의 인증마크 · 탈퇴는 400)** · S* 성공 · I* 강사·일반 분기 · **E* 닉네임 인코딩(한글·공백·`.`·`+` 성공, `/` 거부)** · V* 검증 · R* 권한(+ `/instructors/public` 이 가려지지 않는지).

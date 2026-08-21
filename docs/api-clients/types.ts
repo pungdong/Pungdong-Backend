@@ -740,8 +740,9 @@ export interface PublicInstructorResponse {
   avatarUrl?: string | null;   // 프로필 사진(미설정이면 없음/null → FE 기본 아바타)
   disciplineCodes: string[];   // 승인 종목들, 예 ['FREEDIVING','SCUBA']
 }
-// ⚠️ 이 목록은 **브랜딩 프로필 발행 여부를 보지 않는다** — 카드를 눌러 /instructors/{nickName} 로 가면
-//    미발행 강사는 400 이 난다. "누를 수 있는 강사"가 필요하면 아래 /instructors/suggested 를 쓴다.
+// ℹ️ 이 목록은 브랜딩 프로필 발행 여부를 보지 않는다. 예전엔 그래서 "눌러도 400 인 카드"가 생겼지만,
+//    이제 프로필은 모든 계정에 있어 카드는 항상 열린다(유저가 직접 비공개로 내린 경우만 400).
+//    "내용이 있는 강사"를 원하면 여전히 아래 /instructors/suggested 쪽이 낫다.
 
 /**
  * GET /instructors/suggested?limit=5 (비로그인) — **무작위 추천 강사**.
@@ -750,8 +751,9 @@ export interface PublicInstructorResponse {
  *
  * ⚠️ **매 요청 다시 뽑는다.** 새로고침하면 다른 강사가 온다(한 명만 계속 노출되면 나머지에게 순서가 안 온다).
  *    캐싱하지 말 것 — 캐싱하면 이 위젯의 목적이 사라진다.
- * ⚠️ **모집단이 /instructors/public 과 다르다**: 승인 + **프로필 발행**까지 된 강사만. 그래서 카드의
- *    nickName 은 항상 `/instructors/{nickName}` 로 열린다(갈 곳 없는 카드가 생기지 않는다).
+ * ⚠️ **모집단이 /instructors/public 과 다르다**: 승인 + **프로필 발행**까지 된 강사만. 프로필 행은 첫
+ *    쓰기(프로필 편집·글 작성)로 생기므로 "한 번이라도 뭔가 남긴 강사" 의 근사치다 — 지금은 어느 쪽이든
+ *    카드가 열리므로(모든 계정에 프로필이 있다) 이 조건은 도달 가능성이 아니라 **내용 있음**의 기준이다.
  * ⚠️ 강사가 limit 보다 적으면 **있는 만큼만** 온다. 0명이면 `instructors: []` + `totalCount: 0` (에러가 아니다).
  * ⚠️ **토큰을 실으면 차단한 강사가 빠진다**(`totalCount` 도 줄어든다). 비로그인 응답과 다를 수 있다.
  * limit 상한 20(초과하면 20 으로 잘린다). 기본 5.
@@ -800,10 +802,18 @@ export interface BrandingCertBadge {
 
 /**
  * GET /instructors/{nickName} (비로그인) — 공개 브랜딩 페이지 / 내 프로필.
- * 없는 닉네임·미발행·탈퇴는 모두 400(존재 숨김) — 이 레포는 404 를 쓰지 않는다.
+ *
+ * ✅ **모든 살아있는 계정에 프로필이 있다**(2026-08-21). 프로필을 만든 적 없는 사람도 **200** 이고,
+ *    tagline·bio·locationLabel 이 null · records 가 [] · stats.posts 가 0 인 **빈 프로필**이 온다.
+ *    닉네임·아바타·isInstructor·certs 는 브랜딩과 무관한 값이라 그대로 채워진다.
+ *    → **"프로필 없는 사용자" 폴백 분기는 더 필요 없다.** 커뮤니티 작성자·댓글 작성자·강의 상세의 강사를
+ *      클릭하는 모든 경로가 항상 열린다(예전엔 댓글만 단 유저를 누르면 400 이었다).
+ *
+ * ⚠️ 그래도 **400 인 경우는 셋**: 없는 닉네임·탈퇴 계정 / **유저가 직접 비공개로 내린 프로필**
+ *    (PATCH /branding/me/publish 로 false) / 상대가 나를 차단. (이 레포는 404 를 쓰지 않는다.)
  *
  * ⚠️ 필드가 "없다"는 두 가지 뜻이다:
- *   - tagline·bio·locationLabel 은 유저가 지우면 null 이 명시적으로 내려온다
+ *   - tagline·bio·locationLabel 은 유저가 지웠거나 아직 안 적었으면 null 이 명시적으로 내려온다
  *   - disciplineCodes·certs 는 강사가 아니면 키 자체가 빠진다(undefined)
  */
 export interface BrandingProfileResponse extends HalLinks {
@@ -866,7 +876,9 @@ export interface BrandingProducts {
  *
  * ⚠️ 공개 응답(BrandingProfileResponse)의 필드를 그대로 포함한다 — 오너 뷰가 퍼블릭과 같은 명함이라서.
  *    그래서 오너 화면을 이 호출 하나로 그릴 수 있고, 쓰기 응답에서 nickName을 얻어 캐시 무효화에 쓸 수 있다.
- *    특히 stats.students는 공개 응답이 미발행 시 400이라 여기서만 얻을 수 있다.
+ *    특히 stats.students는 유저가 비공개로 내린 상태에서 공개 응답이 400이라 여기서만 얻을 수 있다.
+ * ⚠️ exists:false 는 "페이지가 없다"가 아니라 **"아직 아무것도 안 적었다"** 다 — 그 계정의 공개 프로필은
+ *    이미 열린다(빈 프로필). 이 값은 오너 화면의 온보딩 CTA 분기용이다.
  */
 export interface MyBrandingResponse extends HalLinks {
   exists: boolean;

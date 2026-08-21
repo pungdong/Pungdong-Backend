@@ -21,6 +21,7 @@ import com.diving.pungdong.instructorapplication.InstructorApplication;
 import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
 import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
 import lombok.RequiredArgsConstructor;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -55,19 +56,23 @@ public class BrandingService {
     private final SiteSettingsProvider siteSettings;
     /** 공개 프로필의 차단 상태 판정. */
     private final BlockService blockService;
+    /** 닉네임 → 주인 + (있다면) 프로필 행. 공개 그리드와 같은 규칙을 공유한다. */
+    private final PublicProfileResolver publicProfileResolver;
 
     /* ─── 공개 조회 ───────────────────────────────────────── */
 
     /**
-     * 공개 프로필. 발행되지 않았거나 없는 닉네임이면 <b>400(존재 숨김)</b> — 이 레포는 404 를 쓰지 않는다
+     * 공개 프로필. <b>모든 계정에 있다</b> — 아직 아무것도 적지 않았으면 빈 프로필이 200 으로 나간다
+     * (tagline·bio·활동지역·기록만 비고 닉네임·아바타·인증마크·자격은 채워진다). 근거와 "그래도 400 인
+     * 셋"(없는 닉네임·탈퇴 / 유저가 내린 비공개 / 상대가 나를 차단)은 {@link PublicProfileResolver}.
+     *
+     * <p>400 을 쓰는 이유는 이 레포가 404 를 쓰지 않기 때문이다
      * ({@code ResourceNotFoundException} → 400, {@code GET /courses/{id}/detail} 선례).
      */
     public BrandingProfileResponse publicProfile(String nickName, Account viewer) {
-        AccountBranding branding = brandingRepo.findPublishedByNickName(nickName).stream()
-                .findFirst()
-                .orElseThrow(ResourceNotFoundException::new);
-
-        Account owner = branding.getAccount();
+        PublicProfileResolver.PublicProfile resolved = publicProfileResolver.resolve(nickName);
+        Account owner = resolved.getOwner();
+        AccountBranding branding = resolved.getBranding();
 
         // 차단의 두 방향을 다르게 답한다.
         //  · 상대가 나를 차단 → 400(존재 숨김). 차단당한 사실을 알려주지 않는다.
@@ -85,9 +90,10 @@ public class BrandingService {
         return BrandingProfileResponse.builder()
                 .nickName(owner.getNickName())
                 .avatarUrl(avatarUrlOf(owner))
-                .tagline(branding.getTagline())
-                .bio(branding.getBio())
-                .locationLabel(branding.getLocationLabel())
+                // 아직 아무것도 안 적은 계정은 여기 넷만 빈다.
+                .tagline(branding == null ? null : branding.getTagline())
+                .bio(branding == null ? null : branding.getBio())
+                .locationLabel(branding == null ? null : branding.getLocationLabel())
                 .instructor(isInstructor)
                 // 강사가 아니면 null → 키 자체가 빠진다(D2).
                 .disciplineCodes(isInstructor ? disciplineCodesOf(approved) : null)
@@ -215,10 +221,16 @@ public class BrandingService {
                 .build();
     }
 
-    /** 게시물 수는 공개분만 센다(숨긴 글은 남에게도 나에게도 "올린 글" 로 안 보이는 게 일관적이다). */
-    private BrandingStats statsOf(AccountBranding branding, Account owner, boolean isInstructor) {
+    /**
+     * 게시물 수는 공개분만 센다(숨긴 글은 남에게도 나에게도 "올린 글" 로 안 보이는 게 일관적이다).
+     *
+     * <p>{@code branding} 이 null 이면 아직 아무것도 적지 않은 계정 — 글이 있을 수 없으니 0 이다
+     * (수강생 수는 프로필 행과 무관하게 나온다).
+     */
+    private BrandingStats statsOf(@Nullable AccountBranding branding, Account owner, boolean isInstructor) {
         return BrandingStats.builder()
-                .posts((int) postRepo.countByBranding_IdAndIsHiddenFalseAndShowOnProfileTrue(branding.getId()))
+                .posts(branding == null ? 0
+                        : (int) postRepo.countByBranding_IdAndIsHiddenFalseAndShowOnProfileTrue(branding.getId()))
                 .students(isInstructor ? studentCountOf(owner.getId()) : null)
                 .build();
     }
@@ -284,7 +296,11 @@ public class BrandingService {
                 .collect(Collectors.toList());
     }
 
-    private List<RecordDto> recordDtosOf(AccountBranding branding) {
+    /** {@code branding} 이 null 이면 빈 배열 — 키를 빼면 FE 가 배열로 다루다 터진다. */
+    private List<RecordDto> recordDtosOf(@Nullable AccountBranding branding) {
+        if (branding == null) {
+            return List.of();
+        }
         return branding.getRecords().stream()
                 .map(record -> RecordDto.builder()
                         .medal(record.getMedal())

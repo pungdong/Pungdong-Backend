@@ -64,16 +64,23 @@ sequenceDiagram
   participant V as 방문자(비로그인)
   participant PBC as PublicBrandingController
   participant BS as BrandingService
+  participant PPR as PublicProfileResolver
   participant IA as InstructorApplicationJpaRepo
 
   V->>PBC: GET /instructors/{nickName}  %% percent-encoded
   PBC->>BS: publicProfile(nickName)     %% Spring 이 이미 디코딩
-  BS->>BS: 발행 + 미탈퇴 계정 조회
-  alt 없음 / 미발행 / 탈퇴
-    BS-->>V: 400 (존재 숨김)
+  BS->>PPR: resolve(nickName)
+  PPR->>PPR: 살아있는 계정 조회(가장 오래된 것)
+  alt 없는 닉네임 / 탈퇴
+    PPR-->>V: 400 (존재 숨김)
   end
+  PPR->>PPR: 프로필 행 조회 (없어도 됨)
+  alt 행이 있는데 유저가 내린 비공개
+    PPR-->>V: 400 (존재 숨김)
+  end
+  PPR-->>BS: 주인 + (있다면) 프로필 행
   BS->>IA: 승인(APPROVED) 신청 조회
-  Note over BS: 강사면 disciplineCodes·certs 채움<br/>아니면 두 키를 null 로 둬 직렬화에서 제외
+  Note over BS: 강사면 disciplineCodes·certs 채움<br/>아니면 두 키를 null 로 둬 직렬화에서 제외<br/>행이 없으면 tagline·bio·활동지역만 빈다
   BS-->>V: 200 BrandingProfileResponse
 ```
 
@@ -155,9 +162,9 @@ erDiagram
 
 | 엔드포인트 | 인증 | 역할 | 소유권 |
 |---|---|---|---|
-| `GET /instructors/suggested?limit=5` | **불필요** | — | 승인 + **발행**된 강사 중 무작위. 카드가 여는 상세와 같은 조건이라 **갈 곳 없는 카드가 안 생긴다**. 토큰을 실으면 **차단한 강사가 빠진다**(`totalCount` 도) |
-| `GET /instructors/{nickName}` | **불필요** | — | `is_published=true` + 미탈퇴만. 그 외 **400(존재 숨김)**. 차단은 방향에 따라 다르다 — 내가 차단 → **200 + `blockedByMe`**(유일한 해제 동선), 상대가 나를 차단 → **400** ([block.md](block.md)) |
-| `GET /instructors/{nickName}/posts` | **불필요** | — | 위 + `is_hidden=false` 만. 정렬·size 는 서버 고정 |
+| `GET /instructors/suggested?limit=5` | **불필요** | — | 승인 + **발행**된 강사 중 무작위. (발행 조건의 근거가 바뀌었다 — 이제 프로필은 모든 계정에 있어 '갈 곳 없는 카드' 문제는 없다. 남긴 이유는 **추천은 뭔가 남긴 사람이어야** 해서. 행은 첫 쓰기로 생긴다.) 토큰을 실으면 **차단한 강사가 빠진다**(`totalCount` 도) |
+| `GET /instructors/{nickName}` | **불필요** | — | **모든 살아있는 계정에 있다** — 프로필 행이 없으면 빈 프로필 200. 400 은 셋뿐: 없는 닉네임·탈퇴 / **유저가 내린 비공개**(`is_published=false`) / 상대가 나를 차단. 차단은 방향에 따라 다르다 — 내가 차단 → **200 + `blockedByMe`**(유일한 해제 동선), 상대가 나를 차단 → **400** ([block.md](block.md)) |
+| `GET /instructors/{nickName}/posts` | **불필요** | — | 위 + `is_hidden=false` 만. **프로필 행이 없으면 빈 페이지**(400 아님 — 프로필만 열리고 그리드가 깨지면 화면이 반쪽). 정렬·size 는 서버 고정 |
 | `GET /branding-posts/{postId}` | **불필요** | — | 발행 + 미숨김만. **단 오너 본인은 자기 글이면 숨김·미발행이어도 조회 가능**. 그 외 **400** |
 | `GET /branding/me` | 필요 | **인증만** | `@CurrentUser` 기준. 미생성이면 `{exists:false}` |
 | `PATCH /branding/me` | 필요 | 인증만 | 동일. 미생성이면 생성(upsert) |
@@ -193,6 +200,7 @@ erDiagram
 
 - `C1` 조회는 생성하지 않는다(행이 안 생기는 것까지 확인) / `C2` 첫 PATCH 가 생성 + 발행 상태
 - `S1` 비로그인 공개 조회 / `S2` 보낸 키만 반영·명시적 null 은 비우기 / `S3` 발행 끄면 공개 차단
+- **`P1`~`P4` 기본 프로필** — 아무것도 안 적은 계정도 200(행은 여전히 안 생긴다) / 그리드도 빈 페이지 / 프로필 없는 승인 강사도 인증마크·자격 / 탈퇴 계정은 400
 - `I1` 강사는 `isInstructor`·종목·자격 뱃지 / `I2` **일반 유저는 그 키가 아예 없음** / `I3` 신청 이력 없으면 검수 키 없음 / `I4` 승인 강사는 `reviewStatus`·`approvedAt`
 - `E1` 한글 닉네임 / `E2` 공백·`.`·`+` / **`E3` `/` 는 방화벽이 거부**
 - `V1` 없는 닉네임 400 / `V2` 60자 초과 400 + 사용자 문구, 그리고 **검증 실패면 생성도 안 된다**
