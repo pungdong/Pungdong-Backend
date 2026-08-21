@@ -2,6 +2,8 @@ package com.diving.pungdong.branding;
 
 import com.diving.pungdong.branding.dto.BrandingPostCardResponse;
 import com.diving.pungdong.branding.dto.BrandingProfileResponse;
+import com.diving.pungdong.branding.dto.InstructorBrowseCardResponse;
+import com.diving.pungdong.branding.dto.InstructorBrowseCondition;
 import com.diving.pungdong.branding.dto.SuggestedInstructorsResponse;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.global.security.CurrentUser;
@@ -18,6 +20,8 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 /**
  * 공개 브랜딩 페이지 / 내 프로필 — {@code GET /instructors/{nickName}} (<b>비로그인 가능</b>).
@@ -40,6 +44,7 @@ public class PublicBrandingController {
     private final BrandingService brandingService;
     private final BrandingPostService postService;
     private final SuggestedInstructorService suggestedInstructorService;
+    private final InstructorBrowseService instructorBrowseService;
 
     /**
      * {@code nickName} 은 percent-encoding 으로 전달된다(한글·공백 등). Spring 이 <b>디코딩된 값</b>을
@@ -59,6 +64,39 @@ public class PublicBrandingController {
         EntityModel<SuggestedInstructorsResponse> model =
                 EntityModel.of(suggestedInstructorService.suggest(limit, viewer));
         model.add(Link.of("/docs/api.html#resource-instructors-suggested").withRel("profile"));
+        return ResponseEntity.ok().body(model);
+    }
+
+    /**
+     * 강사 둘러보기 — 홈 "풍덩 공식 강사" 더보기에서 들어오는 무한 스크롤 목록. <b>비로그인 가능</b>.
+     *
+     * <p>위 {@code /suggested} 와 <b>모수는 같고(승인 ∧ 발행) 성격이 다르다</b>: 저쪽은 매번 다시 뽑는
+     * 무작위 위젯이라 페이지네이션이 불가능하고, 이쪽은 필터·검색·정렬이 붙는 목록이다.
+     * {@code /instructors/public} 과는 <b>모수가 다르다</b> — 그쪽은 발행을 안 봐서 눌러도 400 인 카드가 섞인다.
+     *
+     * <p>{@code sort} 는 화이트리스트 enum 이다. Spring {@code Pageable} 형식({@code ?sort=field,dir})을
+     * 보내면 무시가 아니라 <b>변환 실패로 400</b> 이니 계약서에 그렇게 적혀 있어야 한다.
+     * ⚠️ 닉네임 {@code "browse"} 는 예약어로 막았다({@code NickNamePolicy}) — 안 막으면 그 닉네임을 가진
+     * 사람의 프로필이 이 리터럴에 가려 영영 안 열린다({@code "public"}·{@code "suggested"} 와 같은 이유).
+     */
+    @GetMapping("/browse")
+    public ResponseEntity<?> browse(@RequestParam(required = false) String disciplineCode,
+                                    @RequestParam(required = false) String keyword,
+                                    @RequestParam(required = false) List<String> organizationCodes,
+                                    @RequestParam(required = false) Boolean hasOpenCourse,
+                                    @RequestParam(required = false) InstructorBrowseCondition.Sort sort,
+                                    Pageable pageable,
+                                    PagedResourcesAssembler<InstructorBrowseCardResponse> assembler) {
+        InstructorBrowseCondition condition = InstructorBrowseCondition.builder()
+                .disciplineCode(disciplineCode)
+                .keyword(keyword)
+                .organizationCodes(organizationCodes)
+                .hasOpenCourse(hasOpenCourse)
+                .sort(sort)
+                .build();
+        PagedModel<EntityModel<InstructorBrowseCardResponse>> model =
+                assembler.toModel(instructorBrowseService.browse(condition, pageable));
+        model.add(Link.of("/docs/api.html#resource-instructors-browse").withRel("profile"));
         return ResponseEntity.ok().body(model);
     }
 
