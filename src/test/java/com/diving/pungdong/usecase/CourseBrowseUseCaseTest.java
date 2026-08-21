@@ -44,7 +44,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * {@code @DisplayName} 을 위→아래로 읽으면 둘러보기 규칙이 된다.
  *
  * <p>그룹: S* 기본 둘러보기/종목, R* 지역 필터, F* 종류·레벨·단체·가격 필터, Q* 검색, O* 정렬,
- * V* 비노출·빈 결과. 공개라 Authorization 헤더 없이 호출(생성/공개만 강사 토큰).
+ * P* 페이지 크기 상한·정렬 주입 방어, V* 비노출·빈 결과. 공개라 Authorization 헤더 없이 호출
+ * (생성/공개만 강사 토큰).
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -57,6 +58,7 @@ class CourseBrowseUseCaseTest {
     @Autowired AccountJpaRepo accountRepo;
     @Autowired VenueJpaRepo venueRepo;
     @Autowired CourseJpaRepo courseRepo;
+    @Autowired com.diving.pungdong.account.ProfilePhotoJpaRepo profilePhotoRepo;
     @Autowired RedisTemplate<String, String> redisTemplate;
 
     @BeforeEach
@@ -72,13 +74,19 @@ class CourseBrowseUseCaseTest {
         courseRepo.deleteAll();
         venueRepo.deleteAll();
         accountRepo.deleteAll();
+        profilePhotoRepo.deleteAll(); // account FK — 계정 삭제 후
     }
 
     /* ════════════════ seed 헬퍼 ════════════════ */
 
     private Account account(String email) {
+        return account(email, email.split("@")[0]);
+    }
+
+    /** 닉네임을 직접 정하는 변형 — 강사명 검색(Q2) 처럼 닉네임이 검증 대상일 때. */
+    private Account account(String email, String nickName) {
         return accountRepo.save(Account.builder()
-                .email(email).password("encoded").nickName(email.split("@")[0])
+                .email(email).password("encoded").nickName(nickName)
                 .roles(new HashSet<>(Set.of(Role.STUDENT))).build());
     }
 
@@ -161,6 +169,29 @@ class CourseBrowseUseCaseTest {
                 .andExpect(jsonPath("$._embedded.courses[0].thumbnailUrl").value("http://img/cover.jpg"))
                 .andExpect(jsonPath("$._embedded.courses[0].price").value(350000))
                 .andExpect(jsonPath("$.page.totalElements").value(1));
+    }
+
+    @Test
+    @DisplayName("S1b 카드에 강사 아바타가 실린다 — 사진을 안 올린 강사는 null(키는 있다)")
+    void s1b_instructor_avatar() throws Exception {
+        Account withPhoto = account("s1b-a@pungdong.com");
+        withPhoto.setProfilePhoto(profilePhotoRepo.save(
+                com.diving.pungdong.account.ProfilePhoto.builder().imageUrl("https://cdn/a.png").build()));
+        accountRepo.save(withPhoto);
+        Account noPhoto = account("s1b-b@pungdong.com");
+
+        openCourse(withPhoto, trial("사진 있는 강사 강의"), "FREEDIVING", 90000,
+                customRefAt(withPhoto, "잠실 잠수풀", "서울특별시 송파구 올림픽로 25"), null);
+        openCourse(noPhoto, trial("사진 없는 강사 강의"), "FREEDIVING", 95000,
+                customRefAt(noPhoto, "올림픽수영장", "서울특별시 송파구 올림픽로 424"), null);
+
+        browse("?disciplineCode=FREEDIVING&keyword=사진 있는")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.courses[0].instructorAvatarUrl").value("https://cdn/a.png"));
+        browse("?disciplineCode=FREEDIVING&keyword=사진 없는")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.courses[0].instructorAvatarUrl").hasJsonPath())
+                .andExpect(jsonPath("$._embedded.courses[0].instructorAvatarUrl").value(nullValue()));
     }
 
     @Test
@@ -287,6 +318,43 @@ class CourseBrowseUseCaseTest {
                 .andExpect(jsonPath("$._embedded.courses[0].title").value("딥다이빙 트레이닝"));
     }
 
+    @Test
+    @DisplayName("Q2 검색어가 강사 닉네임과 맞으면 제목에 없는 말이어도 그 강사 코스가 잡힌다")
+    void q2_keyword_matches_instructor_nickname() throws Exception {
+        Account minji = account("q2a@pungdong.com", "김민지");
+        Account other = account("q2b@pungdong.com", "박지원");
+        openCourse(minji, trial("입문 체험"), "FREEDIVING", 90000,
+                customRefAt(minji, "잠실 잠수풀", "서울특별시 송파구 올림픽로 25"), null);
+        openCourse(other, trial("주말 체험"), "FREEDIVING", 95000,
+                customRefAt(other, "올림픽수영장", "서울특별시 송파구 올림픽로 424"), null);
+
+        browse("?disciplineCode=FREEDIVING&keyword=김민지")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.courses", hasSize(1)))
+                .andExpect(jsonPath("$._embedded.courses[0].title").value("입문 체험"))
+                .andExpect(jsonPath("$._embedded.courses[0].instructorName").value("김민지"));
+    }
+
+    @Test
+    @DisplayName("Q3 검색어는 제목 OR 강사명 합집합 — 한쪽만 맞아도 둘 다 결과에 남는다")
+    void q3_keyword_union_title_or_instructor() throws Exception {
+        Account minji = account("q3a@pungdong.com", "김민지");
+        Account other = account("q3b@pungdong.com", "박지원");
+        // 제목으로 맞는 코스(강사는 다른 사람) + 강사명으로 맞는 코스(제목엔 그 말이 없음)
+        openCourse(other, trial("김민지 강사님 추천 체험"), "FREEDIVING", 90000,
+                customRefAt(other, "올림픽수영장", "서울특별시 송파구 올림픽로 424"), null);
+        openCourse(minji, trial("딥다이빙 트레이닝"), "FREEDIVING", 80000,
+                customRefAt(minji, "잠실 잠수풀", "서울특별시 송파구 올림픽로 25"), null);
+        openCourse(other, trial("무관한 체험"), "FREEDIVING", 95000,
+                customRefAt(other, "문정 수영장", "서울특별시 송파구 법원로 128"), null);
+
+        browse("?disciplineCode=FREEDIVING&keyword=김민지")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.courses", hasSize(2)))
+                .andExpect(jsonPath("$._embedded.courses[*].title",
+                        containsInAnyOrder("김민지 강사님 추천 체험", "딥다이빙 트레이닝")));
+    }
+
     /* ════════════════ O — 정렬 ════════════════ */
 
     @Test
@@ -301,6 +369,96 @@ class CourseBrowseUseCaseTest {
                 .andExpect(jsonPath("$._embedded.courses", hasSize(2)))
                 .andExpect(jsonPath("$._embedded.courses[0].title").value("싼 체험"))
                 .andExpect(jsonPath("$._embedded.courses[1].title").value("비싼 과정"));
+    }
+
+    /* ════════════════ P — 페이지 크기 상한 · 정렬 주입 방어 ════════════════ */
+
+    @Test
+    @DisplayName("P1 과대한 size(100000)를 보내도 한 페이지는 50개까지다 — 카탈로그 전수 스크래핑 차단")
+    void p1_size_is_clamped() throws Exception {
+        Account me = account("p1@pungdong.com");
+        openCourse(me, trial("체험"), "FREEDIVING", 90000,
+                customRefAt(me, "잠실 잠수풀", "서울특별시 송파구 올림픽로 25"), null);
+
+        browse("?disciplineCode=FREEDIVING&size=100000")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.size").value(50));
+    }
+
+    @Test
+    @DisplayName("P2 size 를 안 보내면 한 페이지는 20개다")
+    void p2_default_size() throws Exception {
+        // 이 20 을 만드는 건 PageClamp.DEFAULT_PAGE_SIZE 가 아니라 Spring 리졸버의 fallback 이다
+        // (리졸버는 unpaged 를 주지 않아 PageClamp 의 기본값 가지가 실행되지 않는다). FE 계약으로서의
+        // "기본 20" 을 고정하는 테스트이지, clamp 구현을 검증하는 테스트가 아니다.
+        browse("?disciplineCode=FREEDIVING")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.size").value(20));
+    }
+
+    @Test
+    @DisplayName("P3 정렬 창구는 화이트리스트 enum 하나뿐 — Pageable 형식(sort=price,asc)은 400 이지 임의 정렬이 아니다")
+    void p3_client_sort_is_not_a_backdoor() throws Exception {
+        // 이 방어는 clamp 가 아니라 컨트롤러의 enum 파라미터가 한다(이 PR 이전에도 같았다).
+        // 계약서가 "무시된다" 가 아니라 "400 이다" 라고 적어야 하는 근거를 고정해두는 회귀 가드.
+        Account me = account("p3@pungdong.com");
+        String ref = customRefAt(me, "잠실 잠수풀", "서울특별시 송파구 올림픽로 25");
+        openCourse(me, certification("비싼 과정", "AIDA", List.of("LEVEL_2")), "FREEDIVING", 350000, ref, null);
+        openCourse(me, trial("싼 체험"), "FREEDIVING", 90000, ref, null);
+
+        browse("?disciplineCode=FREEDIVING&sort=price,asc")
+                .andExpect(status().isBadRequest());
+
+        // 화이트리스트 값은 정상 동작(임의 컬럼이 아니라 이 enum 만이 정렬 창구다)
+        browse("?disciplineCode=FREEDIVING&sort=PRICE_ASC")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.courses[0].title").value("싼 체험"));
+    }
+
+    @Test
+    @DisplayName("P4 서버가 만든 HAL 링크(self·next)를 그대로 따라가도 200 이다 — 링크에 내부 정렬이 새지 않는다")
+    void p4_hal_links_are_followable() throws Exception {
+        Account me = account("p4@pungdong.com");
+        String ref = customRefAt(me, "잠실 잠수풀", "서울특별시 송파구 올림픽로 25");
+        openCourse(me, trial("체험1"), "FREEDIVING", 90000, ref, null);
+        openCourse(me, trial("체험2"), "FREEDIVING", 95000, ref, null);
+
+        String body = browse("?disciplineCode=FREEDIVING&size=1")
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        // self 는 물론 next 도 실제로 호출 가능해야 한다. 예전엔 assembler 가 서버 내부 정렬을
+        // sort=createdAt,id,desc 로 링크에 실었고, 그 값이 enum 파라미터로 되돌아와 400 이 났다.
+        for (String rel : List.of("self", "next")) {
+            String href = JsonPath.read(body, "$._links." + rel + ".href");
+            org.assertj.core.api.Assertions.assertThat(href).doesNotContain("createdAt");
+            mockMvc.perform(get(java.net.URI.create(href)))
+                    .andExpect(status().isOk());
+        }
+    }
+
+    @Test
+    @DisplayName("P5 정렬을 걸고 next 링크를 따라가면 그 정렬이 유지된다 — 안 그러면 같은 강의가 두 번 나온다")
+    void p5_next_link_keeps_sort() throws Exception {
+        Account me = account("p5@pungdong.com");
+        String ref = customRefAt(me, "잠실 잠수풀", "서울특별시 송파구 올림픽로 25");
+        // 가격 오름차순과 최신순(기본)이 정확히 반대가 되도록 비싼 것부터 만든다
+        openCourse(me, certification("300", "AIDA", List.of("LEVEL_2")), "FREEDIVING", 300000, ref, null);
+        openCourse(me, certification("200", "AIDA", List.of("LEVEL_2")), "FREEDIVING", 200000, ref, null);
+        openCourse(me, trial("100"), "FREEDIVING", 100000, ref, null);
+
+        String first = browse("?disciplineCode=FREEDIVING&sort=PRICE_ASC&size=1")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.courses[0].title").value("100"))
+                .andReturn().getResponse().getContentAsString();
+
+        // assembler 는 요청의 sort 를 지우고 Page 의 Sort 로 대체한다. 우리는 Sort 를 버렸으므로
+        // 손대지 않으면 여기서 sort 가 통째로 사라지고, next 가 '최신순 2페이지'(= "200")를 준다.
+        String next = JsonPath.read(first, "$._links.next.href");
+        org.assertj.core.api.Assertions.assertThat(next).contains("sort=PRICE_ASC");
+        mockMvc.perform(get(java.net.URI.create(next)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.courses[0].title").value("200"));
     }
 
     /* ════════════════ V — 비노출 · 빈 결과 ════════════════ */

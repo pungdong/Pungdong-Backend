@@ -144,6 +144,41 @@ class PublicInstructorUseCaseTest {
                 .andExpect(jsonPath("$.page.totalElements").value(0));
     }
 
+    @Test
+    @DisplayName("P5 과대한 size(100000)를 보내도 한 페이지는 50명까지다 — 강사 명단 전수 스크래핑 차단")
+    void p5_sizeIsClamped() throws Exception {
+        Account ins = account("ins-p5@pd.com", "상한강사", Role.INSTRUCTOR);
+        application(ins, "FREEDIVING", InstructorApplicationStatus.APPROVED);
+
+        mockMvc.perform(get("/instructors/public").param("size", "100000"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.size").value(50));
+
+        mockMvc.perform(get("/instructors/public")) // size 미지정 → 기본 20
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.size").value(20));
+    }
+
+    @Test
+    @DisplayName("P6 클라이언트가 보낸 정렬은 버려진다 — 순서는 서버 고정(가입 최신순)이고 없는 필드를 보내도 500 이 아니다")
+    void p6_clientSortIsDiscarded() throws Exception {
+        Account first = account("ins-p6a@pd.com", "먼저가입", Role.INSTRUCTOR);
+        application(first, "FREEDIVING", InstructorApplicationStatus.APPROVED);
+        Account later = account("ins-p6b@pd.com", "나중가입", Role.INSTRUCTOR);
+        application(later, "FREEDIVING", InstructorApplicationStatus.APPROVED);
+
+        // 닉네임 오름차순을 요구해도 순서는 가입 최신순(id desc) 그대로다
+        mockMvc.perform(get("/instructors/public").param("sort", "nickName,asc"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.instructors[0].nickName").value("나중가입"))
+                .andExpect(jsonPath("$._embedded.instructors[1].nickName").value("먼저가입"));
+
+        // 엔티티에 없는 필드를 정렬로 밀어 넣어도 쿼리에 섞이지 않는다
+        mockMvc.perform(get("/instructors/public").param("sort", "bogusColumn,asc"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(2));
+    }
+
     /* ─── S* 추천 강사 ─── */
 
     @Test

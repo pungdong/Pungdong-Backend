@@ -4,6 +4,7 @@ import com.diving.pungdong.account.Account;
 import com.diving.pungdong.discipline.DisciplineService;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
+import com.diving.pungdong.global.persistence.PageClamp;
 import com.diving.pungdong.course.dto.CourseBrowseCondition;
 import com.diving.pungdong.course.dto.CourseCardResponse;
 import com.diving.pungdong.course.dto.CourseCreateRequest;
@@ -17,6 +18,7 @@ import com.diving.pungdong.venue.equipment.VenueEquipmentService;
 import com.diving.pungdong.venue.equipment.dto.VenueEquipmentResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -107,15 +109,31 @@ public class CourseService {
      * 공개 둘러보기 — OPEN 코스만, 종목/지역/레벨·종류/단체/가격 필터 + 정렬. 빈 결과는 예외 아니라
      * 빈 페이지(repo 규약: 음성 결과는 200). 지역 필터는 저장 시점 비정규화된 {@code regions} 컬럼으로,
      * 정렬은 클라이언트 임의 필드가 아니라 {@link CourseBrowseCondition.Sort} 화이트리스트만 허용.
+     *
+     * <p><b>{@link PageClamp} 를 먼저 통과시킨다</b> — 여기엔 size 상한이 없어 {@code ?size=100000} 으로
+     * 카탈로그를 통째로 긁을 수 있었다(어드민 신고 큐에서 실제로 났던 사고와 같은 구멍). 클라이언트가
+     * 보낸 {@code sort=price,desc} 형태의 Pageable 정렬도 여기서 버려진다 — 아래 {@link #sortOf} 가
+     * 재구성하므로 예전에도 결과에 영향은 없었지만, "버린다"는 의도가 코드에 남아 있지 않았다.
+     *
+     * <p>🔴 <b>돌려주는 {@code Page} 의 정렬은 다시 벗겨서 내보낸다.</b> {@code PagedResourcesAssembler} 는
+     * {@code Page.getPageable().getSort()} 를 HAL 링크에 그대로 직렬화하는데, 그러면
+     * {@code _links.self}/{@code next} 가 {@code ?sort=createdAt,id,desc} 를 달고 나간다. 그런데 이
+     * 엔드포인트의 {@code sort} 파라미터는 {@link CourseBrowseCondition.Sort} enum 이라 그 값이 되돌아오면
+     * <b>enum 변환 실패로 400</b> 이다 — 즉 서버가 스스로 만든 "다음 페이지" 링크를 따라가면 깨진다.
+     * 무한 스크롤 클라이언트가 {@code _links.next} 를 쓰기 시작하는 순간 터지므로 여기서 끊는다.
+     * ({@code /instructors/public} 은 Sort 를 다시 싣지 않아 원래 이 문제가 없다.)
      */
     public Page<CourseCardResponse> browse(CourseBrowseCondition condition, Pageable pageable) {
+        Pageable fixed = PageClamp.fixed(pageable);
         PageRequest request = PageRequest.of(
-                pageable.getPageNumber(), pageable.getPageSize(), sortOf(condition.getSort()));
+                fixed.getPageNumber(), fixed.getPageSize(), sortOf(condition.getSort()));
         Specification<Course> spec = CourseSpecifications.matching(condition);
         if (!siteSettings.current().showSeededCourses()) {
             spec = spec.and(CourseSpecifications.excludeSeeded()); // 런칭 후 데모 가림
         }
-        return courseRepo.findAll(spec, request).map(CourseCardResponse::from);
+        Page<CourseCardResponse> page = courseRepo.findAll(spec, request).map(CourseCardResponse::from);
+        return new PageImpl<>(page.getContent(),
+                PageRequest.of(request.getPageNumber(), request.getPageSize()), page.getTotalElements());
     }
 
     private Sort sortOf(CourseBrowseCondition.Sort sort) {
