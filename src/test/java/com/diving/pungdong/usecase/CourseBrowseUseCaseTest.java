@@ -406,10 +406,34 @@ class CourseBrowseUseCaseTest {
         // sort=createdAt,id,desc 로 링크에 실었고, 그 값이 enum 파라미터로 되돌아와 400 이 났다.
         for (String rel : List.of("self", "next")) {
             String href = JsonPath.read(body, "$._links." + rel + ".href");
-            org.assertj.core.api.Assertions.assertThat(href).doesNotContain("sort=");
+            org.assertj.core.api.Assertions.assertThat(href).doesNotContain("createdAt");
             mockMvc.perform(get(java.net.URI.create(href)))
                     .andExpect(status().isOk());
         }
+    }
+
+    @Test
+    @DisplayName("P5 정렬을 걸고 next 링크를 따라가면 그 정렬이 유지된다 — 안 그러면 같은 강의가 두 번 나온다")
+    void p5_next_link_keeps_sort() throws Exception {
+        Account me = account("p5@pungdong.com");
+        String ref = customRefAt(me, "잠실 잠수풀", "서울특별시 송파구 올림픽로 25");
+        // 가격 오름차순과 최신순(기본)이 정확히 반대가 되도록 비싼 것부터 만든다
+        openCourse(me, certification("300", "AIDA", List.of("LEVEL_2")), "FREEDIVING", 300000, ref, null);
+        openCourse(me, certification("200", "AIDA", List.of("LEVEL_2")), "FREEDIVING", 200000, ref, null);
+        openCourse(me, trial("100"), "FREEDIVING", 100000, ref, null);
+
+        String first = browse("?disciplineCode=FREEDIVING&sort=PRICE_ASC&size=1")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.courses[0].title").value("100"))
+                .andReturn().getResponse().getContentAsString();
+
+        // assembler 는 요청의 sort 를 지우고 Page 의 Sort 로 대체한다. 우리는 Sort 를 버렸으므로
+        // 손대지 않으면 여기서 sort 가 통째로 사라지고, next 가 '최신순 2페이지'(= "200")를 준다.
+        String next = JsonPath.read(first, "$._links.next.href");
+        org.assertj.core.api.Assertions.assertThat(next).contains("sort=PRICE_ASC");
+        mockMvc.perform(get(java.net.URI.create(next)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.courses[0].title").value("200"));
     }
 
     /* ════════════════ V — 비노출 · 빈 결과 ════════════════ */

@@ -1963,10 +1963,11 @@ export interface CourseBrowseResponse extends HalLinks {
   _embedded?: { courses: CourseCardResponse[] };
   page: { size: number; totalElements: number; totalPages: number; number: number };
 }
-// ★ 다음 페이지는 `page` 값으로 직접 만든다(`page + 1`). `_links.next` 를 따라가도 되지만, HAL 링크는
-//   assembler 가 만드는 것이라 서버 내부 정렬이 새어 들어간 전력이 있다(2026-08-22 에 막았다 —
-//   `?sort=createdAt,id,desc` 가 링크에 실려 그대로 따라가면 400 이었다). 파라미터를 직접 조립하는 쪽이
-//   깨질 여지가 적다.
+// ★ 다음 페이지는 `page` 값으로 직접 만드는 것을 권장한다(`page + 1`). `_links.next` 도 이제 정상이지만,
+//   이 링크는 2026-08-22 에 **양방향으로** 깨져 있었다: (a) 서버 내부 정렬이 `sort=createdAt,id,desc` 로
+//   실려 따라가면 400, (b) 그걸 고치자 이번엔 `sort` 가 통째로 사라져 **정렬이 조용히 기본값으로 되돌아갔다**
+//   (같은 강의가 두 페이지에 나오고 일부는 도달 불가). 둘 다 막았고 테스트(P4·P5)로 고정했지만,
+//   파라미터를 직접 조립하는 쪽이 여전히 깨질 여지가 적다.
 
 // ── 공개 강의 상세 (course public detail) — 카드 → 상세 ──
 // docs/features/course-discovery.md (정책) · docs/architecture/course.md (구현)
