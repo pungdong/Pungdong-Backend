@@ -199,7 +199,7 @@ erDiagram
 | `/admin/instructor-applications/{id}` | GET | **ADMIN** | PII 포함 상세 (+ reviewerNickName / createdAt) |
 | `/admin/instructor-applications/{id}/approve` | POST | **ADMIN** | INSTRUCTOR 부여 + isCertified |
 | `/admin/instructor-applications/{id}/reject` | POST | **ADMIN** | 사유 필수 |
-| `/instructors/public` | GET | **공개** | 공개 강사 디렉토리(PagedModel `_embedded.instructors`). 승인 신청 보유 계정만(탈퇴 제외), 공개필드(nickName·avatarUrl·disciplineCodes)만. `PublicInstructorController`+`PublicInstructorService` |
+| `/instructors/public` | GET | **공개** | 공개 강사 디렉토리(PagedModel `_embedded.instructors`). 승인 신청 보유 계정만(탈퇴 제외), 공개필드(nickName·avatarUrl·disciplineCodes)만. `PublicInstructorController`+`PublicInstructorService`. 🔴 **호출자 0(2026-08-22)** — 홈 "공식 강사" 카드는 `GET /instructors/suggested` 다. 제거는 구버전 앱 확인 후 |
 | `/instructors/suggested` | GET | **공개** | 무작위 추천 강사 + 총 수. ⚠️ **모집단이 위와 다르다** — 승인 + **브랜딩 발행**까지 된 강사만(카드를 누르면 열려야 하므로). 코드는 [branding 패키지](branding.md)에 있다(`branding → instructorapplication` 이 기존 의존 방향이라 반대로 붙이면 순환이 된다) |
 | `/account/profile` | GET | 인증(본인) | 마이페이지 프로필 — AccountBasicInfo + profilePhotoUrl + 승인 자격 뱃지(`certs`). 합성은 `profile/ProfileService`(account⊕instructorapplication, 단방향 유지용 별도 패키지) |
 

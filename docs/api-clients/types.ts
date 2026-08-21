@@ -735,9 +735,15 @@ export interface RejectInstructorApplicationRequest {
 }
 
 /**
- * GET /instructors/public (비로그인) — 수강생 둘러보기 홈 "풍덩 공식 강사" 카드. 승인(APPROVED) 신청을 가진 실가입 강사만.
- * PagedModel — 배열은 `_embedded.instructors`, 페이지 메타는 `page`. `page.totalElements` → "N명" + 아바타 일부 + "+N" 파생.
- * 공개 필드만(PII 없음 — 이름/이메일/연락처 미포함). Pageable 쿼리(`?page=&size=`) 지원, 기본 정렬은 최근 가입(id desc).
+ * GET /instructors/public (비로그인) — 승인(APPROVED) 신청을 가진 실가입 강사 전체 디렉토리.
+ * PagedModel — 배열은 `_embedded.instructors`, 페이지 메타는 `page`. 공개 필드만(PII 없음 — 이름/이메일/연락처
+ * 미포함). Pageable 쿼리(`?page=&size=`) 지원, 기본 정렬은 최근 가입(id desc).
+ *
+ * ⚠️ **@deprecated — 현재 호출자 0.** 홈의 "풍덩 공식 강사" 카드는 이 목록이 **아니라**
+ *    `GET /instructors/suggested` 를 쓴다(승인 + **프로필 발행**까지 된 강사, "N명"은 그쪽 `totalCount`).
+ *    이 주석이 오래 "홈 카드" 라고 잘못 적혀 있었다 — 홈이 2026-08-18 에 suggested 로 갈아탔는데
+ *    BE 쪽 설명이 따라가지 않았다. 새로 붙일 화면이 있으면 **suggested 를 먼저 검토**할 것.
+ *    제거는 배포된 구버전 앱 빌드 확인 후(→ `instructorId`/`instructorName` 과 같은 조건).
  */
 export interface PublicInstructorResponse {
   id: number;
@@ -747,7 +753,7 @@ export interface PublicInstructorResponse {
 }
 // ℹ️ 이 목록은 브랜딩 프로필 발행 여부를 보지 않는다. 예전엔 그래서 "눌러도 400 인 카드"가 생겼지만,
 //    이제 프로필은 모든 계정에 있어 카드는 항상 열린다(유저가 직접 비공개로 내린 경우만 400).
-//    "내용이 있는 강사"를 원하면 여전히 아래 /instructors/suggested 쪽이 낫다.
+//    즉 **더 이상 지뢰가 아니다** — 다만 "내용이 있는 강사"를 원하면 아래 /instructors/suggested 쪽이 맞다.
 
 /**
  * GET /instructors/suggested?limit=5 (비로그인) — **무작위 추천 강사**.
