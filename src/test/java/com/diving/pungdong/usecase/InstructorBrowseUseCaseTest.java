@@ -242,24 +242,55 @@ class InstructorBrowseUseCaseTest {
     }
 
     @Test
-    @DisplayName("S7 정렬=강의 많은순 이면 강의가 많은 강사가 먼저 온다 (기본은 최근 가입순)")
+    @DisplayName("S7 두 정렬이 정확히 반대 순서를 준다 — 강의 많은순 vs 최근 가입순(기본)")
     void s7_sort_by_course_count() throws Exception {
-        Account few = visibleInstructor("강의하나", "FREEDIVING");
+        // 두 정렬이 서로 구별되게 **먼저 가입한 사람이 강의가 더 많도록** 깐다.
+        // 나중 가입자가 강의도 제일 많으면 어느 정렬이든 1등이라 테스트가 정렬을 구별하지 못한다.
+        Account many = visibleInstructor("먼저가입_강의셋", "FREEDIVING");
+        course(many, "FREEDIVING", CourseStatus.OPEN);
+        course(many, "FREEDIVING", CourseStatus.OPEN);
+        course(many, "FREEDIVING", CourseStatus.OPEN);
+        Account few = visibleInstructor("나중가입_강의하나", "FREEDIVING");
         course(few, "FREEDIVING", CourseStatus.OPEN);
-        Account many = visibleInstructor("강의셋", "FREEDIVING");
-        course(many, "FREEDIVING", CourseStatus.OPEN);
-        course(many, "FREEDIVING", CourseStatus.OPEN);
-        course(many, "FREEDIVING", CourseStatus.OPEN);
 
         browse("?disciplineCode=FREEDIVING&sort=COURSE_COUNT_DESC")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$._embedded.instructors[0].nickName").value("강의셋"))
+                .andExpect(jsonPath("$._embedded.instructors[0].nickName").value("먼저가입_강의셋"))
                 .andExpect(jsonPath("$._embedded.instructors[0].openCourseCount").value(3))
-                .andExpect(jsonPath("$._embedded.instructors[1].nickName").value("강의하나"));
+                .andExpect(jsonPath("$._embedded.instructors[1].nickName").value("나중가입_강의하나"));
 
-        // 기본(LATEST) 은 최근 가입순 — 나중에 만든 '강의셋' 이 먼저지만 이유가 다르다
+        // 기본(LATEST) 은 최근 가입순이라 순서가 뒤집힌다
         browse("?disciplineCode=FREEDIVING")
-                .andExpect(jsonPath("$._embedded.instructors[0].nickName").value("강의셋"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.instructors[0].nickName").value("나중가입_강의하나"))
+                .andExpect(jsonPath("$._embedded.instructors[1].nickName").value("먼저가입_강의셋"));
+    }
+
+    @Test
+    @DisplayName("S7b 정렬을 걸고 next 링크를 따라가면 그 정렬이 유지된다 — 안 그러면 같은 강사가 두 번 나온다")
+    void s7b_next_link_keeps_sort() throws Exception {
+        // 강의 수 3/2/1 로 깔되 가입 순서를 반대로 — 정렬이 풀리면 2페이지 내용이 달라진다
+        Account three = visibleInstructor("강의셋", "FREEDIVING");
+        course(three, "FREEDIVING", CourseStatus.OPEN);
+        course(three, "FREEDIVING", CourseStatus.OPEN);
+        course(three, "FREEDIVING", CourseStatus.OPEN);
+        Account two = visibleInstructor("강의둘", "FREEDIVING");
+        course(two, "FREEDIVING", CourseStatus.OPEN);
+        course(two, "FREEDIVING", CourseStatus.OPEN);
+        Account one = visibleInstructor("강의하나", "FREEDIVING");
+        course(one, "FREEDIVING", CourseStatus.OPEN);
+
+        String first = browse("?disciplineCode=FREEDIVING&sort=COURSE_COUNT_DESC&size=2")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.instructors[0].nickName").value("강의셋"))
+                .andReturn().getResponse().getContentAsString();
+
+        String next = com.jayway.jsonpath.JsonPath.read(first, "$._links.next.href");
+        org.assertj.core.api.Assertions.assertThat(next).contains("sort=COURSE_COUNT_DESC");
+        mockMvc.perform(get(java.net.URI.create(next)))
+                .andExpect(status().isOk())
+                // 정렬이 풀렸다면 여기 '강의셋'(최근 가입 아님) 대신 다른 사람이 왔을 것이다
+                .andExpect(jsonPath("$._embedded.instructors[0].nickName").value("강의하나"));
     }
 
     @Test

@@ -167,7 +167,7 @@ erDiagram
 
 | 엔드포인트 | 인증 | 역할 | 소유권 |
 |---|---|---|---|
-| `GET /instructors/browse?disciplineCode=&…` | **불필요** | — | 승인(그 종목) + **발행** + 미탈퇴. 필터(단체·강의보유)·검색(닉네임)·정렬(최신/강의많은순)·페이지네이션. `disciplineCode` 누락만 400, 나머지는 빈 페이지 200. size 상한 50 |
+| `GET /instructors/browse?disciplineCode=&…` | **불필요** | — | 승인(그 종목) + **발행** + 미탈퇴. 필터(단체·강의보유)·검색(닉네임)·정렬(최신/강의많은순)·페이지네이션. 400 은 `disciplineCode` 누락과 `sort` 값 오류뿐 — 없는 종목 코드·조건 불일치는 빈 페이지 200. size 상한 50 |
 | `GET /instructors/suggested?limit=5` | **불필요** | — | 승인 + **발행**된 강사 중 무작위. 카드가 여는 상세와 같은 조건이라 **갈 곳 없는 카드가 안 생긴다**. 토큰을 실으면 **차단한 강사가 빠진다**(`totalCount` 도) |
 | `GET /instructors/{nickName}` | **불필요** | — | `is_published=true` + 미탈퇴만. 그 외 **400(존재 숨김)**. 차단은 방향에 따라 다르다 — 내가 차단 → **200 + `blockedByMe`**(유일한 해제 동선), 상대가 나를 차단 → **400** ([block.md](block.md)) |
 | `GET /instructors/{nickName}/posts` | **불필요** | — | 위 + `is_hidden=false` 만. 정렬·size 는 서버 고정 |

@@ -6,6 +6,7 @@ import com.diving.pungdong.branding.dto.InstructorBrowseCardResponse;
 import com.diving.pungdong.branding.dto.InstructorBrowseCondition;
 import com.diving.pungdong.branding.dto.SuggestedInstructorsResponse;
 import com.diving.pungdong.account.Account;
+import com.diving.pungdong.global.hateoas.WhitelistSortLinks;
 import com.diving.pungdong.global.security.CurrentUser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
@@ -96,6 +97,9 @@ public class PublicBrandingController {
                 .build();
         PagedModel<EntityModel<InstructorBrowseCardResponse>> model =
                 assembler.toModel(instructorBrowseService.browse(condition, pageable));
+        // assembler 는 요청의 sort 를 지우고 Page 의 Sort 를 붙이는데, 서비스가 Sort 를 버렸으므로
+        // 그냥 사라진다 → next 를 따라가면 기본 정렬로 계산돼 강사가 중복·누락된다. 되붙인다.
+        WhitelistSortLinks.apply(model, sort);
         model.add(Link.of("/docs/api.html#resource-instructors-browse").withRel("profile"));
         return ResponseEntity.ok().body(model);
     }

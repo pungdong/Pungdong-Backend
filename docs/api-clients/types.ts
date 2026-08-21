@@ -791,7 +791,8 @@ export interface SuggestedInstructor {
 export type InstructorBrowseSort = 'LATEST' | 'COURSE_COUNT_DESC';
 
 /**
- * GET /instructors/browse 쿼리 파라미터. 배열은 반복 키(`?organizationCodes=AIDA&organizationCodes=PADI`).
+ * GET /instructors/browse 쿼리 파라미터. 배열은 반복 키(`?organizationCodes=AIDA&organizationCodes=PADI`)
+ * 또는 콤마 구분(`?organizationCodes=AIDA,PADI`) 둘 다 동작한다 — 반복 키 쪽을 권장(빈 값이 섞일 여지가 없다).
  *
  * ★ **지역·자격레벨 필터가 없다** — 강사의 활동지역은 자유 텍스트(`locationLabel`)라 `Region` 으로 파생할 수
  *   없고, 강사 쪽엔 자격 등급 필드 자체가 없다(`CertLevel` 은 강의 전용). 강의 둘러보기와 필터 축이 다르다.
@@ -799,7 +800,7 @@ export type InstructorBrowseSort = 'LATEST' | 'COURSE_COUNT_DESC';
  */
 export interface InstructorBrowseParams {
   disciplineCode: string; // 필수 — 누락/공백이면 400. 없는 코드는 400 이 아니라 빈 결과(200)
-  keyword?: string; // 강사 nickName 부분 일치(대소문자 무시)
+  keyword?: string; // 강사 nickName 부분 일치(대소문자 무시). `_`·`%` 는 LIKE 와일드카드로 동작한다(미이스케이프)
   organizationCodes?: string[]; // 자격 단체. **요청 종목의 자격증만** 본다(스쿠버 AIDA 는 프리다이빙 필터에 안 걸림)
   hasOpenCourse?: boolean; // true 면 그 종목에 공개중 강의가 1개 이상인 강사만. false 는 보내지 말고 생략할 것
   sort?: InstructorBrowseSort; // 기본 LATEST
