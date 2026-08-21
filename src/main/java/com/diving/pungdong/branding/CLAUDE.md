@@ -6,14 +6,21 @@
 
 ## 무엇이 들어있나
 
-- **`PublicBrandingController`** — `GET /instructors/{nickName}` + `/posts` (**비로그인 가능**).
+- **`PublicBrandingController`** — `GET /instructors/{nickName}` + `/posts` + `/suggested` + **`/browse`** (**비로그인 가능**).
+  ⚠️ **강사 목록이 셋이고 모수가 다르다** — `/instructors/public`(instructorapplication 소유, 발행을 안 봐서
+  눌러도 400 인 카드가 섞인다) · `/instructors/suggested`(승인∧발행 중 무작위, 페이지네이션 불가) ·
+  `/instructors/browse`(승인(그 종목)∧발행, 필터·검색·정렬되는 유일한 목록). 한 화면에서 두 숫자를 섞지 말 것.
 - **`PublicBrandingPostController`** — `GET /branding-posts/{id}` (비로그인).
 - **`BrandingController`** — `/branding/me/**` (인증). 조회·부분수정·발행토글·기록 교체.
 - **`BrandingPostController`** — `/branding/me/posts/**` (인증). 게시물 CRUD·고정.
   🔴 **작성·수정은 레거시(구버전 앱 호환)** — 신규는 커뮤니티 통합 폼(`POST|PUT /community/posts` +
   `showOnProfile`). **숨김 토글은 여기 없다** — `PATCH /community/posts/{id}/visibility` 하나다.
 - **`BrandingImageController`** — `POST /branding-images` (인증). 2-phase 업로드 1단계.
-- **서비스** — `BrandingService`(프로필 합성·편집) / `BrandingPostService`(목록·상세·CRUD·미디어 lifecycle).
+- **서비스** — `BrandingService`(프로필 합성·편집) / `BrandingPostService`(목록·상세·CRUD·미디어 lifecycle)
+  / `SuggestedInstructorService`(무작위 추천) / `InstructorBrowseService`(강사 둘러보기 목록).
+  **왜 강사 목록이 instructorapplication 이 아니라 여기 있나**: 모수 조건(`isPublished`)과 카드 필드
+  (`tagline`·`locationLabel`)가 이 도메인 것이고 강의 수는 course 를 읽는데, branding → instructorapplication·course
+  는 되지만 **반대는 순환**이다. URL 네임스페이스(`/instructors`)와 패키지 소유가 다른 건 의도다.
 - **엔티티** — `AccountBranding` · `BrandingRecord` · `BrandingPost` · `BrandingPostMedia` · `BrandingPostTag`
   + `Medal`·`RecordEventCode`·`BrandingMediaKind` enum.
 - **`storage/`** — `BrandingImageStorage`(S3/Local 게이트). 프로필·리뷰 이미지처럼 `S3Uploader` 를 직접 쓰면
