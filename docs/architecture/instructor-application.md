@@ -25,7 +25,7 @@ flowchart TB
         StoreLocal["LocalCertificateImageStorage (dev)"]
         AppEntity["InstructorApplication<br/>(certificateIds 참조)"]
         AppRepo["InstructorApplicationJpaRepo"]
-        Adapter["InstructorApprovalLookupAdapter"]
+        Adapter["InstructorApprovalLookupAdapter<br/>InstructorApplicationReviewAdapter"]
     end
 
     subgraph CERT["certificate 도메인 (자격증 정본 + 검증 규칙)"]
@@ -215,7 +215,7 @@ erDiagram
 | `/admin/instructor-applications` | GET | **ADMIN** | `?status=` 생략 시 전체, 지정 시 탭별. 기본 정렬 submittedAt desc |
 | `/admin/instructor-applications/counts` | GET | **ADMIN** | 탭 뱃지용 `{submitted, approved, rejected, total}` |
 | `/admin/instructor-applications/{id}` | GET | **ADMIN** | PII 포함 상세 (+ reviewerNickName / createdAt) + 첨부 자격증 풀 필드(`AdminCertificateView[]` — 사진 presigned·검증 상태) |
-| `/admin/instructor-applications/{id}/approve` | POST | **ADMIN** | INSTRUCTOR 부여 + isCertified + 첨부 자격증 VERIFIED + sweep. (검수 큐 단위 승인 `reviewId` 는 PR2) |
+| `/admin/instructor-applications/{id}/approve` | POST | **ADMIN** | INSTRUCTOR 부여 + isCertified + 첨부 자격증 VERIFIED + sweep. 검수 큐 `POST /admin/certificate-reviews/{reviewId}/approve`(NEW) 가 이 서비스 메서드로 위임된다 — 어느 쪽으로 눌러도 같은 전이 |
 | `/admin/instructor-applications/{id}/reject` | POST | **ADMIN** | 사유 필수 |
 | `/instructors/public` | GET | **공개** | 공개 강사 디렉토리(PagedModel `_embedded.instructors`). 승인 신청 보유 계정만(탈퇴 제외), 공개필드(nickName·avatarUrl·disciplineCodes)만. **size 상한 50/기본 20**(`PageClamp`), 정렬은 서버 고정(가입 최신순 = id desc)이라 클라이언트 `?sort=` 는 버려진다. `PublicInstructorController`+`PublicInstructorService`. 🔴 **호출자 0(2026-08-22)** — 홈 "공식 강사" 카드는 `GET /instructors/suggested` 다. 제거는 구버전 앱 확인 후. ⚠️ 그때까지도 **브랜딩 발행 여부를 안 본다** — "검수 통과 인원 수" 외의 용도로 쓰지 말 것. 필터·검색·정렬되는 목록은 **`GET /instructors/browse`**([branding.md](branding.md) — 모수에 `isPublished` 가 들어가 순환 회피 차원에서 branding 패키지 소유) |
 | `/instructors/suggested` | GET | **공개** | 무작위 추천 강사 + 총 수. ⚠️ **모집단이 위와 다르다** — 승인 + **브랜딩 발행**까지 된 강사만(카드를 누르면 열려야 하므로). 코드는 [branding 패키지](branding.md)에 있다(`branding → instructorapplication` 이 기존 의존 방향이라 반대로 붙이면 순환이 된다) |
@@ -237,7 +237,7 @@ admin 권한은 **DB role 이 source of truth** (`Account.roles` 에 `ADMIN`) �
 - 🟢 **레거시 신청/전환 흐름 제거 완료** — `/sign/instructor/*` 4종 + `/account/instructor`·`/account/instructor-application` + `Account.organization/income/isRequestCertified` + `findAllRequestInstructor` 제거됨. 잔존: `InstructorCertificate`(엔티티/서비스/`/account/instructor/certificate/list` 읽기) + `Account.selfIntroduction`(강의 상세에서 읽힘) — 강사 프로필(instructor-profile) 기능 때 정리.
 - 🟡 **REST Docs 스니펫 부재** — 이번 엔드포인트들은 use-case 테스트로만 검증되고 `document(...)` 컨트롤러 테스트가 없다. `api.adoc` 에 include 를 추가하지 않으므로 빌드는 깨지지 않지만, 공개 문서엔 아직 안 나온다. 후속 PR 에서 보강.
 - 🟡 **organizationCode 미검증** — BE 는 Sanity 카탈로그와 대조하지 않고 문자열을 그대로 신뢰한다(`OTHER` 는 `organizationName` 빈값만 체크 — certificate 도메인). 잘못된 code 가 들어와도 막지 않음 — Sanity 가 출처라는 결정의 trade-off.
-- 🟡 **검수 큐 단위 어드민 API 는 PR2** — ADDITIONAL/RE_VERIFY 검수 행은 이미 생기지만(`certificate_review`) 그걸 목록·승인·반려하는 `/admin/certificate-reviews/**` 는 다음 PR. 그 전엔 PENDING(ADDITIONAL/RE_VERIFY) 이 빠져나올 어드민 경로가 없으므로 **두 PR 을 함께 배포**한다(통합 브랜치 `feat/certificate-verification`).
+- 🟢 **검수 큐 단위 어드민 API** — `/admin/certificate-reviews/**`([certificate.md](certificate.md)). 이 도메인의 `/admin/instructor-applications/**` 는 NEW 만 보는 보조 경로로 남는다 — 어드민 FE 는 큐 쪽으로 옮길 것.
 - 🟢 **상태 단순화** — `UNDER_REVIEW` 없이 SUBMITTED 가 "검토 중"을 겸한다. 심사 담당자 분리/SLA 가 필요해지면 중간 상태 추가.
 
 ---

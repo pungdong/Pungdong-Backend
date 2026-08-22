@@ -89,13 +89,13 @@
 | 없음 / REJECTED | `NONE` + 카드 CTA "강사 신청하고 인증받기" → 신청 플로우에 `certId` prefill |
 | SUBMITTED | `NONE`, CTA 없음("심사 중인 신청이 있어요 — 승인 후 검수돼요") → 승인 sweep 이 잡음 |
 
-**어드민 큐 단위 = review item**(`certificate_review`: kind NEW/ADDITIONAL/RE_VERIFY, approve/reject 를 `reviewId` 로 통일) — ADDITIONAL/RE_VERIFY 는 신청이 APPROVED 상태에서 생겨 SUBMITTED 행이 없기 때문. RE_VERIFY 행엔 `previous`(최초 VERIFIED 시점의 단체/레벨/번호, 대기 중 또 고쳐도 갱신 안 함) — 자격증 행이 이미 덮인 뒤라 이 테이블이 유일한 보관처. **PR1(이 문서 기준 모델·규칙·백필·소비자 전환)과 PR2(검수 큐 API)는 통합 브랜치로 함께 배포** — PR1 만 나가면 ADDITIONAL/RE_VERIFY 가 PENDING 에서 빠져나올 어드민 경로가 없다.
+**어드민 큐 단위 = review item**(`certificate_review`: kind NEW/ADDITIONAL/RE_VERIFY, `GET /admin/certificate-reviews` · `/counts` · `/{reviewId}` · `POST /{reviewId}/approve|reject` 로 통일) — ADDITIONAL/RE_VERIFY 는 신청이 APPROVED 상태에서 생겨 SUBMITTED 행이 없기 때문. NEW 의 승인/반려는 신청 승인/반려에 위임(권한 부여 그대로). RE_VERIFY 행엔 `previous`(최초 VERIFIED 시점의 종목/단체/레벨/번호, 대기 중 또 고쳐도 갱신 안 함) — 자격증 행이 이미 덮인 뒤라 이 테이블이 유일한 보관처. 목록·상세의 `verifiedCertificateMissing` 이 "검증 자격증 0건"(승인 ∧ 필수 종목 ∧ 살아있는 검증 0) 을 표시한다 — 자동 회수 없음. 기존 `/admin/instructor-applications/**` 는 NEW 만 보는 보조 경로. **PR1(모델·규칙·백필·소비자 전환)과 PR2(검수 큐 API)는 통합 브랜치로 함께 배포** — PR1 만 나가면 ADDITIONAL/RE_VERIFY 가 PENDING 에서 빠져나올 어드민 경로가 없다.
 
 - **확장 로드맵**: `level` 로 강의 생성 시 **레벨 게이트**(level2 강사가 level3 등록 불가) · 공개 뱃지에 `level`/`certificationDisplayName` 노출(v1.5) · ADDITIONAL/RE_VERIFY 결과 알림 딥링크(v1.5).
 
 ### 어드민
 - **ADMIN 권한 = DB role**(`Account.roles`). "누구를 admin 으로"의 **목록만 env**(`ADMIN_EMAILS`) → 부팅 시 부여. Sanity 같은 CMS 에 두지 않음(보안 경계).
-- **검수 페이지**: counts(탭 뱃지) · 목록(상태 필터/전체, 최신순) · 상세(본인확인 PII + 자격증 풀 필드·사진·검증 상태) · 승인/반려. 검수 큐(review item) 전환은 PR2.
+- **검수 페이지 = 검수 큐**(`/admin/certificate-reviews/**`): counts(세 종류 합산) · 목록(상태 필터/전체, 최신순, kind·단체 칩·`verifiedCertificateMissing`) · 상세(NEW: 본인확인 PII + 보험 + 첨부 자격증 풀 필드 / RE_VERIFY: 자격증 + `previous` 대조) · 승인/반려 by `reviewId`.
 
 ---
 
@@ -121,7 +121,7 @@
 
 - 🔴 **실 본인확인기관 연동** — CI/DI 암호화 저장 + 비동기 푸시/재발송/검증 흐름. 사업자등록 + 기관 계약 후. (QA 에서 stub↔실연동 차이 이슈 다수 예상)
 - 🟡 **자격 레벨 게이트** — 자격증 `level` 은 이미 있다(2026-08-22 수렴). 남은 건 강의 생성 시 **강사 레벨 ≥ 코스 목표 레벨** 게이트.
-- 🟡 **검수 큐 API(PR2)** — `certificate_review` 기반 목록/counts/상세/approve·reject by `reviewId` + "검증 자격증 0건" 플래그 + 알림(v1.5).
+- 🟡 **검수 결과 알림(v1.5)** — ADDITIONAL/RE_VERIFY 승인·반려 푸시/인앱 + 딥링크. 공개 뱃지에 `level`/`certificationDisplayName` 노출도 v1.5.
 - ~~🟡 **강의 ↔ 종목 연결**~~ — ✅ 해소(2026-08-15). `Lecture.classKind` 는 v1 삭제로 사라졌고, Course 는 처음부터 `disciplineCode` 를 쓴다.
 - 🟡 **어드민 종목 관리 (배포 없는 확장)** — `POST/PUT /admin/disciplines` (추가 · active · 순서 · 이름). **종목 확장이 잦을 예정이라 우선순위 ↑.** 현재는 `DisciplineSeeder`(코드+배포)/SQL. 종목은 계속 BE 테이블(비즈룰·쿼리 유지), 관리 surface 만 추가 — Sanity 로 옮기는 게 아님.
 

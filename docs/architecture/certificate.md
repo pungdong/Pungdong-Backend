@@ -24,6 +24,9 @@ flowchart TB
         VSvc["CertificateVerificationService<br/>(Rule A · B · C)"]
         Review["CertificateReview<br/>(어드민 큐 NEW/ADDITIONAL/RE_VERIFY)"]
         Port["InstructorApprovalLookup (port)"]
+        AdminCtl["AdminCertificateReviewController<br/>/admin/certificate-reviews/**"]
+        RSvc["CertificateReviewService"]
+        RPort["InstructorApplicationReviewPort (port)"]
         Listener["StudentCertificateAnonymizationListener"]
         Store["StudentCertificatePhotoStorage (interface)"]
         S3["S3StudentCertificatePhotoStorage<br/>(비공개 버킷 + presigned)"]
@@ -47,6 +50,9 @@ flowchart TB
     VSvc --> Port
     Apply --> VSvc
     Apply -.구현.-> Port
+    AdminCtl --> RSvc --> Review
+    RSvc -->|NEW 승인·반려 위임| RPort
+    Apply -.구현.-> RPort
     Public --> Svc
     Svc --> Store
     Svc --> Disc
@@ -75,6 +81,18 @@ flowchart TB
 | `PUT /certificates/{id}` | 수정(**전면 교체**). **Rule A 전이 / Rule C 400** | 200 `EntityModel` | **-1009** |
 | `DELETE /certificates/{id}` | 삭제(행 + 사진 + 검수 이력). **Rule C 400** | **204** | **-1009** |
 | `POST /certificates/photos` | 사진 업로드(multipart `image`) | 200 `{fileKey}` | — |
+
+**어드민 검수 큐** — `/admin/certificate-reviews/**`, 전부 `hasRole(ADMIN)`(`AdminCertificateReviewController` · `CertificateReviewService`).
+
+| 메서드 · 경로 | 용도 | 비고 |
+|---|---|---|
+| `GET /admin/certificate-reviews?status=` | 큐 목록(NEW/ADDITIONAL/RE_VERIFY 한 목록, `_embedded.reviews`) | 생략 시 이력 포함 전체. 요청 최신순, size 상한 50. 행에 `verifiedCertificateMissing`(검증 자격증 0건 플래그) |
+| `GET /admin/certificate-reviews/counts` | 세 종류 합산 `{pending, approved, rejected, total}` | |
+| `GET /admin/certificate-reviews/{reviewId}` | 상세 — NEW 는 `application`(PII·보험, 포트로 instructorapplication 이 채움) + 첨부 `certificates[]`, RE_VERIFY 는 `certificates[0]` + `previous` | 없으면 -1009 |
+| `POST …/{reviewId}/approve` | NEW → `InstructorApplicationReviewPort.approve`(신청 승인 = 권한 부여 + Rule B), 나머지 → 그 자격증 VERIFIED | 처리된 행 재호출 400 "이미 처리된 검수 요청이에요." |
+| `POST …/{reviewId}/reject {reason}` | NEW → 신청 반려, 나머지 → 자격증 REJECTED + 사유 | 사유 필수(1000자) |
+
+기존 `/admin/instructor-applications/**` 는 신청 단위 보조 경로로 남는다(ADDITIONAL/RE_VERIFY 는 거기 안 보인다).
 
 - **빈 목록은 200 + `_embedded` 부재** (Spring HATEOAS 동작). 404 가 아니다 — 빈 상태는 정상 UI 상태.
 - **페이지네이션 없음** — 개인 보유량이 한 자릿수.
@@ -288,7 +306,7 @@ presigned URL 은 **경로에 객체 key 를 담는다.** URL 이 한 번 새면
 | `enrollment` | `EnrollmentCompletion.isCertifiable` 공유(hub 가 `certifiable` 로 노출) + 강사·강의 스냅샷 출처 |
 | `identityverification` | `holderName` 파생(최신 VERIFIED 실명) |
 | `account` | 소유자. `AccountAnonymizedEvent` 로 탈퇴 파기 수신(**단방향** — account 는 이 패키지를 모른다). 검수 행도 함께 파기 |
-| `instructorapplication` | **저쪽이 이쪽을 호출**(Rule B: `attachToApplication`/`onApplicationApproved`/`onApplicationRejected`) + 이쪽 포트 `InstructorApprovalLookup` 을 구현. 반대 방향 import 없음 |
+| `instructorapplication` | **저쪽이 이쪽을 호출**(Rule B: `attachToApplication`/`onApplicationApproved`/`onApplicationRejected`) + 이쪽 포트 2개를 구현 — `InstructorApprovalLookup`(레포만, 검증 서비스가 씀) · `InstructorApplicationReviewPort`(서비스 위임, 검수 큐만 씀 — 검증 서비스에서 쓰면 순환). 반대 방향 import 없음 |
 | `branding` · `course` · `profile` | 공개 인증마크를 `verifiedBadgesOf` 에서 읽는다(형태 v1). 강사 browse 의 단체 칩·필터는 레포 JPQL 이 `verification.status = VERIFIED` 를 직접 건다 |
 | Sanity | 단체·자격 카탈로그. **BE 는 읽지 않는다** — FE 가 등록 시 고른 표시명을 보내고 BE 는 스냅샷 저장만 |
 
@@ -296,7 +314,7 @@ presigned URL 은 **경로에 객체 key 를 담는다.** URL 이 한 번 새면
 
 ## 설계 간극 / 후속
 
-- 🟡 **RE_VERIFY 반려 구멍(인정)** — 마지막 VERIFIED 를 식별필드 수정으로 RE_VERIFY 에 올렸다가 반려되면 그 종목에 검증 자격증 0 + INSTRUCTOR 권한 유지. 자동 회수 없음(회수는 어드민 판단). 사용자는 REJECTED 사유를 보고 고치면 Rule A 로 다시 PENDING. 어드민 목록 "검증 자격증 0건" 플래그는 PR2(검수 큐) 범위.
+- 🟡 **RE_VERIFY 반려 구멍(인정)** — 마지막 VERIFIED 를 식별필드 수정으로 RE_VERIFY 에 올렸다가 반려되면 그 종목에 검증 자격증 0 + INSTRUCTOR 권한 유지. 자동 회수 없음(회수는 어드민 판단) — 큐 목록/상세의 `verifiedCertificateMissing` 이 그 계정·종목을 표시한다. 사용자는 REJECTED 사유를 보고 고치면 Rule A 로 다시 PENDING.
 - 🟡 **알림 없음** — ADDITIONAL/RE_VERIFY 결과(승인·반려) 푸시/인앱 알림은 v1.5.
 - 🟡 **사진 제거** — `PUT` 은 교체만 표현한다(생략 = 유지). 사진이 필수가 된 지금은 "제거"가 애초에 도달 가능한 상태가 아니라 당분간 무의미하다. 필요해지면 별도 필드 — "빈 문자열 = 제거"로 겸용하지 말 것(생략과 구분이 안 된다).
 - 🟡 **사진 없는 옛 행** — 필수가 되기 전 데이터. 조회·삭제는 되고 수정할 때만 사진을 요구한다. 개수가 적어 백필하지 않았다. 언젠가 0 이 되면 그때 `NOT NULL` 을 검토할 수 있다(지금은 걸지 않는다).
@@ -325,6 +343,7 @@ presigned URL 은 **경로에 객체 key 를 담는다.** URL 이 한 번 새면
 | 2026-08-16 | **사진을 선택 → 필수로 뒤집음** (`photoFileKey` `@NotBlank`, "자격증 사진을 추가해주세요.") | 이 도메인의 신뢰 모델이 애초에 **"사진이 진실"** 이었다 — 표시명·번호는 자기 신고라 BE 가 대조하지 않고("위조해도 표시가 어긋날 뿐"), 실제 확인은 **수영장 입장 때 사진 제시**로 이뤄진다. 그런데 정작 그 사진이 선택이라 **검증의 근거가 없는 행**이 만들어질 수 있었다. 선택으로 뒀던 건 등록 마찰을 줄이려던 것인데, FE QA 에서 "사진 없는 자격증은 입장에서 못 쓴다"가 확인돼 뒤집었다. FE(PungDong #564)도 같이 막지만 **BE 가 진짜 경계** |
 | 2026-08-16 | 수정에선 필드가 아니라 **결과 상태**를 검사 (`requirePhotoAfterUpdate`) | `photoFileKey` 는 수정에서 **"생략 = 유지"** 라 빈 값이 정상 입력이다. 여기에 `@NotBlank` 를 걸면 유지 의미론이 죽어 **매 수정마다 사진 재업로드를 강요**한다. "요청도 비었고 기존도 없음" = 400 으로, 필수는 지키되 유지는 살린다 |
 | 2026-08-22 | **강사 자격 검증의 정본으로 수렴** — `verification` 임베드 + `certificate_review` + 신청은 `certificateIds` 참조, `ApplicationCertificate` 삭제(백필) | 강사가 같은 자격증을 두 번 올려야 했고(신청·내 자격증), "신청하면 자동 등록 + 인증마크"가 분리 구조로는 불가능. FE 핸드오프(PungDong `docs/features/certificate.md` §강사 자격 검증 트랙)를 BE 코드 실태와 대조해 채택 — 보정 4건: (1) 삭제 영향이 BE 소비자 5곳(브랜딩·강의상세·프로필·browse JPQL·어드민 요약), (2) 승인 시 sweep 에 더해 **제출 시 자동 첨부**(어드민이 한 번에), (3) `previous` 때문에 검수 테이블이 필요, (4) 백필은 **승인 건만이 아니라 전 상태**(SUBMITTED 첨부가 사라지면 어드민이 볼 게 없다) |
+| 2026-08-22 | **검수 큐 API 를 certificate 도메인에** — NEW 승인은 포트로 instructorapplication 에 위임 | 큐 테이블이 여기 있고 ADDITIONAL/RE_VERIFY 는 자격증 전이라 여기가 자연스럽다. NEW 의 실체(권한 부여)는 저쪽 소유라 `InstructorApplicationReviewPort` 로 위임 — 어댑터가 서비스를 끌어오므로 `InstructorApprovalLookupAdapter`(레포만)와 **분리**해 `InstructorApplicationService → CertificateVerificationService → 어댑터 → InstructorApplicationService` 순환을 피한다 |
 | 2026-08-22 | `certificate_number`/`acquired_at` **DB NULL 허용, API 필수 유지** | 옛 신청은 번호·취득일을 받지 않아 백필 행이 null. DTO `@NotBlank`/`@NotNull` 은 그대로라 "null → 값" 한 방향만 열리고, 그 채우기는 기록 보완(재검수 아님) |
 | 2026-08-22 | 백필 사진 key 는 옛 prefix(`instructorCertificate/`) **그대로** | 같은 비공개 버킷이라 presign 은 key 만 있으면 되고, 탈퇴 파기는 `instructorapplication` 리스너가 그 prefix 를 계속 지운다(보험 때문에 저장소가 남음). 객체 복사는 비용만 든다 |
 | 2026-08-22 | 자격증 불필요 종목(수영/서핑)도 강사레벨 자격증을 올리면 검수·마크 **허용**, Rule C 만 비적용 | 막을 이유가 없고(생활체육지도사 등), 그 종목 강사는 자격증으로 정의되지 않으니 "마지막 한 장" 가드만 의미가 없다 |
