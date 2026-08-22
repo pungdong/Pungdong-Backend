@@ -336,6 +336,28 @@ class CourseDetailUseCaseTest {
     }
 
     @Test
+    @DisplayName("I3-1 강사 인셋 certs 는 VERIFIED 강사 자격만 — 자기신고 LEVEL_4 는 섞이지 않고, 원소엔 level·verified=true 가 실린다")
+    void i3_1_instructor_inset_excludes_self_reported() throws Exception {
+        Account inst = account("i3-1@pungdong.com");
+        approveAsInstructor(inst, "FREEDIVING", "AIDA");
+        // 같은 사람의 자기신고 수강생 레벨 — 프로필·커뮤니티(사람 표면)엔 보이지만 여긴 강사 자격 표면이다(#330).
+        certificateRepo.save(StudentCertificate.builder()
+                .owner(inst).disciplineCode("FREEDIVING").organizationCode("SSI").organizationName("SSI")
+                .level(CertLevel.LEVEL_4).certificateNumber("L4").acquiredAt(java.time.LocalDate.of(2024, 1, 1))
+                .source(CertificateSource.EXTERNAL).photoFileKey("studentCertificate/" + inst.getId() + "/s.jpg")
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).verification(CertificateVerification.none()).build());
+        String[] ref = seedVenueWithTicket(inst, 48000, 55000);
+        long id = openCourse(inst, ref[0], ref[1]);
+
+        mockMvc.perform(get("/courses/" + id + "/detail"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.instructor.certs", hasSize(1)))
+                .andExpect(jsonPath("$.instructor.certs[0].organizationCode").value("AIDA"))
+                .andExpect(jsonPath("$.instructor.certs[0].level").value("INSTRUCTOR"))
+                .andExpect(jsonPath("$.instructor.certs[0].verified").value(true));
+    }
+
+    @Test
     @DisplayName("I4 프로필에 적은 한마디(tagline)·자기소개(bio)가 상세에 실린다 — 두 번째 호출이 필요 없다")
     void i4_tagline_and_bio_inlined() throws Exception {
         Account inst = account("i4@pungdong.com");

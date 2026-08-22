@@ -353,6 +353,34 @@ class InstructorBrowseUseCaseTest {
                 .andExpect(jsonPath("$.nickName").value("열리는강사"));
     }
 
+    @Test
+    @DisplayName("S10 단체 칩·필터는 VERIFIED 강사 자격만 — 자기신고 LEVEL_4(PADI)·미검증 INSTRUCTOR(SSI)는 organizationCodes 에 섞이지 않고 그 단체로 검색되지도 않는다")
+    void s10_organizationCodes_ignoreSelfReported() throws Exception {
+        Account instructor = visibleInstructor("검증만", "FREEDIVING", "AIDA");
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        // 자기신고 수강생 레벨 — 프로필·커뮤니티(사람 표면)엔 보이지만 강사 자격 표면엔 안 보여야 한다(#330).
+        certificateRepo.save(StudentCertificate.builder()
+                .owner(instructor).disciplineCode("FREEDIVING").organizationCode("PADI").organizationName("PADI")
+                .level(CertLevel.LEVEL_4).certificateNumber("L4").acquiredAt(java.time.LocalDate.of(2024, 1, 1))
+                .source(CertificateSource.EXTERNAL).photoFileKey("studentCertificate/" + instructor.getId() + "/p.jpg")
+                .createdAt(now).verification(CertificateVerification.none()).build());
+        // 심사 중인 강사 레벨 — 아직 자격이 아니다.
+        certificateRepo.save(StudentCertificate.builder()
+                .owner(instructor).disciplineCode("FREEDIVING").organizationCode("SSI").organizationName("SSI")
+                .level(CertLevel.INSTRUCTOR).certificateNumber("S1").acquiredAt(java.time.LocalDate.of(2024, 1, 1))
+                .source(CertificateSource.EXTERNAL).photoFileKey("studentCertificate/" + instructor.getId() + "/s.jpg")
+                .createdAt(now).verification(new CertificateVerification(CertificateVerificationStatus.PENDING,
+                        CertificateVerificationKind.ADDITIONAL, null, now, null)).build());
+
+        browse("?disciplineCode=FREEDIVING")
+                .andExpect(jsonPath("$._embedded.instructors", hasSize(1)))
+                .andExpect(jsonPath("$._embedded.instructors[0].organizationCodes", contains("AIDA")));
+        browse("?disciplineCode=FREEDIVING&organizationCodes=PADI")
+                .andExpect(jsonPath("$._embedded.instructors").doesNotExist());
+        browse("?disciplineCode=FREEDIVING&organizationCodes=SSI")
+                .andExpect(jsonPath("$._embedded.instructors").doesNotExist());
+    }
+
     /* ════════════════ O — 모수에서 빠지는 것 ════════════════ */
 
     @Test
