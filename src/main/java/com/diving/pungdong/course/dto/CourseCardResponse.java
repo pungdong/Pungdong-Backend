@@ -51,6 +51,19 @@ public class CourseCardResponse {
     private int price;
     private int totalRounds;
     private String disciplineCode;
+
+    /**
+     * 영업 상태. <b>둘러보기({@code GET /courses/browse})는 지금도 OPEN 만 반환한다</b> — 이 필드가
+     * 조회 모수를 바꾸지 않는다.
+     *
+     * <p>싣는 이유는 <b>저장(북마크) 목록</b>이다. 마감된 강의는 저장 목록에서 조용히 사라지는데
+     * (저장 행은 남아 있어 재개설되면 돌아온다), 카드를 "마감" 배지로 남기려면 상태가 필요했다.
+     * 예전엔 그걸 못 한 이유가 "마감 강의는 공개 상세가 400 이라 눌러도 안 열리는 막다른 카드"
+     * 였는데, BE #322 로 마감 강의 상세가 읽기 전용으로 열리면서 그 전제가 사라졌다.
+     * (배지를 실제로 그릴지, 저장 목록에 마감분을 다시 넣을지는 FE 결정 — BE 는 재료만 낸다.)
+     */
+    private CourseStatus status;
+
     /** 데모(샘플) 코스 — FE 가 "샘플용" 태그로 구분 노출. */
     private boolean seeded;
     private OffsetDateTime createdAt;
@@ -89,6 +102,7 @@ public class CourseCardResponse {
                 .price(c.getPrice())
                 .totalRounds(c.getTotalRounds())
                 .disciplineCode(c.getDisciplineCode())
+                .status(c.getStatus())
                 .seeded(c.isSeeded())
                 .createdAt(c.getCreatedAt())
                 .build();

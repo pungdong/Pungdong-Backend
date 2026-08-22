@@ -2108,6 +2108,15 @@ export interface CourseCardResponse {
   price: number;
   totalRounds: number;
   disciplineCode: string;
+  /**
+   * 영업 상태. **`GET /courses/browse` 는 지금도 OPEN 만 반환한다** — 이 필드가 조회 모수를 바꾸지 않는다.
+   *
+   * 싣는 이유는 **저장(북마크) 목록**이다. 마감된 강의는 저장 목록에서 조용히 빠지는데(저장 행은 남아
+   * 재개설되면 돌아온다), 카드를 "마감" 배지로 남기고 싶으면 상태가 필요했다. 예전에 그걸 못 한 이유는
+   * "마감 강의는 상세가 400 이라 눌러도 안 열리는 막다른 카드" 였고, BE #322 로 그 전제가 사라졌다.
+   * 배지를 그릴지 · 저장 목록에 마감분을 되돌릴지는 FE 결정 — BE 는 재료만 낸다.
+   */
+  status: CourseStatus;
   seeded: boolean; // 데모(샘플) 코스 — FE 가 "샘플용" 태그로 구분 노출. siteSettings.showSeededCourses=false 면 목록에서 빠짐
   createdAt?: string;
   /**
@@ -2149,7 +2158,14 @@ export interface CourseBrowseResponse extends HalLinks {
 /**
  * 공개 상세. CourseResponse(강사용)와 차이: ① venue 합성 — venues[]에 위치명/주소/입장료(이용권×daypart
  * fee)/장비가 풀려 옴(강사용은 ticketRef·daypart 원본만). ② instructorName 만(경력·자격·평점은 강사 프로필/
- * 리뷰 통합 후속). ③ status 없음(항상 OPEN). 입장료·장비는 회차별 변동이라 표시/안내용 — 확정 결제는 부킹.
+ * 리뷰 통합 후속). 입장료·장비는 회차별 변동이라 표시/안내용 — 확정 결제는 부킹.
+ *
+ * 🔴 **더 이상 "항상 OPEN" 이 아니다**(2026-08-22, BE #322). **마감(CLOSED)된 강의도 200 으로 열린다** —
+ *    웹에서 강의 URL 은 판매 화면이기 전에 색인 자산이고, 마감과 함께 404 가 되면 그 페이지가 쌓은
+ *    검색 신뢰도와 공유 링크가 같이 죽었다. 재개설되면 같은 URL 이 그대로 되살아난다.
+ *    → **`status` 로 분기해 신청·저장 CTA 를 끄고 "모집이 마감된 강의예요" 로 바꾼다.**
+ *    (여전히 400 인 것: 없는 id · `DRAFT` · **한 번도 공개된 적 없는** CLOSED · 차단 · 데모 가림 ·
+ *     미승인 강사. 전부 같은 `-1009` 라 사유는 구분되지 않는다.)
  */
 export interface CourseDetailResponse extends HalLinks {
   id: number;
@@ -2159,6 +2175,12 @@ export interface CourseDetailResponse extends HalLinks {
   levels: CertLevel[];
   isPackage: boolean;
   disciplineCode: string;
+  /**
+   * 영업 상태. **여기 실제로 오는 값은 `'OPEN' | 'CLOSED'` 둘뿐**이다(DRAFT 는 게이트가 거른다).
+   * `'CLOSED'` = 모집 마감 — 내용은 그대로 보여주고 **신청·저장 CTA 만** 비활성화한다.
+   * 타입을 좁히지 않은 건 `CourseStatus` 를 쓰는 다른 응답과 같은 유니온을 공유하기 위해서다.
+   */
+  status: CourseStatus;
   totalRounds: number;
   price: number; // 수강료(원)
   description?: string;

@@ -51,8 +51,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 강사용 GET /courses/{id} 와 달리 venue 를 합성: 위치명·<b>입장료(이용권×평일/주말 daypart fee)</b>·장비.
  * {@code @DisplayName} 위→아래로 읽으면 규칙.
  *
- * <p>그룹: S* 상세 합성, <b>I* 강사 카드 인라인</b>, V* 비공개/없음. CUSTOM 위치(이용권 평일/주말 fee
- * 다르게)를 직접 seed 해 입장료 합성을 검증한다.
+ * <p>그룹: S* 상세 합성, <b>I* 강사 카드 인라인</b>, V* 비공개/없음, <b>C* 마감(CLOSED) 읽기 전용 공개</b>.
+ * CUSTOM 위치(이용권 평일/주말 fee 다르게)를 직접 seed 해 입장료 합성을 검증한다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -153,10 +153,33 @@ class CourseDetailUseCaseTest {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         long id = ((Number) JsonPath.read(loc, "$.id")).longValue();
-        mockMvc.perform(patch("/courses/" + id + "/status").header(HttpHeaders.AUTHORIZATION, tokenFor(me))
-                        .contentType(MediaType.APPLICATION_JSON).content(json(Map.of("status", "OPEN"))))
-                .andExpect(status().isOk());
+        setStatus(me, id, "OPEN");
         return id;
+    }
+
+    /** 강사가 자기 강의의 영업 상태를 바꾼다(PATCH /courses/{id}/status). */
+    private void setStatus(Account me, long id, String status) throws Exception {
+        mockMvc.perform(patch("/courses/" + id + "/status").header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON).content(json(Map.of("status", status))))
+                .andExpect(status().isOk());
+    }
+
+    /** 코스 작성만 하고 발행하지 않는다 → DRAFT. 한 번도 공개된 적 없는 상태. */
+    private long draftCourse(Account me, String venueRefId, String ticketRef) throws Exception {
+        Map<String, Object> body = new HashMap<>();
+        body.put("title", "임시 과정");
+        body.put("kind", "TRIAL");
+        body.put("disciplineCode", "FREEDIVING");
+        body.put("price", 90000);
+        body.put("totalRounds", 1);
+        body.put("rounds", List.of(Map.of("description", "1회차",
+                "venues", List.of(Map.of("venueRefId", venueRefId,
+                        "tickets", List.of(Map.of("ticketRef", ticketRef, "daypart", "WEEKDAY")))))));
+        String loc = mockMvc.perform(post("/courses").header(HttpHeaders.AUTHORIZATION, tokenFor(me))
+                        .contentType(MediaType.APPLICATION_JSON).content(json(body)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return ((Number) JsonPath.read(loc, "$.id")).longValue();
     }
 
     /* ════════════════ S — 상세 합성 ════════════════ */
@@ -362,21 +385,7 @@ class CourseDetailUseCaseTest {
     void v1_draft_hidden() throws Exception {
         Account inst = account("v1@pungdong.com");
         String[] ref = seedVenueWithTicket(inst, 48000, 55000);
-        // 코스 생성만, OPEN 안 함 → DRAFT
-        Map<String, Object> body = new HashMap<>();
-        body.put("title", "임시 과정");
-        body.put("kind", "TRIAL");
-        body.put("disciplineCode", "FREEDIVING");
-        body.put("price", 90000);
-        body.put("totalRounds", 1);
-        body.put("rounds", List.of(Map.of("description", "1회차",
-                "venues", List.of(Map.of("venueRefId", ref[0],
-                        "tickets", List.of(Map.of("ticketRef", ref[1], "daypart", "WEEKDAY")))))));
-        String loc = mockMvc.perform(post("/courses").header(HttpHeaders.AUTHORIZATION, tokenFor(inst))
-                        .contentType(MediaType.APPLICATION_JSON).content(json(body)))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        long id = ((Number) JsonPath.read(loc, "$.id")).longValue();
+        long id = draftCourse(inst, ref[0], ref[1]);   // 코스 생성만, OPEN 안 함 → DRAFT
 
         mockMvc.perform(get("/courses/" + id + "/detail"))
                 .andExpect(status().isBadRequest());
@@ -387,5 +396,70 @@ class CourseDetailUseCaseTest {
     void v2_missing_id() throws Exception {
         mockMvc.perform(get("/courses/999999/detail"))
                 .andExpect(status().isBadRequest());
+    }
+
+    /* ════════ C — 마감(CLOSED) 강의: 읽기는 열고 행동은 막는다 (BE #322) ════════ */
+
+    /**
+     * 이 네 개는 <b>한 묶음</b>이다 — 되돌리려면 함께 봐야 한다. 읽기 축과 행동 축을 나눈 게
+     * 이 피처의 전부라, C2 나 C3 하나만 빠져도 분리가 조용히 무너진다.
+     */
+    @Test
+    @DisplayName("C1 OPEN 이었다가 마감된 강의 상세는 그대로 200 이고 status=CLOSED 로 온다 (색인 자산이 안 죽는다)")
+    void c1_closed_detail_still_readable() throws Exception {
+        Account inst = account("c1@pungdong.com");
+        String[] ref = seedVenueWithTicket(inst, 48000, 55000);
+        long id = openCourse(inst, ref[0], ref[1]);
+        setStatus(inst, id, "CLOSED");
+
+        mockMvc.perform(get("/courses/" + id + "/detail"))  // 비로그인
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CLOSED"))
+                // 본문은 그대로다 — 마감은 CTA 만 바꾸지 내용을 감추지 않는다
+                .andExpect(jsonPath("$.title").value("AIDA2 프리다이빙 과정"))
+                .andExpect(jsonPath("$.venues[0].name").value("잠실 잠수풀"));
+    }
+
+    @Test
+    @DisplayName("C2 한 번도 공개된 적 없는(DRAFT→CLOSED 직행) 강의 상세는 여전히 400 — 판정은 상태가 아니라 발행 이력")
+    void c2_closed_but_never_published_hidden() throws Exception {
+        Account inst = account("c2@pungdong.com");
+        String[] ref = seedVenueWithTicket(inst, 48000, 55000);
+        long id = draftCourse(inst, ref[0], ref[1]);
+        setStatus(inst, id, "CLOSED");   // OPEN 을 거치지 않았다 = 지킬 색인 자산이 없다
+
+        mockMvc.perform(get("/courses/" + id + "/detail"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("C3 마감된 강의는 읽을 수 있지만 저장(북마크)은 400 — 읽기와 행동은 다른 축이다")
+    void c3_closed_readable_but_not_bookmarkable() throws Exception {
+        Account inst = account("c3@pungdong.com");
+        Account student = account("c3s@pungdong.com");
+        String[] ref = seedVenueWithTicket(inst, 48000, 55000);
+        long id = openCourse(inst, ref[0], ref[1]);
+        setStatus(inst, id, "CLOSED");
+
+        mockMvc.perform(get("/courses/" + id + "/detail")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(student)))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/courses/" + id + "/bookmark")
+                        .header(HttpHeaders.AUTHORIZATION, tokenFor(student)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("C4 다시 OPEN 하면 같은 URL 이 그대로 되살아난다 (발행 이력은 되돌리지 않는다)")
+    void c4_reopen_restores_same_url() throws Exception {
+        Account inst = account("c4@pungdong.com");
+        String[] ref = seedVenueWithTicket(inst, 48000, 55000);
+        long id = openCourse(inst, ref[0], ref[1]);
+        setStatus(inst, id, "CLOSED");
+        setStatus(inst, id, "OPEN");
+
+        mockMvc.perform(get("/courses/" + id + "/detail"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("OPEN"));
     }
 }

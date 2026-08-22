@@ -103,7 +103,8 @@ Settled feature packages (each auto-loads its own `CLAUDE.md` when you work in i
 - `availability/` — 강사 캘린더 coverage(예약가능시간)/session(일정)/hold(점유).
 - `block/` — 유저 차단(애플 UGC 1.2). `account` 만 단방향 참조 — 커뮤니티·브랜딩이 **둘 다** 읽어야 해서 어느 한쪽에 둘 수 없다. 필터는 조회 쿼리 안의 `exists` 로 건다(클라이언트가 목록에서 지우면 페이징이 거짓이 된다).
 - `moderation/` — 신고 접수 + 어드민 큐·조치. 대상 4종(게시물·댓글·강의·채팅 메시지)을 한 테이블로. 대상 도메인을 단방향 참조하고, **조치 표식은 대상 도메인의 컬럼**에 남긴다(순환 회피).
-- `course/` · `branding/` · `consent/` · `discipline/` · `identityverification/` · `instructorapplication/` · `legal/` · `profile/` — 각자 `CLAUDE.md` 보유.
+- `branding/` · `consent/` · `discipline/` · `identityverification/` · `instructorapplication/` · `legal/` · `profile/` — 각자 `CLAUDE.md` 보유.
+- `course/` — 강의(코스) 상품. **여기만 패키지 `CLAUDE.md` 가 없다** — 도메인 규칙은 [docs/architecture/course.md](docs/architecture/course.md)(§5 권한 매트릭스가 사실상 그 역할)와 `InstructorApprovalPolicy`·`Course.blockedAt`·`CourseService.requirePubliclyReadable`/`requirePubliclyVisible` 의 Javadoc 이 들고 있다. 공개 표면을 건드릴 땐 그 셋을 먼저 읽을 것.
 - `global/` — domain-agnostic shared: `global/config/`, `global/sitesettings/`(Sanity 런타임 설정 — TTL 등), `global/security/`, `global/advice/`, `global/model/` (CommonResult envelope), `global/validation/`, `global/ResponseService`.
 
 > 위 목록이 곧 전체 도메인이다 — `src/main/java/**/CLAUDE.md` 가 있는 곳이 기준. 레거시 layered 패키지는 남아 있지 않다.

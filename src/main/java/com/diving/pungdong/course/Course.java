@@ -114,6 +114,27 @@ public class Course {
         return blockedAt != null;
     }
 
+    /**
+     * <b>최초로 OPEN 된 시각.</b> 한 번 세우면 되돌리지 않는다 — DRAFT/CLOSED 로 내려도 남는다.
+     *
+     * <p><b>왜 {@code status == CLOSED} 만으로 부족한가.</b> {@link CourseStatus} 전이는 자유라
+     * <b>DRAFT → CLOSED 직행</b>이 가능하다. 그건 "마감된 강의" 가 아니라 <b>한 번도 발행된 적 없는
+     * 초안</b>이고, 색인 자산이 애초에 없다. 그런 걸 공개 상세로 열면 강사가 공개를 선택한 적 없는
+     * 내용(가제목·미완성 사진)이 노출된다 — 레포의 "존재 숨김" 규약 위반이다. 그래서 읽기 게이트는
+     * 상태가 아니라 <b>발행 이력</b>을 본다({@code CourseService.requirePubliclyReadable}).
+     *
+     * <p>⚠️ <b>{@code datePublished} 로 내보내지 말 것.</b> V37 백필은 마이그레이션 이전 행에
+     * {@code COALESCE(updated_at, created_at)} 를 넣었는데 CLOSED 행에선 그게 사실상 <b>마감</b>
+     * 시각이다. 지금 이 값의 용도는 불리언({@link #isEverPublished}) 하나뿐이다.
+     */
+    @Column(name = "published_at")
+    private OffsetDateTime publishedAt;
+
+    /** 한 번이라도 공개된 적이 있는가 — 읽기(색인) 게이트의 단일 판정. */
+    public boolean isEverPublished() {
+        return publishedAt != null;
+    }
+
     @OneToMany(mappedBy = "course", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @OrderBy("sortOrder asc, id asc")
     @Builder.Default
