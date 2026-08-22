@@ -36,12 +36,14 @@ import org.springframework.stereotype.Component;
 public class StudentCertificateAnonymizationListener {
 
     private final StudentCertificateJpaRepo certificateRepo;
+    private final CertificateReviewJpaRepo reviewRepo;
     private final StudentCertificatePhotoStorage photoStorage;
 
     @EventListener
     public void onAccountAnonymized(AccountAnonymizedEvent event) {
         // 행 삭제는 **삼키지 않는다** — 실패하면 익명화 전체가 롤백돼야 한다.
         certificateRepo.deleteByOwnerId(event.accountId());
+        reviewRepo.deleteByAccountId(event.accountId()); // 검수 큐/이력도 PII(누가 무엇을 올렸나)
 
         // 사진(외부 객체)만 best-effort. 이건 실패해도 고아 1개가 남을 뿐이다.
         try {

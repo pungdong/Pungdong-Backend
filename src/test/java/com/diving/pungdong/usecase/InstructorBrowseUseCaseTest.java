@@ -11,7 +11,13 @@ import com.diving.pungdong.course.Course;
 import com.diving.pungdong.course.CourseJpaRepo;
 import com.diving.pungdong.course.CourseKind;
 import com.diving.pungdong.course.CourseStatus;
-import com.diving.pungdong.instructorapplication.ApplicationCertificate;
+import com.diving.pungdong.certificate.CertificateSource;
+import com.diving.pungdong.certificate.CertificateVerification;
+import com.diving.pungdong.certificate.CertificateVerificationKind;
+import com.diving.pungdong.certificate.CertificateVerificationStatus;
+import com.diving.pungdong.certificate.StudentCertificate;
+import com.diving.pungdong.certificate.StudentCertificateJpaRepo;
+import com.diving.pungdong.course.CertLevel;
 import com.diving.pungdong.instructorapplication.InstructorApplication;
 import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
 import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
@@ -57,11 +63,13 @@ class InstructorBrowseUseCaseTest {
     @Autowired ProfilePhotoJpaRepo profilePhotoRepo;
     @Autowired AccountBrandingJpaRepo brandingRepo;
     @Autowired InstructorApplicationJpaRepo applicationRepo;
+    @Autowired StudentCertificateJpaRepo certificateRepo;
     @Autowired CourseJpaRepo courseRepo;
 
     @AfterEach
     void cleanUp() {
         courseRepo.deleteAll();
+        certificateRepo.deleteAll();
         applicationRepo.deleteAll();
         brandingRepo.deleteAll();
         accountRepo.deleteAll();
@@ -93,12 +101,29 @@ class InstructorBrowseUseCaseTest {
                 .account(account).disciplineCode(disciplineCode).status(status)
                 .submittedAt(OffsetDateTime.now(ZoneOffset.UTC))
                 .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
-        for (String code : organizationCodes) {
-            application.addCertificate(ApplicationCertificate.builder()
-                    .organizationCode(code).fileKey("instructorCertificate/1/x.jpg").build());
+        InstructorApplication saved = applicationRepo.save(application);
+        if (status == InstructorApplicationStatus.APPROVED) {
+            for (String code : organizationCodes) {
+                verifiedCertificate(account, disciplineCode, code);
+            }
         }
-        return applicationRepo.save(application);
+        return saved;
     }
+
+    /** VERIFIED 강사레벨 자격증 1장 — 인증마크(certs·organizationCodes)의 출처(2026-08-22 수렴: 승인 신청 첨부 → VERIFIED 자격증). */
+    private StudentCertificate verifiedCertificate(Account owner, String disciplineCode, String organizationCode) {
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        return certificateRepo.save(StudentCertificate.builder()
+                .owner(owner).disciplineCode(disciplineCode).organizationCode(organizationCode)
+                .organizationName(organizationCode).level(CertLevel.INSTRUCTOR)
+                .certificateNumber("INS-1").acquiredAt(java.time.LocalDate.of(2020, 1, 1))
+                .source(CertificateSource.EXTERNAL).photoFileKey("studentCertificate/" + owner.getId() + "/x.jpg")
+                .createdAt(now)
+                .verification(new CertificateVerification(CertificateVerificationStatus.VERIFIED,
+                        CertificateVerificationKind.APPLICATION, null, now, now))
+                .build());
+    }
+
 
     /** 공개중인 강의 1개. 카드의 "강의 N" 은 강의 둘러보기가 실제로 보여주는 것과 같은 조건으로 센다. */
     private Course course(Account instructor, String disciplineCode, CourseStatus status) {

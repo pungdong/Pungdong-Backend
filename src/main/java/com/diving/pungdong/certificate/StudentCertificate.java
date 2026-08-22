@@ -9,13 +9,14 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 
 /**
- * 학생이 보유한 자격증 1건 — 프로필 탭 "내 자격증".
+ * 보유 자격증 1건 — 프로필 탭 "내 자격증" 이자, <b>강사 자격 검증의 단일 정본</b>.
  *
- * <p><b>강사 신청의 {@code ApplicationCertificate} 와 별개다.</b> 저쪽은 강사 전환 <i>심사 자료</i>라
- * 신청 수명주기에 묶이고 어드민이 본다. 이쪽은 <b>본인이 보유를 기록하는 자산</b>이라 심사가 없고
- * 소유자만 본다. 테이블도 생명주기도 합치지 않는다.
+ * <p>2026-08-22 수렴: 예전엔 강사 신청이 별도 {@code ApplicationCertificate}(단체+이미지)를 들고 있어 강사가 같은
+ * 자격증을 두 번 올렸다. 이제 신청은 이 행을 <b>id 로 참조</b>하고, 심사 결과는 {@link #verification} 에 붙는다.
+ * 공개 인증마크(브랜딩·강의상세·강사 browse)는 {@code verification.status == VERIFIED} 인 행에서만 파생한다.
  *
- * <p><b>역할 게이트 없음</b> — 강사도 개인 자격으로 자격증을 보유한다.
+ * <p><b>역할 게이트 없음</b> — 강사도 개인 자격으로 자격증을 보유한다. 수강생 레벨 자격증은 검수 대상이 아니라
+ * 항상 {@code NONE} 이다(레벨 기준은 {@code CertLevel.isInstructorLevel}).
  *
  * <h3>표시명은 스냅샷이다</h3>
  * {@code organizationName}/{@code organizationFullName}/{@code certificationDisplayName} 은 등록 시점
@@ -69,12 +70,17 @@ public class StudentCertificate {
     @Column(length = 200)
     private String certificationDisplayName;
 
-    /** 자격증 번호 — 단체마다 형식이 달라 자유 텍스트(정규식 없음). */
-    @Column(nullable = false, length = 100)
+    /**
+     * 자격증 번호 — 단체마다 형식이 달라 자유 텍스트(정규식 없음).
+     *
+     * <p>DB 는 nullable 이지만 <b>API 로는 필수</b>(DTO {@code @NotBlank}). null 은 강사 신청에서 옮겨온
+     * <b>백필 행</b>뿐이다(옛 신청은 번호를 받지 않았다). 그 행의 null → 값 채우기는 기록 보완이지 식별필드 수정이
+     * 아니라 재검수를 부르지 않는다(Rule A 예외).
+     */
+    @Column(length = 100)
     private String certificateNumber;
 
-    /** 취득일 — <b>civil date</b>(시각·TZ 개념 없음). */
-    @Column(nullable = false)
+    /** 취득일 — <b>civil date</b>(시각·TZ 개념 없음). null 은 백필 행뿐(위와 같다). */
     private LocalDate acquiredAt;
 
     @Enumerated(EnumType.STRING)
@@ -110,6 +116,11 @@ public class StudentCertificate {
 
     @Column(nullable = false)
     private OffsetDateTime createdAt;
+
+    /** 검증 상태 묶음 — 항상 존재(NONE 포함). 전이는 아래 mark* 메서드로만. */
+    @Embedded
+    @Builder.Default
+    private CertificateVerification verification = CertificateVerification.none();
 
     /* ── 변경 (PUT /certificates/{id}) ─────────────────────────────────
      * @Setter 를 통째로 열지 않는다 — 그러면 source·enrollmentId 처럼 **서버가 파생하는 값**까지
@@ -167,5 +178,32 @@ public class StudentCertificate {
         this.courseTitle = null;
         this.courseCompletedAt = null;
         this.instructorName = null;
+    }
+
+    /* ── 검증 상태 전이 — 호출처는 CertificateVerificationService 뿐 ───────── */
+
+    public CertificateVerification getVerification() {
+        return verification == null ? CertificateVerification.none() : verification;
+    }
+
+    void markPending(CertificateVerificationKind kind, OffsetDateTime now) {
+        this.verification = CertificateVerification.pending(kind, now);
+    }
+
+    void markVerified(OffsetDateTime now) {
+        this.verification = getVerification().verified(now);
+    }
+
+    void markRejected(String reason, OffsetDateTime now) {
+        this.verification = getVerification().rejected(reason, now);
+    }
+
+    void clearVerification() {
+        this.verification = CertificateVerification.none();
+    }
+
+    /** 강사 레벨({@code INSTRUCTOR} 이상)인가 — 검증 트랙의 대상 여부. */
+    public boolean isInstructorLevel() {
+        return level != null && level.isInstructorLevel();
     }
 }
