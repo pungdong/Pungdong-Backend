@@ -1,5 +1,6 @@
 package com.diving.pungdong.course;
 
+import com.diving.pungdong.account.Account;
 import com.diving.pungdong.course.dto.CourseBrowseCondition;
 import com.diving.pungdong.instructorapplication.InstructorApplication;
 import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
@@ -41,6 +42,7 @@ public final class CourseSpecifications {
                 .and(notBlocked())
                 .and(instructorApproved())
                 .and(disciplineEq(c.getDisciplineCode()))
+                .and(instructorNickNameEq(c.getInstructorNickName()))
                 .and(keywordLike(c.getKeyword()))
                 .and(regionContains(c.getRegion()))
                 .and(kindOrLevel(c.getKinds(), c.getLevels()))
@@ -120,6 +122,39 @@ public final class CourseSpecifications {
                     cb.equal(bookmark.get("course").get("id"), root.get("id")),
                     cb.equal(bookmark.get("account").get("id"), accountId));
             return cb.exists(saved);
+        };
+    }
+
+    /**
+     * 강사 축 — <b>닉네임 정확 일치</b>. "이 강사의 강의만" (강사 카드의 "강의 보기" → 둘러보기).
+     *
+     * <p><b>{@link #keywordLike} 의 부분일치와 의도적으로 다르다.</b> 검색어는 사람이 친 말이라
+     * 넓게 잡아야 하지만, 이 축은 <b>클라이언트가 이미 특정한 한 강사</b>를 가리킨다. 부분일치면
+     * {@code "김민지"} 가 {@code "김민지2"}·{@code "김민지스쿨"} 까지 끌어와 <b>남의 강의가 그 강사의
+     * 목록에 섞인다</b>. 그래서 여기선 {@code =} 다.
+     *
+     * <p>없는 닉네임은 <b>400 이 아니라 빈 페이지</b>다 — {@code disciplineCode} 와 같은 규칙이고,
+     * 레포 규약(예상된 음성 결과는 200 + 결과 필드)이다. 그리고 닉네임 존재 여부를 상태코드로 흘리면
+     * 그 자체가 enumeration oracle 이 된다.
+     *
+     * <p>JOIN 이 아니라 <b>exists 서브쿼리</b>인 이유는 {@link #bookmarkedBy}/{@link #instructorApproved}
+     * 와 같다 — 지역·레벨 필터가 켜는 {@code distinct} 와 조인 컬럼이 섞이면 MySQL 이 거부하고(3065)
+     * H2 는 통과해 <b>테스트만 초록</b>이 된다. {@code instructor} 는 {@code @ManyToOne} 이라 바깥 쿼리는
+     * FK 컬럼만 읽는다(조인 0개).
+     */
+    private static Specification<Course> instructorNickNameEq(String nickName) {
+        if (!StringUtils.hasText(nickName)) {
+            return null;
+        }
+        String exact = nickName.trim();
+        return (root, query, cb) -> {
+            Subquery<Long> owner = query.subquery(Long.class);
+            Root<Account> instructor = owner.from(Account.class);
+            owner.select(instructor.get("id"));
+            owner.where(
+                    cb.equal(instructor.get("id"), root.get("instructor").get("id")),
+                    cb.equal(instructor.get("nickName"), exact));
+            return cb.exists(owner);
         };
     }
 

@@ -38,6 +38,8 @@ hermetic 원칙의 예외가 **하나** 있다. H2 는 `SELECT FOR UPDATE`·REPE
 
 **왜 갈라놨나**: 두 종류를 한 스위트에 섞으면 Spring 컨텍스트 캐시 축출이 일어나 공유 in-memory H2 스키마가 깨진다(`build.gradle` 주석).
 
+**동시성만 있는 게 아니다 — 방언(dialect)도 여기서 본다.** H2 가 통과시키는 SQL 을 MySQL 이 거부하는 조합이 있다(대표적으로 **DISTINCT + ORDER BY** 에서 SELECT 목록 밖 컬럼 참조 = 3065). 둘러보기 필터가 정확히 그 조합이라 `CourseBrowseFilterMySqlTest` 가 필터 축을 한꺼번에 걸어 **실 MySQL 이 쿼리를 받는지**만 확인한다(결과 검증은 H2 use-case 몫). 새 필터 축을 붙이면 그 조합에 한 줄 추가할 것.
+
 ⚠️ **그래서 `./gradlew test` 가 green 인 건 "전부 통과" 가 아니다.** 여러 도메인이 공유하는 게이트·조회 조건을 바꿨으면 `mysqlTest` 도 돌릴 것. 2026-08-22 강사 승인 게이트가 실제로 이걸 밟았다 — 로컬 기본 스위트 826개가 전부 green 이었는데 좌석 overbooking 동시성 테스트가 **승인 안 된 강사로 신청**하고 있어 CI 에서 깨졌다(#312 로 수습).
 
 ⚠️ **Docker 가 없으면 실패가 아니라 skip 이다**(`disabledWithoutDocker`). 로컬에서 "돌렸는데 초록" 이 곧 검증은 아니다 — skip 여부를 확인할 것. CI 러너엔 Docker 가 있어 거기서는 실제로 돈다.

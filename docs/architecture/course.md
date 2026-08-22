@@ -117,6 +117,7 @@ erDiagram
 - `roundIndex` 컬럼명(‘index’ 예약어 회피).
 - **카드의 강사 아바타(`instructorAvatarUrl`)는 페이지당 쿼리 1개**다. `Account.profilePhoto` 는 소유측 `@OneToOne(LAZY)` 이고 `default_batch_fetch_size: 100` 이라 한 페이지의 강사 사진이 IN 절 하나로 함께 온다 — 카드마다 나가지 않는다. (강사 프로필·추천 카드가 이미 쓰는 접근 패턴.) 이 배치 크기를 낮추면 여기가 조용히 느려진다(에러가 아니라 쿼리 수만 는다).
 - **검색은 `제목 OR 강사 nickName` LIKE** (`CourseSpecifications.keywordLike`, 대소문자 무시). 사용자는 강사 이름으로 찾는데 예전엔 제목만 봐서 그 검색이 0건이었다 — 루트 `CLAUDE.md` 는 이미 "제목/강사 LIKE" 라고 적혀 있었으니 코드가 문서를 따라간 셈. 강사 조인은 **LEFT** 여야 한다(INNER 면 강사 계정이 없는 코스가 제목이 맞는데도 사라진다). 선행 `%` 와일드카드라 인덱스를 못 타므로 카탈로그가 커지면 전문검색이 필요해진다(현재 규모에선 과설계).
+- **강사 축(`instructorNickName`)은 검색과 별개의 필터다** — `CourseSpecifications.instructorNickNameEq`, **정확 일치**(`=`). 강사 둘러보기 카드의 "강의 보기" 가 들어오는 경로라 대상이 이미 한 명으로 특정돼 있다. 부분일치로 두면 `"김민지"` 가 `"김민지2"`·`"김민지스쿨"` 을 끌어와 **남의 강의가 그 강사 목록에 섞인다**(그래서 `keyword` 의 강사명 LIKE 와 뜻이 다르고, 둘은 AND). 조인이 아니라 **exists 서브쿼리**다 — 지역·레벨 필터가 켜는 `distinct` 와 조인 컬럼이 섞이면 MySQL 이 거부하고(3065) H2 는 통과해 테스트만 초록이 된다(`bookmarkedBy`·`instructorApproved` 와 같은 이유). 없는 닉네임은 400 이 아니라 **빈 페이지**(레포 규약 + 닉네임 존재 여부를 상태코드로 흘리지 않기 위해).
 - **페이지 크기 상한은 `global/persistence/PageClamp`** (MAX 50 / DEFAULT 20). 둘러보기엔 원래 상한이 없어 `?size=100000` 으로 카탈로그를 통째로 긁을 수 있었다(어드민 신고 큐에서 실제로 났던 것과 같은 구멍). clamp 는 도메인 정책이 아니라 **모든 목록 엔드포인트에 같게 걸려야 하는 가드**라 도메인별 사본을 만들지 않는다.
 - **저장(북마크)은 마커 행**(V36) — 상태 컬럼 없이 **행의 유무가 곧 상태**고, `(course_id, account_id)` UNIQUE 가 멱등을 DB 에서 보장한다. 그래서 `POST` 를 두 번 보내도 1개다. 삽입은 `global/persistence/IdempotentInsert`(REQUIRES_NEW)로 격리한다 — 같은 트랜잭션에서 제약 위반을 catch 만 하면 rollback-only 로 표시돼 **뒤이은 카운트 조회가 500** 이 된다. 응답의 `count` 도 `countFresh`(새 스냅샷)로 읽는다: MySQL 기본 REPEATABLE READ 에선 방금 REQUIRES_NEW 로 커밋한 내 행이 바깥 트랜잭션의 스냅샷에 **안 보여** "내 것 빠진 값" 이 나간다(커뮤니티에서 실측된 버그). **enrollment 와 합치지 않은 이유**: 저장했다고 신청한 게 아니고, 신청을 취소해도 저장은 남는다 — 수명이 다르다.
 - **둘러보기 facet 비정규화(`regions`·`primaryLocationName`)** — 코스의 위치는 `venueRefId` 참조이고 OFFICIAL 위치 주소는 Sanity 캐시(Redis)라 **쿼리 타임 JOIN 으로 지역 필터가 불가**. 그래서 저장 시점에 `venue.VenueRefResolver`(CUSTOM=DB, OFFICIAL=캐시)로 회차 위치 주소→`venue.Region`(서울·경기/강원/제주/부산·경남/ETC)을 풀어 코스에 박는다. 읽기 경로는 순수 JPA 컬럼 필터(`CourseSpecifications`, ES 안 씀). 트레이드오프: OFFICIAL 위치 이사 시 코스 재저장 전까지 stale(풀 이동은 드물어 MVP 허용, 후속 reconcile 후보).
@@ -127,7 +128,7 @@ erDiagram
 
 | 엔드포인트 | 인증 | 소유권 |
 |---|---|---|
-| `GET /courses/browse` | **불필요(공개)** | OPEN + **그 종목 승인 강사**의 코스만 노출. 필터(종목·지역·종류·레벨·단체·가격)+검색(제목·강사명)+정렬+페이지. **size 상한 50/기본 20**(`PageClamp`). 빈 결과=200. 토큰이 있으면 카드에 `bookmarkedByMe` 가 채워진다(없으면 조용히 false) |
+| `GET /courses/browse` | **불필요(공개)** | OPEN + **그 종목 승인 강사**의 코스만 노출. 필터(종목·지역·종류·레벨·단체·가격·**강사 닉네임 정확일치**)+검색(제목·강사명 부분일치)+정렬+페이지. **size 상한 50/기본 20**(`PageClamp`). 빈 결과=200. 토큰이 있으면 카드에 `bookmarkedByMe` 가 채워진다(없으면 조용히 false) |
 | `GET /courses/browse?bookmarkedByMe=true` | 선택(토큰 없으면 **빈 페이지**) | 내가 저장한 강의만. **이때만 `disciplineCode` 가 선택** — 저장 목록은 종목 홈이 아니라 마이페이지에서 들어온다 |
 | `GET /courses/{id}/detail` | **불필요(공개)** | OPEN + **승인 강사**만 — 그 외 400(존재 숨김). venue 합성(위치명·입장료·장비). `bookmarkedByMe`·`bookmarkCount` 인라인 |
 | `POST /courses/{courseId}/bookmark` | 필요 | 대상은 **공개 노출되는 강의만**(`CourseService.requirePubliclyVisible`) — 비OPEN·차단·미승인 강사는 400(존재 숨김). **멱등** |

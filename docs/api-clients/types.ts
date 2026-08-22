@@ -843,6 +843,9 @@ export interface InstructorBrowseCardResponse {
    * **요청 종목**의 공개중 강의 수. 0 가능.
    * 세는 기준이 `GET /courses/browse` 가 실제로 보여주는 것과 같다(OPEN·미차단·데모 가림 반영) —
    * 그래서 "강의 3" 카드를 눌러 그 강사 강의를 찾으면 3건이 나온다.
+   *
+   * ★ 그 목록으로 넘어갈 때는 `GET /courses/browse?disciplineCode=<같은 종목>&instructorNickName=<nickName>`
+   *   을 쓴다(`keyword` 아님 — 부분 일치라 동명 강사·제목이 섞여 이 숫자와 안 맞는다).
    */
   openCourseCount: number;
 }
@@ -1995,6 +1998,7 @@ export interface CourseStatusRequest {
 //   ★ size 상한 50 / 기본 20 (서버 clamp). size=100000 을 보내면 50 으로 잘린다.
 //     size 를 0·음수·비숫자로 보내면 400 이 아니라 **기본값 20 으로 되돌아온다**(Spring 리졸버가 삼킨다).
 //     즉 "size 를 잘못 보내면 에러가 날 것" 이라고 가정한 방어 코드는 작동하지 않는다.
+//   ★ 강사로 좁히려면 `instructorNickName`(정확 일치) — `keyword` 는 부분 일치라 동명이 섞인다.
 //   ★ 다음 페이지가 있는지는 `page.number + 1 < page.totalPages`. 절대 `받은 개수 < size` 로 판정하지 말 것
 //     (마지막 페이지가 정확히 size 로 떨어지면 영원히 끝나지 않는다).
 
@@ -2038,6 +2042,20 @@ export type CourseBrowseSort = 'LATEST' | 'PRICE_ASC' | 'PRICE_DESC';
 export interface CourseBrowseParams {
   disciplineCode: string; // 필수 — 종목별 카탈로그가 크게 달라 화면이 항상 한 종목으로 진입(메인 상단 select). 누락 시 400. ★단 "저장한 강의" 목록에서만 선택 → CourseSavedListParams
   keyword?: string; // 제목 OR 강사 nickName 부분 일치(대소문자 무시). `_`·`%` 는 LIKE 와일드카드로 동작한다(미이스케이프)
+  /**
+   * "이 강사의 강의만" — **정확 일치**(부분 일치 아님). 강사 둘러보기 카드의 "강의 보기" 가 쓰는 축.
+   *
+   * ★ `keyword` 로 강사명을 보내지 말 것 — 그쪽은 **부분** 일치라 `"김민지"` 가 `"김민지2"`·
+   *   `"김민지스쿨"` 까지 끌어온다(그리고 제목에 그 말이 든 남의 강의도). 카드에서 집어온 닉네임은
+   *   이 파라미터로 보낸다. 값은 `InstructorBrowseCardResponse.nickName` 을 그대로(인코딩만) 넣으면 된다.
+   * ★ `keyword` 와 **AND** 다 — 둘 다 보내면 "그 강사의 강의 중 제목/강사명이 맞는 것".
+   * ★ 없는 닉네임은 400 이 아니라 **빈 페이지**(200, totalElements 0). `disciplineCode` 와 같은 규칙.
+   * ★ **`disciplineCode` 는 여전히 필수다** — 이 축을 켜도 면제되지 않는다(면제는 bookmarkedByMe 뿐).
+   *   강사 둘러보기 화면이 이미 종목 컨텍스트 안이니 링크에 그대로 실어 보낼 것.
+   * ★ 클라이언트에서 받은 페이지를 걸러내는 것으로 대체하지 말 것 — 페이징 목록이라 "결과 N개"
+   *   (page.totalElements)가 거짓이 되고 한 페이지가 통째로 걸리면 빈 페이지 = 무한 스크롤 "더 없음".
+   */
+  instructorNickName?: string; // 생략 = 강사 무관(기존 동작)
   region?: Region; // 생략 = 전체
   kinds?: CourseKind[]; // 평탄 멀티칩 — 체험·트레이닝 (자격은 levels 로). 생략 = 종류 무관
   levels?: CertLevel[]; // 평탄 멀티칩 — L1·L2·L3 (kinds 와 OR 합집합). 생략 = 레벨 무관
