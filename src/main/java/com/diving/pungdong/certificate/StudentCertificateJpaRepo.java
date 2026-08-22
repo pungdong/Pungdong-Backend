@@ -43,6 +43,16 @@ public interface StudentCertificateJpaRepo extends JpaRepository<StudentCertific
                                                                   @Param("levels") Collection<CertLevel> levels,
                                                                   @Param("status") CertificateVerificationStatus status);
 
+    /**
+     * 여러 계정의 종목별 "살아있는 검증" 강사레벨 자격증 수 — {@code [accountId, disciplineCode, count]}.
+     * 어드민 큐 목록의 "검증 자격증 0건" 플래그(행마다 세지 않는다).
+     */
+    @Query("select c.owner.id, c.disciplineCode, count(c) from StudentCertificate c where c.owner.id in :accountIds "
+            + "and c.level in :levels and c.verification.status in :statuses group by c.owner.id, c.disciplineCode")
+    List<Object[]> countLiveByAccountIds(@Param("accountIds") Collection<Long> accountIds,
+                                         @Param("levels") Collection<CertLevel> levels,
+                                         @Param("statuses") Collection<CertificateVerificationStatus> statuses);
+
     /** 공개 인증마크의 출처 — 한 계정의 VERIFIED 자격증 전부(종목 무관). */
     @Query("select c from StudentCertificate c where c.owner.id = :ownerId "
             + "and c.verification.status = com.diving.pungdong.certificate.CertificateVerificationStatus.VERIFIED "
