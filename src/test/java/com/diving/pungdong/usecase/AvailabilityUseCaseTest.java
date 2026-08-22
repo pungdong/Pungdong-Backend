@@ -7,10 +7,12 @@ import com.diving.pungdong.availability.AvailabilityCoverageJpaRepo;
 import com.diving.pungdong.availability.AvailabilityHoldJpaRepo;
 import com.diving.pungdong.availability.AvailabilitySession;
 import com.diving.pungdong.availability.AvailabilitySessionJpaRepo;
+import com.diving.pungdong.availability.RecurrenceMode;
 import com.diving.pungdong.availability.dto.CapacityRequest;
 import com.diving.pungdong.availability.dto.CoverageRequest;
 import com.diving.pungdong.availability.dto.HoldRequest;
 import com.diving.pungdong.availability.dto.SessionCreateRequest;
+import com.diving.pungdong.availability.dto.TimeRangeRequest;
 import com.diving.pungdong.global.security.JwtTokenProvider;
 import com.diving.pungdong.instructorapplication.InstructorApplication;
 import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
@@ -129,6 +131,36 @@ class AvailabilityUseCaseTest {
         return json(CapacityRequest.builder().capacity(c).build());
     }
 
+    private TimeRangeRequest range(LocalTime s, LocalTime e) {
+        return TimeRangeRequest.builder().startTime(s).endTime(e).build();
+    }
+
+    /** 반복 열기 — 시간은 10–12 고정, 전개되는 날짜만 보는 시나리오용. */
+    private void openRecurring(String token, LocalDate anchor, RecurrenceMode mode, List<DayOfWeek> dows)
+            throws Exception {
+        mockMvc.perform(post("/instructor/availability/coverage")
+                .header(HttpHeaders.AUTHORIZATION, token).contentType(MediaType.APPLICATION_JSON)
+                .content(json(CoverageRequest.builder().mode(mode).date(anchor).dayOfWeeks(dows)
+                        .startTime(LocalTime.of(10, 0)).endTime(LocalTime.of(12, 0)).build())))
+                .andExpect(status().isOk());
+    }
+
+    /** 다중 구간 열기 — FE 계약대로 첫 구간을 startTime/endTime 에도 겹쳐 보낸다. */
+    private void openRanges(String token, List<TimeRangeRequest> ranges) throws Exception {
+        mockMvc.perform(post("/instructor/availability/coverage")
+                .header(HttpHeaders.AUTHORIZATION, token).contentType(MediaType.APPLICATION_JSON)
+                .content(json(CoverageRequest.builder().date(MON).timeRanges(ranges)
+                        .startTime(ranges.get(0).getStartTime()).endTime(ranges.get(0).getEndTime()).build())))
+                .andExpect(status().isOk());
+    }
+
+    /** 그 기간에 coverage 가 생긴 날들의 '일(day)' 목록 — 오름차순. */
+    private List<Integer> coveredDays(Account instructor, LocalDate from, LocalDate to) {
+        return coverageRepo
+                .findByInstructorIdAndDateBetweenOrderByDateAscStartTimeAsc(instructor.getId(), from, to)
+                .stream().map(c -> c.getDate().getDayOfMonth()).distinct().collect(java.util.stream.Collectors.toList());
+    }
+
     /* ─── CV* coverage ─── */
 
     @Test
@@ -187,6 +219,165 @@ class AvailabilityUseCaseTest {
                 .andExpect(jsonPath("$.code").value(-1014));
         // coverage 그대로
         assertThat(coverageRepo.findByInstructorIdAndDate(in.getId(), MON)).isNotEmpty();
+    }
+
+    /* ─── CVR* coverage 반복 전개(기간 시작 clamp) ─── */
+
+    @Test
+    @DisplayName("CVR1 달 중간(1/21)을 찍고 '이 달 반복·수' 를 열면 그 달 1일부터 = 1/2·9·16·23·30 다섯 날이 열린다")
+    void monthExpandsFromStartOfMonth() throws Exception {
+        Account in = account("cvr1@pd.com", "강사cvr1");
+        enterInstructorTrack(in);
+        String token = tokenFor(in);
+
+        openRecurring(token, LocalDate.of(2030, 1, 21), RecurrenceMode.MONTH, List.of(DayOfWeek.WEDNESDAY));
+
+        // anchor 를 시작점으로 쓰면 23·30 만 열린다 — 앞부분이 조용히 빠지는 게 이 테스트가 막는 것.
+        assertThat(coveredDays(in, LocalDate.of(2030, 1, 1), LocalDate.of(2030, 1, 31)))
+                .containsExactly(2, 9, 16, 23, 30);
+    }
+
+    @Test
+    @DisplayName("CVR2 주 중간(수요일)을 찍고 '이 주 반복·월' 을 열면 아직 미래인 그 주 월요일이 열린다")
+    void weeklyExpandsFromMondayOfThatWeek() throws Exception {
+        Account in = account("cvr2@pd.com", "강사cvr2");
+        enterInstructorTrack(in);
+        String token = tokenFor(in);
+
+        openRecurring(token, MON.plusDays(2), RecurrenceMode.WEEKLY, List.of(DayOfWeek.MONDAY));
+
+        // anchor 기준이면 월요일이 anchor 이전이라 전개가 비어 아무것도 안 열렸다.
+        assertThat(coverageRepo.findByInstructorIdAndDate(in.getId(), MON)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("CVR3 지난 달을 찍어 '이 달 반복' 을 열면 과거는 하나도 안 열리고 200 + 빈 배열이 온다(400 아님)")
+    void pastMonthOpensNothingAndReturnsEmpty() throws Exception {
+        Account in = account("cvr3@pd.com", "강사cvr3");
+        enterInstructorTrack(in);
+        String token = tokenFor(in);
+
+        mockMvc.perform(post("/instructor/availability/coverage")
+                .header(HttpHeaders.AUTHORIZATION, token).contentType(MediaType.APPLICATION_JSON)
+                .content(json(CoverageRequest.builder()
+                        .mode(RecurrenceMode.MONTH).date(LocalDate.now().minusMonths(2))
+                        .dayOfWeeks(List.of(DayOfWeek.values()))
+                        .startTime(LocalTime.of(10, 0)).endTime(LocalTime.of(12, 0)).build())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+
+        assertThat(coverageRepo.findAll()).isEmpty();
+    }
+
+    /* ─── CVT* coverage 다중 시간 구간(timeRanges) ─── */
+
+    @Test
+    @DisplayName("CVT1 오전(10–12)·오후(13–18)를 한 요청으로 열면 점심이 비워진 채 두 구간이 한 번에 생긴다")
+    void timeRangesOpenBothInOneRequest() throws Exception {
+        Account in = account("cvt1@pd.com", "강사cvt1");
+        enterInstructorTrack(in);
+        String token = tokenFor(in);
+
+        openRanges(token, List.of(
+                range(LocalTime.of(10, 0), LocalTime.of(12, 0)),
+                range(LocalTime.of(13, 0), LocalTime.of(18, 0))));
+
+        var ranges = coverageRepo.findByInstructorIdAndDate(in.getId(), MON);
+        assertThat(ranges).hasSize(2);
+        assertThat(ranges.get(0).getEndTime()).isEqualTo(LocalTime.of(12, 0));
+        assertThat(ranges.get(1).getStartTime()).isEqualTo(LocalTime.of(13, 0));
+    }
+
+    @Test
+    @DisplayName("CVT2 timeRanges 가 있으면 startTime/endTime 은 무시된다(구 서버 호환용으로 겹쳐 오는 값)")
+    void timeRangesWinOverSingleRange() throws Exception {
+        Account in = account("cvt2@pd.com", "강사cvt2");
+        enterInstructorTrack(in);
+        String token = tokenFor(in);
+
+        mockMvc.perform(post("/instructor/availability/coverage")
+                .header(HttpHeaders.AUTHORIZATION, token).contentType(MediaType.APPLICATION_JSON)
+                .content(json(CoverageRequest.builder().date(MON)
+                        .timeRanges(List.of(range(LocalTime.of(14, 0), LocalTime.of(16, 0))))
+                        .startTime(LocalTime.of(9, 0)).endTime(LocalTime.of(23, 0)).build())))
+                .andExpect(status().isOk());
+
+        var ranges = coverageRepo.findByInstructorIdAndDate(in.getId(), MON);
+        assertThat(ranges).hasSize(1);
+        assertThat(ranges.get(0).getStartTime()).isEqualTo(LocalTime.of(14, 0));
+        assertThat(ranges.get(0).getEndTime()).isEqualTo(LocalTime.of(16, 0));
+    }
+
+    @Test
+    @DisplayName("CVT3 timeRanges 가 빈 배열이면 기존 startTime/endTime 한 벌로 폴백한다")
+    void emptyTimeRangesFallsBackToSingleRange() throws Exception {
+        Account in = account("cvt3@pd.com", "강사cvt3");
+        enterInstructorTrack(in);
+        String token = tokenFor(in);
+
+        mockMvc.perform(post("/instructor/availability/coverage")
+                .header(HttpHeaders.AUTHORIZATION, token).contentType(MediaType.APPLICATION_JSON)
+                .content(json(CoverageRequest.builder().date(MON).timeRanges(List.of())
+                        .startTime(LocalTime.of(10, 0)).endTime(LocalTime.of(12, 0)).build())))
+                .andExpect(status().isOk());
+
+        assertThat(coverageRepo.findByInstructorIdAndDate(in.getId(), MON)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("CVT4 겹치는 두 구간(10–13, 12–18)을 보내도 FE 가 미리 병합할 필요 없이 10–18 한 구간으로 합쳐진다")
+    void overlappingTimeRangesMerge() throws Exception {
+        Account in = account("cvt4@pd.com", "강사cvt4");
+        enterInstructorTrack(in);
+        String token = tokenFor(in);
+
+        openRanges(token, List.of(
+                range(LocalTime.of(10, 0), LocalTime.of(13, 0)),
+                range(LocalTime.of(12, 0), LocalTime.of(18, 0))));
+
+        var ranges = coverageRepo.findByInstructorIdAndDate(in.getId(), MON);
+        assertThat(ranges).hasSize(1);
+        assertThat(ranges.get(0).getStartTime()).isEqualTo(LocalTime.of(10, 0));
+        assertThat(ranges.get(0).getEndTime()).isEqualTo(LocalTime.of(18, 0));
+    }
+
+    @Test
+    @DisplayName("V5 timeRanges 중 하나라도 끝이 시작보다 빠르면 전체가 거부되고 앞 구간도 반영되지 않는다")
+    void oneInvalidRangeRejectsWholeRequest() throws Exception {
+        Account in = account("v5@pd.com", "강사v5");
+        enterInstructorTrack(in);
+        String token = tokenFor(in);
+
+        mockMvc.perform(post("/instructor/availability/coverage")
+                .header(HttpHeaders.AUTHORIZATION, token).contentType(MediaType.APPLICATION_JSON)
+                .content(json(CoverageRequest.builder().date(MON)
+                        .timeRanges(List.of(
+                                range(LocalTime.of(10, 0), LocalTime.of(12, 0)),
+                                range(LocalTime.of(16, 0), LocalTime.of(15, 0))))
+                        .startTime(LocalTime.of(10, 0)).endTime(LocalTime.of(12, 0)).build())))
+                .andExpect(status().isBadRequest());
+
+        assertThat(coverageRepo.findAll()).isEmpty(); // 부분 반영 없음
+    }
+
+    @Test
+    @DisplayName("V6 timeRanges 가 상한(10개)을 넘으면 거부된다")
+    void tooManyTimeRangesRejected() throws Exception {
+        Account in = account("v6@pd.com", "강사v6");
+        enterInstructorTrack(in);
+        String token = tokenFor(in);
+
+        List<TimeRangeRequest> many = new java.util.ArrayList<>();
+        for (int i = 0; i < 11; i++) {
+            many.add(range(LocalTime.of(i, 0), LocalTime.of(i, 30)));
+        }
+        mockMvc.perform(post("/instructor/availability/coverage")
+                .header(HttpHeaders.AUTHORIZATION, token).contentType(MediaType.APPLICATION_JSON)
+                .content(json(CoverageRequest.builder().date(MON).timeRanges(many)
+                        .startTime(LocalTime.of(0, 0)).endTime(LocalTime.of(0, 30)).build())))
+                .andExpect(status().isBadRequest());
+
+        assertThat(coverageRepo.findAll()).isEmpty();
     }
 
     /* ─── SS* session ─── */

@@ -2489,8 +2489,18 @@ export interface CourseBookmarkResponse {
 // 학생 신청 자격: venue 운영 부가 coverage 에 **통째로 ⊆** 일 때만(부분겹침 불가). 첫 신청이 그 (위치,블록)
 // session 생성, 같은 (위치,블록) 신청은 join. (enrollment 도메인 참고.)
 
-/** 가용시간 전개 반복 모드 — "이 날만 / 주 / 4주"(coverage 열기에서 사용). */
-export type RecurrenceMode = 'ONCE' | 'WEEKLY' | 'FOUR_WEEKS';
+/**
+ * 가용시간 전개 반복 모드 — "이 날만 / 이 주 / 이 달"(coverage 열기에서 사용).
+ *
+ * ★ **반복 모드에서 `date` 는 "언제부터" 가 아니라 "어느 기간" 이다.** 전개 시작점은 BE 가
+ * `max(오늘, 기간 시작)` 으로 잡는다 — MONTH 면 그 달 1일, WEEKLY 면 그 주 월요일(ISO). 그래서 달·주
+ * 중간 날을 보내도 기간 앞부분이 빠지지 않는다(9/15 + MONTH·화 → 9/1·8 도 열림). 과거는 오늘로 clamp 되어
+ * 어떤 경우에도 안 열린다.
+ *
+ * - `FOUR_WEEKS` 는 **레거시** — 4주 창이 달 끝을 빠뜨린다(9월 화요일 기준 9/29 누락). `MONTH` 를 쓸 것.
+ *   구 클라이언트 하위호환으로만 남아 있다.
+ */
+export type RecurrenceMode = 'ONCE' | 'WEEKLY' | 'FOUR_WEEKS' | 'MONTH';
 
 /** 일정(session) 표시 상태 — 저장값 아님, 점유에서 파생. */
 export type SlotStatus = 'AVAILABLE' | 'PENDING' | 'CONFIRMED' | 'EXTERNAL' | 'FULL';
@@ -2509,17 +2519,38 @@ export interface CapacityRequest {
   capacity: number;
 }
 
+/** 하루 안의 시간 구간 하나 — CoverageRequest.timeRanges 의 원소. */
+export interface TimeRangeRequest {
+  /** "HH:mm" 또는 "HH:mm:ss". */
+  startTime: string;
+  /** "HH:mm" 또는 "HH:mm:ss". 하루 끝은 "23:59:59"(endTime 주석 참고). */
+  endTime: string;
+}
+
 /**
  * 예약가능시간(coverage) 열기/닫기 — POST /coverage(union) · DELETE /coverage(subtract).
- * 열기는 mode 로 반복 전개. 닫기는 단일 date+시간만(반복 무시). 응답은 영향 받은 coverage 구간[].
+ * 열기는 mode 로 반복 전개. 닫기는 단일 date+시간만(반복·timeRanges 무시). 응답은 영향 받은 coverage 구간[].
+ *
+ * ★ **열 날이 하나도 없으면 200 + `[]`** (400 아님). "선택한 요일이 이 기간에 안 남았다" 는 정상 계산된
+ * 답이라 에러가 아니다. 배열 길이 0 일 때 "저장됨" 토스트를 띄우지 말 것 — 실제로 아무것도 안 열렸다.
  */
 export interface CoverageRequest {
   /** 열기 전개 모드(닫기는 무시). 생략 = ONCE. */
   mode?: RecurrenceMode;
-  /** 기준 날짜 (ISO "YYYY-MM-DD"). */
+  /** 반복 모드면 "어느 기간"(그 날이 속한 주/달), ONCE·닫기면 "그 날". ISO "YYYY-MM-DD". RecurrenceMode 주석 참고. */
   date: string;
-  /** WEEKLY/FOUR_WEEKS 에서 열 요일(ISO DayOfWeek 대문자). */
+  /** WEEKLY/FOUR_WEEKS/MONTH 에서 열 요일(ISO DayOfWeek 대문자). */
   dayOfWeeks?: Weekday[];
+  /**
+   * 열 시간 구간들(선택, 최대 10개) — 점심을 비우고 오전·오후를 따로 여는 케이스를 **한 트랜잭션**으로.
+   * 비어있지 않으면 이것만 쓰고 `startTime`/`endTime` 은 무시된다. null/`[]` 이면 `startTime`/`endTime` 로 폴백.
+   * 겹치거나 맞닿는 구간을 그대로 보내도 BE 가 머지하니 미리 병합할 필요 없다. 하나라도 형식이 틀리면
+   * **전체 400**(부분 반영 없음).
+   *
+   * 이 필드를 모르는 구 서버에 닿아도 "조용히 틀림" 이 아니라 "첫 구간만 열림" 으로 degrade 하도록,
+   * 첫 구간을 `startTime`/`endTime` 에도 겹쳐 보낼 것.
+   */
+  timeRanges?: TimeRangeRequest[];
   /** "HH:mm" 또는 "HH:mm:ss". */
   startTime: string;
   /**

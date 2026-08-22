@@ -11,6 +11,7 @@ import com.diving.pungdong.availability.dto.CoverageRangeResponse;
 import com.diving.pungdong.availability.dto.CoverageRequest;
 import com.diving.pungdong.availability.dto.HoldRequest;
 import com.diving.pungdong.availability.dto.SessionCreateRequest;
+import com.diving.pungdong.availability.dto.TimeRangeRequest;
 import com.diving.pungdong.enrollment.EnrollmentRound;
 import com.diving.pungdong.enrollment.EnrollmentRoundJpaRepo;
 import com.diving.pungdong.enrollment.EnrollmentStatus;
@@ -32,6 +33,7 @@ import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.TemporalAdjusters;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -66,20 +68,32 @@ public class AvailabilityService {
     private final com.diving.pungdong.chat.ChatQueryService chatQueryService;
     private final SessionOverlapGuard overlapGuard;
 
+    /** 열기 한 번에 받을 시간 구간 수 상한. 하루를 쪼개는 현실적인 한도(오전/오후/야간 …)를 넉넉히 덮는다. */
+    private static final int MAX_TIME_RANGES = 10;
+
     /* ─── coverage(예약가능시간) 직접 편집 ───────────────────── */
 
-    /** 예약가능시간 열기(union) — recurrence 전개, 각 날 머지. 영향 받은 날들의 머지된 구간 반환. */
+    /**
+     * 예약가능시간 열기(union) — recurrence 전개 × 시간 구간들, 각 날 머지. 영향 받은 날들의 머지된 구간 반환.
+     *
+     * <p><b>전개 결과가 0일이면 200 + 빈 배열</b>(예외 아님). "선택한 요일이 이 기간에 안 남았다" 는 서버가
+     * 정상적으로 계산한 답이지 잘못된 요청이 아니다. 예전엔 여기서 {@link BadRequestException} 을 던졌는데,
+     * 그러면 시간 형식 오류와 <b>글자까지 똑같은</b> {@code -1011} 이 나가 클라이언트가 둘을 구분할 수 없었다.
+     */
     @Transactional
     public List<CoverageRangeResponse> openCoverage(Account instructor, CoverageRequest req) {
         requireInstructorTrack(instructor);
-        req.setEndTime(DayEnd.normalizeEnd(req.getEndTime())); // 하루 끝(23:59~) 은 23:59:59 로 수렴(정규화 후 검증)
-        requireValidRange(req.getStartTime(), req.getEndTime());
+        List<Span> spans = resolveOpenSpans(req);
         Set<LocalDate> dates = expandDates(req);
         if (dates.isEmpty()) {
-            throw new BadRequestException();
+            return List.of();
         }
         for (LocalDate d : dates) {
-            ensureCoverage(instructor, d, new Span(req.getStartTime(), req.getEndTime()));
+            // 그 날 기존 구간 + 요청 구간들을 한 번에 정규화하고 한 번만 교체한다.
+            // 구간마다 ensureCoverage 를 부르면 (날짜 × 구간) 만큼 그 날 row 전체 delete+insert 가 반복된다.
+            List<Span> all = new ArrayList<>(loadSpans(instructor, d));
+            all.addAll(spans);
+            replaceCoverage(instructor, d, CoverageMerger.normalize(all));
         }
         LocalDate from = dates.stream().min(LocalDate::compareTo).orElseThrow();
         LocalDate to = dates.stream().max(LocalDate::compareTo).orElseThrow();
@@ -465,7 +479,39 @@ public class AvailabilityService {
         return StringUtils.hasText(s) ? s.trim() : null;
     }
 
-    /** ONCE = 그 하루 / WEEKLY·FOUR_WEEKS = 선택 요일을 1·4주(기준 주부터, 과거일 제외). */
+    /**
+     * 열기 시간 구간 결정 — {@code timeRanges} 가 비어있지 않으면 그것만, 아니면 {@code startTime/endTime} 한 벌.
+     *
+     * <p>각 구간은 {@link DayEnd#normalizeEnd} 로 하루 끝(23:59~)을 수렴시킨 뒤 검증한다. 하나라도 잘못되면
+     * 전체 400 — 부분 반영은 없다.
+     */
+    private List<Span> resolveOpenSpans(CoverageRequest req) {
+        List<TimeRangeRequest> ranges = req.getTimeRanges();
+        if (ranges == null || ranges.isEmpty()) {
+            req.setEndTime(DayEnd.normalizeEnd(req.getEndTime()));
+            requireValidRange(req.getStartTime(), req.getEndTime());
+            return List.of(new Span(req.getStartTime(), req.getEndTime()));
+        }
+        if (ranges.size() > MAX_TIME_RANGES) {
+            throw new BadRequestException();
+        }
+        List<Span> spans = new ArrayList<>(ranges.size());
+        for (TimeRangeRequest r : ranges) {
+            if (r == null) {
+                throw new BadRequestException();
+            }
+            LocalTime end = DayEnd.normalizeEnd(r.getEndTime());
+            requireValidRange(r.getStartTime(), end);
+            spans.add(new Span(r.getStartTime(), end));
+        }
+        return spans;
+    }
+
+    /**
+     * ONCE = 그 하루 / WEEKLY·FOUR_WEEKS = 선택 요일을 1·4주 / MONTH = 선택 요일을 그 달력 월 안에서.
+     *
+     * <p>반복 모드의 시작점은 {@link #recurrenceStart} — anchor 가 아니다.
+     */
     private Set<LocalDate> expandDates(CoverageRequest req) {
         Set<LocalDate> dates = new LinkedHashSet<>();
         RecurrenceMode mode = req.getMode() == null ? RecurrenceMode.ONCE : req.getMode();
@@ -477,18 +523,55 @@ public class AvailabilityService {
         if (dows == null || dows.isEmpty()) {
             throw new BadRequestException();
         }
+        Set<DayOfWeek> wanted = new LinkedHashSet<>(dows);
+        LocalDate start = recurrenceStart(mode, req.getDate());
+
+        if (mode == RecurrenceMode.MONTH) {
+            LocalDate last = req.getDate().with(TemporalAdjusters.lastDayOfMonth());
+            for (LocalDate d = start; !d.isAfter(last); d = d.plusDays(1)) {
+                if (wanted.contains(d.getDayOfWeek())) {
+                    dates.add(d);
+                }
+            }
+            return dates;
+        }
+
         int weeks = mode == RecurrenceMode.FOUR_WEEKS ? 4 : 1;
         LocalDate monday = req.getDate().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
         for (int w = 0; w < weeks; w++) {
             LocalDate weekStart = monday.plusWeeks(w);
-            for (DayOfWeek dow : new LinkedHashSet<>(dows)) {
+            for (DayOfWeek dow : wanted) {
                 LocalDate d = weekStart.plusDays(dow.getValue() - 1L);
-                if (!d.isBefore(req.getDate())) {
+                if (!d.isBefore(start)) {
                     dates.add(d);
                 }
             }
         }
         return dates;
+    }
+
+    /**
+     * 반복 전개 시작점 = {@code max(오늘, 기간 시작)}. 기간 시작은 MONTH 면 그 달 1일, WEEKLY·FOUR_WEEKS 면
+     * 그 주 월요일(ISO).
+     *
+     * <p><b>왜 anchor(요청의 date)가 아닌가</b>: 반복 모드에서 강사가 지정한 건 "어느 기간" 이지 "언제부터" 가
+     * 아니다. anchor 를 시작점으로 쓰면 달·주 중간 날을 찍었을 때 기간 앞부분이 <b>조용히</b> 빠진다 —
+     * 9/15 를 찍고 "이 달 반복·화" 를 누르면 9/1·9/8 이 사라지고, 9/2 를 찍고 "이 주 반복·월" 을 누르면
+     * 아직 미래인 8/31 이 탈락한다. FOUR_WEEKS 가 달 끝(9/29)을 빠뜨려 MONTH 를 만든 것과 같은 부류이고,
+     * 에러가 아니라 "덜 열림" 이라 더 나쁘다.
+     *
+     * <p>오늘로 clamp 하므로 <b>과거는 어떤 경로로도 열리지 않는다</b>. JVM 기본 TZ 는 KST 고정
+     * ({@code PungdongApplication}) 이라 여기의 "오늘" 은 강사가 보는 오늘과 같다.
+     *
+     * <p>클라이언트가 이미 정규화한 날짜를 보내면 이 계산은 그대로 no-op 이다(고정점) — 서버에도 두는 건
+     * 규칙이 클라이언트 코드에만 살지 않게 하려는 것. 직접 호출자에게도 "MONTH = 그 달 전체" 가 참이어야 한다.
+     */
+    private LocalDate recurrenceStart(RecurrenceMode mode, LocalDate anchor) {
+        LocalDate periodStart = mode == RecurrenceMode.MONTH
+                ? anchor.withDayOfMonth(1)
+                : anchor.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        LocalDate today = LocalDate.now();
+        return periodStart.isBefore(today) ? today : periodStart;
     }
 
     private AvailabilitySession requireOwned(Account me, Long id) {
