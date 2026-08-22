@@ -20,6 +20,15 @@ public interface EnrollmentRoundJpaRepo extends JpaRepository<EnrollmentRound, L
     int countByAvailabilitySessionIdAndStatusIn(Long sessionId, Collection<EnrollmentStatus> statuses);
 
     /**
+     * 코스 수정이 지우려는 회차 중 <b>수강 기록이 참조 중인</b> 것 — {@code course.CourseRoundUsageProbe} 구현이 쓴다.
+     *
+     * <p><b>상태로 거르지 않는다.</b> 취소·거절된 회차도 행은 남고 FK 는 상태를 보지 않는다 — 활성만 세면
+     * 취소분이 참조하는 회차를 지우려다 그대로 참조 무결성 위반(500)이 난다.
+     */
+    @Query("select distinct r.courseRound.id from EnrollmentRound r where r.courseRound.id in :ids")
+    List<Long> findReferencedCourseRoundIds(@Param("ids") Collection<Long> ids);
+
+    /**
      * 만석 판정용 <b>점유 회차 잠금 조회</b>(id 목록, 크기가 점유 수). 왜 plain count 가 아니라 이건가 —
      * {@code EnrollmentService.requireSeat} 는 세션 행을 {@code FOR UPDATE} 로 잡아 동시 신청을 직렬화하는데,
      * MySQL <b>REPEATABLE READ</b> 에선 그 앞서 실행된 course/coverage 조회가 트랜잭션 스냅샷을 이미 고정해버려,

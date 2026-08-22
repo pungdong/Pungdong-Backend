@@ -85,3 +85,7 @@ refundBlocked:
 tooManyRequests:
   code: "-1023"
   msg: "메시지를 너무 빨리 보내고 있어요. 잠시 후 다시 시도해주세요."
+
+courseRoundInUse:
+  code: "-1024"
+  msg: "이미 신청한 수강생이 있는 회차예요. 회차를 줄이려면 해당 수강을 먼저 정리해주세요."
