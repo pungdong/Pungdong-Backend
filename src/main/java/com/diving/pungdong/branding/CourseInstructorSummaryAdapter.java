@@ -82,13 +82,19 @@ public class CourseInstructorSummaryAdapter implements InstructorSummaryProvider
                 .build();
     }
 
-    /** 인증마크 — VERIFIED 자격증에서(형태는 v1 그대로). */
+    /**
+     * 인증마크 — <b>VERIFIED 강사 자격만</b>({@code verifiedBadgesOf}). 🔴 프로필·커뮤니티의 사람 표면 규칙
+     * ({@code displayBadgesOf}, 자기신고 포함)으로 갈아끼우지 말 것 — 강의 상세는 "이 강사 자격 있음"을 말하는
+     * 강사 자격 표면이다(#330, {@code CertificateBadgePolicy} javadoc).
+     */
     private List<CourseInstructorResponse.CertBadge> certBadgesOf(Long accountId) {
         return studentCertificateService.verifiedBadgesOf(accountId).stream()
                 .map(b -> CourseInstructorResponse.CertBadge.builder()
                         .disciplineCode(b.getDisciplineCode())
                         .organizationCode(b.getOrganizationCode())
                         .organizationOther(b.getOrganizationOther())
+                        .level(b.getLevel())
+                        .verified(b.isVerified())
                         .build())
                 .collect(Collectors.toList());
     }

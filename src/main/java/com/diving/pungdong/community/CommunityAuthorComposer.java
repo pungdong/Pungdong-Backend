@@ -2,6 +2,8 @@ package com.diving.pungdong.community;
 
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.ProfilePhoto;
+import com.diving.pungdong.certificate.StudentCertificateService;
+import com.diving.pungdong.certificate.dto.CertificateBadge;
 import com.diving.pungdong.community.dto.CommunityAuthorResponse;
 import com.diving.pungdong.course.CourseJpaRepo;
 import com.diving.pungdong.course.CourseStatus;
@@ -15,14 +17,18 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * 작성자 합성 — 닉네임·아바타에 <b>강사 여부와 공개 강의 수</b>를 얹는다. 강사 강조 UI(아바타 링 + ✓ +
- * "강사 · 강의 N")의 유일한 소스라 <b>피드 카드와 댓글 한 줄이 같은 모양</b>을 써야 한다.
+ * 작성자 합성 — 닉네임·아바타에 <b>강사 여부와 공개 강의 수, 자격 뱃지 최고 1장</b>을 얹는다. 강사 강조 UI
+ * (아바타 링 + ✓ + "강사 · 강의 N" + 자격 칩)의 유일한 소스라 <b>피드 카드와 댓글 한 줄이 같은 모양</b>을 써야 한다.
  *
  * <p><b>별도 컴포넌트로 뺀 이유</b>: 게시물 서비스와 댓글 서비스가 같은 합성을 필요로 한다. 각자 구현하면
  * 한쪽만 고쳐지는 순간 같은 사람이 피드에선 강사로, 댓글에선 일반 유저로 보인다.
  *
- * <p><b>항상 일괄 조회다.</b> 계정 id 를 모아 강사 판정 1회 + 강의 수 group by 1회로 끝낸다 —
+ * <p><b>항상 일괄 조회다.</b> 계정 id 를 모아 강사 판정 1회 + 강의 수 group by 1회 + 자격증 1회로 끝낸다 —
  * 작성자마다 조회하면 목록 크기만큼 쿼리가 나간다(N+1). 쿼리 수가 목록 크기와 무관해야 한다.
+ *
+ * <p>자격 뱃지는 <b>사람 표면 규칙</b>({@code certificate.CertificateBadgePolicy} — 수강생 레벨은 자기신고 그대로,
+ * 강사 레벨은 VERIFIED 만)의 최고 1장이다. 강사 여부({@code isInstructor})와 <b>독립</b>이다 — 수강생 작성자도
+ * 자기 AIDA2 칩을 단다(#330).
  */
 @Component
 @RequiredArgsConstructor
@@ -31,6 +37,7 @@ public class CommunityAuthorComposer {
     private final InstructorApplicationJpaRepo applicationRepo;
     private final CourseJpaRepo courseRepo;
     private final SiteSettingsProvider siteSettings;
+    private final StudentCertificateService studentCertificateService;
 
     /**
      * 계정 목록 → {@code accountId → 작성자 응답}.
@@ -56,9 +63,13 @@ public class CommunityAuthorComposer {
                         ? courseRepo.countByInstructorIdsAndStatus(instructorIds, CourseStatus.OPEN)
                         : courseRepo.countByInstructorIdsAndStatusExcludingSeeded(instructorIds, CourseStatus.OPEN));
 
+        // 정렬된 뱃지의 [0] 이 최고 1장 — 정렬은 정책 쪽 계약이라 여서 다시 계산하지 않는다.
+        Map<Long, List<CertificateBadge>> badges = studentCertificateService.displayBadgesByAccountIds(accountIds);
+
         Map<Long, CommunityAuthorResponse> result = new HashMap<>();
         for (Account account : accounts) {
             boolean isInstructor = instructorIds.contains(account.getId());
+            List<CertificateBadge> mine = badges.get(account.getId());
             result.put(account.getId(), CommunityAuthorResponse.builder()
                     .nickName(account.getNickName())
                     .avatarUrl(avatarUrlOf(account))
@@ -67,6 +78,8 @@ public class CommunityAuthorComposer {
                     .lessonCount(isInstructor
                             ? (int) (long) lessonCounts.getOrDefault(account.getId(), 0L)
                             : null)
+                    // 표시할 뱃지가 없으면 키 생략 — "자격증 0개"와 "안 온 것"을 구분한다(lessonCount 와 같은 규약).
+                    .topCert(mine == null || mine.isEmpty() ? null : mine.get(0))
                     .build());
         }
         return result;

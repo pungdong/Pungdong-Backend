@@ -10,6 +10,10 @@ package com.diving.pungdong.course;
  *
  * <p>{@code INSTRUCTOR_TRAINER} = 강사를 길러내는 상위 등급(예: Course Director, Instructor Trainer).
  * {@code INSTRUCTOR} 위 한 칸. 코스 작성(목표 레벨)과 강사 신청(본인 레벨, 향후) 두 곳이 이 카탈로그를 공유한다.
+ *
+ * <p><b>선언 순서 = 사다리 순서</b>({@code LEVEL_1 < … < INSTRUCTOR < INSTRUCTOR_TRAINER}). 자격 뱃지의
+ * "가장 높은 것" 판정·내림차순 정렬({@code certificate.CertificateBadgePolicy})이 {@code compareTo} 로 이 순서를
+ * 쓴다 — 상수를 끼워 넣을 땐 사다리 위치에 맞춰 넣을 것.
  */
 public enum CertLevel {
     LEVEL_1("레벨 1"),

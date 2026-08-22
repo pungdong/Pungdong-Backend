@@ -4,6 +4,7 @@ import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.AccountService;
 import com.diving.pungdong.account.Role;
 import com.diving.pungdong.branding.dto.*;
+import com.diving.pungdong.course.CertLevel;
 import com.diving.pungdong.global.config.RestDocsConfiguration;
 import com.diving.pungdong.global.security.JwtTokenProvider;
 import com.diving.pungdong.global.security.UserAccount;
@@ -82,7 +83,8 @@ class BrandingControllerTest {
                 .instructor(true)
                 .disciplineCodes(List.of("FREEDIVING"))
                 .certs(List.of(BrandingProfileResponse.CertBadge.builder()
-                        .disciplineCode("FREEDIVING").organizationCode("AIDA").build()))
+                        .disciplineCode("FREEDIVING").organizationCode("AIDA")
+                        .level(CertLevel.INSTRUCTOR).verified(true).build()))
                 .records(List.of(RecordDto.builder()
                         .medal(Medal.GOLD).eventCode(RecordEventCode.CWT).value("-75m").build()))
                 .stats(BrandingStats.builder().students(1284).build())
@@ -101,7 +103,8 @@ class BrandingControllerTest {
                 .isInstructor(true)
                 .disciplineCodes(List.of("FREEDIVING"))
                 .certs(List.of(BrandingProfileResponse.CertBadge.builder()
-                        .disciplineCode("FREEDIVING").organizationCode("AIDA").build()))
+                        .disciplineCode("FREEDIVING").organizationCode("AIDA")
+                        .level(CertLevel.INSTRUCTOR).verified(true).build()))
                 .records(List.of(RecordDto.builder()
                         .medal(Medal.GOLD).eventCode(RecordEventCode.CWT).value("-75m").build()))
                 .stats(BrandingStats.builder().students(1284).build())
@@ -121,9 +124,11 @@ class BrandingControllerTest {
                 fieldWithPath(prefix + "locationLabel").description("활동 지역 (유저가 비우면 null)").optional(),
                 fieldWithPath(prefix + "isInstructor").description("인증마크 표시 여부 = 승인된 강사"),
                 fieldWithPath(prefix + "disciplineCodes").description("승인 종목 코드 — 강사만, 아니면 키 없음").optional(),
-                fieldWithPath(prefix + "certs[].disciplineCode").description("자격이 속한 종목").optional(),
+                fieldWithPath(prefix + "certs[].disciplineCode").description("자격이 속한 종목 — 누구나(자기신고 수강생 레벨 + VERIFIED 강사 레벨), 없으면 빈 배열").optional(),
                 fieldWithPath(prefix + "certs[].organizationCode").description("발급 단체 코드").optional(),
                 fieldWithPath(prefix + "certs[].organizationOther").description("단체가 OTHER 일 때 직접입력").optional(),
+                fieldWithPath(prefix + "certs[].level").description("평탄화 레벨(LEVEL_1..4·INSTRUCTOR·INSTRUCTOR_TRAINER) — (종목,단체)별 최고").optional(),
+                fieldWithPath(prefix + "certs[].verified").description("검증됨(verification=VERIFIED). 수강생 레벨 자기신고는 false — 레벨에서 추론 금지").optional(),
                 fieldWithPath(prefix + "records[].medal").description("메달 GOLD|SILVER|BRONZE").optional(),
                 fieldWithPath(prefix + "records[].eventCode").description("경기 세부종목 CWT|FIM|CNF|DYN|DNF|STA").optional(),
                 fieldWithPath(prefix + "records[].value").description("기록 원문 — 단위가 종목마다 달라 문자열").optional(),

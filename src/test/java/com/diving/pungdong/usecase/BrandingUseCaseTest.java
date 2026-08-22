@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -325,7 +326,7 @@ class BrandingUseCaseTest {
     }
 
     @Test
-    @DisplayName("I2: 일반 유저 응답에는 강사 전용 키(certs·disciplineCodes)가 아예 없다")
+    @DisplayName("I2: 일반 유저 응답에는 강사 전용 키(disciplineCodes·products)가 아예 없다 — certs 는 누구에게나 오는 배열이라 빈 배열(#330)")
     void normalUser_omitsInstructorOnlyKeys() throws Exception {
         Account owner = account("i2@test.com", "diverI2", Role.STUDENT);
         createPublishedBranding(owner, "이제 막 시작했어요");
@@ -333,8 +334,9 @@ class BrandingUseCaseTest {
         mockMvc.perform(get(publicUrl("diverI2")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.isInstructor").value(false))
-                .andExpect(jsonPath("$.certs").doesNotExist())
-                .andExpect(jsonPath("$.disciplineCodes").doesNotExist());
+                .andExpect(jsonPath("$.certs", hasSize(0)))
+                .andExpect(jsonPath("$.disciplineCodes").doesNotExist())
+                .andExpect(jsonPath("$.products").doesNotExist());
     }
 
     @Test

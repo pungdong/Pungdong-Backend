@@ -69,5 +69,12 @@ public interface StudentCertificateJpaRepo extends JpaRepository<StudentCertific
     List<Object[]> findVerifiedOrganizationCodesByAccountIds(@Param("accountIds") Collection<Long> accountIds,
                                                              @Param("disciplineCode") String disciplineCode);
 
+    /**
+     * 여러 계정의 자격증 전부(상태·레벨 무관) — 사람 표면의 표시 뱃지 후보({@code CertificateBadgePolicy}).
+     * 필터를 JPQL 에 두지 않는 이유: 규칙이 정책 클래스 한 곳에만 있어야 하고, 개인 보유량이 한 자릿수라
+     * 목록(최대 50 작성자)을 통째로 읽어도 싸다. id 순이라 동률 그룹의 선택이 결정적이다.
+     */
+    List<StudentCertificate> findByOwnerIdInOrderByIdAsc(Collection<Long> ownerIds);
+
     void deleteByOwnerId(Long ownerId);
 }

@@ -49,8 +49,12 @@ public class BrandingProfileResponse {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private List<String> disciplineCodes;
 
-    /** 강사만. 승인된 강사 신청에서 파생 — 자유입력 자격은 폐기됐다(D5). */
-    @JsonInclude(JsonInclude.Include.NON_NULL)
+    /**
+     * 자격 뱃지 — <b>누구나</b>(2026-08-23, #330 — 전엔 강사만 + 키 생략). 사람 표면 규칙
+     * ({@code certificate.CertificateBadgePolicy}): 수강생 레벨은 자기신고 그대로, 강사 레벨은 VERIFIED 만,
+     * (종목,단체)별 최고 1장, 레벨 내림차순. 없으면 빈 배열(키는 항상 있다). 자유입력 자격은 폐기됐다(D5) —
+     * 자기신고도 "내 자격증"(certificate) 등록을 거친 것이다.
+     */
     private List<CertBadge> certs;
 
     /** 없으면 빈 배열 → FE 가 섹션 자체를 숨긴다. 일반 유저도 사용(D2). */
@@ -87,5 +91,9 @@ public class BrandingProfileResponse {
         private String disciplineCode;
         private String organizationCode;
         private String organizationOther;
+        /** 평탄화 레벨 — 그룹 내 최고. */
+        private com.diving.pungdong.course.CertLevel level;
+        /** 검증됨({@code verification.status == VERIFIED}). 레벨에서 추론하지 않는다 — FE 가 검증마크/중립 칩을 가른다. */
+        private boolean verified;
     }
 }
