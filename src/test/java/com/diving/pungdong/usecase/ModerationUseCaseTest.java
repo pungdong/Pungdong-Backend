@@ -208,6 +208,16 @@ class ModerationUseCaseTest {
         // 둘러보기에서만 빼면 상세 URL 이 우회로가 된다.
         mockMvc.perform(get("/courses/" + c.getId() + "/detail"))
                 .andExpect(status().isBadRequest());
+
+        // 마감(CLOSED)돼도 마찬가지다. BE #322 로 "발행 이력이 있는 마감 강의" 는 상세가 200 이 되는데,
+        // 조치는 그 읽기 축도 이겨야 한다 — 안 그러면 마감이 조치의 우회로가 된다.
+        // 조치 이전에 읽어둔 c 를 그대로 저장하면 blocked_at 이 도로 null 이 된다 — 다시 읽는다.
+        Course blocked = courseRepo.findById(c.getId()).orElseThrow();
+        blocked.setStatus(CourseStatus.CLOSED);
+        blocked.setPublishedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        courseRepo.save(blocked);
+        mockMvc.perform(get("/courses/" + c.getId() + "/detail"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

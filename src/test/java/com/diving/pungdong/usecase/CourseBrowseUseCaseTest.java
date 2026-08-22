@@ -175,6 +175,10 @@ class CourseBrowseUseCaseTest {
                 .andExpect(jsonPath("$._embedded.courses[0].organizationCode").value("AIDA"))
                 .andExpect(jsonPath("$._embedded.courses[0].thumbnailUrl").value("http://img/cover.jpg"))
                 .andExpect(jsonPath("$._embedded.courses[0].price").value(350000))
+                .andExpect(jsonPath("$._embedded.courses[0].status").value("OPEN"))
+                // 웹 sitemap 의 lastmod 가 이 둘로 나간다 — 둘 다 항상 채워져야 한다(BE #323).
+                .andExpect(jsonPath("$._embedded.courses[0].createdAt").isNotEmpty())
+                .andExpect(jsonPath("$._embedded.courses[0].updatedAt").isNotEmpty())
                 .andExpect(jsonPath("$.page.totalElements").value(1));
     }
 

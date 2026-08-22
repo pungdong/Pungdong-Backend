@@ -38,6 +38,7 @@ import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -106,7 +107,7 @@ public class CourseService {
      * 위치 이름·type·주소, <b>입장료(이용권×daypart fee)</b>, 위치별 장비. 비OPEN/없음은 400(존재 숨김).
      */
     public CourseDetailResponse publicDetail(Long id, Account viewer) {
-        Course course = requirePubliclyVisible(id);
+        Course course = requirePubliclyReadable(id);
         List<String> refs = course.getRounds().stream()
                 .flatMap(r -> r.getVenues().stream())
                 .map(RoundVenue::getVenueRefId)
@@ -121,21 +122,55 @@ public class CourseService {
     }
 
     /**
-     * <b>공개 표면에 실제로 노출되는 강의</b>만 통과시킨다 — 공개 상세와 <b>저장(북마크)</b>이 같은 이
-     * 게이트를 쓴다. 둘이 각자 조건을 들고 있으면 한쪽만 조여져 다른 쪽이 우회로가 된다(그 실수를 이
-     * 도메인은 이미 두 번 했다 — 차단 강의와 미승인 강사가 상세 URL 로 새어 나갔다).
+     * <b>공개 표면 공통 게이트</b> — 상태를 뺀 나머지 전부. 없음·차단·데모가림·미승인 강사를 거른다.
      *
-     * <p>없음·비OPEN·차단·데모가림·미승인 강사는 모두 <b>같은 응답</b>(400, 존재 숨김)이다. 왜가 갈리면
-     * 그 자체로 존재를 알려주는 채널이 된다.
+     * <p>아래 두 게이트({@link #requirePubliclyReadable} 읽기 / {@link #requirePubliclyVisible} 행동)가
+     * <b>이 헬퍼를 반드시 공유한다.</b> 원래 게이트가 하나였던 이유가 그거다 — 둘이 각자 조건을 들고
+     * 있으면 한쪽만 조여져 다른 쪽이 우회로가 된다(그 실수를 이 도메인은 이미 두 번 했다: 차단 강의와
+     * 미승인 강사가 상세 URL 로 새어 나갔다). 축을 나눌 때 <b>갈라도 되는 건 상태 하나뿐</b>이다.
      */
-    public Course requirePubliclyVisible(Long id) {
+    private Optional<Course> publiclyExposed(Long id) {
         boolean showSeeded = siteSettings.current().showSeededCourses();
         return courseRepo.findById(id)
-                .filter(c -> c.getStatus() == CourseStatus.OPEN)
                 .filter(c -> !c.isBlocked()) // 어드민 조치 — 둘러보기에서만 빼면 상세 URL 이 우회로가 된다
                 .filter(c -> showSeeded || !c.isSeeded()) // 데모 가림 시 상세도 숨김(존재 숨김)
                 // 승인 전(또는 반려된) 강사의 강의 — 둘러보기에서만 빼면 이 URL 이 우회로가 된다.
-                .filter(instructorApprovalPolicy::isApproved)
+                .filter(instructorApprovalPolicy::isApproved);
+    }
+
+    /**
+     * <b>읽기(색인) 축</b> — 공개 상세가 쓴다. OPEN + <b>한 번이라도 발행된</b> CLOSED 를 통과시킨다.
+     *
+     * <p><b>왜 마감된 강의를 여는가.</b> 웹에서 강의 URL 은 판매 화면이기 전에 <b>색인 자산</b>이다.
+     * 마감됐다고 404 를 주면 그 페이지가 그동안 쌓은 검색 신뢰도가 같이 사라지고, 공유된 링크가 죽고,
+     * 404 가 반복되면 크롤러가 {@code /courses/*} 경로 전체의 재방문 빈도를 낮춰 <b>살아있는 다른
+     * 강의의 색인 속도까지</b> 느려진다. 즉 예전 구조는 "강의가 잘 팔릴수록 검색 자산이 줄어드는"
+     * 모양이었다. 재개설되면 같은 URL 이 그대로 되살아난다. (BE #322, FE {@code docs/web-seo.md})
+     *
+     * <p><b>DRAFT 는 계속 400 이다</b> — 그리고 판정 기준은 상태가 아니라 발행 이력이다
+     * ({@link Course#isEverPublished}). DRAFT → CLOSED 로 직행한 강의는 한 번도 공개된 적이 없어
+     * 지킬 색인 자산이 없고, 열면 강사가 공개를 선택한 적 없는 내용을 노출하는 것이 된다.
+     *
+     * <p>거절 응답은 {@link #requirePubliclyVisible} 과 <b>완전히 같다</b>(400, {@code -1009}).
+     * 왜가 갈리면 그 자체로 존재를 알려주는 채널이 된다.
+     */
+    public Course requirePubliclyReadable(Long id) {
+        return publiclyExposed(id)
+                .filter(c -> c.getStatus() == CourseStatus.OPEN
+                        || (c.getStatus() == CourseStatus.CLOSED && c.isEverPublished()))
+                .orElseThrow(ResourceNotFoundException::new);
+    }
+
+    /**
+     * <b>행동 축</b> — 저장(북마크)처럼 <b>지금 이 강의에 무언가를 하는</b> 경로가 쓴다. OPEN 만.
+     *
+     * <p>읽기가 열렸다고 행동까지 열리는 게 아니다. 마감된 강의는 <b>읽을 수 있지만 저장·신청할 수
+     * 없다</b> — 그래서 게이트가 둘이다. 여기에 CLOSED 를 통과시키면 "마감된 강의를 저장했는데
+     * 저장 목록에서 신청이 안 된다" 같은 막다른 길이 생긴다.
+     */
+    public Course requirePubliclyVisible(Long id) {
+        return publiclyExposed(id)
+                .filter(c -> c.getStatus() == CourseStatus.OPEN)
                 .orElseThrow(ResourceNotFoundException::new);
     }
 
@@ -229,12 +264,19 @@ public class CourseService {
     /**
      * 상태 전이. <b>OPEN(발행) 만 승인 게이트가 붙는다</b> — DRAFT/CLOSED 로 내리는 건 언제든 된다.
      * 승인 전 강사가 강의를 만들어 두는 것 자체는 막지 않는다({@link InstructorApprovalPolicy} 참고).
+     *
+     * <p>여기가 {@link Course#getPublishedAt()} 의 <b>유일한 쓰기 지점</b>이다 — 최초 OPEN 때 한 번만
+     * 찍고 이후엔 (CLOSED 로 내려도) 건드리지 않는다. 마감 후에도 상세가 열려 있어야 하는 근거가
+     * 이 값이라, 되돌리면 색인된 URL 이 다시 죽는다({@link #requirePubliclyReadable}).
      */
     @Transactional
     public CourseResponse updateStatus(Account me, Long id, CourseStatus status) {
         Course course = requireOwned(me, id);
         if (status == CourseStatus.OPEN) {
             instructorApprovalPolicy.requireApprovedToPublish(course);
+            if (course.getPublishedAt() == null) {
+                course.setPublishedAt(OffsetDateTime.now(ZoneOffset.UTC));
+            }
         }
         course.setStatus(status);
         course.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));

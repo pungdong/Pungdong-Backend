@@ -74,12 +74,20 @@ public class AccountBranding {
         this.updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
     }
 
-    /** 기록 스냅샷 교체용 — course/venue 와 동일 관례(전체 교체가 재정렬까지 원자적으로 처리). */
+    /**
+     * 기록 스냅샷 교체용 — course/venue 와 동일 관례(전체 교체가 재정렬까지 원자적으로 처리).
+     *
+     * <p>⚠️ <b>{@code updatedAt} 을 손으로 찍는다.</b> Hibernate 는 이 행의 스칼라가 더러워질 때만
+     * {@link #preUpdate} 를 부르는데, 기록만 갈아치우면 자식 테이블({@code branding_record})만 바뀌고
+     * 부모 행은 그대로라 콜백이 <b>안 뛴다</b>. 그러면 "기록만 고친 프로필" 이 검색엔진에 안 바뀐 것으로
+     * 보인다(강사 카드의 {@code updatedAt} = sitemap {@code lastmod}, BE #323).
+     */
     public void replaceRecords(List<BrandingRecord> next) {
         this.records.clear();
         next.forEach(record -> {
             record.setBranding(this);
             this.records.add(record);
         });
+        this.updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
     }
 }
