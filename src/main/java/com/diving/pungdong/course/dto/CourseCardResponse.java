@@ -51,9 +51,31 @@ public class CourseCardResponse {
     private int price;
     private int totalRounds;
     private String disciplineCode;
+
+    /**
+     * 영업 상태. <b>둘러보기({@code GET /courses/browse})는 지금도 OPEN 만 반환한다</b> — 이 필드가
+     * 조회 모수를 바꾸지 않는다.
+     *
+     * <p>싣는 이유는 <b>저장(북마크) 목록</b>이다. 마감된 강의는 저장 목록에서 조용히 사라지는데
+     * (저장 행은 남아 있어 재개설되면 돌아온다), 카드를 "마감" 배지로 남기려면 상태가 필요했다.
+     * 예전엔 그걸 못 한 이유가 "마감 강의는 공개 상세가 400 이라 눌러도 안 열리는 막다른 카드"
+     * 였는데, BE #322 로 마감 강의 상세가 읽기 전용으로 열리면서 그 전제가 사라졌다.
+     * (배지를 실제로 그릴지, 저장 목록에 마감분을 다시 넣을지는 FE 결정 — BE 는 재료만 낸다.)
+     */
+    private CourseStatus status;
+
     /** 데모(샘플) 코스 — FE 가 "샘플용" 태그로 구분 노출. */
     private boolean seeded;
     private OffsetDateTime createdAt;
+
+    /**
+     * 이 강의의 내용이 마지막으로 바뀐 시각. 웹 sitemap 의 {@code <lastmod>} 가 이 값이다 — 크롤러가
+     * <b>바뀐 것만</b> 다시 가져가게 하는 신호(BE #323). 정확한 감사 로그는 아니고 근사면 충분하다.
+     *
+     * <p>{@code createdAt} 과 함께 <b>항상 채워진다</b>(V37 백필 + {@code Course} 의 {@code @PrePersist}).
+     * 클라이언트는 "모르는 날짜" 를 다룰 필요가 없다 — 모르면 필드를 생략하는 게 아니라 애초에 안 모른다.
+     */
+    private OffsetDateTime updatedAt;
 
     /**
      * 저장(북마크) 수. <b>내려주지만 노출은 FE 가 결정한다</b> — "N명이 저장" 은 판매 신호지만 초기라
@@ -89,8 +111,10 @@ public class CourseCardResponse {
                 .price(c.getPrice())
                 .totalRounds(c.getTotalRounds())
                 .disciplineCode(c.getDisciplineCode())
+                .status(c.getStatus())
                 .seeded(c.isSeeded())
                 .createdAt(c.getCreatedAt())
+                .updatedAt(c.getUpdatedAt())
                 .build();
     }
 }

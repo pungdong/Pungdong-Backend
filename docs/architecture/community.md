@@ -207,6 +207,12 @@ erDiagram
 
 공유 테이블에 `show_on_profile` 을 더한 순간, **브랜딩의 기존 쿼리 3개가 조용히 틀렸다** — 커뮤니티 글이 브랜딩 프로필 그리드로 새고 `stats.posts` 가 그리드 타일 수와 어긋났다. `findPublicGrid`·`findOwnerGrid`·`countByBranding_IdAndIsHiddenFalse` 에 전부 `show_on_profile = true` 를 넣어 고쳤다(use-case 테스트 X1/S2 가 잡았다). **새 축을 더하는 변경은 그 테이블을 읽는 모든 경로의 목록을 먼저 만들고 시작해야 한다.**
 
+### 카드에도 `updatedAt` 이 실린다 (2026-08-22, BE #323)
+
+`CommunityPostCardResponse.updatedAt` — 웹 sitemap 의 `<lastmod>` 용. 예전엔 상세에만 있어서 정확한 값을 얻으려면 **글마다 상세를 한 번 더** 불러야 했고, 그래서 웹이 `createdAt` 으로 때우고 있었다(수정이 반영 안 됨).
+
+⚠️ **본문·제목·분류 수정은 잡지만 미디어·태그만 교체한 경우는 못 잡는다** — 자식 테이블만 바뀌면 `branding_post` 행이 안 더러워져 `@PreUpdate` 가 안 뛴다. 근사면 충분하다는 전제 위에 서 있다(정책은 [features/seo-and-geo.md](../features/seo-and-geo.md)). 정확도가 필요해지면 `AccountBranding.replaceRecords` 처럼 교체 지점에서 부모를 손으로 찍는 게 정공법이다.
+
 ### 정렬은 서버가 고정한다
 
 클라이언트 `sort` 를 `Pageable` 에 태우지 않는다 — 임의 필드 정렬로 내부 컬럼을 탐색하거나 인덱스 없는 정렬로 풀스캔을 유발할 수 있다.

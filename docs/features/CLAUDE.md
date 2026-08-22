@@ -56,6 +56,7 @@
 - [세션 단체 채팅(session-group-chat)](session-group-chat.md) — chat + availability(일정=방 단위) + enrollment(참여자격=결제완료) + notification(참여자 fan-out 푸시) · 방 PK=일정 id·FK 없음(전원 환불로 일정이 물리 삭제돼도 방 생존) · 지연 생성 · 커서 페이지네이션 + 전송 멱등 · 폴링+FCM(WS/SSE 기각) · 딥링크는 방 직행(허브 착지 규약 정정)
 - [푸시 알림(push)](push.md) — notification(발송) + account(토큰) + FCM/GCP(plop-5997b) · 계약 SoT(/me/devices·data.notificationId·WIF 키리스) · BE 리드/FE 컨폼 · 인앱 알림함 #132 후속 · 메커니즘은 architecture/notification.md
 - [OTA 텔레메트리·릴리스 대시보드·최소버전 게이트(ota-telemetry)](ota-telemetry.md) — ota(신규) + account(탈퇴 링크 해제) + 모바일 앱 + apps/admin · **firebase_token 확장 기각**(로그아웃/푸시거부 기기가 빠져 가장 보고 싶은 집단이 먼저 지워짐) · permitAll 수집 + installId · **관측은 관용적/제어는 엄격** · 롤백 2종 분리 · BE 는 D1 을 안 읽음 · 메커니즘은 architecture/ota.md
+- [검색·생성엔진 노출(SEO/GEO)](seo-and-geo.md) — course(공개 상세 읽기 게이트·`published_at`) + branding + community + global/security · **웹 URL 은 판매 화면이기 전에 색인 자산** · **SEO(발견/재방문) vs GEO(인용) 축 구분표** · 읽기 축 ≠ 행동 축(마감 강의는 읽히지만 저장 400) · 판정은 상태가 아니라 발행 이력 · `lastmod` 는 모르면 안 낸다(무엇을 못 잡는지 표) · GEO 는 "사실을 구조로" 하나(BE 는 크롤러를 구분하지 않는다) · **새 공개 읽기 엔드포인트 BE 체크리스트 8항** · BE↔FE 소유 경계표 · FE 짝 문서 `PungDong/docs/web-seo.md`
 
 ## 톤
 

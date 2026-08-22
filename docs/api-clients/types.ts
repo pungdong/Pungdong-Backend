@@ -978,6 +978,15 @@ export interface InstructorBrowseCardResponse {
    *   을 쓴다(`keyword` 아님 — 부분 일치라 동명 강사·제목이 섞여 이 숫자와 안 맞는다).
    */
   openCourseCount: number;
+  /**
+   * 이 프로필이 마지막으로 바뀐 시각(UTC ISO-8601). sitemap `<lastmod>` 용 — 강사 프로필은 가장 자주
+   * 바뀌는 축인데 예전엔 시각 필드가 **아예 없어** 크롤러가 변경을 알 방법이 없었다(BE #323).
+   *
+   * ⚠️ **합성 근사값이다**: `max(브랜딩 프로필 수정, 승인된 강사신청 수정)`. **아바타 교체와 자격증
+   *    이미지 교체는 안 잡힌다** — 그 두 테이블에 시각 컬럼 자체가 없다. `lastmod` 용도로는 충분하지만
+   *    "마지막 활동" 같은 UI 표기에는 쓰지 말 것(있는 그대로가 아니다).
+   */
+  updatedAt: string;
 }
 
 /** GET /instructors/browse 응답 — 카드는 `_embedded.instructors`(빈 결과면 키 없음), 메타는 `page`. */
@@ -1323,6 +1332,12 @@ export interface CommunityPostCard {
   mediaCount: number;
   locationLabel?: string;
   createdAt: string;             // UTC ISO-8601. "15분 전" 은 FE 가 만든다
+  /**
+   * 마지막 수정 시각(수정이 없으면 `createdAt` 과 같다). sitemap `<lastmod>` 용(BE #323) —
+   * 예전엔 목록에 없어서 정확한 값을 얻으려면 글마다 상세를 한 번 더 불러야 했다.
+   * ⚠️ 본문·제목·분류 수정은 잡지만 **미디어·태그만 교체한 경우는 안 잡힌다**(근사값).
+   */
+  updatedAt: string;
   likeCount: number; commentCount: number; bookmarkCount: number;
   likedByMe: boolean; bookmarkedByMe: boolean;
   /** 공개 피드에선 항상 false. **오너가 자기 글을 볼 때만** true — 숨김 배지·토글 상태용. */
@@ -2238,8 +2253,26 @@ export interface CourseCardResponse {
   price: number;
   totalRounds: number;
   disciplineCode: string;
+  /**
+   * 영업 상태. **`GET /courses/browse` 는 지금도 OPEN 만 반환한다** — 이 필드가 조회 모수를 바꾸지 않는다.
+   *
+   * 싣는 이유는 **저장(북마크) 목록**이다. 마감된 강의는 저장 목록에서 조용히 빠지는데(저장 행은 남아
+   * 재개설되면 돌아온다), 카드를 "마감" 배지로 남기고 싶으면 상태가 필요했다. 예전에 그걸 못 한 이유는
+   * "마감 강의는 상세가 400 이라 눌러도 안 열리는 막다른 카드" 였고, BE #322 로 그 전제가 사라졌다.
+   * 배지를 그릴지 · 저장 목록에 마감분을 되돌릴지는 FE 결정 — BE 는 재료만 낸다.
+   */
+  status: CourseStatus;
   seeded: boolean; // 데모(샘플) 코스 — FE 가 "샘플용" 태그로 구분 노출. siteSettings.showSeededCourses=false 면 목록에서 빠짐
-  createdAt?: string;
+  /**
+   * 생성 시각 / 마지막으로 내용이 바뀐 시각(UTC ISO-8601).
+   *
+   * `createdAt` 은 **더 이상 옵셔널이 아니다**(2026-08-22, BE #323) — 값이 없던 옛 행을 V37 이 백필했고
+   * 신규 행은 엔티티 콜백이 보장한다. `updatedAt` 은 웹 sitemap 의 `<lastmod>` 로 나가 크롤러가
+   * **바뀐 것만** 다시 가져가게 한다(모르는 날짜를 `now` 로 채우면 매번 "전부 방금 바뀌었다" 가 되어
+   * 크롤 예산만 태운다).
+   */
+  createdAt: string;
+  updatedAt: string;
   /**
    * 저장(북마크) 수. **내려주지만 노출 여부는 FE 가 정한다** — "N명이 저장"은 판매 신호지만 초기에
    * 숫자가 낮으면 역효과라 표시를 끄는 쪽이 되돌리기 쉽다.
@@ -2279,7 +2312,14 @@ export interface CourseBrowseResponse extends HalLinks {
 /**
  * 공개 상세. CourseResponse(강사용)와 차이: ① venue 합성 — venues[]에 위치명/주소/입장료(이용권×daypart
  * fee)/장비가 풀려 옴(강사용은 ticketRef·daypart 원본만). ② instructorName 만(경력·자격·평점은 강사 프로필/
- * 리뷰 통합 후속). ③ status 없음(항상 OPEN). 입장료·장비는 회차별 변동이라 표시/안내용 — 확정 결제는 부킹.
+ * 리뷰 통합 후속). 입장료·장비는 회차별 변동이라 표시/안내용 — 확정 결제는 부킹.
+ *
+ * 🔴 **더 이상 "항상 OPEN" 이 아니다**(2026-08-22, BE #322). **마감(CLOSED)된 강의도 200 으로 열린다** —
+ *    웹에서 강의 URL 은 판매 화면이기 전에 색인 자산이고, 마감과 함께 404 가 되면 그 페이지가 쌓은
+ *    검색 신뢰도와 공유 링크가 같이 죽었다. 재개설되면 같은 URL 이 그대로 되살아난다.
+ *    → **`status` 로 분기해 신청·저장 CTA 를 끄고 "모집이 마감된 강의예요" 로 바꾼다.**
+ *    (여전히 400 인 것: 없는 id · `DRAFT` · **한 번도 공개된 적 없는** CLOSED · 차단 · 데모 가림 ·
+ *     미승인 강사. 전부 같은 `-1009` 라 사유는 구분되지 않는다.)
  */
 export interface CourseDetailResponse extends HalLinks {
   id: number;
@@ -2289,6 +2329,12 @@ export interface CourseDetailResponse extends HalLinks {
   levels: CertLevel[];
   isPackage: boolean;
   disciplineCode: string;
+  /**
+   * 영업 상태. **여기 실제로 오는 값은 `'OPEN' | 'CLOSED'` 둘뿐**이다(DRAFT 는 게이트가 거른다).
+   * `'CLOSED'` = 모집 마감 — 내용은 그대로 보여주고 **신청·저장 CTA 만** 비활성화한다.
+   * 타입을 좁히지 않은 건 `CourseStatus` 를 쓰는 다른 응답과 같은 유니온을 공유하기 위해서다.
+   */
+  status: CourseStatus;
   totalRounds: number;
   price: number; // 수강료(원)
   description?: string;
@@ -2305,6 +2351,9 @@ export interface CourseDetailResponse extends HalLinks {
   instructorName: string | null;
   rounds: CourseDetailRoundResponse[];
   venues: CourseDetailVenueResponse[]; // 회차 가로질러 dedupe + 합성 (진행 위치 섹션)
+  /** 생성 / 마지막 변경 시각(UTC ISO-8601). `lastmod`·구조화 데이터용. 둘 다 항상 온다. */
+  createdAt: string;
+  updatedAt: string;
   /** 저장(북마크) 수. 카드와 같다 — 내려주되 노출은 FE 가 정한다. */
   bookmarkCount: number;
   /**

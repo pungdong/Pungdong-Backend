@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -119,10 +120,19 @@ public class InstructorBrowseService {
         Map<Long, AccountBranding> brandings = brandingRepo.findAllByAccountIdIn(ids).stream()
                 .collect(Collectors.toMap(b -> b.getAccount().getId(), Function.identity(),
                         (first, second) -> first)); // account_id UNIQUE — 병합 함수는 형식상
-        Map<Long, List<String>> disciplines = applicationRepo
-                .findByAccountIdInAndStatus(ids, InstructorApplicationStatus.APPROVED).stream()
+        List<InstructorApplication> approved = applicationRepo
+                .findByAccountIdInAndStatus(ids, InstructorApplicationStatus.APPROVED);
+        Map<Long, List<String>> disciplines = approved.stream()
                 .collect(Collectors.groupingBy(a -> a.getAccount().getId(),
                         Collectors.mapping(InstructorApplication::getDisciplineCode, Collectors.toList())));
+        // 프로필 변경 시각의 두 번째 소스(자격·종목). 위에서 이미 읽은 목록이라 추가 쿼리는 없다.
+        // updatedAt 은 옛 행에서 null 일 수 있어 건너뛴다(Map.merge 는 null 값에 NPE 를 낸다).
+        Map<Long, OffsetDateTime> applicationTouchedAt = new java.util.HashMap<>();
+        for (InstructorApplication a : approved) {
+            if (a.getUpdatedAt() != null) {
+                applicationTouchedAt.merge(a.getAccount().getId(), a.getUpdatedAt(), InstructorBrowseService::later);
+            }
+        }
         Map<Long, Set<String>> organizations = new java.util.HashMap<>();
         for (Object[] pair : certificateRepo.findVerifiedOrganizationCodesByAccountIds(ids, discipline)) {
             organizations.computeIfAbsent(((Number) pair[0]).longValue(), k -> new TreeSet<>())
@@ -145,8 +155,25 @@ public class InstructorBrowseService {
                             .organizationCodes(new ArrayList<>(
                                     organizations.getOrDefault(account.getId(), Set.of())))
                             .openCourseCount(countByAccount.getOrDefault(account.getId(), 0L))
+                            .updatedAt(later(branding == null ? null : branding.getUpdatedAt(),
+                                    applicationTouchedAt.get(account.getId())))
                             .build();
                 })
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 둘 중 나중 시각(둘 다 null 이면 null). 강사 카드의 {@code updatedAt} 은 단일 컬럼이 아니라
+     * 여러 소스의 최대값이라 이게 필요하다 — 자세한 이유·한계는
+     * {@link InstructorBrowseCardResponse#getUpdatedAt()}.
+     */
+    private static OffsetDateTime later(OffsetDateTime a, OffsetDateTime b) {
+        if (a == null) {
+            return b;
+        }
+        if (b == null) {
+            return a;
+        }
+        return a.isAfter(b) ? a : b;
     }
 }

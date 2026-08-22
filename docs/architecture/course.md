@@ -88,6 +88,9 @@ erDiagram
     int totalRounds
     int price "부가세 포함"
     enum status "DRAFT|OPEN|CLOSED (검수 없음)"
+    OffsetDateTime publishedAt "최초 OPEN 시각 — 되돌리지 않음. 공개 상세 읽기 게이트의 판정"
+    OffsetDateTime createdAt "@PrePersist 보장"
+    OffsetDateTime updatedAt "@PreUpdate + update()의 명시 호출 — sitemap lastmod 의 출처"
     Set regions "Region @ElementCollection — 둘러보기 지역 필터(저장 시 주소→파생)"
     String primaryLocationName "카드 대표 위치명(저장 시 비정규화)"
   }
@@ -130,14 +133,14 @@ erDiagram
 |---|---|---|
 | `GET /courses/browse` | **불필요(공개)** | OPEN + **그 종목 승인 강사**의 코스만 노출. 필터(종목·지역·종류·레벨·단체·가격·**강사 닉네임 정확일치**)+검색(제목·강사명 부분일치)+정렬+페이지. **size 상한 50/기본 20**(`PageClamp`). 빈 결과=200. 토큰이 있으면 카드에 `bookmarkedByMe` 가 채워진다(없으면 조용히 false) |
 | `GET /courses/browse?bookmarkedByMe=true` | 선택(토큰 없으면 **빈 페이지**) | 내가 저장한 강의만. **이때만 `disciplineCode` 가 선택** — 저장 목록은 종목 홈이 아니라 마이페이지에서 들어온다 |
-| `GET /courses/{id}/detail` | **불필요(공개)** | OPEN + **승인 강사**만 — 그 외 400(존재 숨김). venue 합성(위치명·입장료·장비). `bookmarkedByMe`·`bookmarkCount` 인라인 |
-| `POST /courses/{courseId}/bookmark` | 필요 | 대상은 **공개 노출되는 강의만**(`CourseService.requirePubliclyVisible`) — 비OPEN·차단·미승인 강사는 400(존재 숨김). **멱등** |
+| `GET /courses/{id}/detail` | **불필요(공개)** | **OPEN + "발행 이력이 있는" CLOSED** ∧ 승인 강사 — 그 외 400(존재 숨김). 마감 강의를 읽기 전용으로 여는 이유는 §6 · [features/seo-and-geo.md](../features/seo-and-geo.md). venue 합성(위치명·입장료·장비). `status`·`bookmarkedByMe`·`bookmarkCount` 인라인 |
+| `POST /courses/{courseId}/bookmark` | 필요 | 대상은 **공개 노출되는 강의만**(`CourseService.requirePubliclyVisible` — **행동 축**, OPEN 만) — 비OPEN·차단·미승인 강사는 400(존재 숨김). 상세가 열리는 마감 강의도 **저장은 400**이다. **멱등** |
 | `DELETE /courses/{courseId}/bookmark` | 필요 | 내 저장만 지운다(남의 저장은 조회 자체가 계정으로 좁혀져 닿지 않는다). **멱등** |
 | `POST /courses` | 필요 | instructor=현재 계정. venueRefId 는 내 custom / 캐시된 official 만 |
 | `GET /courses/mine` | 필요 | 내 코스만 |
 | `GET /courses/{id}` | 필요 | 내 코스만(편집용 원본) — 아니면 400(존재 숨김) |
 | `PUT /courses/{id}` | 필요 | 내 코스만 — 스냅샷 교체 |
-| `PATCH /courses/{id}/status` | 필요 | 내 코스만. **OPEN 전환만 그 종목 승인(APPROVED) 필요** — DRAFT/CLOSED 로 내리는 건 자유 |
+| `PATCH /courses/{id}/status` | 필요 | 내 코스만. **OPEN 전환만 그 종목 승인(APPROVED) 필요** — DRAFT/CLOSED 로 내리는 건 자유. `published_at` 의 **유일한 쓰기 지점**(최초 OPEN 때 한 번, 이후 불변) |
 | `POST /course-images` | 필요 | multipart → {fileURL} (사진만) |
 
 ## 6. 알려진 설계 간극 / 확장 자리
@@ -150,6 +153,28 @@ erDiagram
   ⚠️ **확정·결제된 수강은 건드리지 않는다.** `enrollment.getCourse()` 를 타는 경로가 많아
   (수강 카드·환불 비율·채팅방 제목) 연관관계를 끊는 방식으로 구현하면 조용히 무너진다 —
   환불 금액까지 바뀐다. 필터는 **조회 쿼리에만**. 정책은 [features/moderation.md](../features/moderation.md).
+- ✅ **마감(CLOSED)된 강의의 공개 상세는 읽기 전용으로 열려 있다**(2026-08-22, BE #322 · V37).
+  **읽기 게이트와 행동 게이트가 갈렸다** — `requirePubliclyReadable`(공개 상세)은 OPEN + **발행 이력이
+  있는** CLOSED 를, `requirePubliclyVisible`(저장·행동)은 여전히 OPEN 만 통과시킨다. 공통 조건
+  (없음·차단·데모가림·미승인 강사)은 `publiclyExposed` 하나를 **반드시 공유**한다 — 원래 게이트가
+  하나였던 이유가 그거라, 축을 나눌 때 갈라도 되는 건 **상태 하나뿐**이다.
+  **왜 여는가**: 웹에서 강의 URL 은 판매 화면이기 전에 **색인 자산**이다. 마감과 함께 404 가 되면
+  그 페이지가 쌓은 검색 신뢰도가 사라지고 공유 링크가 죽고, 404 가 반복되면 크롤러가 `/courses/*`
+  재방문 빈도를 낮춰 **살아있는 다른 강의의 색인까지** 늦어진다 — 즉 "잘 팔릴수록 검색 자산이 줄어드는"
+  구조였다. 정책은 [features/seo-and-geo.md](../features/seo-and-geo.md).
+  ⚠️ **판정은 `CourseStatus` 가 아니라 `published_at` 이다.** 전이가 자유라 **DRAFT→CLOSED 직행**이
+  가능하고 그건 한 번도 발행된 적 없는 초안이다(지킬 색인 자산이 없고, 열면 강사가 공개를 선택한 적
+  없는 내용이 노출된다). `CLOSED` 를 그대로 게이트로 쓰지 말 것.
+  안전망은 `CourseDetailUseCaseTest` **C1~C4 한 묶음** + `ModerationUseCaseTest` R2 · `LaunchFlagsUseCaseTest`
+  D1 의 CLOSED 확장(조치·데모가림이 읽기 축도 이긴다) — 되돌리려면 함께 봐야 한다.
+- ✅ **`createdAt`·`updatedAt` 이 항상 채워진다**(2026-08-22, BE #323 · V37). 예전엔 `CourseService` 가
+  손으로만 세팅해서 **신규 생성 직후 `updatedAt` 이 null** 이었고, 어드민이 `blocked_at` 을 세우는 경로는
+  아예 안 건드렸다. 레포 표준(`@PrePersist`/`@PreUpdate` — `branding.AccountBranding` 이 정본)으로 옮기고
+  옛 행은 V37 이 백필했다. 그래서 `CourseCardResponse.createdAt` 이 `types.ts` 에서 **옵셔널을 벗었다**.
+  ⚠️ **콜백만으로는 부족해 `update()` 의 명시 호출을 남겨 뒀다** — Hibernate 는 이 행의 스칼라가 더러워질
+  때만 `@PreUpdate` 를 부르므로 **회차·미디어(자식 컬렉션)만 바뀐 수정은 콜백이 안 뛴다.** 지우지 말 것.
+  용도는 웹 sitemap 의 `lastmod`(정책은 [features/seo-and-geo.md](../features/seo-and-geo.md)) — 크롤러가
+  **바뀐 것만** 다시 가져가게 하는 신호라 근사값이면 충분하다.
 - 🟡 **조치된 강의를 강사에게 알리지 않는다.** 강사는 "왜 아무도 안 들어오지" 를 알 수 없다 — 알림 1종 +
   내 강의 목록 표기가 후속.
 - 🟡 **일정 변경·결제 준비는 `blocked_at` 도 `CLOSED` 도 보지 않는다.** 기존 구멍이고, 예약 게이트를
@@ -171,7 +196,7 @@ erDiagram
 - 🟢 **강의 저장(북마크) 구현**(2026-08-22, V36 · FE #713 → BE #314). 상세·둘러보기의 "저장" 버튼 계약. 커뮤니티 글 북마크와 **동형이라 새로 설계한 게 없다** — 토글이 아니라 `POST`/`DELETE` 두 메서드이고 둘 다 멱등, 응답은 `{count, active}`. 결정 4건은 이렇게 닫았다:
   1. **`bookmarkCount` 는 내려준다, 노출은 FE 가 정한다** — "N명이 저장" 은 판매 신호지만 초기 숫자가 낮으면 역효과라, 표시를 끄는 게 필드를 빼는 것보다 되돌리기 쉽다. 비용은 페이지당 쿼리 1개(집계 일괄 조회).
   2. **비공개 강의 저장은 400**(커뮤니티가 숨김 글 반응을 막는 것과 같음). 게이트는 공개 상세와 **같은 헬퍼**(`requirePubliclyVisible`)를 쓴다 — 각자 조건을 들고 있으면 한쪽만 조여져 다른 쪽이 우회로가 된다(이 도메인이 이미 두 번 밟은 실수).
-  3. **CLOSED 되면 저장 목록에서 빠지지만 저장 행은 남는다** — 다시 OPEN 되면 돌아온다. 카드를 남기려면 `CourseCardResponse` 에 `status` 를 실어 배지를 그려야 하는데, **열 수 없는 카드**(공개 상세가 400)를 목록에 남기는 건 부재보다 나쁜 막다른 길이다. 배지 방식이 필요하면 그때 `status` 를 추가하는 후속.
+  3. **CLOSED 되면 저장 목록에서 빠지지만 저장 행은 남는다** — 다시 OPEN 되면 돌아온다. ~~카드를 남기려면 `CourseCardResponse` 에 `status` 를 실어 배지를 그려야 하는데, **열 수 없는 카드**(공개 상세가 400)를 목록에 남기는 건 부재보다 나쁜 막다른 길이다.~~ **전제가 사라졌다**(2026-08-22, #322): 마감 강의 상세가 읽기 전용으로 열리면서 그 카드는 더 이상 막다른 길이 아니다. `CourseCardResponse.status` 를 **선반영**해 뒀으니(조회 모수는 그대로 OPEN 만) 배지·저장 목록 복원은 FE 가 원할 때 BE 왕복 없이 붙일 수 있다. 단 **저장(북마크) 자체는 마감이면 여전히 400** 이다 — 읽기와 행동은 다른 축.
   4. 🟡 **"저장한 순" 정렬은 유보** — `Sort` 화이트리스트(`LATEST`·가격) 그대로다. 저장 시각으로 정렬하려면 `course_bookmark` 조인이 필요한데, 지역·레벨 필터가 켜는 `query.distinct(true)` 와 겹치면 **MySQL 이 `ORDER BY` 를 거부한다(3065)** — 그리고 **H2 는 통과해 테스트만 초록인 상태**가 된다. 그래서 필터는 exists 서브쿼리로만 걸었다. 필요해지면 인기순 피드처럼 별도 쿼리 경로로 붙일 일이다.
 - ✅ **수강생 있는 강의 수정 가능**(2026-08-22). 위 §4 "스냅샷 교체" 참고 — 회차 행을 재사용해 500 을 없앴고,
   못 하는 건 **신청 기록이 있는 회차를 없애는 것** 하나로 좁혔다(400 `-1024`).

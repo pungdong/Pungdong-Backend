@@ -8,6 +8,7 @@ import com.diving.pungdong.venue.equipment.dto.VenueEquipmentResponse;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.*;
 
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -40,6 +41,20 @@ public class CourseDetailResponse {
     @JsonProperty("isPackage")
     private boolean isPackage;
     private String disciplineCode;
+
+    /**
+     * 영업 상태. <b>여기 실제로 도달하는 값은 {@code OPEN} / {@code CLOSED} 둘뿐이다</b> — DRAFT 는
+     * 공개 상세 게이트가 거른다({@code CourseService.requirePubliclyReadable}).
+     *
+     * <p><b>클라이언트는 이 값으로 신청 CTA 만 끈다</b>({@code CLOSED} = "모집이 마감된 강의예요").
+     * 마감돼도 상세를 200 으로 여는 이유는 웹 URL 이 색인 자산이기 때문 — 근거는 게이트 Javadoc.
+     * 저장(북마크)도 마감이면 400 이니 CTA 와 함께 비활성화해야 한다.
+     *
+     * <p>{@code isPayable} 류 파생 불리언을 따로 두지 않았다 — 상태와 드리프트할 뿐이고, 신청이
+     * 불가능한 나머지 사유(차단·미승인 강사)는 애초에 이 응답에 도달하지 못한다.
+     */
+    private CourseStatus status;
+
     private int totalRounds;
     /** 수강료(원). 입장료·장비는 회차별 변동이라 별도(부킹 시점). */
     private int price;
@@ -71,6 +86,15 @@ public class CourseDetailResponse {
     private List<Venue> venues;
 
     /**
+     * 생성 시각 / 마지막으로 내용이 바뀐 시각. 웹이 sitemap 의 {@code <lastmod>} 와 구조화 데이터에 쓴다
+     * (BE #323). 근사값이면 충분하다 — 하위 엔티티(회차·위치)의 미세한 변경까지 전파하지는 않는다.
+     *
+     * <p>둘 다 <b>항상 채워진다</b>(V37 백필 + {@code Course} 의 {@code @PrePersist}).
+     */
+    private OffsetDateTime createdAt;
+    private OffsetDateTime updatedAt;
+
+    /**
      * 저장(북마크) 수. 카드와 같은 판단 — 내려주고 노출은 FE 가 정한다
      * ({@link CourseCardResponse#getBookmarkCount()} 참고).
      */
@@ -98,10 +122,13 @@ public class CourseDetailResponse {
                 .levels(c.getLevels())
                 .isPackage(c.isPackage())
                 .disciplineCode(c.getDisciplineCode())
+                .status(c.getStatus())
                 .totalRounds(c.getTotalRounds())
                 .price(c.getPrice())
                 .description(c.getDescription())
                 .seeded(c.isSeeded())
+                .createdAt(c.getCreatedAt())
+                .updatedAt(c.getUpdatedAt())
                 .media(c.getMedia().stream().map(Media::from).collect(Collectors.toList()))
                 .instructor(instructor)
                 .instructorId(c.getInstructor() == null ? null : c.getInstructor().getId())

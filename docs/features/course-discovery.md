@@ -75,13 +75,14 @@ FE 와 두 번 어긋난 지점이라 못박아 둔다.
 
 ### 노출 · 응답 규약
 
-- **OPEN 코스만** 공개(DRAFT/CLOSED 제외, 하드코딩).
+- **둘러보기(`browse`)는 OPEN 코스만** 공개(DRAFT/CLOSED 제외, 하드코딩).
+- **공개 상세(`/{id}/detail`)는 다르다 — 마감(CLOSED)도 읽기 전용으로 열린다**(2026-08-22, BE #322). 목록의 모수와 상세의 게이트가 갈린 유일한 지점이고, 의도된 것이다: 목록은 "지금 살 수 있는 것"이고 상세 URL 은 **색인 자산**이다. 판정은 상태가 아니라 **발행 이력**(`published_at`) — DRAFT 와 "한 번도 공개된 적 없는 CLOSED" 는 계속 400. 정책은 [seo-and-geo.md](seo-and-geo.md).
 - **빈 결과 = `200` + 빈 페이지** (repo 규약: 음성 결과는 에러 아님). "결과 N개"는 PagedModel 의 `page.totalElements`.
 - 필터 파라미터는 전부 **비-PII** → GET querystring 정당.
 
 ### 공개 상세 — venue 합성, 입장료 = 이용권×daypart (핵심)
 
-카드(`browse`)를 누르면 `GET /courses/{id}/detail`(공개·OPEN 만, 비OPEN/없음 400 존재 숨김). 구현·필드는 [course.md](../architecture/course.md) §5~6.
+카드(`browse`)를 누르면 `GET /courses/{id}/detail`(공개 — OPEN + 발행 이력 있는 CLOSED, 그 외 400 존재 숨김). 구현·필드는 [course.md](../architecture/course.md) §5~6.
 
 - **강사 편집용 `GET /{id}`(원본 ticketRef·daypart)와 분리**: 공개 상세는 venue 를 **합성**한다(`VenueRefResolver.resolveVenues`) — 위치명·type·주소(area)·**입장료**·장비.
 - **입장료는 단일값이 아니다**: 시안은 위치별 `entry` 1개로 그렸지만 우리 모델은 입장료가 **이용권(ticket) × 평일/주말(daypart)** 로 갈린다(`VenueDaypart.fee`). 상세 "진행 위치"는 코스가 그 위치에서 쓰는 **이용권명 + daypart별 fee**(예 "일반권 (3시간) · 평일 48,000/주말 55,000"). → 디자인 수정 필요 항목(아래 결정 히스토리 + 미해결).
@@ -111,6 +112,8 @@ FE 와 두 번 어긋난 지점이라 못박아 둔다.
 | 2026-08-22 | 강사 카드에서 **자격 등급 텍스트("AIDA Instructor")를 뺀다** | 강사 쪽에 등급 필드가 아예 없다 — `CertLevel` 은 강의 전용이고 `ApplicationCertificate` 는 단체 코드만 갖는다(등급 `ratingCode` 는 자격증 관리 피처의 후속 자리). 단체 칩만 낸다. *(2026-08-22 후기: 자격증 수렴으로 VERIFIED `StudentCertificate.level` 이 생겼다 — 카드 노출은 v1.5, [instructor-onboarding](instructor-onboarding.md) §자격증 검증)* |
 | 2026-08-22 | 강사 노출 모수 = APPROVED(그 종목) ∧ 브랜딩 발행 | **카드는 눌러서 열려야 한다.** 상세는 발행된 프로필만 여니까, 발행을 안 보면 눌러도 400 인 카드가 목록에 섞인다(기존 `/instructors/public` 이 그렇다). "N명" 카운트도 같은 모수 |
 | 2026-08-22 | 강사 카드의 "강의 N" = **강의 둘러보기가 실제로 보여주는 것과 같은 기준** | OPEN·미차단·데모 가림 설정·요청 종목까지 그대로 건다. 기준이 갈리면 "강의 3" 카드를 눌렀는데 그 강사 강의 목록이 0건이 된다 |
+| 2026-08-22 | **마감된 강의 상세를 읽기 전용으로 공개** — 판정은 `CourseStatus` 가 아니라 `published_at`(발행 이력) | 웹 URL 은 판매 화면이기 전에 색인 자산이다. 마감=404 는 그 페이지가 쌓은 신뢰도를 같이 없애고, 404 가 반복되면 크롤러가 `/courses/*` 재방문 빈도를 낮춰 **살아있는 다른 강의의 색인까지** 늦춘다 — "잘 팔릴수록 검색 자산이 줄어드는" 구조였다. `CLOSED` 를 그냥 쓰지 않은 건 전이가 자유라 DRAFT→CLOSED 직행이 가능해서(= 발행된 적 없는 초안). BE #322 ← FE #746 |
+| 2026-08-22 | **마감 강의를 sitemap 에 새로 싣지는 않는다** — `browse` 에 `includeClosed` 축을 열지 않음 | 이슈가 말한 손실은 "**이미 색인된** URL 이 죽는 것" 이고 그건 상세를 여는 것만으로 해결된다. 마감 강의를 sitemap 에 새로 넣는 건 한정된 크롤 예산을 **살 수 없는 페이지**에 쓰는 것 — 구글의 만료 상품 가이드도 페이지는 살리되 sitemap 유지는 권하지 않는다. 필요해지면 그때 축을 연다 |
 | 2026-08-22 | **강의 둘러보기에 강사 축(`instructorNickName`) 신설 — 정확 일치** | 강사 카드 "강의 보기" 가 `keyword` 로 넘어오면 부분 일치라 동명이 섞인다(`"김민지"` → `"김민지2"`). 클라이언트 필터링은 페이징 목록이라 `totalElements` 를 거짓으로 만들고 빈 페이지를 낳는다 — 그래서 BE 축. FE 핸드오프(웹/앱 공통) |
 
 ## 미해결 / 확장

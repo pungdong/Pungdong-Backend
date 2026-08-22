@@ -496,6 +496,7 @@ public class CommunityPostService {
                     .mediaCount(media.size())
                     .locationLabel(post.getLocationLabel())
                     .createdAt(post.getCreatedAt())
+                    .updatedAt(post.getUpdatedAt())
                     .likeCount(likes.getOrDefault(post.getId(), 0L))
                     .commentCount(comments.getOrDefault(post.getId(), 0L))
                     .bookmarkCount(bookmarks.getOrDefault(post.getId(), 0L))

@@ -54,6 +54,16 @@ public class CommunityPostCardResponse {
     /** UTC ISO-8601. "15분 전" 같은 상대시간은 클라이언트가 만든다 — BE 는 문자열을 만들지 않는다. */
     private final OffsetDateTime createdAt;
 
+    /**
+     * 마지막 수정 시각(수정 없으면 {@code createdAt} 과 같다). 웹 sitemap 의 {@code <lastmod>} 용
+     * (BE #323) — 없으면 정확한 값을 얻으려고 <b>글마다 상세를 한 번 더</b> 불러야 했다.
+     *
+     * <p>⚠️ 본문·제목·분류 수정은 잡지만 <b>미디어·태그만 교체한 경우는 못 잡는다</b> — 자식 테이블만
+     * 바뀌면 {@code branding_post} 행이 안 더러워져 {@code @PreUpdate} 가 안 뛴다. 근사값으로 충분하다는
+     * 전제 위에 서 있다(정책은 {@code docs/features/seo-indexing.md}).
+     */
+    private final OffsetDateTime updatedAt;
+
     private final long likeCount;
     private final long commentCount;
     private final long bookmarkCount;

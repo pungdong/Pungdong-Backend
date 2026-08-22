@@ -216,6 +216,14 @@ class LaunchFlagsUseCaseTest {
 
         mockMvc.perform(get("/courses/{id}/detail", seeded.getId()))
                 .andExpect(status().isBadRequest());
+
+        // 마감돼도 마찬가지다. BE #322 로 "발행 이력이 있는 마감 강의" 는 상세가 200 이 되는데,
+        // 데모 가림은 그 읽기 축에도 그대로 걸려야 한다(가림 축과 상태 축은 별개다).
+        seeded.setStatus(CourseStatus.CLOSED);
+        seeded.setPublishedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        courseRepo.save(seeded);
+        mockMvc.perform(get("/courses/{id}/detail", seeded.getId()))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
