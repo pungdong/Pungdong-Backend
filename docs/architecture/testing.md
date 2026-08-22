@@ -27,6 +27,21 @@
 
 > A·B 는 상보적: A 를 전역 baseline 으로 깔고, *실패 경로*를 단언하는 특정 테스트만 그 위에 B(`@MockBean`)로 실패를 주입.
 
+## 스위트가 둘이다 — `test` 와 `mysqlTest`
+
+hermetic 원칙의 예외가 **하나** 있다. H2 는 `SELECT FOR UPDATE`·REPEATABLE READ 스냅샷 의미를 재현하지 못해서, 그걸로만 드러나는 버그(H-1 이중환불 · H-4 좌석 overbooking)는 **실 MySQL(Testcontainers)** 로 검증한다.
+
+| 태스크 | 무엇 | 외부 의존 |
+|---|---|---|
+| `./gradlew test` | 기본 스위트 — H2 + 임베디드 Redis. **`@Tag("mysql")` 제외** | 없음 |
+| `./gradlew mysqlTest` | `@Tag("mysql")` 만 — 실 MySQL 컨테이너 | **Docker** |
+
+**왜 갈라놨나**: 두 종류를 한 스위트에 섞으면 Spring 컨텍스트 캐시 축출이 일어나 공유 in-memory H2 스키마가 깨진다(`build.gradle` 주석).
+
+⚠️ **그래서 `./gradlew test` 가 green 인 건 "전부 통과" 가 아니다.** 여러 도메인이 공유하는 게이트·조회 조건을 바꿨으면 `mysqlTest` 도 돌릴 것. 2026-08-22 강사 승인 게이트가 실제로 이걸 밟았다 — 로컬 기본 스위트 826개가 전부 green 이었는데 좌석 overbooking 동시성 테스트가 **승인 안 된 강사로 신청**하고 있어 CI 에서 깨졌다(#312 로 수습).
+
+⚠️ **Docker 가 없으면 실패가 아니라 skip 이다**(`disabledWithoutDocker`). 로컬에서 "돌렸는데 초록" 이 곧 검증은 아니다 — skip 여부를 확인할 것. CI 러너엔 Docker 가 있어 거기서는 실제로 돈다.
+
 ## 외부 경계 인벤토리 (현재)
 
 | 경계 | 클라이언트 | 테스트 격리 |
