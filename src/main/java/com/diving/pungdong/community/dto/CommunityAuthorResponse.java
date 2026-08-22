@@ -1,5 +1,6 @@
 package com.diving.pungdong.community.dto;
 
+import com.diving.pungdong.certificate.dto.CertificateBadge;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Builder;
@@ -42,4 +43,15 @@ public class CommunityAuthorResponse {
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private final Integer lessonCount;
+
+    /**
+     * 자격 뱃지 <b>최고 1장</b> — 사람 표면 규칙({@code certificate.CertificateBadgePolicy}: 수강생 레벨은 자기신고
+     * 그대로, 강사 레벨은 VERIFIED 만)의 정렬 {@code [0]}. <b>표시할 게 없으면 키 자체가 없다</b>({@code lessonCount}
+     * 와 같은 규약 — "자격증 0개"와 "안 온 것"이 구분돼야 한다). 칩은 "강사 · 강의 N" <b>옆에 나란히</b> 얹는다(대체 X).
+     *
+     * <p>배열이 아니라 단수인 건 피드 20건 × 작성자마다 배열을 만들면 N+1 이 되기 쉬워서다 — 합성은 어차피
+     * 일괄 1쿼리지만 응답 크기도 같이 줄인다. 전부 보려면 공개 프로필로 간다.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private final CertificateBadge topCert;
 }

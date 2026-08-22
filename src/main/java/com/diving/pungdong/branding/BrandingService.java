@@ -99,7 +99,8 @@ public class BrandingService {
                 .instructor(isInstructor)
                 // 강사가 아니면 null → 키 자체가 빠진다(D2).
                 .disciplineCodes(isInstructor ? disciplineCodesOf(approved) : null)
-                .certs(isInstructor ? certBadgesOf(owner.getId()) : null)
+                // 누구나 — 사람 표면 규칙(자기신고 수강생 레벨 + VERIFIED 강사 레벨). 빈 배열 가능(#330).
+                .certs(certBadgesOf(owner.getId()))
                 .records(recordDtosOf(branding))
                 .stats(statsOf(branding, owner, isInstructor))
                 .products(isInstructor ? productsOf(owner) : null)
@@ -232,7 +233,8 @@ public class BrandingService {
                 .locationLabel(branding == null ? null : branding.getLocationLabel())
                 .isInstructor(isInstructor)
                 .disciplineCodes(isInstructor ? disciplineCodesOf(approved) : null)
-                .certs(isInstructor ? certBadgesOf(owner.getId()) : null)
+                // 누구나 — 사람 표면 규칙(자기신고 수강생 레벨 + VERIFIED 강사 레벨). 빈 배열 가능(#330).
+                .certs(certBadgesOf(owner.getId()))
                 .records(recordDtosOf(branding))
                 .stats(statsOf(branding, owner, isInstructor))
                 .products(isInstructor ? productsOf(owner) : null)
@@ -304,13 +306,18 @@ public class BrandingService {
                 .collect(Collectors.toList());
     }
 
-    /** 인증마크 — VERIFIED 자격증에서(2026-08-22 수렴 전엔 승인 신청의 첨부). 형태는 v1 그대로. */
+    /**
+     * 자격 뱃지 — 사람 표면 규칙({@code certificate.CertificateBadgePolicy}): 수강생 레벨은 자기신고 그대로,
+     * 강사 레벨은 VERIFIED 만, (종목,단체)별 최고 1장, 레벨 내림차순. 강사 자격 표면({@code verifiedBadgesOf})이 아니다.
+     */
     private List<BrandingProfileResponse.CertBadge> certBadgesOf(Long accountId) {
-        return studentCertificateService.verifiedBadgesOf(accountId).stream()
+        return studentCertificateService.displayBadgesOf(accountId).stream()
                 .map(b -> BrandingProfileResponse.CertBadge.builder()
                         .disciplineCode(b.getDisciplineCode())
                         .organizationCode(b.getOrganizationCode())
                         .organizationOther(b.getOrganizationOther())
+                        .level(b.getLevel())
+                        .verified(b.isVerified())
                         .build())
                 .collect(Collectors.toList());
     }

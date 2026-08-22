@@ -3,7 +3,7 @@ package com.diving.pungdong.certificate;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.certificate.dto.AdminCertificateView;
 import com.diving.pungdong.certificate.dto.CertificatePhotoResult;
-import com.diving.pungdong.certificate.dto.VerifiedCertificateBadge;
+import com.diving.pungdong.certificate.dto.CertificateBadge;
 import com.diving.pungdong.certificate.dto.StudentCertificateCreateRequest;
 import com.diving.pungdong.certificate.dto.StudentCertificateResponse;
 import com.diving.pungdong.certificate.dto.StudentCertificateUpdateRequest;
@@ -35,7 +35,9 @@ import java.io.IOException;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.function.Function;
 import java.util.Map;
@@ -318,13 +320,44 @@ public class StudentCertificateService {
     /* ─── 다른 도메인이 읽는 파생 ──────────────────────────────── */
 
     /**
-     * 공개 인증마크 — 한 계정의 VERIFIED 자격증(종목 무관). 브랜딩·강의상세·프로필의 {@code certs} 출처.
-     * 예전엔 "승인 신청의 자격증" 이었고, 2026-08-22 수렴으로 출처만 바뀌었다(형태는 v1 그대로).
+     * <b>강사 자격 표면</b>의 인증마크 — 한 계정의 VERIFIED 자격증 전부(종목 무관). 강의 상세의 강사 인셋이 읽는다.
+     * 예전엔 "승인 신청의 자격증" 이었고, 2026-08-22 수렴으로 출처만 바뀌었다.
+     *
+     * <p>🔴 사람 표면(프로필·커뮤니티)은 이게 아니라 {@link #displayBadgesOf} 다 — 반대로 이 메서드에 자기신고를
+     * 섞지 말 것. "이 강사 자격 있음"의 뜻이 흐려진다({@link CertificateBadgePolicy} javadoc).
      */
-    public List<VerifiedCertificateBadge> verifiedBadgesOf(Long accountId) {
+    public List<CertificateBadge> verifiedBadgesOf(Long accountId) {
         return certificateRepo.findVerifiedByOwner(accountId).stream()
-                .map(VerifiedCertificateBadge::of)
+                .map(CertificateBadge::of)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * <b>사람 표면</b>의 표시 뱃지 — 수강생 레벨은 자기신고 그대로 + 강사 레벨은 VERIFIED 만, (종목,단체)별 최고 1장,
+     * 레벨 내림차순. 마이페이지·공개 프로필·{@code GET /branding/me} 가 읽는다. 규칙은 {@link CertificateBadgePolicy}.
+     */
+    public List<CertificateBadge> displayBadgesOf(Long accountId) {
+        return displayBadgesByAccountIds(List.of(accountId)).getOrDefault(accountId, List.of());
+    }
+
+    /**
+     * {@link #displayBadgesOf} 의 일괄판 — {@code accountId → 뱃지(정렬됨)}. 뱃지가 없는 계정은 키가 없다.
+     * 커뮤니티 작성자 합성이 쓴다(피드 20건 × 작성자마다 조회하면 N+1 — 쿼리 1회로 끝낸다).
+     */
+    public Map<Long, List<CertificateBadge>> displayBadgesByAccountIds(Collection<Long> accountIds) {
+        if (accountIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, List<StudentCertificate>> byOwner = certificateRepo.findByOwnerIdInOrderByIdAsc(accountIds).stream()
+                .collect(Collectors.groupingBy(c -> c.getOwner().getId(), LinkedHashMap::new, Collectors.toList()));
+        Map<Long, List<CertificateBadge>> result = new HashMap<>();
+        byOwner.forEach((ownerId, certs) -> {
+            List<CertificateBadge> badges = CertificateBadgePolicy.displayBadges(certs);
+            if (!badges.isEmpty()) {
+                result.put(ownerId, badges);
+            }
+        });
+        return result;
     }
 
     /**
@@ -355,7 +388,7 @@ public class StudentCertificateService {
 
     /** OTHER(기타) 단체는 표시명이 곧 단체명이라 비울 수 없다 — 옛 신청의 {@code organizationOther} 규칙을 잇는다. */
     private void requireOtherOrganizationName(String organizationCode, String organizationName) {
-        if (VerifiedCertificateBadge.ORGANIZATION_OTHER.equalsIgnoreCase(organizationCode)
+        if (CertificateBadge.ORGANIZATION_OTHER.equalsIgnoreCase(organizationCode)
                 && !StringUtils.hasText(organizationName)) {
             throw new BadRequestException(MSG_OTHER_NAME_REQUIRED);
         }

@@ -52,8 +52,10 @@ public class CourseInstructorResponse {
     private final String bio;
 
     /**
-     * 자격 뱃지 — 승인된 강사 신청에서 파생한다(자유입력이 아니다: 허위 자격은 안전 문제로 번진다).
-     * <b>승인 전이면 키 자체가 없다</b> — 빈 배열은 "자격 없는 강사" 로 읽힌다.
+     * 자격 뱃지 — <b>VERIFIED 강사 자격만</b>({@code StudentCertificateService.verifiedBadgesOf}). 허위 자격은 안전
+     * 문제로 번지므로 자유입력이 아니고, <b>자기신고 수강생 레벨도 섞지 않는다</b>(#330 — 프로필·커뮤니티의 사람 표면
+     * 규칙과 일부러 다르다. 여긴 "이 강사 자격 있음"을 말하는 강사 자격 표면이라 자기신고가 섞이면 뜻이 흐려진다).
+     * 그래서 원소의 {@code verified} 는 항상 true 다. <b>승인 전이면 키 자체가 없다</b> — 빈 배열은 "자격 없는 강사" 로 읽힌다.
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private final List<CertBadge> certs;
@@ -78,5 +80,9 @@ public class CourseInstructorResponse {
         private final String organizationCode;
         /** {@code organizationCode} 가 "OTHER" 일 때 직접입력 단체명. */
         private final String organizationOther;
+        /** 평탄화 레벨(강사 자격 표면이라 INSTRUCTOR 이상). */
+        private final com.diving.pungdong.course.CertLevel level;
+        /** 검증됨 — 이 표면에선 항상 true 지만 구조상 실제 상태에서 읽는다(레벨 추론 금지). */
+        private final boolean verified;
     }
 }

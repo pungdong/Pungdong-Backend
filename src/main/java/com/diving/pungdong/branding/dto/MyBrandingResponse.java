@@ -63,8 +63,7 @@ public class MyBrandingResponse {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private List<String> disciplineCodes;
 
-    /** 강사만 — 승인된 강사 신청에서 파생. */
-    @JsonInclude(JsonInclude.Include.NON_NULL)
+    /** 누구나(2026-08-23, #330) — 공개 프로필과 같은 표시 규칙·같은 값. 없으면 빈 배열. */
     private List<BrandingProfileResponse.CertBadge> certs;
 
     /** 파생 통계. 오너 뷰의 수강생 수는 공개 응답이 비공개 시 400 이라 여기서만 얻을 수 있다. */

@@ -42,7 +42,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 마이페이지 프로필 use-case — GET /account/profile (인증·본인). 실 H2 + 시큐리티 체인.
  *
  * <p><b>읽는 법</b>: {@code @DisplayName} 위→아래 = 사양. A* = 프로필 조회. 기본정보 + 프로필 사진 +
- * 승인(APPROVED) 자격 뱃지를 합성해 내려준다. 비강사는 certs 빈 배열, 미승인 자격은 빠진다. ⚠️ Authorization raw JWT.
+ * 자격 뱃지를 합성해 내려준다(사람 표면 규칙 — 자기신고 수강생 레벨 + VERIFIED 강사 레벨, 상세는
+ * {@code CertificateBadgeUseCaseTest}). 자격증이 없으면 certs 빈 배열. ⚠️ Authorization raw JWT.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -127,7 +128,7 @@ class AccountProfileUseCaseTest {
     }
 
     @Test
-    @DisplayName("A2 순수 학생 프로필 — certs 는 빈 배열(강사 자격 없음)")
+    @DisplayName("A2 자격증을 등록한 적 없는 학생 프로필 — certs 는 빈 배열")
     void studentProfileHasNoCerts() throws Exception {
         Account stu = account("stu-a2@pd.com", "학생A2", null, Role.STUDENT);
 

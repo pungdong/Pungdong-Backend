@@ -29,12 +29,15 @@ public class ProfileService {
         // @CurrentUser 는 detach 상태일 수 있어 LAZY(profilePhoto) 접근 위해 트랜잭션 안에서 재로드.
         Account account = accountRepo.findById(currentUser.getId()).orElseThrow(ResourceNotFoundException::new);
 
-        // 인증마크 — VERIFIED 자격증에서(2026-08-22 수렴 전엔 승인 신청의 첨부). 형태는 v1 그대로.
-        List<AccountProfileResponse.CertBadge> certs = studentCertificateService.verifiedBadgesOf(account.getId()).stream()
+        // 사람 표면 규칙 — 자기신고 수강생 레벨 + VERIFIED 강사 레벨, 그룹별 최고 1장, 정렬됨(CertificateBadgePolicy).
+        // 강사 자격 표면(verifiedBadgesOf)이 아니다 — 수강생도 값이 온다(#330).
+        List<AccountProfileResponse.CertBadge> certs = studentCertificateService.displayBadgesOf(account.getId()).stream()
                 .map(b -> AccountProfileResponse.CertBadge.builder()
                         .disciplineCode(b.getDisciplineCode())
                         .organizationCode(b.getOrganizationCode())
                         .organizationOther(b.getOrganizationOther())
+                        .level(b.getLevel())
+                        .verified(b.isVerified())
                         .build())
                 .collect(Collectors.toList());
 
