@@ -14,9 +14,15 @@ flowchart TB
     CC[CourseController<br/>/courses/**] --> CS[CourseService]
     CC2[CourseImageController<br/>/course-images] --> CIS[CourseImageService]
     CIS --> CST[CourseImageStorage<br/>S3/Local 게이트]
+    CC3[CourseBookmarkController<br/>POST·DELETE /courses/*/bookmark] --> CBS[CourseBookmarkService]
+    CBS -- "공개 노출 게이트 재사용" --> CS
+    CBS --> CBR[CourseBookmarkJpaRepo]
+    CS --> CBR
+    CBR --> CBE[(CourseBookmark<br/>마커 행)]
     CS --> CR[CourseJpaRepo]
     CR --> CE[(Course → Media · Round<br/>→ RoundVenue → Ticket)]
   end
+  CBS --> II[global.persistence.IdempotentInsert<br/>UNIQUE 위반 격리]
   CS --> DS[discipline.DisciplineService<br/>종목 검증]
   CS --> VRV[venue.VenueRefValidator<br/>venueRefId 검증]
   CS --> VEQ[venue.equipment.VenueEquipmentService<br/>위치별 장비 합성]
@@ -26,7 +32,7 @@ flowchart TB
   FE -- "3. 코스 생성: POST /courses (venueRefId 참조)" --> CC
 
   classDef ext fill:#eef
-  class DS,VRV,VEQ,ACC,VB ext
+  class DS,VRV,VEQ,ACC,VB,II ext
 ```
 
 - course → venue·discipline·account **단방향 참조**(역방향 없음). 위치/장비 진실은 venue 도메인, 코스는 참조만.
@@ -68,6 +74,8 @@ erDiagram
   CourseRound ||--o{ RoundVenue : venues
   RoundVenue ||--o{ RoundVenueTicket : tickets
   Course }o--|| Account : "instructor (필수)"
+  Course ||--o{ CourseBookmark : "저장(북마크)"
+  CourseBookmark }o--|| Account : "저장한 사람"
 
   Course {
     Long id
@@ -93,6 +101,12 @@ erDiagram
   }
   RoundVenue { String venueRefId "CUSTOM:<pk>|OFFICIAL:<sanityId>", int sortOrder }
   RoundVenueTicket { String ticketRef, enum daypart "WEEKDAY|WEEKEND", int sortOrder }
+  CourseBookmark {
+    Long id
+    Long course_id "UNIQUE(course_id, account_id) — 멱등의 근거"
+    Long account_id "ix(account_id, created_at) — 저장한 강의 목록"
+    OffsetDateTime createdAt
+  }
 ```
 
 설계 의도:
@@ -104,6 +118,7 @@ erDiagram
 - **카드의 강사 아바타(`instructorAvatarUrl`)는 페이지당 쿼리 1개**다. `Account.profilePhoto` 는 소유측 `@OneToOne(LAZY)` 이고 `default_batch_fetch_size: 100` 이라 한 페이지의 강사 사진이 IN 절 하나로 함께 온다 — 카드마다 나가지 않는다. (강사 프로필·추천 카드가 이미 쓰는 접근 패턴.) 이 배치 크기를 낮추면 여기가 조용히 느려진다(에러가 아니라 쿼리 수만 는다).
 - **검색은 `제목 OR 강사 nickName` LIKE** (`CourseSpecifications.keywordLike`, 대소문자 무시). 사용자는 강사 이름으로 찾는데 예전엔 제목만 봐서 그 검색이 0건이었다 — 루트 `CLAUDE.md` 는 이미 "제목/강사 LIKE" 라고 적혀 있었으니 코드가 문서를 따라간 셈. 강사 조인은 **LEFT** 여야 한다(INNER 면 강사 계정이 없는 코스가 제목이 맞는데도 사라진다). 선행 `%` 와일드카드라 인덱스를 못 타므로 카탈로그가 커지면 전문검색이 필요해진다(현재 규모에선 과설계).
 - **페이지 크기 상한은 `global/persistence/PageClamp`** (MAX 50 / DEFAULT 20). 둘러보기엔 원래 상한이 없어 `?size=100000` 으로 카탈로그를 통째로 긁을 수 있었다(어드민 신고 큐에서 실제로 났던 것과 같은 구멍). clamp 는 도메인 정책이 아니라 **모든 목록 엔드포인트에 같게 걸려야 하는 가드**라 도메인별 사본을 만들지 않는다.
+- **저장(북마크)은 마커 행**(V36) — 상태 컬럼 없이 **행의 유무가 곧 상태**고, `(course_id, account_id)` UNIQUE 가 멱등을 DB 에서 보장한다. 그래서 `POST` 를 두 번 보내도 1개다. 삽입은 `global/persistence/IdempotentInsert`(REQUIRES_NEW)로 격리한다 — 같은 트랜잭션에서 제약 위반을 catch 만 하면 rollback-only 로 표시돼 **뒤이은 카운트 조회가 500** 이 된다. 응답의 `count` 도 `countFresh`(새 스냅샷)로 읽는다: MySQL 기본 REPEATABLE READ 에선 방금 REQUIRES_NEW 로 커밋한 내 행이 바깥 트랜잭션의 스냅샷에 **안 보여** "내 것 빠진 값" 이 나간다(커뮤니티에서 실측된 버그). **enrollment 와 합치지 않은 이유**: 저장했다고 신청한 게 아니고, 신청을 취소해도 저장은 남는다 — 수명이 다르다.
 - **둘러보기 facet 비정규화(`regions`·`primaryLocationName`)** — 코스의 위치는 `venueRefId` 참조이고 OFFICIAL 위치 주소는 Sanity 캐시(Redis)라 **쿼리 타임 JOIN 으로 지역 필터가 불가**. 그래서 저장 시점에 `venue.VenueRefResolver`(CUSTOM=DB, OFFICIAL=캐시)로 회차 위치 주소→`venue.Region`(서울·경기/강원/제주/부산·경남/ETC)을 풀어 코스에 박는다. 읽기 경로는 순수 JPA 컬럼 필터(`CourseSpecifications`, ES 안 씀). 트레이드오프: OFFICIAL 위치 이사 시 코스 재저장 전까지 stale(풀 이동은 드물어 MVP 허용, 후속 reconcile 후보).
 
 ## 5. 보안 / 권한 매트릭스
@@ -112,8 +127,11 @@ erDiagram
 
 | 엔드포인트 | 인증 | 소유권 |
 |---|---|---|
-| `GET /courses/browse` | **불필요(공개)** | OPEN + **그 종목 승인 강사**의 코스만 노출. 필터(종목·지역·종류·레벨·단체·가격)+검색(제목·강사명)+정렬+페이지. **size 상한 50/기본 20**(`PageClamp`). 빈 결과=200 |
-| `GET /courses/{id}/detail` | **불필요(공개)** | OPEN + **승인 강사**만 — 그 외 400(존재 숨김). venue 합성(위치명·입장료·장비) |
+| `GET /courses/browse` | **불필요(공개)** | OPEN + **그 종목 승인 강사**의 코스만 노출. 필터(종목·지역·종류·레벨·단체·가격)+검색(제목·강사명)+정렬+페이지. **size 상한 50/기본 20**(`PageClamp`). 빈 결과=200. 토큰이 있으면 카드에 `bookmarkedByMe` 가 채워진다(없으면 조용히 false) |
+| `GET /courses/browse?bookmarkedByMe=true` | 선택(토큰 없으면 **빈 페이지**) | 내가 저장한 강의만. **이때만 `disciplineCode` 가 선택** — 저장 목록은 종목 홈이 아니라 마이페이지에서 들어온다 |
+| `GET /courses/{id}/detail` | **불필요(공개)** | OPEN + **승인 강사**만 — 그 외 400(존재 숨김). venue 합성(위치명·입장료·장비). `bookmarkedByMe`·`bookmarkCount` 인라인 |
+| `POST /courses/{courseId}/bookmark` | 필요 | 대상은 **공개 노출되는 강의만**(`CourseService.requirePubliclyVisible`) — 비OPEN·차단·미승인 강사는 400(존재 숨김). **멱등** |
+| `DELETE /courses/{courseId}/bookmark` | 필요 | 내 저장만 지운다(남의 저장은 조회 자체가 계정으로 좁혀져 닿지 않는다). **멱등** |
 | `POST /courses` | 필요 | instructor=현재 계정. venueRefId 는 내 custom / 캐시된 official 만 |
 | `GET /courses/mine` | 필요 | 내 코스만 |
 | `GET /courses/{id}` | 필요 | 내 코스만(편집용 원본) — 아니면 400(존재 숨김) |
@@ -149,6 +167,11 @@ erDiagram
 - 🟢 **공개 둘러보기(`GET /courses/browse`) + 상세(`GET /courses/{id}/detail`) 구현** — OPEN 코스 목록/검색/필터 + 카드→상세(legacy `/lecture/list`·상세 대체). 상세는 강사용 `GET /{id}`(원본 ticketRef·daypart) 와 달리 **venue 합성**: venueRefId→`VenueResponse`(`VenueRefResolver.resolveVenues`)로 위치명·type·주소(area)·**입장료(이용권×평일/주말 daypart fee, `VenueDaypart.fee`)**·장비를 풀어 내려준다. 시안의 단일 `entry` 가 아니라 이용권명+daypart별 fee(예 "일반권 (3시간) · 평일 48,000/주말 55,000"). 평점·확정일정 등은 review/booking 도입 후속.
 - 🟢 **강사 카드 인라인(`instructor`)** — 아바타·인증마크(승인 여부)·한마디(tagline)·자기소개(bio)·자격 뱃지·공개 강의 수를 상세 응답에 **합성해 싣는다**. 예전엔 `instructorName`(= 실은 닉네임) 하나뿐이라 클라이언트가 `GET /instructors/{nickName}` 을 **순차로 한 번 더** 불러야 했고, 그 엔드포인트는 프로필 미발행이면 400 이라 폴백 분기가 따라다녔다. **핵심은 그 값들이 애초에 브랜딩 소유가 아니었다는 것** — 아바타는 `account`, 인증마크·자격은 `instructorapplication` 소유고 브랜딩 행이 가진 건 tagline·bio 뿐이다. 그래서 프로필을 만든 적 없는 강사도 카드는 온다(그 둘만 null). **단 tagline·bio 는 프로필의 공개 설정을 따른다** — 유저가 비공개로 내리면 그 둘만 빠진다(비공개 = "포트폴리오를 감춘다", 그 둘이 곧 본문). 나머지는 계정·강사신청 소유라 남는다.
   합성은 `course.InstructorSummaryProvider`(인터페이스) ← `branding.CourseInstructorSummaryAdapter`(구현). **의존 방향을 지키려고 갈라 둔 것**이다 — `branding → course` 가 이미 있어(프로필의 강의 수) `course → branding` 을 더하면 순환이다. 필요한 쪽이 계약만 선언하고, 양쪽을 다 아는 `branding` 이 구현한다. ⚠️ **단건 상세 전용** — 카드 목록에 붙이려면 배치 메서드를 따로 둘 것(N+1). `instructorId`·`instructorName` 은 구버전 앱 호환으로 병기 중이며 deprecated.
+- 🟢 **강의 저장(북마크) 구현**(2026-08-22, V36 · FE #713 → BE #314). 상세·둘러보기의 "저장" 버튼 계약. 커뮤니티 글 북마크와 **동형이라 새로 설계한 게 없다** — 토글이 아니라 `POST`/`DELETE` 두 메서드이고 둘 다 멱등, 응답은 `{count, active}`. 결정 4건은 이렇게 닫았다:
+  1. **`bookmarkCount` 는 내려준다, 노출은 FE 가 정한다** — "N명이 저장" 은 판매 신호지만 초기 숫자가 낮으면 역효과라, 표시를 끄는 게 필드를 빼는 것보다 되돌리기 쉽다. 비용은 페이지당 쿼리 1개(집계 일괄 조회).
+  2. **비공개 강의 저장은 400**(커뮤니티가 숨김 글 반응을 막는 것과 같음). 게이트는 공개 상세와 **같은 헬퍼**(`requirePubliclyVisible`)를 쓴다 — 각자 조건을 들고 있으면 한쪽만 조여져 다른 쪽이 우회로가 된다(이 도메인이 이미 두 번 밟은 실수).
+  3. **CLOSED 되면 저장 목록에서 빠지지만 저장 행은 남는다** — 다시 OPEN 되면 돌아온다. 카드를 남기려면 `CourseCardResponse` 에 `status` 를 실어 배지를 그려야 하는데, **열 수 없는 카드**(공개 상세가 400)를 목록에 남기는 건 부재보다 나쁜 막다른 길이다. 배지 방식이 필요하면 그때 `status` 를 추가하는 후속.
+  4. 🟡 **"저장한 순" 정렬은 유보** — `Sort` 화이트리스트(`LATEST`·가격) 그대로다. 저장 시각으로 정렬하려면 `course_bookmark` 조인이 필요한데, 지역·레벨 필터가 켜는 `query.distinct(true)` 와 겹치면 **MySQL 이 `ORDER BY` 를 거부한다(3065)** — 그리고 **H2 는 통과해 테스트만 초록인 상태**가 된다. 그래서 필터는 exists 서브쿼리로만 걸었다. 필요해지면 인기순 피드처럼 별도 쿼리 경로로 붙일 일이다.
 - 🟡 **둘러보기 정렬 = 최신·가격만** — 시안의 `인기순`/`가까운 일정`은 코스에 평점·확정일정 신호가 아직 없어 미구현(부킹·리뷰 도입 시 추가). 카드의 `meta`(주말·총 N회차) 중 회차수만 확정, 평일/주말 daypart 파생은 후속.
 - 🟡 **둘러보기 목록 N+1** — 카드 매핑이 코스별 media/levels/regions(LAZY)를 건드림(페이지 20 기준 소수 쿼리, MVP 허용). fetch-join/프로젝션은 후속 최적화.
 - 🟡 **ticketRef 깊은 검증 안 함** — 회차 위치의 이용권 선택을 그대로 보관(그 위치에 실제 있는 이용권인지 미검증). 부킹/availability 연동 때 검증 + 가격·시간 해석.
@@ -173,6 +196,16 @@ erDiagram
 
 - `S1` 비로그인 카드 필드(제목·강사·위치·지역·가격·썸네일) / `S2` 종목으로 좁힘
 - `R1` 지역=서울·경기 필터 / `R2` ETC 는 명시 필터 제외·전체엔 포함
+
+`usecase/CourseBookmarkUseCaseTest` (저장/북마크 — 실 H2 + 실 시큐리티, `@MockBean` 없음):
+
+- `S1`~`S3` 저장/해제 응답(`count`·`active`), 저장 수는 **사람 수**
+- `K1` 두 번 눌러도 1개(토글이 아니라 "저장된 상태로 만들어라") / `K2` 해제도 멱등
+- `A1`~`A2` 상세에 `bookmarkedByMe`·`bookmarkCount` 인라인, 남의 저장이 내 버튼을 켜지 않음
+- **`A3` 비로그인 상세는 401 이 아니라 `bookmarkedByMe=false`** / `A4` 카드도 같은 두 필드(토큰 없으면 개인화만 빠짐)
+- `F1` 저장 목록은 내 것만 / `F2` 저장 목록은 종목 생략 가능(일반 둘러보기는 여전히 400)
+- **`F3` 비로그인 저장 목록 = 빈 페이지** / **`F4` CLOSED 면 목록에서 빠지지만 다시 OPEN 되면 돌아온다**
+- `G1`~`G2` DRAFT·없는 강의 저장 = 같은 400(존재 숨김) / `G3` 토큰 없이 저장 = 401
 - `F1` 종류(체험)·레벨(LEVEL_1) / `F2` 단체 / `F3` 가격 밴드(min/max)
 - `Q1` 제목 검색 / `O1` 가격 오름차순 정렬
 - `V1` DRAFT 비노출(OPEN 만) / `V2` 빈 결과 = 200 빈 페이지

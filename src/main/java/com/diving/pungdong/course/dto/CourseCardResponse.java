@@ -55,8 +55,24 @@ public class CourseCardResponse {
     private boolean seeded;
     private OffsetDateTime createdAt;
 
-    public static CourseCardResponse from(Course c) {
+    /**
+     * 저장(북마크) 수. <b>내려주지만 노출은 FE 가 결정한다</b> — "N명이 저장" 은 판매 신호지만 초기라
+     * 숫자가 낮으면 역효과라서, 표시를 끄는 게 필드를 빼는 것보다 되돌리기 쉽다. 인기순 정렬 신호로도
+     * 쓸 수 있다(지금 {@code Sort} 에는 없다).
+     */
+    private long bookmarkCount;
+
+    /**
+     * 내가 저장했는지. <b>토큰이 있을 때만 의미가 있다</b> — 둘러보기는 공개라 비로그인은 에러가 아니라
+     * 조용히 {@code false} 다. FE 가 캐시 때문에 토큰리스로 읽는 경로에서도 같으니, 개인화가 필요한
+     * 표면은 하이드레이션으로 다시 읽어야 한다(커뮤니티에서 이미 밟은 함정).
+     */
+    private boolean bookmarkedByMe;
+
+    public static CourseCardResponse from(Course c, long bookmarkCount, boolean bookmarkedByMe) {
         return CourseCardResponse.builder()
+                .bookmarkCount(bookmarkCount)
+                .bookmarkedByMe(bookmarkedByMe)
                 .id(c.getId())
                 .title(c.getTitle())
                 .thumbnailUrl(c.getMedia().isEmpty() ? null : c.getMedia().get(0).getUrl())

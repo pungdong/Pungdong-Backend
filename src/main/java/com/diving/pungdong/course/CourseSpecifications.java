@@ -95,6 +95,34 @@ public final class CourseSpecifications {
         return (root, query, cb) -> cb.isFalse(root.get("seeded"));
     }
 
+    /**
+     * 특정 계정이 저장(북마크)한 강의만 — "저장한 강의" 목록({@code ?bookmarkedByMe=true}).
+     *
+     * <p><b>JOIN 이 아니라 exists 서브쿼리</b>인 이유는 두 가지다. (1) 지역·레벨 필터가
+     * {@code query.distinct(true)} 를 켜는데, DISTINCT 와 조인 컬럼을 섞으면 MySQL 이
+     * {@code ORDER BY} 단계에서 거부한다(3065) — H2 는 통과해 <b>테스트만 초록인 상태</b>가 된다.
+     * (2) 조인은 행을 늘릴 수 있어 {@code totalElements} 를 거짓으로 만들 여지가 있다. exists 는 둘 다
+     * 없다. {@code instructorApproved()} 가 같은 이유로 exists 인 것과 짝이다.
+     *
+     * <p>그래서 <b>정렬은 저장 시각이 아니라 기존 화이트리스트</b>({@code LATEST}·가격)를 쓴다 —
+     * "저장한 순" 은 조인이 필요해 위 (1) 에 걸린다. 커뮤니티의 저장한 글 목록도 같다(글 최신순).
+     * 필요해지면 별도 쿼리 경로로 따로 붙일 일이다(인기순 피드가 그렇게 붙어 있다).
+     */
+    public static Specification<Course> bookmarkedBy(Long accountId) {
+        if (accountId == null) {
+            return null;
+        }
+        return (root, query, cb) -> {
+            Subquery<Long> saved = query.subquery(Long.class);
+            Root<CourseBookmark> bookmark = saved.from(CourseBookmark.class);
+            saved.select(bookmark.get("course").get("id"));
+            saved.where(
+                    cb.equal(bookmark.get("course").get("id"), root.get("id")),
+                    cb.equal(bookmark.get("account").get("id"), accountId));
+            return cb.exists(saved);
+        };
+    }
+
     private static Specification<Course> disciplineEq(String disciplineCode) {
         return !StringUtils.hasText(disciplineCode) ? null
                 : (root, query, cb) -> cb.equal(root.get("disciplineCode"), disciplineCode);
