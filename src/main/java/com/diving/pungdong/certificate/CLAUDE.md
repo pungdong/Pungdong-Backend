@@ -14,7 +14,7 @@
 | 심사 결과 | 자격증의 **`verification`** {status, kind, reason, requestedAt, reviewedAt} |
 | 공개 인증마크 | `verification.status == VERIFIED` 인 행만 — 브랜딩·강의상세·프로필·강사 browse 가 `StudentCertificateService.verifiedBadgesOf` 한 곳에서 읽는다 |
 | 어드민 큐 | `CertificateReview` (NEW / ADDITIONAL / RE_VERIFY 한 테이블) |
-| 옛 `ApplicationCertificate` | **삭제**(V37 이 백필 후 drop). 사진 key 는 옛 prefix 그대로 |
+| 옛 `ApplicationCertificate` | **삭제**(V38 이 백필 후 drop). 사진 key 는 옛 prefix 그대로 |
 
 **role 게이트는 여전히 없다** — 강사도 개인 자격으로 보유한다. 수강생 레벨(LEVEL_1~4)은 검수 대상이 아니라 항상 `NONE`.
 
@@ -54,7 +54,7 @@
   - 등록은 DTO `@NotBlank`("자격증 사진을 추가해주세요.").
   - **수정은 필드가 아니라 결과 상태를 검사한다** (`requirePhotoAfterUpdate`) — 여기 `@NotBlank` 를 걸면 위의 "생략 = 유지"가 죽어 매 수정마다 재업로드를 강요하게 된다. "요청도 비었고 기존도 없음"일 때만 400.
   - ⚠️ **DB `NOT NULL` 을 걸지 않았다.** 필수가 되기 전 사진 없이 등록된 행이 있고, 제약을 걸면 그 행이 읽기·삭제조차 막힌다(`hbm2ddl=validate` 부트 실패 포함). 옛 행은 **조회·삭제 그대로, 수정할 때만 사진 요구**. 새 규칙은 쓰기 경로에서만 강제한다.
-- **`certificateNumber`/`acquiredAt` 의 DB NOT NULL 을 풀었다(V37) — API 필수는 그대로.** null 은 옛 신청에서 옮겨온 백필 행뿐. 읽는 코드는 null 을 다룬다(목록 정렬은 뒤로).
+- **`certificateNumber`/`acquiredAt` 의 DB NOT NULL 을 풀었다(V38) — API 필수는 그대로.** null 은 옛 신청에서 옮겨온 백필 행뿐. 읽는 코드는 null 을 다룬다(목록 정렬은 뒤로).
 - **OTHER(기타) 단체는 `organizationName` 필수** — 옛 신청의 `organizationOther` 규칙을 이어받았다. 공개 뱃지의 `organizationOther` 가 이 값.
 - **`StudentCertificateUpdateRequest` 와 `StudentCertificateCreateRequest` 는 필드가 같아야 한다.** 한쪽에만 필드를 추가하면 등록은 받는데 수정은 **조용히 무시**한다. 검증은 `photoFileKey` 하나만 의도적으로 갈린다(등록 `@NotBlank` / 수정 제약 없음 + 서비스 검사). 클래스를 나눈 것도 그 *의미* 차이 때문 — 이름이 같다고 뜻까지 같지 않다.
 - **엔티티에 `@Setter` 를 열지 않는다.** 열면 `source`·`enrollmentId` 같은 **서버 파생값**까지 아무 데서나 바뀐다. 의도별 메서드(`updateDetails`/`replacePhoto`/`linkCourse`/`unlinkCourse`)만 두고, `linkCourse` 가 `source=PUNGDONG` 이 되는 유일한 경로다. `owner`·`createdAt` 은 어디서도 안 바뀐다.

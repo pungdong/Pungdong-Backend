@@ -14,7 +14,7 @@
 - **이미지 저장 경계** (`storage/`) — 이제 **보험 전용**(자격증 사진은 `/certificates/photos`). 경로명 `certificate-images` 는 역사적. 백필된 옛 자격증 사진 key 가 이 prefix 아래 남아 있어 탈퇴 파기 리스너는 유지. `CertificateImageStorage`(interface — `store`/`viewUrl`/`deleteAllFor` + static `ownerPrefix`·`isOwnedBy`) + `S3CertificateImageStorage`(prod) / `LocalCertificateImageStorage`(dev, 로컬 디스크 + `/local-uploads/**` 정적 서빙 `LocalUploadsWebConfig`). `pungdong.storage.s3.enabled` = `false`(기본) / `true`. **저장 경로는 양쪽 다 `instructorCertificate/{ownerId}/`** — 소유 판정과 탈퇴 일괄 삭제가 이 그룹핑에 의존한다.
 - **탈퇴 PII 파기** (`CertificateImageAnonymizationListener`): `account` 의 `AccountAnonymizedEvent` 를 받아 `deleteAllFor(accountId)`. **account 는 이 패키지를 모른다**(단방향) → 이벤트 경유. 동기 리스너라 예외는 삼킨다("고아 1개 < 익명화 실패").
 - **종목**: 이 도메인 아님 — [discipline](../discipline/CLAUDE.md). 신청은 `disciplineCode` 로 참조, 제출 시 `DisciplineService.getActiveByCode` 로 검증 + `requiresCertification` 으로 자격증 필수 여부 분기.
-- **엔티티**: `InstructorApplication`(**종목별** 1건, `(account_id, discipline_code)` UNIQUE, `certificateIds` 참조), `InstructorApplicationStatus`(enum). `IdentityVerification` 참조(identity-verification 도메인 소유). ~~`ApplicationCertificate`~~ 삭제(V37 백필 후 drop).
+- **엔티티**: `InstructorApplication`(**종목별** 1건, `(account_id, discipline_code)` UNIQUE, `certificateIds` 참조), `InstructorApplicationStatus`(enum). `IdentityVerification` 참조(identity-verification 도메인 소유). ~~`ApplicationCertificate`~~ 삭제(V38 백필 후 drop).
 - **레포**: `InstructorApplicationJpaRepo` (+ identity-verification 의 `IdentityVerificationJpaRepo` 로 제출 시 검증, certificate 의 `StudentCertificateJpaRepo` 로 첨부 읽기)
 - **dto/**: submit / 조회 / 어드민 DTO (identity DTO 는 identity-verification 도메인)
 

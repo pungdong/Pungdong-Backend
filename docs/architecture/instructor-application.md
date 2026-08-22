@@ -198,7 +198,7 @@ erDiagram
 
 설계 의도:
 - **종목별 신청** — `(account_id, discipline_code)` 유니크. 한 사람이 프리다이빙+스쿠버 강사일 수 있어 종목마다 1건. 승인된 신청 = 그 종목의 강사 자격.
-- **단체는 자격증 단위** — 한 종목에 여러 단체 자격(AIDA+PADI+Molchanovs). 2026-08-22 부터 그 자격증이 `StudentCertificate`(레벨·번호·취득일·표시명 스냅샷 보유)라 "향후 `ratingCode`" 자리는 `level`(`CertLevel`)로 이미 채워졌다. 신청은 `certificateIds` 만 든다 — 옛 `application_certificate` 는 V37 이 백필 후 drop.
+- **단체는 자격증 단위** — 한 종목에 여러 단체 자격(AIDA+PADI+Molchanovs). 2026-08-22 부터 그 자격증이 `StudentCertificate`(레벨·번호·취득일·표시명 스냅샷 보유)라 "향후 `ratingCode`" 자리는 `level`(`CertLevel`)로 이미 채워졌다. 신청은 `certificateIds` 만 든다 — 옛 `application_certificate` 는 V38 이 백필 후 drop.
 - **본인확인은 [identity-verification](identity-verification.md) 도메인 참조** — 수강/강사 공유, verificationId 재사용(skip).
 
 ---

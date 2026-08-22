@@ -1,4 +1,4 @@
--- V37 — 강사 자격 검증 트랙 수렴 (2026-08-22).
+-- V38 — 강사 자격 검증 트랙 수렴 (2026-08-22).
 --   1) student_certificate 에 검증 상태(verification_*) 추가, certificate_number/acquired_at 을 NULL 허용(백필 행만 null).
 --   2) instructor_application_certificate: 신청 → 자격증 id 참조(@ElementCollection, 제출 순서).
 --   3) certificate_review: 어드민 검수 큐(NEW/ADDITIONAL/RE_VERIFY 한 테이블).

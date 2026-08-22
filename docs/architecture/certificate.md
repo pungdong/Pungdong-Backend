@@ -8,7 +8,7 @@
 
 > **핵심 invariant** — 클라이언트가 정하는 것은 *무슨 자격증인지*(코드·번호·취득일·사진)뿐이다. **`source`·`holderName`·강사·강의는 전부 서버가 파생**하고, 클라이언트가 준 `enrollmentId`·`photoFileKey` 는 **소유를 검증**한다.
 
-~~강사 신청의 `ApplicationCertificate` 와 다른 리소스~~ → **수렴됐다**(2026-08-22, 왜는 [certificate/CLAUDE.md](../../src/main/java/com/diving/pungdong/certificate/CLAUDE.md)). `ApplicationCertificate` 는 V37 이 이 테이블로 백필한 뒤 drop.
+~~강사 신청의 `ApplicationCertificate` 와 다른 리소스~~ → **수렴됐다**(2026-08-22, 왜는 [certificate/CLAUDE.md](../../src/main/java/com/diving/pungdong/certificate/CLAUDE.md)). `ApplicationCertificate` 는 V38 이 이 테이블로 백필한 뒤 drop.
 
 ---
 
@@ -169,7 +169,7 @@ erDiagram
     }
 ```
 
-**마이그레이션**: `V25__student_certificate.sql` · **`V37__certificate_verification_track.sql`**(verification 컬럼, 번호·취득일 NULL 허용, `instructor_application_certificate`, `certificate_review`, 옛 `application_certificate` 전 상태 백필 후 drop — 멱등). `enrollment_id`·`certificate_id`·`application_id` 에 **FK 를 걸지 않았다** — 수명주기가 다르다(수강 정리·사용자 삭제·신청 영구). 자격증 삭제 시 그 검수 행은 서비스가 함께 지운다.
+**마이그레이션**: `V25__student_certificate.sql` · **`V38__certificate_verification_track.sql`**(verification 컬럼, 번호·취득일 NULL 허용, `instructor_application_certificate`, `certificate_review`, 옛 `application_certificate` 전 상태 백필 후 drop — 멱등). `enrollment_id`·`certificate_id`·`application_id` 에 **FK 를 걸지 않았다** — 수명주기가 다르다(수강 정리·사용자 삭제·신청 영구). 자격증 삭제 시 그 검수 행은 서비스가 함께 지운다.
 
 **검수 큐가 한 테이블인 이유**: 신청(NEW)과 추가/재검수 자격증을 다른 테이블에 두면 어드민 목록 하나를 만들려고 두 쿼리 + 메모리 병합 + 깨지는 페이징이 된다. 대신 NEW 행은 `instructor_application.status` 와 중복되고, 서비스가 한 트랜잭션에서 맞춘다. **`previous*` 가 이 테이블을 강제했다** — RE_VERIFY 는 자격증 행이 이미 새 값으로 덮인 뒤라 "이전 값"을 둘 곳이 여기뿐이다.
 
