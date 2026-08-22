@@ -4,9 +4,11 @@
 
 학생이 **보유한 다이빙 자격증을 직접 기록·관리**하는 도메인(프로필 탭 &gt; 내 자격증). 조회·등록·수정·삭제 + 사진 업로드. 자격증 사진은 **실명·자격증번호가 찍힌 PII** 라 비공개 버킷에 저장하고 조회 시점에만 presigned 로 발급한다. 풍덩 강의 수료와 연결하면 강사·강의가 **등록 시점 스냅샷**으로 박제된다.
 
+**2026-08-22 부터 강사 자격 검증의 정본이기도 하다.** 강사 신청은 여기 등록한 자격증의 id 를 참조하고, 심사 결과는 행의 `verification`(NONE/PENDING/VERIFIED/REJECTED + kind)에 붙는다. 공개 인증마크(브랜딩·강의상세·프로필·강사 browse)는 `VERIFIED` 행에서만 파생. 어드민 큐는 `certificate_review`. 정책(Rule A/B/C)은 [features/instructor-onboarding.md §자격증 검증](../features/instructor-onboarding.md).
+
 > **핵심 invariant** — 클라이언트가 정하는 것은 *무슨 자격증인지*(코드·번호·취득일·사진)뿐이다. **`source`·`holderName`·강사·강의는 전부 서버가 파생**하고, 클라이언트가 준 `enrollmentId`·`photoFileKey` 는 **소유를 검증**한다.
 
-⚠️ 강사 신청의 `ApplicationCertificate`(심사 자료)와 **다른 리소스**다 — 목적·수명주기·열람자·저장 prefix 가 전부 다르다. 합치지 않는다. 정책 비교표는 [certificate/CLAUDE.md](../../src/main/java/com/diving/pungdong/certificate/CLAUDE.md).
+~~강사 신청의 `ApplicationCertificate` 와 다른 리소스~~ → **수렴됐다**(2026-08-22, 왜는 [certificate/CLAUDE.md](../../src/main/java/com/diving/pungdong/certificate/CLAUDE.md)). `ApplicationCertificate` 는 V37 이 이 테이블로 백필한 뒤 drop.
 
 ---
 
@@ -17,8 +19,11 @@ flowchart TB
     subgraph CERT["certificate 도메인"]
         Ctl["StudentCertificateController<br/>/certificates/**"]
         Svc["StudentCertificateService"]
-        Entity["StudentCertificate<br/>(표시명 스냅샷 보유)"]
+        Entity["StudentCertificate<br/>(표시명 스냅샷 + verification)"]
         Repo["StudentCertificateJpaRepo"]
+        VSvc["CertificateVerificationService<br/>(Rule A · B · C)"]
+        Review["CertificateReview<br/>(어드민 큐 NEW/ADDITIONAL/RE_VERIFY)"]
+        Port["InstructorApprovalLookup (port)"]
         Listener["StudentCertificateAnonymizationListener"]
         Store["StudentCertificatePhotoStorage (interface)"]
         S3["S3StudentCertificatePhotoStorage<br/>(비공개 버킷 + presigned)"]
@@ -33,8 +38,16 @@ flowchart TB
     Ident["identityverification<br/>(holderName 파생)"]
     Uploader["global.storage.S3Uploader"]
 
+    Apply["instructorapplication<br/>(제출·승인·반려 = Rule B 호출,<br/>port 구현)"]
+    Public["branding · course · profile<br/>(인증마크 = verifiedBadgesOf)"]
+
     Ctl --> Svc
     Svc --> Repo --> Entity
+    Svc --> VSvc --> Review
+    VSvc --> Port
+    Apply --> VSvc
+    Apply -.구현.-> Port
+    Public --> Svc
     Svc --> Store
     Svc --> Disc
     Svc --> Enroll
@@ -59,8 +72,8 @@ flowchart TB
 | `GET /certificates/mine` | 내 목록 (`acquiredAt DESC`) | 200 `_embedded.certificates` | — |
 | `GET /certificates/{id}` | 단건 — **presigned 재발급**용 | 200 `EntityModel` | **-1009** |
 | `POST /certificates` | 등록 | **201** 단건 | — |
-| `PUT /certificates/{id}` | 수정(**전면 교체**) | 200 `EntityModel` | **-1009** |
-| `DELETE /certificates/{id}` | 삭제(행 + 사진) | **204** | **-1009** |
+| `PUT /certificates/{id}` | 수정(**전면 교체**). **Rule A 전이 / Rule C 400** | 200 `EntityModel` | **-1009** |
+| `DELETE /certificates/{id}` | 삭제(행 + 사진 + 검수 이력). **Rule C 400** | **204** | **-1009** |
 | `POST /certificates/photos` | 사진 업로드(multipart `image`) | 200 `{fileKey}` | — |
 
 - **빈 목록은 200 + `_embedded` 부재** (Spring HATEOAS 동작). 404 가 아니다 — 빈 상태는 정상 UI 상태.
@@ -100,8 +113,8 @@ erDiagram
         varchar organization_full_name "스냅샷 — 상세"
         varchar level "CertLevel enum"
         varchar certification_display_name "스냅샷 — 자격증명"
-        varchar certificate_number "자유 텍스트"
-        date acquired_at "civil date"
+        varchar certificate_number "자유 텍스트 — NULL 은 백필 행뿐"
+        date acquired_at "civil date — NULL 은 백필 행뿐"
         varchar source "PUNGDONG | EXTERNAL (파생)"
         varchar issuer "외부 발급기관(선택)"
         varchar photo_file_key "비공개 객체 key"
@@ -111,10 +124,36 @@ erDiagram
         date course_completed_at
         varchar instructor_name
         datetime created_at
+        varchar verification_status "NONE|PENDING|VERIFIED|REJECTED"
+        varchar verification_kind "APPLICATION|ADDITIONAL|RE_VERIFY (NONE 이면 null)"
+        text verification_reason
+        datetime verification_requested_at
+        datetime verification_reviewed_at
+    }
+    STUDENT_CERTIFICATE ||--o{ CERTIFICATE_REVIEW : "ADDITIONAL/RE_VERIFY 검수 요청(FK 없음)"
+    INSTRUCTOR_APPLICATION ||--o{ INSTRUCTOR_APPLICATION_CERTIFICATE : "certificateIds (제출 순서)"
+    INSTRUCTOR_APPLICATION_CERTIFICATE }o--|| STUDENT_CERTIFICATE : "참조(FK 없음)"
+    CERTIFICATE_REVIEW {
+        bigint id PK
+        varchar kind "NEW|ADDITIONAL|RE_VERIFY"
+        bigint application_id "NEW 일 때"
+        bigint certificate_id "ADDITIONAL/RE_VERIFY 일 때"
+        bigint account_id
+        varchar discipline_code
+        varchar status "PENDING|APPROVED|REJECTED"
+        varchar previous_organization_code "RE_VERIFY 대조용 최초 VERIFIED 스냅샷"
+        varchar previous_level
+        varchar previous_certificate_number
+        text reason
+        datetime requested_at
+        datetime reviewed_at
+        bigint reviewer_id
     }
 ```
 
-**마이그레이션**: `V25__student_certificate.sql`. `enrollment_id` 에 **FK 를 걸지 않았다** — 연결한 수강이 나중에 정리돼도 자격증(사용자 자산)은 남아야 한다.
+**마이그레이션**: `V25__student_certificate.sql` · **`V37__certificate_verification_track.sql`**(verification 컬럼, 번호·취득일 NULL 허용, `instructor_application_certificate`, `certificate_review`, 옛 `application_certificate` 전 상태 백필 후 drop — 멱등). `enrollment_id`·`certificate_id`·`application_id` 에 **FK 를 걸지 않았다** — 수명주기가 다르다(수강 정리·사용자 삭제·신청 영구). 자격증 삭제 시 그 검수 행은 서비스가 함께 지운다.
+
+**검수 큐가 한 테이블인 이유**: 신청(NEW)과 추가/재검수 자격증을 다른 테이블에 두면 어드민 목록 하나를 만들려고 두 쿼리 + 메모리 병합 + 깨지는 페이징이 된다. 대신 NEW 행은 `instructor_application.status` 와 중복되고, 서비스가 한 트랜잭션에서 맞춘다. **`previous*` 가 이 테이블을 강제했다** — RE_VERIFY 는 자격증 행이 이미 새 값으로 덮인 뒤라 "이전 값"을 둘 곳이 여기뿐이다.
 
 ### 표시명이 스냅샷인 이유
 
@@ -248,13 +287,17 @@ presigned URL 은 **경로에 객체 key 를 담는다.** URL 이 한 번 새면
 | `course` | **`CertLevel` enum 재사용**. 옮기지 말 것 — Sanity ↔ enum ↔ `types.ts` 3자 계약의 일부 |
 | `enrollment` | `EnrollmentCompletion.isCertifiable` 공유(hub 가 `certifiable` 로 노출) + 강사·강의 스냅샷 출처 |
 | `identityverification` | `holderName` 파생(최신 VERIFIED 실명) |
-| `account` | 소유자. `AccountAnonymizedEvent` 로 탈퇴 파기 수신(**단방향** — account 는 이 패키지를 모른다) |
+| `account` | 소유자. `AccountAnonymizedEvent` 로 탈퇴 파기 수신(**단방향** — account 는 이 패키지를 모른다). 검수 행도 함께 파기 |
+| `instructorapplication` | **저쪽이 이쪽을 호출**(Rule B: `attachToApplication`/`onApplicationApproved`/`onApplicationRejected`) + 이쪽 포트 `InstructorApprovalLookup` 을 구현. 반대 방향 import 없음 |
+| `branding` · `course` · `profile` | 공개 인증마크를 `verifiedBadgesOf` 에서 읽는다(형태 v1). 강사 browse 의 단체 칩·필터는 레포 JPQL 이 `verification.status = VERIFIED` 를 직접 건다 |
 | Sanity | 단체·자격 카탈로그. **BE 는 읽지 않는다** — FE 가 등록 시 고른 표시명을 보내고 BE 는 스냅샷 저장만 |
 
 ---
 
 ## 설계 간극 / 후속
 
+- 🟡 **RE_VERIFY 반려 구멍(인정)** — 마지막 VERIFIED 를 식별필드 수정으로 RE_VERIFY 에 올렸다가 반려되면 그 종목에 검증 자격증 0 + INSTRUCTOR 권한 유지. 자동 회수 없음(회수는 어드민 판단). 사용자는 REJECTED 사유를 보고 고치면 Rule A 로 다시 PENDING. 어드민 목록 "검증 자격증 0건" 플래그는 PR2(검수 큐) 범위.
+- 🟡 **알림 없음** — ADDITIONAL/RE_VERIFY 결과(승인·반려) 푸시/인앱 알림은 v1.5.
 - 🟡 **사진 제거** — `PUT` 은 교체만 표현한다(생략 = 유지). 사진이 필수가 된 지금은 "제거"가 애초에 도달 가능한 상태가 아니라 당분간 무의미하다. 필요해지면 별도 필드 — "빈 문자열 = 제거"로 겸용하지 말 것(생략과 구분이 안 된다).
 - 🟡 **사진 없는 옛 행** — 필수가 되기 전 데이터. 조회·삭제는 되고 수정할 때만 사진을 요구한다. 개수가 적어 백필하지 않았다. 언젠가 0 이 되면 그때 `NOT NULL` 을 검토할 수 있다(지금은 걸지 않는다).
 - 🟡 **`updatedAt` 없음** — 수정 시각을 남기지 않는다. 자기 신고 데이터라 감사 대상이 아니고, 컬럼을 늘리면 마이그레이션이 붙는다. 이력이 필요해지면(분쟁·어드민 열람) 그때 추가.
@@ -281,6 +324,10 @@ presigned URL 은 **경로에 객체 key 를 담는다.** URL 이 한 번 새면
 | 2026-08-16 | 스키마 변경 없음 — **`updatedAt` 컬럼 추가 안 함** | 자기 신고 데이터라 감사 대상이 아니다. 마이그레이션 없이 끝나는 변경을 컬럼 하나로 무겁게 만들지 않는다. 이력이 필요해지면(분쟁·어드민 열람) 그때 |
 | 2026-08-16 | **사진을 선택 → 필수로 뒤집음** (`photoFileKey` `@NotBlank`, "자격증 사진을 추가해주세요.") | 이 도메인의 신뢰 모델이 애초에 **"사진이 진실"** 이었다 — 표시명·번호는 자기 신고라 BE 가 대조하지 않고("위조해도 표시가 어긋날 뿐"), 실제 확인은 **수영장 입장 때 사진 제시**로 이뤄진다. 그런데 정작 그 사진이 선택이라 **검증의 근거가 없는 행**이 만들어질 수 있었다. 선택으로 뒀던 건 등록 마찰을 줄이려던 것인데, FE QA 에서 "사진 없는 자격증은 입장에서 못 쓴다"가 확인돼 뒤집었다. FE(PungDong #564)도 같이 막지만 **BE 가 진짜 경계** |
 | 2026-08-16 | 수정에선 필드가 아니라 **결과 상태**를 검사 (`requirePhotoAfterUpdate`) | `photoFileKey` 는 수정에서 **"생략 = 유지"** 라 빈 값이 정상 입력이다. 여기에 `@NotBlank` 를 걸면 유지 의미론이 죽어 **매 수정마다 사진 재업로드를 강요**한다. "요청도 비었고 기존도 없음" = 400 으로, 필수는 지키되 유지는 살린다 |
+| 2026-08-22 | **강사 자격 검증의 정본으로 수렴** — `verification` 임베드 + `certificate_review` + 신청은 `certificateIds` 참조, `ApplicationCertificate` 삭제(백필) | 강사가 같은 자격증을 두 번 올려야 했고(신청·내 자격증), "신청하면 자동 등록 + 인증마크"가 분리 구조로는 불가능. FE 핸드오프(PungDong `docs/features/certificate.md` §강사 자격 검증 트랙)를 BE 코드 실태와 대조해 채택 — 보정 4건: (1) 삭제 영향이 BE 소비자 5곳(브랜딩·강의상세·프로필·browse JPQL·어드민 요약), (2) 승인 시 sweep 에 더해 **제출 시 자동 첨부**(어드민이 한 번에), (3) `previous` 때문에 검수 테이블이 필요, (4) 백필은 **승인 건만이 아니라 전 상태**(SUBMITTED 첨부가 사라지면 어드민이 볼 게 없다) |
+| 2026-08-22 | `certificate_number`/`acquired_at` **DB NULL 허용, API 필수 유지** | 옛 신청은 번호·취득일을 받지 않아 백필 행이 null. DTO `@NotBlank`/`@NotNull` 은 그대로라 "null → 값" 한 방향만 열리고, 그 채우기는 기록 보완(재검수 아님) |
+| 2026-08-22 | 백필 사진 key 는 옛 prefix(`instructorCertificate/`) **그대로** | 같은 비공개 버킷이라 presign 은 key 만 있으면 되고, 탈퇴 파기는 `instructorapplication` 리스너가 그 prefix 를 계속 지운다(보험 때문에 저장소가 남음). 객체 복사는 비용만 든다 |
+| 2026-08-22 | 자격증 불필요 종목(수영/서핑)도 강사레벨 자격증을 올리면 검수·마크 **허용**, Rule C 만 비적용 | 막을 이유가 없고(생활체육지도사 등), 그 종목 강사는 자격증으로 정의되지 않으니 "마지막 한 장" 가드만 의미가 없다 |
 | 2026-08-16 | **DB `NOT NULL` / 마이그레이션 없음** — 옛 행은 그대로 둔다 | 필수가 되기 전에 사진 없이 등록된 행이 있다. 컬럼 제약을 걸면 그 행들이 **읽기·삭제조차 막히거나**(`validate` 부트 실패) 백필/삭제가 필요해진다 — 사용자 자산을 우리 규칙 변경으로 지울 수는 없다. 옛 행은 **조회·삭제 그대로, 수정할 때만 사진 요구**(막다른 길이 아니다). 새 규칙은 쓰기 경로에서만 강제한다 |
 
 ---
@@ -290,4 +337,6 @@ presigned URL 은 **경로에 객체 key 를 담는다.** URL 이 한 번 새면
 - [certificate/CLAUDE.md](../../src/main/java/com/diving/pungdong/certificate/CLAUDE.md) — 패키지 컨텍스트
 - [features/image-storage-and-serving.md](../features/image-storage-and-serving.md) — 이미지 접근 등급 정책
 - [features/student-schedule.md](../features/student-schedule.md) — 완료 강의 파생(연결 소스)
-- [api-clients/types.ts](../api-clients/types.ts) — `StudentCertificate` · `StudentCertificateCreateRequest`
+- [api-clients/types.ts](../api-clients/types.ts) — `StudentCertificate` · `CertificateVerification` · `StudentCertificateCreateRequest` · `AdminCertificateView`
+- [instructor-application.md](instructor-application.md) — 신청 쪽(Rule B 호출처)
+- [features/instructor-onboarding.md §자격증 검증](../features/instructor-onboarding.md) — 정책 원문(Rule A/B/C)
