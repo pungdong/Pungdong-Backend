@@ -30,16 +30,16 @@
 | 강사 신청 (instructor-application) | [instructor-application.md](instructor-application.md) | ✅ (본인확인은 identity-verification 도메인 참조) |
 | 동의 / 약관 (consent) | [consent.md](consent.md) | ✅ (Sanity authoring + BE 박제 · 동의 이력) |
 | 위치 (venue) | [venue.md](venue.md) | ✅ (정식/커스텀 · builder 통합 머지 · Sanity 동기화 · 장비 equipment extension) |
-| 코스 (course) | [course.md](course.md) | ✅ (강사 작성 · 회차/추가세션 · 위치 venueRefId 참조 · 장비 합성 · 공개조회 후속) |
+| 코스 (course) | [course.md](course.md) | ✅ (강사 작성 · 회차/추가세션 · 위치 venueRefId 참조 · 장비 합성 · **공개 둘러보기/상세 구현됨** — 필터·검색·강사 축·저장) |
 | 주소·위치정보 (address) | [address.md](address.md) | ✅ (juso 검색+좌표변환 BE 경유 · 로컬 stub · 좌표계 검증 후속) |
 | 브랜딩 페이지 (branding) | [branding.md](branding.md) | ✅ (계정당 1개 공개 프로필 · 공개 URL=닉네임 · 조회는 생성 안 함 · 자격/검수는 읽기 시점 합성 · 게시물은 후속) |
 | 커뮤니티 (community) | [community.md](community.md) | ✅ (게시물 테이블을 branding 과 **공유** · 노출은 브랜딩→커뮤니티 단방향 · 카운터 비저장 일괄집계 · 1-depth 댓글 · 신고 어드민 큐) |
 | 신고·조치 (moderation) | [moderation.md](moderation.md) | ✅ (한 테이블·한 큐 · 대상 4종(글·댓글·강의·채팅) · **조치=실제로 숨김** · 조치 표식은 대상 도메인 컬럼(순환 회피) · 강의 조치는 거래를 안 끊음) |
 | 유저 차단 (block) | [block.md](block.md) | ✅ (계정 쌍 1행 · **필터는 서버가 쿼리 안에서** · 상호 은닉(양방향) · 거래 관계는 범위 밖 · account 만 단방향 참조) |
-| 강사 가용시간 (availability) | [availability.md](availability.md) | ✅ (가용시간 window + 외부/수동 점유 hold · 5상태 파생 · enrollment 연동됨) |
+| 강사 가용시간 (availability) | [availability.md](availability.md) | ✅ (**coverage(예약가능시간)/session(일정) 2층 모델** — 옛 window 모델 아님 · 외부/수동 점유 hold · 5상태 파생 · enrollment 연동됨) |
 | 세션 단체 채팅 (chat) | [chat.md](chat.md) | ✅ (일정 1개 = 방 1개 · **방 PK=일정 id, FK 없음**(일정이 물리 삭제돼도 방 생존) · 상태 파생 · 커서 페이지네이션 + 전송 멱등 · 폴링+FCM) |
-| 수강신청 (enrollment) | [enrollment.md](enrollment.md) | ✅ (booking — availability ∩ venue 교집합 · exact-match join · 강사 수락 → 결제대기 → 확정) |
-| 결제 (payment) | [payment.md](payment.md) | ✅ (토스페이먼츠 결제위젯 v2 · 수락→결제→확정 · 서버 권위 금액 · stub/toss · webhook 후속) |
+| 수강신청 (enrollment) | [enrollment.md](enrollment.md) | ✅ (booking — availability ∩ venue 교집합 · exact-match join · **선결제**: 신청 → 즉시 결제 → 강사 수락(거절·무응답 시 자동환불)) |
+| 결제 (payment) | [payment.md](payment.md) | ✅ (**PG 중립** — 현재 라이브는 이니시스, 토스/stub 교체 가능 · PG 는 주문에 박제 · 선결제(신청 직후) · 서버 권위 금액 · 승인/환불/콜백 원장 + 대사 스윕) |
 | 학생 보유 자격증 (certificate) | [certificate.md](certificate.md) | ✅ (프로필 "내 자격증" · 사진=비공개 PII presigned · source/holderName/강사 서버 파생 · 표시명 스냅샷 · 수정=PUT 전면교체(사진만 "생략=유지") · 강사신청 자격증과 별개) |
 | **Redis (인프라)** | [redis.md](redis.md) | ✅ (도메인 아님 — JWT 블랙리스트·이메일 코드·venue 캐시 · ⚠️ 테스트 16379 격리 원칙) |
 | **배포 전략 (인프라/프로세스)** | [deployment.md](deployment.md) | ✅ (도메인 아님 — 트렁크 브랜치·build-once/promote·env 격리·피처플래그·prod 수동게이트) |
