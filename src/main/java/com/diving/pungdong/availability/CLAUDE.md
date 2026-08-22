@@ -16,7 +16,7 @@
 **5상태(`SlotStatus`)는 저장값이 아니라 점유에서 파생**(`AvailabilityService.deriveStatus`): `AVAILABLE · PENDING · CONFIRMED · EXTERNAL · FULL`. 풍덩 수강생 점유(`pending`/`confirmed`, `applicants[]`)는 enrollment 도메인이 채운다(연동됨, 아래).
 
 - **컨트롤러**: `AvailabilityController`(`/instructor/availability/**`).
-  - coverage: `POST /coverage`(열기·union, recurrence ONCE/WEEKLY/FOUR_WEEKS) · `DELETE /coverage`(닫기·subtract, 단일 날). 닫기가 session 을 가로지르면 **거부**(`COVERAGE_HAS_SESSION` / `-1014`).
+  - coverage: `POST /coverage`(열기·union, recurrence ONCE/WEEKLY/FOUR_WEEKS/**MONTH**, 시간은 `timeRanges[]` 여러 벌 또는 `startTime`/`endTime` 한 벌) · `DELETE /coverage`(닫기·subtract, 단일 날, `timeRanges` 안 봄). 닫기가 session 을 가로지르면 **거부**(`COVERAGE_HAS_SESSION` / `-1014`). 열기의 전개가 **0일이면 200 + 빈 배열**(400 아님 — 아래 히스토리).
   - session: `POST /sessions`(**원자 추가** 201) · `GET/DELETE /sessions/{id}` · `PATCH/DELETE /sessions/{id}/capacity`(override 설정/해제) · `POST /sessions/{id}/holds` · `DELETE /sessions/{id}/holds/{holdId}`.
   - 범위 조회 `GET ?from&to` → `{coverage: CoverageRangeResponse[], sessions: AvailabilitySessionResponse[]}` (두 레이어 분리 — 옛 `_embedded.windows` HAL 아님). 정원 baseline `GET/PATCH /settings`.
 - **서비스**: `AvailabilityService`(coverage 머지·교체 · session find-or-create · 원자 추가 · 5상태 파생 · 정원 baseline/override · 게이트) + `SessionCleaner`(**점유 0 = 빈 일정 삭제**). 응답은 **트랜잭션 안에서 DTO 매핑**(LAZY hold 보호). venueName 은 `VenueRefResolver` 배치 해석(N+1 회피), enrollment 집계는 `EnrollmentJpaRepo` 일괄 조회.
@@ -25,9 +25,9 @@
 - **엔티티**:
   - `AvailabilityCoverage`(instructor·date·startTime·endTime — 순수 시간, FK 대상 아님).
   - `AvailabilitySession`(instructor·date·시간·**nullable `capacityOverride`**·nullable `venueRefId`/`ticketRef`) → `AvailabilityHold`(`session_id` FK). 이용권 명칭은 미저장(읽을 때 venue 해석).
-  - 정원 기본값은 `Account.defaultCapacity`(기본 4)에 있고 session 은 override 없으면 라이브 참조(`effectiveCapacity() = capacityOverride ?? instructor.effectiveDefaultCapacity()`). enum: `RecurrenceMode`(ONCE/WEEKLY/FOUR_WEEKS)/`SlotStatus`.
+  - 정원 기본값은 `Account.defaultCapacity`(기본 4)에 있고 session 은 override 없으면 라이브 참조(`effectiveCapacity() = capacityOverride ?? instructor.effectiveDefaultCapacity()`). enum: `RecurrenceMode`(ONCE/WEEKLY/FOUR_WEEKS/MONTH)/`SlotStatus`.
 - **레포**: `AvailabilityCoverageJpaRepo`(`findByInstructorIdAndDate` 통째 로드해 교체 · `...DateBetween...` 범위 읽기), `AvailabilitySessionJpaRepo`(`...DateBetween...` 캘린더 · `findBy...DateAndStartTimeAndEndTime` find-or-create · `findByInstructorIdAndDate` coverage 닫기 충돌 판정), `AvailabilityHoldJpaRepo.findBySessionId`(주로 테스트 점유 확인).
-- **dto/**: `CoverageRequest`(열기/닫기 공용, recurrence 필드) · `SessionCreateRequest`(원자 추가: date·시간·venueRef?·label?·count?·memo?·capacity?) · `HoldRequest` · `CapacityRequest` · `CoverageRangeResponse`(머지 구간 1개) · `AvailabilityCalendarResponse`(`coverage[]`+`sessions[]`) · `AvailabilitySessionResponse`(중첩 `HoldResponse`) · `AvailabilitySettingsResponse` · `ApplicantSummaryResponse`(평탄 3종 + `gear: GearItem[]` — 신청자가 빌린 장비 내역, enrollment 스냅샷 투영. 옛 `string[]` → 강사/학생 hub 와 같은 공유 `enrollment/dto/GearItem` 로 구조화, 아래 booking).
+- **dto/**: `CoverageRequest`(열기/닫기 공용, recurrence 필드 + 선택 `timeRanges: TimeRangeRequest[]`) · `TimeRangeRequest`(시간 구간 1개) · `SessionCreateRequest`(원자 추가: date·시간·venueRef?·label?·count?·memo?·capacity?) · `HoldRequest` · `CapacityRequest` · `CoverageRangeResponse`(머지 구간 1개) · `AvailabilityCalendarResponse`(`coverage[]`+`sessions[]`) · `AvailabilitySessionResponse`(중첩 `HoldResponse`) · `AvailabilitySettingsResponse` · `ApplicantSummaryResponse`(평탄 3종 + `gear: GearItem[]` — 신청자가 빌린 장비 내역, enrollment 스냅샷 투영. 옛 `string[]` → 강사/학생 hub 와 같은 공유 `enrollment/dto/GearItem` 로 구조화, 아래 booking).
 
 보안 매처(`/instructor/availability/**` → authenticated)는 **`global/security/SecurityConfiguration`**. 역할이 아니라 인증인 이유는 venue 와 동일: 리뷰 대기(SUBMITTED) 강사신청자는 아직 STUDENT 라서. 실제 게이트(강사신청 보유, 종목 무관)는 서비스 `requireInstructorTrack` 가 `InstructorApplicationJpaRepo.existsByAccountId` 로 강제.
 
@@ -46,6 +46,9 @@
   - **강사가 점유를 추가**(addSession/addHold)해 정원을 넘기면 → 그 일정을 **커스텀 정원(=점유)으로 확장**(override 설정, "그만큼 받겠다" 선언, 6명 넣으면 6/6). 학생 신청은 만석 캡이라 여기 안 옴.
   - **강사가 정원을 점유보다 낮추면**(baseline/override ↓) → **바닥 유지**(확장 안 함). 이미 잡힌 점유(확정 enrollment·외부 hold)는 유지(취소 없음), over 표시·새 수락만 차단(만석). → `X/Y where X>Y` 는 **낮췄을 때만** 나온다.
 - **coverage 닫기가 session 가로지르면 거부 (`COVERAGE_HAS_SESSION` / -1014)** — BE 가 자동으로 일정을 정리하지 않는다(CS 유발). 식별 가능한 코드를 내려 FE 가 "내부 일정을 먼저 정리해주세요"로 유도. 예외 `CoverageHasSessionException`, i18n key `coverageHasSession`(`exception_ko.yml`). (포함/겹침 판정은 strict — 맞닿음은 충돌 아님.)
+- **반복 전개의 시작점 = `max(오늘, 기간 시작)`, anchor 아님 (2026-08-23, MONTH 도입과 함께)** — 반복 모드에서 요청의 `date` 는 **"어느 기간"** 이지 "언제부터" 가 아니다. 시작점은 `AvailabilityService.recurrenceStart` 가 잡는다(MONTH=그 달 1일, WEEKLY·FOUR_WEEKS=그 주 월요일 ISO). **왜**: anchor 를 시작점으로 쓰면 강사가 달·주 중간 날을 찍었을 때 기간 앞부분이 **조용히** 빠진다 — `9/15` + `MONTH·화` → 9/1·9/8 누락, `9/2` + `WEEKLY·월` → 아직 미래인 8/31 탈락. `FOUR_WEEKS` 의 4주 창이 달 끝(9/29)을 빠뜨려 `MONTH` 를 만든 것과 **같은 부류**이고, 실패가 에러가 아니라 "덜 열림" 이라 더 나쁘다. 오늘로 clamp 하므로 **과거는 어떤 반복 경로로도 안 열린다**(`ONCE` 는 기간이 아니라 지정한 하루 그대로 — 필터 없음). 클라이언트가 이미 정규화한 날짜엔 no-op(고정점)이지만, 규칙이 FE 코드에만 살면 `types.ts` 의 "MONTH = 그 달 전체" 가 직접 호출자에게 거짓이 되므로 서버에도 둔다.
+- **열기 전개가 0일이면 200 + 빈 배열 (2026-08-23)** — 예전엔 `dates.isEmpty()` 에서 `BadRequestException` 을 던졌는데, 그러면 시간 형식 오류와 **글자까지 똑같은** `-1011 "보내신 요청 정보가 옳지 않습니다."` 가 나가 클라이언트가 둘을 구분할 수 없었다. "선택한 요일이 이 기간에 안 남았다" 는 서버가 정상적으로 계산한 답이므로 루트 CLAUDE.md 의 *HTTP status는 요청 성패지 비즈니스 답이 아니다* 규칙대로 200 + 결과. FE 는 길이 0 을 "열린 날 없음" 으로 안내한다(#766 은 저장 버튼 비활성으로 애초에 막는다).
+- **`timeRanges` = 다중 구간 한 트랜잭션 (2026-08-23)** — 점심을 비우고 오전·오후를 따로 여는 게 흔한데 폼을 두 번 돌아야 했다. FE 가 N 번 POST 하면 **부분 실패**(앞의 것만 반영)가 생기므로 한 요청으로 받는다. 비어있지 않으면 이것만 쓰고 `startTime`/`endTime` 은 무시 — 단 클라이언트는 **첫 구간을 `startTime`/`endTime` 에도 겹쳐 보내서**, 이 필드를 모르는 구 서버에 닿아도 "조용히 틀림" 이 아니라 "첫 구간만 열림" 으로 degrade 한다(그래서 두 필드의 `@NotNull` 을 완화하지 않았다). 상한 10개, 하나라도 틀리면 전체 400. 날짜당 `replaceCoverage` 는 **한 번만** — 구간마다 `ensureCoverage` 를 부르면 (날짜 × 구간) 만큼 그 날 row 전체 delete+insert 가 반복된다(MONTH 31일 × 3구간 = 93회).
 - **두 가지 정원 조정 = 단일 테이블** — ± 빠른조정과 외부예약을 같은 `AvailabilityHold` row 로(`memo` 로만 구분).
 - **게이트 = 강사신청 보유(상태 무관)** — venue 와 동일 기조. 리뷰 대기 중에도 가용시간 준비 허용. → [[instructor-review-window-allows-prep]]. (가용시간은 강사 단위라 종목 조건 없음 — `existsByAccountId`.)
 - **없음/비소유 = 400 통일**(`ResourceNotFoundException`) — 남의 일정 존재 숨김(venue 패턴).
@@ -54,6 +57,8 @@
 
 `src/test/.../usecase/AvailabilityUseCaseTest` — 실 H2 + 시큐리티 체인(EmbeddedRedis 불필요). 그룹:
 - **CV\*** = coverage 열기 머지 / 닫기 분할·축소 / session 보호(-1014).
+- **CVR\*** = 반복 전개 시작점(달·주 앞부분 보존, 과거 미개방 + 0일이면 200+빈배열). anchor 기준으로 되돌리면 셋 다 깨진다.
+- **CVT\*** = 다중 시간 구간(오전·오후 한 요청 / `timeRanges` 우선 / 빈 배열 폴백 / 겹침 머지).
 - **SS\*** = session 원자 추가(coverage 자동확장) / 같은 (위치,시간) 누적 join / 활성 신청 있으면 삭제 거부.
 - **CAL\*** = `?from&to` 두 레이어 분리 읽기(coverage[]+sessions[]).
 - **C\*** = 정원(기본값 baseline·override·라이브 참조·확정 바닥).
