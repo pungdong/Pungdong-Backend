@@ -72,7 +72,7 @@
 
 ### 자격증 검증 (verification) — 상태 규칙 3개 (단일 출처)
 
-**검증마크 = `verification.status === 'VERIFIED'` 하나.** 공개 뱃지(브랜딩·강의상세 강사·프로필·강사 browse 칩/필터)의 파생원이 "승인 신청의 자격증" → "VERIFIED 자격증"으로 바뀌었다(형태는 v1 그대로). **`isInstructor`/roles 는 계속 APPROVED 신청 기준** — `requiresCertification:false` 종목(수영/서핑)은 자격증이 없어 "VERIFIED ≥ 1"로 강사를 정의할 수 없고, 회수는 어드민 판단.
+**검증마크 = `verification.status === 'VERIFIED'` 하나.** 강사 자격 표면(강의상세 강사 인셋·강사 browse 칩/필터)의 파생원이 "승인 신청의 자격증" → "VERIFIED 자격증"으로 바뀌었다. 사람 표면(프로필·브랜딩·커뮤니티)은 아래 **표시 규칙**. **`isInstructor`/roles 는 계속 APPROVED 신청 기준** — `requiresCertification:false` 종목(수영/서핑)은 자격증이 없어 "VERIFIED ≥ 1"로 강사를 정의할 수 없고, 회수는 어드민 판단.
 
 상태: `NONE | PENDING | VERIFIED | REJECTED`, 경로(kind): `APPLICATION`(신청과 함께) · `ADDITIONAL`(승인 종목에 추가) · `RE_VERIFY`(VERIFIED 의 식별필드 수정). **강사 레벨** = `INSTRUCTOR | INSTRUCTOR_TRAINER`. 수강생 레벨은 검수 대상이 아니라 항상 NONE.
 
@@ -91,7 +91,24 @@
 
 **어드민 큐 단위 = review item**(`certificate_review`: kind NEW/ADDITIONAL/RE_VERIFY, `GET /admin/certificate-reviews` · `/counts` · `/{reviewId}` · `POST /{reviewId}/approve|reject` 로 통일) — ADDITIONAL/RE_VERIFY 는 신청이 APPROVED 상태에서 생겨 SUBMITTED 행이 없기 때문. NEW 의 승인/반려는 신청 승인/반려에 위임(권한 부여 그대로). RE_VERIFY 행엔 `previous`(최초 VERIFIED 시점의 종목/단체/레벨/번호, 대기 중 또 고쳐도 갱신 안 함) — 자격증 행이 이미 덮인 뒤라 이 테이블이 유일한 보관처. 목록·상세의 `verifiedCertificateMissing` 이 "검증 자격증 0건"(승인 ∧ 필수 종목 ∧ 살아있는 검증 0) 을 표시한다 — 자동 회수 없음. 기존 `/admin/instructor-applications/**` 는 NEW 만 보는 보조 경로. **PR1(모델·규칙·백필·소비자 전환)과 PR2(검수 큐 API)는 통합 브랜치로 함께 배포** — PR1 만 나가면 ADDITIONAL/RE_VERIFY 가 PENDING 에서 빠져나올 어드민 경로가 없다.
 
-- **확장 로드맵**: `level` 로 강의 생성 시 **레벨 게이트**(level2 강사가 level3 등록 불가) · 공개 뱃지에 `level`/`certificationDisplayName` 노출(v1.5) · ADDITIONAL/RE_VERIFY 결과 알림 딥링크(v1.5).
+- **확장 로드맵**: `level` 로 강의 생성 시 **레벨 게이트**(level2 강사가 level3 등록 불가) · 공개 뱃지에 `certificationDisplayName` 노출 · ADDITIONAL/RE_VERIFY 결과 알림 딥링크(v1.5). (`level` 노출은 2026-08-23 아래 표시 규칙으로 됐다.)
+
+### 자격 뱃지 표시 규칙 — 자기신고는 보이되, 강사는 검증 후에만 (2026-08-23, #330)
+
+> **수강생 레벨(LEVEL_1~4)은 자기신고 그대로, 강사 레벨(INSTRUCTOR·INSTRUCTOR_TRAINER)은 `VERIFIED` 만. 그중 (종목,단체)별 가장 높은 것.**
+
+**왜.** 인증 뱃지가 강사 전용이면 **수강생이 자격증을 등록할 이유가 없다** — 딴 AIDA2 가 어디에도 안 나온다. 자격증은 "다음 레벨을 노리게 만드는" 장치이기도 해서 수강생 자격도 보여야 한다. 동시에 강사·강사 트레이너는 아무나 주장하면 안 된다 — 그건 검증 후에만. 부수 효과: 강사 신청이 심사 중이라 아직 강사 뱃지를 못 다는 사람도 자기 수강생 레벨 뱃지는 그대로 보이고, 승인되는 순간 뱃지가 위로 올라간다(사라졌다 나타나는 구간이 없다).
+
+**한 파생을 전 표면에 돌려쓰지 않는다** — 표면이 둘이다.
+
+| 표면 | 보이는 것 | 왜 |
+|---|---|---|
+| 커뮤니티 작성자 칩(피드·상세·댓글) `CommunityAuthor.topCert` | 위 규칙, **최고 1장**(정렬 `[0]`), 없으면 키 생략 | 사람 표면 — 동기부여가 목적. `isInstructor` 와 독립 |
+| 마이페이지 `AccountProfileResponse.certs` · 공개 프로필/`/branding/me` `certs` | 위 규칙, (종목,단체)별 1장 **전부**, 레벨 내림차순, 없으면 `[]` | 크로스오버 강사(AIDA+SSI)가 다 보여야 |
+| **강의 상세 강사 인셋** `CourseDetailInstructor.certs` | **VERIFIED 강사 자격만 — 현행 유지** | 강사 자격 표면. 자기신고가 섞이면 "이 강사 자격 있음"의 뜻이 흐려진다 |
+| **강사 browse 필터** `organizationCodes` | **VERIFIED 강사 자격만 — 현행 유지** | 자기신고로 강사 검색에 걸리면 안 된다 |
+
+뱃지엔 `level`·`verified` 가 실린다. **`verified` 는 `level` 에서 추론하지 않는다** — 지금은 "강사 레벨 ⟹ VERIFIED" 가 참이지만 그건 정책이지 구조가 아니다(나중에 수강생 자격도 검증하기로 하면 FE 가 조용히 틀린 마크를 그린다). FE 는 이 값으로 검증마크 룩 / 중립 칩 룩을 가른다. 구현 단일 출처: `certificate.CertificateBadgePolicy`(+ `StudentCertificateService.displayBadgesOf`/일괄판), 강사 자격 표면은 `verifiedBadgesOf`·browse JPQL — [architecture/certificate.md](../architecture/certificate.md) §협력.
 
 ### 어드민
 - **ADMIN 권한 = DB role**(`Account.roles`). "누구를 admin 으로"의 **목록만 env**(`ADMIN_EMAILS`) → 부팅 시 부여. Sanity 같은 CMS 에 두지 않음(보안 경계).
@@ -112,6 +129,7 @@
 | 2026-06-29 | **자격증 이미지 비공개화** — staging/prod 업로드 실패 수정(public-read ACL ↔ Block Public Access + 컨테이너 작업디렉터리 temp 파일 쓰기). 비공개 업로드(객체 key) + 조회 시 presigned(TTL 3분) 서빙. 공개-의도(코스) 서빙은 별도 public 버킷 후속 | #138 |
 | 2026-06-30 | **(선택) 다이빙보험 첨부** — 종목 신청별 nullable `insuranceFileKey`(자격증과 동일 비공개 패턴). 계정 공유 아님(보험=활동 특화, 종목 확장 대비) — 편의는 FE prefill. V6 마이그레이션 | #140 |
 | 2026-08-22 | **강사 자격 검증 트랙 수렴** — 자격증 정본을 `StudentCertificate` 로 통일(신청은 `certificateIds` 참조, `ApplicationCertificate` 삭제·백필), `verification` 상태 + Rule A/B/C + 검수 큐 테이블, 공개 인증마크 = VERIFIED. FE 핸드오프(PungDong `docs/features/certificate.md`)를 BE 실태와 대조해 4건 보정(소비자 5곳·제출 시 자동 첨부·`previous`→테이블·전 상태 백필). PR1(모델·규칙) → PR2(검수 큐 API), 통합 브랜치 `feat/certificate-verification` | (통합 PR) |
+| 2026-08-23 | **자격 뱃지 표시 규칙** — 사람 표면(프로필·브랜딩·커뮤니티 `topCert`)에 자기신고 수강생 레벨 노출 + 뱃지에 `level`·`verified`(상태에서, 레벨 추론 금지). 강의상세·browse 는 VERIFIED 강사 자격만 유지. FE/기획 확정(마이너 UI 픽스 트랙) → BE 이슈 #330 | #330 |
 
 (각 결정의 "왜"는 해당 도메인 `CLAUDE.md` 의 결정 히스토리 섹션에도 터스하게 기록됨.)
 

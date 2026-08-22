@@ -255,8 +255,10 @@ export interface AccountBasicInfo extends HalLinks {
 }
 
 /**
- * GET /account/profile (인증·본인) — 마이페이지 프로필 카드. AccountBasicInfo + 프로필 사진 + 자격 뱃지(VERIFIED 자격증).
- * 비강사는 certs=[]. ⚠️ career(경력)·rating(평점)·자격 level 은 데이터 모델 부재로 미포함 — rating 은 V2 Course 리뷰 평균으로 신설 예정.
+ * GET /account/profile (인증·본인) — 마이페이지 프로필 카드. AccountBasicInfo + 프로필 사진 + 자격 뱃지.
+ * ★ 2026-08-23(#330): certs 는 **수강생도 값이 온다** — 전엔 "비강사는 certs=[]" 였다. `certs.length > 0` 을 강사
+ *   판정으로 쓰지 말 것(그건 `roles`). 자격증이 없으면 빈 배열.
+ * ⚠️ career(경력)·rating(평점)은 데이터 모델 부재로 미포함 — rating 은 V2 Course 리뷰 평균으로 신설 예정.
  */
 export interface AccountProfileResponse extends HalLinks {
   id: number;
@@ -268,11 +270,22 @@ export interface AccountProfileResponse extends HalLinks {
   certs: CertBadge[];
 }
 
-/** 인증마크 1개. ★ 출처 = `verification.status === 'VERIFIED'` 인 StudentCertificate(2026-08-22, 전엔 승인 신청의 첨부). 형태 불변. */
+/**
+ * 자격 뱃지 1개 — **사람 표면**(마이페이지·공개 프로필·커뮤니티 작성자 칩)의 표시 규칙(2026-08-23, #330):
+ *   후보 = 수강생 레벨(LEVEL_1..4)은 `verification` 무관 **전부** + 강사 레벨(INSTRUCTOR·INSTRUCTOR_TRAINER)은 `VERIFIED` 만.
+ *   그 집합에서 (disciplineCode, organizationCode) 그룹당 **가장 높은 레벨 1장**. 정렬 = 레벨 내림차순
+ *   (`LEVEL_1 < LEVEL_2 < LEVEL_3 < LEVEL_4 < INSTRUCTOR < INSTRUCTOR_TRAINER`) → "1장만" 표면은 `[0]` 으로 자른다.
+ * ★ `verified` 를 `level` 에서 추론하지 말 것. 지금은 "강사 레벨 ⟹ verified" 가 참이지만 정책이지 구조가 아니다 —
+ *   수강생 자격도 검증하게 되면 추론이 조용히 틀린다. 이 값으로 *검증마크 룩* / *중립 칩 룩* 을 가른다.
+ * ⚠️ 강의 상세 강사 인셋(`CourseDetailInstructor.certs`)·강사 browse `organizationCodes` 는 이 규칙이 **아니다**
+ *   (VERIFIED 강사 자격만 — 자기신고가 "이 강사 자격 있음"에 섞이면 안 된다). BE `certificate.CertificateBadgePolicy`.
+ */
 export interface CertBadge {
   disciplineCode: string;        // 종목 코드, 예 'FREEDIVING'
   organizationCode: string;      // 발급 단체 코드(Sanity 카탈로그), 예 'AIDA'·'PADI'·'OTHER'
   organizationOther?: string | null; // organizationCode==='OTHER' 일 때 단체명(= 그 자격증의 organizationName)
+  level: CertLevel;              // 그룹 내 최고 레벨
+  verified: boolean;             // verification.status === 'VERIFIED' — 레벨과 무관하게 실제 상태
 }
 
 // ── 닉네임 변경 (account) ──
@@ -619,9 +632,10 @@ export interface DisciplineResponse {
 }
 
 // ★ 2026-08-22 수렴 — 신청은 더 이상 자격증(단체+이미지)을 **소유하지 않는다**. 정본은 "내 자격증"(`StudentCertificate`,
-//   `/certificates`)이고 신청은 그 id 를 **참조**한다. 심사 결과는 자격증의 `verification` 에 붙고, 공개 인증마크
-//   (`CertBadge`/`BrandingCertBadge`/강의상세 `certs`/browse `organizationCodes`)는 `verification.status === 'VERIFIED'`
-//   인 자격증에서만 파생된다(형태는 v1 그대로). 옛 `ApplicationCertificate`·`AddCertificateRequest`·
+//   `/certificates`)이고 신청은 그 id 를 **참조**한다. 심사 결과는 자격증의 `verification` 에 붙는다. **강사 자격 표면**
+//   (강의상세 `certs`/browse `organizationCodes`)은 `verification.status === 'VERIFIED'` 인 자격증에서만 파생되고,
+//   **사람 표면**(`CertBadge`/`BrandingCertBadge`/`CommunityAuthor.topCert`)은 2026-08-23(#330)부터 자기신고 수강생
+//   레벨도 보인다(규칙은 `CertBadge` 주석). 옛 `ApplicationCertificate`·`AddCertificateRequest`·
 //   `POST /instructor-applications/certificates` 는 **삭제**. 정책: docs/features/instructor-onboarding.md §자격증 검증.
 //   FE 제출 흐름 = `POST /certificates/photos` → `POST /certificates`(level=INSTRUCTOR) → `POST /instructor-applications
 //   { certificateIds }`. 상태 규칙(Rule A/B/C)은 StudentCertificate.verification 주석.
@@ -1012,11 +1026,17 @@ export interface BrandingRecord {
   value: string;
 }
 
-/** 인증마크 — `verification.status === 'VERIFIED'` 인 StudentCertificate 에서 파생(2026-08-22, 전엔 승인 신청의 첨부). 형태 불변. */
+/**
+ * 자격 뱃지 — `CertBadge` 와 같은 모양·같은 규칙(2026-08-23, #330: level·verified 추가, 자기신고 수강생 레벨 포함).
+ * 규칙·주의는 `CertBadge` 주석 참조. 강의 상세 `CourseDetailInstructor.certs` 에서는 VERIFIED 강사 자격만 실려
+ * `verified` 가 항상 true 다(그 표면은 사람 표면이 아니다).
+ */
 export interface BrandingCertBadge {
   disciplineCode: string;
   organizationCode: string;
   organizationOther?: string | null; // 'OTHER' 일 때 그 자격증의 organizationName
+  level: CertLevel;                  // 그룹 내 최고 레벨
+  verified: boolean;                 // verification.status === 'VERIFIED' — 레벨에서 추론 금지
 }
 
 /**
@@ -1033,7 +1053,9 @@ export interface BrandingCertBadge {
  *
  * ⚠️ 필드가 "없다"는 두 가지 뜻이다:
  *   - tagline·bio·locationLabel 은 유저가 지웠거나 아직 안 적었으면 null 이 명시적으로 내려온다
- *   - disciplineCodes·certs 는 강사가 아니면 키 자체가 빠진다(undefined)
+ *   - disciplineCodes·products 는 강사가 아니면 키 자체가 빠진다(undefined)
+ *   - ★ certs 는 2026-08-23(#330)부터 **누구에게나 배열**로 온다(자기신고 수강생 레벨 포함, 없으면 `[]`).
+ *     헤더는 (종목,단체)별 1칩 **전부**를 그린다(크로스오버 강사 AIDA+SSI 가 다 보여야 한다) — `[0]` 만 그리지 말 것.
  */
 export interface BrandingProfileResponse extends HalLinks {
   nickName: string;
@@ -1044,7 +1066,7 @@ export interface BrandingProfileResponse extends HalLinks {
   /** 인증마크(공식 강사) 렌더 여부 = 승인된 강사 신청 보유. */
   isInstructor: boolean;
   disciplineCodes?: string[];        // 강사만
-  certs?: BrandingCertBadge[];       // 강사만
+  certs: BrandingCertBadge[];        // 누구나(#330) — 사람 표면 규칙, 레벨 내림차순, 없으면 []
   records: BrandingRecord[];         // 없으면 [] → 섹션 숨김
   stats: BrandingStats;
   products?: BrandingProducts;       // 강사만
@@ -1115,7 +1137,7 @@ export interface MyBrandingResponse extends HalLinks {
   locationLabel?: string | null;
   isInstructor?: boolean;
   disciplineCodes?: string[];        // 강사만
-  certs?: BrandingCertBadge[];       // 강사만
+  certs: BrandingCertBadge[];        // 누구나(#330) — 공개 프로필과 같은 값, 없으면 []
   stats?: BrandingStats;
   products?: BrandingProducts;       // 강사만
   records?: BrandingRecord[];
@@ -1290,6 +1312,13 @@ export interface CommunityAuthor {
   isInstructor: boolean;
   /** 강사만. 일반 유저는 **키 자체가 없다** — 0 을 주면 "강의 0개인 강사" 로 읽힌다. */
   lessonCount?: number;
+  /**
+   * 자격 뱃지 **최고 1장**(2026-08-23, #330) — `CertBadge` 의 사람 표면 규칙(자기신고 수강생 레벨 + VERIFIED 강사
+   * 레벨)의 정렬 `[0]`. **표시할 게 없으면 키 자체가 없다**(`lessonCount` 와 같은 규약 — "자격증 0개"와 "안 온 것"을
+   * 구분). `isInstructor` 와 독립이다 — 수강생 작성자도 자기 AIDA2 칩을 단다. 칩은 "강사 · 강의 N" **옆에 나란히**
+   * (대체 X). 단수인 건 피드 20건 × 작성자 배열의 응답 비대화를 피해서 — 전부는 공개 프로필에서.
+   */
+  topCert?: CertBadge;
 }
 
 /**
@@ -2390,7 +2419,11 @@ export interface CourseDetailInstructor {
   tagline?: string | null;
   /** 자기소개 본문. 프로필 미작성·미입력이면 null. */
   bio?: string | null;
-  /** 승인 강사만. 승인 전이면 **키 자체가 없다**(빈 배열 = "자격 없는 강사" 로 읽히므로). */
+  /**
+   * 승인 강사만. 승인 전이면 **키 자체가 없다**(빈 배열 = "자격 없는 강사" 로 읽히므로).
+   * ★ **VERIFIED 강사 자격만 — 현행 유지**(#330). 프로필·커뮤니티의 사람 표면 규칙(자기신고 포함)과 일부러 다르다:
+   *   여긴 "이 강사 자격 있음"을 말하는 강사 자격 표면이라 자기신고가 섞이면 뜻이 흐려진다. 원소의 `verified` 는 항상 true.
+   */
   certs?: BrandingCertBadge[];
   /** 승인 강사만. "강사 · 강의 N" 칩 — 브랜딩 `products.lessons`·커뮤니티 칩과 같은 숫자. */
   lessonCount?: number;

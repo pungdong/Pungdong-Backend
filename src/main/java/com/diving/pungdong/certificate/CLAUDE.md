@@ -12,7 +12,7 @@
 |---|---|
 | 정본 | **`StudentCertificate` 하나.** 신청(`InstructorApplication.certificateIds`)은 id 로 **참조**만 |
 | 심사 결과 | 자격증의 **`verification`** {status, kind, reason, requestedAt, reviewedAt} |
-| 공개 인증마크 | `verification.status == VERIFIED` 인 행만 — 브랜딩·강의상세·프로필·강사 browse 가 `StudentCertificateService.verifiedBadgesOf` 한 곳에서 읽는다 |
+| 공개 뱃지 | **표면이 둘이다(2026-08-23, #330).** 강사 자격 표면(강의상세 강사 인셋·강사 browse 칩/필터) = `VERIFIED` 행만(`verifiedBadgesOf` · 레포 JPQL). **사람 표면**(마이페이지·공개 프로필·`/branding/me`·커뮤니티 작성자 `topCert`) = `CertificateBadgePolicy`(수강생 레벨은 자기신고 그대로 + 강사 레벨은 VERIFIED 만, (종목,단체)별 최고 1장, 레벨 내림차순) — `displayBadgesOf`/`displayBadgesByAccountIds`. 뱃지엔 `level`·`verified` 가 실리고 **`verified` 는 상태에서 읽는다**(레벨 추론 금지) |
 | 어드민 큐 | `CertificateReview` (NEW / ADDITIONAL / RE_VERIFY 한 테이블) |
 | 옛 `ApplicationCertificate` | **삭제**(V38 이 백필 후 drop). 사진 key 는 옛 prefix 그대로 |
 
@@ -35,7 +35,7 @@
 - **엔티티** `StudentCertificate`(+ `@Embedded CertificateVerification`), enum `CertificateSource`(PUNGDONG/EXTERNAL) · `CertificateVerificationStatus/Kind`, 레포 `StudentCertificateJpaRepo`.
 - **검증** `CertificateVerificationService`(Rule A/B/C), `CertificateReview` + `CertificateReviewJpaRepo`(어드민 큐, kind NEW/ADDITIONAL/RE_VERIFY, RE_VERIFY 의 `previous*`), 포트 `InstructorApprovalLookup`(레포만 — 검증 서비스가 씀).
 - **어드민 검수 큐** `AdminCertificateReviewController`(`/admin/certificate-reviews/**`, 매처 ADMIN) + `CertificateReviewService`. NEW 행의 승인/반려는 포트 `InstructorApplicationReviewPort` 로 instructorapplication 에 위임. ⚠️ 그 어댑터는 `InstructorApplicationService` 를 끌어오므로 **검증 서비스에서 쓰면 순환** — 검수 큐 서비스만 쓴다.
-- **다른 도메인이 읽는 파생** — `StudentCertificateService.verifiedBadgesOf`(공개 인증마크) · `adminViewsOf`(어드민 상세용 풀 필드 + presigned) · 레포 `findVerifiedOrganizationCodesByAccountIds`(browse 칩).
+- **다른 도메인이 읽는 파생** — `StudentCertificateService.verifiedBadgesOf`(강사 자격 표면 = 강의상세) · `displayBadgesOf`/`displayBadgesByAccountIds`(사람 표면 = 프로필·브랜딩·커뮤니티, 규칙은 `CertificateBadgePolicy`) · `adminViewsOf`(어드민 상세용 풀 필드 + presigned) · 레포 `findVerifiedOrganizationCodesByAccountIds`(browse 칩). **두 파생을 서로 바꿔 끼우지 말 것** — 자기신고가 강사 검색에 걸리거나, 수강생 뱃지가 사라진다.
 - **스토리지** `storage/StudentCertificatePhotoStorage` + `S3…`/`Local…` — `pungdong.storage.s3.enabled` 게이트. **비공개(PII) 등급**.
 - **탈퇴 파기** `StudentCertificateAnonymizationListener` — `account` 의 `AccountAnonymizedEvent` 수신.
 - **레벨 enum 은 여기 없다** — `course/CertLevel` 을 **import 한다**(아래).
@@ -92,4 +92,4 @@
 
 ## 안전망 테스트
 
-`src/test/.../usecase/StudentCertificateUseCaseTest` — 실 H2 + 실 시큐리티 + **실제 로컬 스토리지**(mock 아님). S(성공)/V(검증거절)/**K(검증 Rule A·C)**/R(권한)/A(탈퇴파기). Rule B(신청 제출·승인·반려)는 `InstructorApplicationUseCaseTest` 의 S/J/RB 시리즈. 어드민 큐는 `CertificateReviewUseCaseTest`(Q 큐 / P 처리 / R 권한). 수강 픽스처는 예약 HTTP 플로우를 안 태우고 repo 로 직접 만든다(검증 대상이 자격증이지 예약이 아니다).
+`src/test/.../usecase/StudentCertificateUseCaseTest` — 실 H2 + 실 시큐리티 + **실제 로컬 스토리지**(mock 아님). S(성공)/V(검증거절)/**K(검증 Rule A·C)**/R(권한)/A(탈퇴파기). 뱃지 표시 규칙은 `CertificateBadgeUseCaseTest`(B 규칙 / P 프로필 표면 / C 커뮤니티 칩) + 강사 자격 표면이 자기신고를 안 섞는 건 `CourseDetailUseCaseTest I3-1` · `InstructorBrowseUseCaseTest S10`. Rule B(신청 제출·승인·반려)는 `InstructorApplicationUseCaseTest` 의 S/J/RB 시리즈. 어드민 큐는 `CertificateReviewUseCaseTest`(Q 큐 / P 처리 / R 권한). 수강 픽스처는 예약 HTTP 플로우를 안 태우고 repo 로 직접 만든다(검증 대상이 자격증이지 예약이 아니다).

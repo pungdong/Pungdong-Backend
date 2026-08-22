@@ -219,7 +219,7 @@ erDiagram
 | `/admin/instructor-applications/{id}/reject` | POST | **ADMIN** | 사유 필수 |
 | `/instructors/public` | GET | **공개** | 공개 강사 디렉토리(PagedModel `_embedded.instructors`). 승인 신청 보유 계정만(탈퇴 제외), 공개필드(nickName·avatarUrl·disciplineCodes)만. **size 상한 50/기본 20**(`PageClamp`), 정렬은 서버 고정(가입 최신순 = id desc)이라 클라이언트 `?sort=` 는 버려진다. `PublicInstructorController`+`PublicInstructorService`. 🔴 **호출자 0(2026-08-22)** — 홈 "공식 강사" 카드는 `GET /instructors/suggested` 다. 제거는 구버전 앱 확인 후. ⚠️ 그때까지도 **브랜딩 발행 여부를 안 본다** — "검수 통과 인원 수" 외의 용도로 쓰지 말 것. 필터·검색·정렬되는 목록은 **`GET /instructors/browse`**([branding.md](branding.md) — 모수에 `isPublished` 가 들어가 순환 회피 차원에서 branding 패키지 소유) |
 | `/instructors/suggested` | GET | **공개** | 무작위 추천 강사 + 총 수. ⚠️ **모집단이 위와 다르다** — 승인 + **브랜딩 발행**까지 된 강사만(카드를 누르면 열려야 하므로). 코드는 [branding 패키지](branding.md)에 있다(`branding → instructorapplication` 이 기존 의존 방향이라 반대로 붙이면 순환이 된다) |
-| `/account/profile` | GET | 인증(본인) | 마이페이지 프로필 — AccountBasicInfo + profilePhotoUrl + 인증마크(`certs` = VERIFIED 자격증). 합성은 `profile/ProfileService`(account⊕certificate) |
+| `/account/profile` | GET | 인증(본인) | 마이페이지 프로필 — AccountBasicInfo + profilePhotoUrl + 자격 뱃지(`certs` = 사람 표면 규칙: 자기신고 수강생 레벨 + VERIFIED 강사 레벨, #330). 합성은 `profile/ProfileService`(account⊕certificate) |
 
 매처는 `SecurityConfiguration`: `/admin/instructor-applications/**` → `hasRole(ADMIN)`, `/instructor-applications/**` → `authenticated`. 승인 후 역할 변경은 매 요청 DB 재계산이라 **재로그인 불필요** (use-case `R3` 가 검증).
 

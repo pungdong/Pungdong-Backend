@@ -37,7 +37,7 @@ flowchart TB
 ```
 
 - **의존 방향은 전부 community → 바깥**이다. `branding`·`account`·`course`·`notification` 은 community 를 모른다. `CommunityCategory` enum 이 community 가 아니라 **`branding` 패키지에 사는 이유**가 이것이다 — 브랜딩 작성 경로도 카테고리를 받는데, branding 이 community 를 import 하면 순환이 된다.
-- **`CommunityAuthorComposer` 를 별도 컴포넌트로 뺀 이유**: 게시물 서비스와 댓글 서비스가 같은 작성자 합성을 필요로 한다. 각자 구현하면 한쪽만 고쳐지는 순간 **같은 사람이 피드에선 강사, 댓글에선 일반 유저**로 보인다.
+- **`CommunityAuthorComposer` 를 별도 컴포넌트로 뺀 이유**: 게시물 서비스와 댓글 서비스가 같은 작성자 합성을 필요로 한다. 각자 구현하면 한쪽만 고쳐지는 순간 **같은 사람이 피드에선 강사, 댓글에선 일반 유저**로 보인다. 작성자에 실리는 건 닉네임·아바타·`isInstructor`·`lessonCount` + **`topCert`**(2026-08-23 #330 — 자격 뱃지 최고 1장, `certificate.StudentCertificateService.displayBadgesByAccountIds` 일괄 1쿼리, 규칙은 `CertificateBadgePolicy`; 없으면 키 생략, `isInstructor` 와 독립).
 - 강사 여부·강의 수는 **저장하지 않고** 조회 시 파생한다(브랜딩의 `certs` 파생과 같은 방침).
 
 ## 3. 흐름
@@ -324,6 +324,7 @@ V31 부터 두 컬럼이 NOT NULL 이라 **모든 글이 이 요청으로 표현
 - `F1` 카테고리 필터
 - `M1~M6` 같이가요 — 모집 정보 / **강의 연결 금지** / **일정 임박순** / 지난 모집은 `open=false` / 필수 필드 / 카테고리를 바꾸면 모집 정보도 사라진다
 - `A1` 강사가 아니면 `lessonCount` 키가 **아예 없다**(0 이면 "강의 0개인 강사" 로 읽힌다)
+- 작성자 `topCert`(자격 뱃지 최고 1장)는 `CertificateBadgeUseCaseTest C1~C3` — 수강생도 자기 칩 / 없으면 키 생략 / 상세·댓글도 같은 합성
 - `V1` 업로드로 받지 않은 외부 이미지 거부 / `V2` 제목 없으면 400 + 한국어 문구
 - `H1` 숨긴 글은 공개에서 빠지되 **오너 상세로는 열린다**(다시 공개를 누를 화면이 필요하다)
 - `K1~K5` 좋아요 멱등 / 취소 / 카드의 카운트·내 상태 / 북마크 목록(비로그인은 에러가 아니라 빈 목록) / 숨긴 글엔 불가

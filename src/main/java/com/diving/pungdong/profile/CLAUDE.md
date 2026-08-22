@@ -8,7 +8,7 @@
 
 - **`ProfileController`** — `GET /account/profile`(인증·본인). `EntityModel` 단건.
 - **`ProfileService`** — `AccountJpaRepo` + `InstructorApplicationJpaRepo` 합성. `@CurrentUser` 는 detach 라 LAZY(profilePhoto) 위해 트랜잭션 안에서 account 재로드.
-- **`dto/AccountProfileResponse`** — `AccountBasicInfo`(id/email/nickName/roles) + `profilePhotoUrl` + `certs[]`(승인 자격 뱃지). 비강사는 `certs=[]`.
+- **`dto/AccountProfileResponse`** — `AccountBasicInfo`(id/email/nickName/roles) + `profilePhotoUrl` + `certs[]`(자격 뱃지, `level`·`verified` 포함). **수강생도 값이 온다**(2026-08-23, #330 — 사람 표면 규칙 `certificate.CertificateBadgePolicy`: 자기신고 수강생 레벨 + VERIFIED 강사 레벨, (종목,단체)별 최고 1장, 레벨 내림차순). 자격증이 없으면 `[]`. `certs` 로 강사 판정하지 말 것(`roles`).
 
 ## 왜 account 패키지가 아니라 여기인가 (핵심)
 
@@ -18,7 +18,7 @@
 
 - **career(경력)** — 저장 필드·온보딩 입력 없음. 보류(추후 'N년차' UI 필요성 재검토).
 - **rating(평점)** — 강사 단위 집계 없음. 리뷰 기능 자체가 **현재 없다**: v1 Review 는 레거시 청산(2026-08-15)으로 삭제됐고 Course 리뷰는 아직 미구현. **Course 리뷰 평균으로 신설 예정(백로그).**
-- **자격 level** — 2026-08-22 수렴으로 `certificate.StudentCertificate.level` 에 있다(`certs` 출처 = VERIFIED 자격증, `StudentCertificateService.verifiedBadgesOf`). `CertBadge` 노출은 v1.5(형태 v1 불변).
+- ~~**자격 level**~~ — 2026-08-23(#330) `CertBadge.level`·`verified` 로 노출됐다. 출처는 `StudentCertificateService.displayBadgesOf`(사람 표면) — `verifiedBadgesOf`(강사 자격 표면, 강의상세용)가 아니다.
 
 ## 작업 전
 
@@ -27,4 +27,4 @@
 
 ## 안전망 테스트
 
-`src/test/.../usecase/AccountProfileUseCaseTest` — 실 H2 + 시큐리티. A1 강사(certs) / A2 학생(빈 certs) / A3 미승인 제외 / A4 비로그인 401.
+`src/test/.../usecase/AccountProfileUseCaseTest` — 실 H2 + 시큐리티. A1 강사(certs) / A2 자격증 없는 학생(빈 certs) / A3 미승인 제외 / A4 비로그인 401. 뱃지 규칙 자체는 `CertificateBadgeUseCaseTest`.

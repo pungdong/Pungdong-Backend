@@ -4,7 +4,7 @@
 
 학생이 **보유한 다이빙 자격증을 직접 기록·관리**하는 도메인(프로필 탭 &gt; 내 자격증). 조회·등록·수정·삭제 + 사진 업로드. 자격증 사진은 **실명·자격증번호가 찍힌 PII** 라 비공개 버킷에 저장하고 조회 시점에만 presigned 로 발급한다. 풍덩 강의 수료와 연결하면 강사·강의가 **등록 시점 스냅샷**으로 박제된다.
 
-**2026-08-22 부터 강사 자격 검증의 정본이기도 하다.** 강사 신청은 여기 등록한 자격증의 id 를 참조하고, 심사 결과는 행의 `verification`(NONE/PENDING/VERIFIED/REJECTED + kind)에 붙는다. 공개 인증마크(브랜딩·강의상세·프로필·강사 browse)는 `VERIFIED` 행에서만 파생. 어드민 큐는 `certificate_review`. 정책(Rule A/B/C)은 [features/instructor-onboarding.md §자격증 검증](../features/instructor-onboarding.md).
+**2026-08-22 부터 강사 자격 검증의 정본이기도 하다.** 강사 신청은 여기 등록한 자격증의 id 를 참조하고, 심사 결과는 행의 `verification`(NONE/PENDING/VERIFIED/REJECTED + kind)에 붙는다. 공개 뱃지는 표면이 둘 — **강사 자격 표면**(강의상세 강사 인셋·강사 browse)은 `VERIFIED` 강사 레벨 행만, **사람 표면**(프로필·브랜딩·커뮤니티 작성자 칩)은 자기신고 수강생 레벨 + VERIFIED 강사 레벨(`CertificateBadgePolicy`, 2026-08-23 #330). 어드민 큐는 `certificate_review`. 정책(Rule A/B/C)은 [features/instructor-onboarding.md §자격증 검증](../features/instructor-onboarding.md).
 
 > **핵심 invariant** — 클라이언트가 정하는 것은 *무슨 자격증인지*(코드·번호·취득일·사진)뿐이다. **`source`·`holderName`·강사·강의는 전부 서버가 파생**하고, 클라이언트가 준 `enrollmentId`·`photoFileKey` 는 **소유를 검증**한다.
 
@@ -42,7 +42,7 @@ flowchart TB
     Uploader["global.storage.S3Uploader"]
 
     Apply["instructorapplication<br/>(제출·승인·반려 = Rule B 호출,<br/>port 구현)"]
-    Public["branding · course · profile<br/>(인증마크 = verifiedBadgesOf)"]
+    Public["branding · profile · community<br/>(사람 표면 = displayBadgesOf · CertificateBadgePolicy)<br/>course 강의상세(강사 자격 표면 = verifiedBadgesOf)"]
 
     Ctl --> Svc
     Svc --> Repo --> Entity
@@ -307,7 +307,8 @@ presigned URL 은 **경로에 객체 key 를 담는다.** URL 이 한 번 새면
 | `identityverification` | `holderName` 파생(최신 VERIFIED 실명) |
 | `account` | 소유자. `AccountAnonymizedEvent` 로 탈퇴 파기 수신(**단방향** — account 는 이 패키지를 모른다). 검수 행도 함께 파기 |
 | `instructorapplication` | **저쪽이 이쪽을 호출**(Rule B: `attachToApplication`/`onApplicationApproved`/`onApplicationRejected`) + 이쪽 포트 2개를 구현 — `InstructorApprovalLookup`(레포만, 검증 서비스가 씀) · `InstructorApplicationReviewPort`(서비스 위임, 검수 큐만 씀 — 검증 서비스에서 쓰면 순환). 반대 방향 import 없음 |
-| `branding` · `course` · `profile` | 공개 인증마크를 `verifiedBadgesOf` 에서 읽는다(형태 v1). 강사 browse 의 단체 칩·필터는 레포 JPQL 이 `verification.status = VERIFIED` 를 직접 건다 |
+| `branding` · `profile` · `community` | **사람 표면** 뱃지를 `displayBadgesOf`/`displayBadgesByAccountIds` 에서 읽는다(규칙 = `CertificateBadgePolicy`: 수강생 레벨 자기신고 + VERIFIED 강사 레벨, (종목,단체)별 최고 1장, 레벨 내림차순, `level`·`verified` 포함). 커뮤니티는 일괄판으로 작성자 `topCert`(=`[0]`) |
+| `course`(강의상세 강사 인셋) | **강사 자격 표면** — `verifiedBadgesOf`(VERIFIED 만, 자기신고 제외). 강사 browse 의 단체 칩·필터는 레포 JPQL 이 `verification.status = VERIFIED` 를 직접 건다 |
 | Sanity | 단체·자격 카탈로그. **BE 는 읽지 않는다** — FE 가 등록 시 고른 표시명을 보내고 BE 는 스냅샷 저장만 |
 
 ---
@@ -345,6 +346,7 @@ presigned URL 은 **경로에 객체 key 를 담는다.** URL 이 한 번 새면
 | 2026-08-22 | **강사 자격 검증의 정본으로 수렴** — `verification` 임베드 + `certificate_review` + 신청은 `certificateIds` 참조, `ApplicationCertificate` 삭제(백필) | 강사가 같은 자격증을 두 번 올려야 했고(신청·내 자격증), "신청하면 자동 등록 + 인증마크"가 분리 구조로는 불가능. FE 핸드오프(PungDong `docs/features/certificate.md` §강사 자격 검증 트랙)를 BE 코드 실태와 대조해 채택 — 보정 4건: (1) 삭제 영향이 BE 소비자 5곳(브랜딩·강의상세·프로필·browse JPQL·어드민 요약), (2) 승인 시 sweep 에 더해 **제출 시 자동 첨부**(어드민이 한 번에), (3) `previous` 때문에 검수 테이블이 필요, (4) 백필은 **승인 건만이 아니라 전 상태**(SUBMITTED 첨부가 사라지면 어드민이 볼 게 없다) |
 | 2026-08-22 | **검수 큐 API 를 certificate 도메인에** — NEW 승인은 포트로 instructorapplication 에 위임 | 큐 테이블이 여기 있고 ADDITIONAL/RE_VERIFY 는 자격증 전이라 여기가 자연스럽다. NEW 의 실체(권한 부여)는 저쪽 소유라 `InstructorApplicationReviewPort` 로 위임 — 어댑터가 서비스를 끌어오므로 `InstructorApprovalLookupAdapter`(레포만)와 **분리**해 `InstructorApplicationService → CertificateVerificationService → 어댑터 → InstructorApplicationService` 순환을 피한다 |
 | 2026-08-22 | `certificate_number`/`acquired_at` **DB NULL 허용, API 필수 유지** | 옛 신청은 번호·취득일을 받지 않아 백필 행이 null. DTO `@NotBlank`/`@NotNull` 은 그대로라 "null → 값" 한 방향만 열리고, 그 채우기는 기록 보완(재검수 아님) |
+| 2026-08-23 | **사람 표면에 자기신고 수강생 레벨 노출 + 뱃지에 `level`·`verified`** — `CertificateBadgePolicy` + `displayBadgesOf`/일괄판, 커뮤니티 `topCert`. 강의상세·browse 는 VERIFIED 만 유지(#330) | 인증 뱃지가 강사 전용이면 **수강생이 자격증을 등록할 이유가 없다**(딴 AIDA2 가 어디에도 안 나온다). 자격증은 다음 레벨을 노리게 하는 장치이기도 하다. 강사·트레이너는 검증 후에만 — 한 파생을 전 표면에 돌려쓰면 자기신고가 강사 검색에 걸린다. `verified` 를 레벨에서 추론하지 않는 건 "강사 레벨 ⟹ VERIFIED" 가 정책이지 구조가 아니라서(수강생 검증이 생기면 FE 가 조용히 틀린 마크를 그린다). 부수 효과: 심사 중인 지망자도 수강생 뱃지는 유지되고 승인 시 위로 올라간다(사라지는 구간 없음) |
 | 2026-08-22 | 백필 사진 key 는 옛 prefix(`instructorCertificate/`) **그대로** | 같은 비공개 버킷이라 presign 은 key 만 있으면 되고, 탈퇴 파기는 `instructorapplication` 리스너가 그 prefix 를 계속 지운다(보험 때문에 저장소가 남음). 객체 복사는 비용만 든다 |
 | 2026-08-22 | 자격증 불필요 종목(수영/서핑)도 강사레벨 자격증을 올리면 검수·마크 **허용**, Rule C 만 비적용 | 막을 이유가 없고(생활체육지도사 등), 그 종목 강사는 자격증으로 정의되지 않으니 "마지막 한 장" 가드만 의미가 없다 |
 | 2026-08-16 | **DB `NOT NULL` / 마이그레이션 없음** — 옛 행은 그대로 둔다 | 필수가 되기 전에 사진 없이 등록된 행이 있다. 컬럼 제약을 걸면 그 행들이 **읽기·삭제조차 막히거나**(`validate` 부트 실패) 백필/삭제가 필요해진다 — 사용자 자산을 우리 규칙 변경으로 지울 수는 없다. 옛 행은 **조회·삭제 그대로, 수정할 때만 사진 요구**(막다른 길이 아니다). 새 규칙은 쓰기 경로에서만 강제한다 |
