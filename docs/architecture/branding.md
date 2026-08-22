@@ -41,6 +41,9 @@ flowchart TB
 | `/instructors/browse` | 승인(그 종목) ∧ 발행 | ✅ | **더보기 화면.** 필터·검색·정렬이 되는 유일한 목록 |
 
 - **왜 강사 둘러보기가 instructorapplication 이 아니라 여기 있나** — 모수 조건(`isPublished`)과 카드 필드(`tagline`·`locationLabel`)가 이 도메인 것이고, `openCourseCount` 는 course 를 읽는다. branding 은 그 둘을 단방향 참조해도 되지만 **반대는 순환**이다. `/instructors/suggested` 가 같은 이유로 먼저 여기 있었다 — URL 네임스페이스와 패키지 소유가 일치하지 않는 건 의도다.
+- **강사 카드의 `updatedAt` 은 단일 컬럼이 아니라 합성값**(2026-08-22, BE #323) — `max(AccountBranding.updatedAt, 승인된 InstructorApplication 들의 최대 updatedAt)`. 프로필이 6개 테이블에 흩어져 있어서다. `hydrate` 가 **이미 배치로 읽은 두 목록**만 쓰므로 추가 쿼리는 **0** 이고, JPQL 프로젝션은 건드리지 않았다 — `group by` 에 컬럼을 더하면 MySQL `ONLY_FULL_GROUP_BY` 의 함수종속 판정에 기대게 되고 H2 와 갈릴 수 있다(이 레포가 3065 로 이미 밟은 계열의 함정).
+  ⚠️ **아바타(`profile_photo`)와 자격증 이미지(`application_certificate`)는 못 잡는다** — 두 테이블에 시각 컬럼 자체가 없다. 웹 sitemap `lastmod` 용으로는 근사가 충분하다는 전제이고(정책은 [features/seo-indexing.md](../features/seo-indexing.md)), "마지막 활동" 같은 UI 표기로 전용하면 틀린다.
+  ⚠️ **`replaceRecords` 는 `updatedAt` 을 손으로 찍는다** — 기록만 갈아치우면 자식 테이블만 바뀌어 부모 행이 안 더러워지고 `@PreUpdate` 가 **안 뛴다**. 같은 함정이 `BrandingPost` 의 미디어·태그에도 있다(그쪽은 아직 안 고쳤다 — 근사 허용 범위).
 - **합성 방향은 단방향** — `account`·`instructorapplication` 은 branding 을 모른다. account 가 feature 도메인을 import 하지 않는 루트 규칙 때문에 합성을 별도 패키지로 뺐다(`profile` 패키지가 만든 선례).
 - 자격 뱃지(`certs`)·종목·검수상태·승인시각은 **저장하지 않고** 승인된 강사 신청에서 매 조회 시 파생한다.
 - **강의 상세의 강사 카드도 여기서 합성한다**(`CourseInstructorSummaryAdapter`). 인터페이스는 `course` 가 선언하고(`InstructorSummaryProvider`) 구현만 이 패키지에 둔다 — `branding → course` 가 이미 있어서(프로필의 강의 수) `course → branding` 을 더하면 **패키지 순환**이 되기 때문이다. 필요한 쪽이 계약을 선언하고, 양쪽을 다 아는 쪽이 구현한다.
@@ -235,6 +238,7 @@ erDiagram
 - `O1` 미발행 제외 — 같은 테스트가 **그 프로필이 실제로 400 이라는 것까지** 확인한다(왜 빼야 하는지가 테스트에 있다) / `O2` 미승인·반려 제외 / `O3` 탈퇴 제외
 - **`O4` "강의 N" 은 강의 둘러보기가 보여주는 것만 센다** — DRAFT·CLOSED·차단·타 종목 제외. 이게 어긋나면 "강의 3" 카드를 눌렀는데 목록이 0건이 된다
 - `V1` 종목 누락 400 / `V2` 빈 결과는 200 + `_embedded` 키 없음 / `P1` size 상한 50 / `P2` Pageable 형식 정렬은 400
+- **`T1`·`T2` 카드의 `updatedAt`** — 존재 + **두 소스 중 나중 시각**(자격·종목만 바뀌어도 반영된다)
 
 `usecase/BrandingPostUseCaseTest` (게시물):
 

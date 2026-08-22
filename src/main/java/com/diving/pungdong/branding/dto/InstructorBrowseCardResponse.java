@@ -3,6 +3,7 @@ package com.diving.pungdong.branding.dto;
 import lombok.*;
 import org.springframework.hateoas.server.core.Relation;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
@@ -52,4 +53,21 @@ public class InstructorBrowseCardResponse {
      * (OPEN · 미차단 · 데모 가림 설정 반영) — 아니면 "강의 3" 카드를 눌렀는데 목록이 0건이 된다.
      */
     private long openCourseCount;
+
+    /**
+     * 이 프로필이 마지막으로 바뀐 시각 — 웹 sitemap 의 {@code <lastmod>} 용(BE #323).
+     *
+     * <p>강사 프로필은 <b>가장 자주 바뀌는 축</b>(한마디·소개·기록·자격)인데 이 응답엔 시각 필드가 아예
+     * 없어서 크롤러가 변경을 알 방법이 없었다. 모르는 날짜를 {@code now} 로 채우면 매번 "전부 방금
+     * 바뀌었다" 가 되어 크롤 예산만 태우므로, 진짜 시각을 낸다.
+     *
+     * <p><b>합성값이다</b>: {@code max(AccountBranding.updatedAt, 승인된 InstructorApplication 들의
+     * 최대 updatedAt)}. 프로필이 6개 테이블에 흩어져 있어 단일 컬럼이 없다.
+     *
+     * <p>⚠️ <b>못 잡는 축이 있다 — 과신하지 말 것.</b> {@code profile_photo}(아바타)와
+     * {@code application_certificate}(자격증 이미지)에는 시각 컬럼 자체가 없어, 사진만 바꾼 변경은
+     * 반영되지 않는다. 근사값이면 충분하다는 전제 위에 서 있다(정책·확장 계획은
+     * {@code docs/features/seo-indexing.md}).
+     */
+    private OffsetDateTime updatedAt;
 }

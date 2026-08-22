@@ -89,6 +89,8 @@ erDiagram
     int price "부가세 포함"
     enum status "DRAFT|OPEN|CLOSED (검수 없음)"
     OffsetDateTime publishedAt "최초 OPEN 시각 — 되돌리지 않음. 공개 상세 읽기 게이트의 판정"
+    OffsetDateTime createdAt "@PrePersist 보장"
+    OffsetDateTime updatedAt "@PreUpdate + update()의 명시 호출 — sitemap lastmod 의 출처"
     Set regions "Region @ElementCollection — 둘러보기 지역 필터(저장 시 주소→파생)"
     String primaryLocationName "카드 대표 위치명(저장 시 비정규화)"
   }
@@ -165,6 +167,14 @@ erDiagram
   없는 내용이 노출된다). `CLOSED` 를 그대로 게이트로 쓰지 말 것.
   안전망은 `CourseDetailUseCaseTest` **C1~C4 한 묶음** + `ModerationUseCaseTest` R2 · `LaunchFlagsUseCaseTest`
   D1 의 CLOSED 확장(조치·데모가림이 읽기 축도 이긴다) — 되돌리려면 함께 봐야 한다.
+- ✅ **`createdAt`·`updatedAt` 이 항상 채워진다**(2026-08-22, BE #323 · V37). 예전엔 `CourseService` 가
+  손으로만 세팅해서 **신규 생성 직후 `updatedAt` 이 null** 이었고, 어드민이 `blocked_at` 을 세우는 경로는
+  아예 안 건드렸다. 레포 표준(`@PrePersist`/`@PreUpdate` — `branding.AccountBranding` 이 정본)으로 옮기고
+  옛 행은 V37 이 백필했다. 그래서 `CourseCardResponse.createdAt` 이 `types.ts` 에서 **옵셔널을 벗었다**.
+  ⚠️ **콜백만으로는 부족해 `update()` 의 명시 호출을 남겨 뒀다** — Hibernate 는 이 행의 스칼라가 더러워질
+  때만 `@PreUpdate` 를 부르므로 **회차·미디어(자식 컬렉션)만 바뀐 수정은 콜백이 안 뛴다.** 지우지 말 것.
+  용도는 웹 sitemap 의 `lastmod`(정책은 [features/seo-indexing.md](../features/seo-indexing.md)) — 크롤러가
+  **바뀐 것만** 다시 가져가게 하는 신호라 근사값이면 충분하다.
 - 🟡 **조치된 강의를 강사에게 알리지 않는다.** 강사는 "왜 아무도 안 들어오지" 를 알 수 없다 — 알림 1종 +
   내 강의 목록 표기가 후속.
 - 🟡 **일정 변경·결제 준비는 `blocked_at` 도 `CLOSED` 도 보지 않는다.** 기존 구멍이고, 예약 게이트를

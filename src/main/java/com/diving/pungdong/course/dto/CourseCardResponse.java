@@ -69,6 +69,15 @@ public class CourseCardResponse {
     private OffsetDateTime createdAt;
 
     /**
+     * 이 강의의 내용이 마지막으로 바뀐 시각. 웹 sitemap 의 {@code <lastmod>} 가 이 값이다 — 크롤러가
+     * <b>바뀐 것만</b> 다시 가져가게 하는 신호(BE #323). 정확한 감사 로그는 아니고 근사면 충분하다.
+     *
+     * <p>{@code createdAt} 과 함께 <b>항상 채워진다</b>(V37 백필 + {@code Course} 의 {@code @PrePersist}).
+     * 클라이언트는 "모르는 날짜" 를 다룰 필요가 없다 — 모르면 필드를 생략하는 게 아니라 애초에 안 모른다.
+     */
+    private OffsetDateTime updatedAt;
+
+    /**
      * 저장(북마크) 수. <b>내려주지만 노출은 FE 가 결정한다</b> — "N명이 저장" 은 판매 신호지만 초기라
      * 숫자가 낮으면 역효과라서, 표시를 끄는 게 필드를 빼는 것보다 되돌리기 쉽다. 인기순 정렬 신호로도
      * 쓸 수 있다(지금 {@code Sort} 에는 없다).
@@ -105,6 +114,7 @@ public class CourseCardResponse {
                 .status(c.getStatus())
                 .seeded(c.isSeeded())
                 .createdAt(c.getCreatedAt())
+                .updatedAt(c.getUpdatedAt())
                 .build();
     }
 }

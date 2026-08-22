@@ -51,7 +51,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 강사용 GET /courses/{id} 와 달리 venue 를 합성: 위치명·<b>입장료(이용권×평일/주말 daypart fee)</b>·장비.
  * {@code @DisplayName} 위→아래로 읽으면 규칙.
  *
- * <p>그룹: S* 상세 합성, <b>I* 강사 카드 인라인</b>, V* 비공개/없음, <b>C* 마감(CLOSED) 읽기 전용 공개</b>.
+ * <p>그룹: S* 상세 합성, <b>I* 강사 카드 인라인</b>, V* 비공개/없음, <b>C* 마감(CLOSED) 읽기 전용 공개</b>,
+ * T* 변경 시각.
  * CUSTOM 위치(이용권 평일/주말 fee 다르게)를 직접 seed 해 입장료 합성을 검증한다.
  */
 @SpringBootTest
@@ -461,5 +462,21 @@ class CourseDetailUseCaseTest {
         mockMvc.perform(get("/courses/" + id + "/detail"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("OPEN"));
+    }
+
+    /* ════════ T — 변경 시각(sitemap lastmod, BE #323) ════════ */
+
+    @Test
+    @DisplayName("T1 상세에 createdAt·updatedAt 이 항상 온다 — 웹이 lastmod 를 낼 수 있어야 한다")
+    void t1_detail_has_timestamps() throws Exception {
+        Account inst = account("t1@pungdong.com");
+        String[] ref = seedVenueWithTicket(inst, 48000, 55000);
+        long id = openCourse(inst, ref[0], ref[1]);
+
+        mockMvc.perform(get("/courses/" + id + "/detail"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.createdAt").isNotEmpty())
+                // 발행(OPEN 전이)도 변경이다 — 한 번도 수정 안 한 강의라고 null 이면 안 된다.
+                .andExpect(jsonPath("$.updatedAt").isNotEmpty());
     }
 }

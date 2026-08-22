@@ -8,6 +8,7 @@ import com.diving.pungdong.venue.equipment.dto.VenueEquipmentResponse;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.*;
 
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -85,6 +86,15 @@ public class CourseDetailResponse {
     private List<Venue> venues;
 
     /**
+     * 생성 시각 / 마지막으로 내용이 바뀐 시각. 웹이 sitemap 의 {@code <lastmod>} 와 구조화 데이터에 쓴다
+     * (BE #323). 근사값이면 충분하다 — 하위 엔티티(회차·위치)의 미세한 변경까지 전파하지는 않는다.
+     *
+     * <p>둘 다 <b>항상 채워진다</b>(V37 백필 + {@code Course} 의 {@code @PrePersist}).
+     */
+    private OffsetDateTime createdAt;
+    private OffsetDateTime updatedAt;
+
+    /**
      * 저장(북마크) 수. 카드와 같은 판단 — 내려주고 노출은 FE 가 정한다
      * ({@link CourseCardResponse#getBookmarkCount()} 참고).
      */
@@ -117,6 +127,8 @@ public class CourseDetailResponse {
                 .price(c.getPrice())
                 .description(c.getDescription())
                 .seeded(c.isSeeded())
+                .createdAt(c.getCreatedAt())
+                .updatedAt(c.getUpdatedAt())
                 .media(c.getMedia().stream().map(Media::from).collect(Collectors.toList()))
                 .instructor(instructor)
                 .instructorId(c.getInstructor() == null ? null : c.getInstructor().getId())

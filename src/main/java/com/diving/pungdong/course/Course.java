@@ -6,6 +6,7 @@ import lombok.*;
 
 import javax.persistence.*;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -146,7 +147,36 @@ public class Course {
     private List<CourseRound> rounds = new ArrayList<>();
 
     private OffsetDateTime createdAt;
+
+    /**
+     * 마지막으로 이 강의의 내용이 바뀐 시각. <b>sitemap 의 {@code <lastmod>} 가 이 값으로 나간다</b> —
+     * 크롤러는 그걸 보고 <b>바뀐 것만</b> 다시 가져간다(없으면 자체 휴리스틱에 맡기게 되어 바뀐 페이지를
+     * 늦게 가져가고 안 바뀐 페이지를 쓸데없이 재크롤한다).
+     *
+     * <p>⚠️ <b>{@link #preUpdate} 만으로는 부족하다.</b> Hibernate 는 이 행의 스칼라가 더러워질 때만
+     * 콜백을 부르므로, <b>회차·미디어(자식 컬렉션)만 바뀐 수정은 콜백이 안 뛴다.</b> 그래서
+     * {@code CourseService.update} 가 명시적으로 한 번 더 찍는다 — 콜백은 안전망, 명시 호출은 정확도다.
+     * ({@code CourseService} 만 손으로 세팅하던 시절엔 신규 생성 직후 이 값이 <b>null</b> 이었고,
+     * 어드민이 {@code blocked_at} 을 세우는 경로는 아예 안 건드렸다.)
+     */
     private OffsetDateTime updatedAt;
+
+    /** 레포 표준(Style A — {@code branding.AccountBranding} 이 정본). 신규 행의 두 시각을 보장한다. */
+    @PrePersist
+    void prePersist() {
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        if (this.createdAt == null) {
+            this.createdAt = now;   // 서비스가 이미 넣었으면 그대로 둔다(시더가 시각을 지정하는 경로).
+        }
+        if (this.updatedAt == null) {
+            this.updatedAt = this.createdAt;
+        }
+    }
+
+    @PreUpdate
+    void preUpdate() {
+        this.updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
+    }
 
     /** 레벨 2개 이상 = 한 상품으로 묶인 패키지(별도 토글 없음, chat45). */
     public boolean isPackage() {

@@ -848,6 +848,15 @@ export interface InstructorBrowseCardResponse {
    *   을 쓴다(`keyword` 아님 — 부분 일치라 동명 강사·제목이 섞여 이 숫자와 안 맞는다).
    */
   openCourseCount: number;
+  /**
+   * 이 프로필이 마지막으로 바뀐 시각(UTC ISO-8601). sitemap `<lastmod>` 용 — 강사 프로필은 가장 자주
+   * 바뀌는 축인데 예전엔 시각 필드가 **아예 없어** 크롤러가 변경을 알 방법이 없었다(BE #323).
+   *
+   * ⚠️ **합성 근사값이다**: `max(브랜딩 프로필 수정, 승인된 강사신청 수정)`. **아바타 교체와 자격증
+   *    이미지 교체는 안 잡힌다** — 그 두 테이블에 시각 컬럼 자체가 없다. `lastmod` 용도로는 충분하지만
+   *    "마지막 활동" 같은 UI 표기에는 쓰지 말 것(있는 그대로가 아니다).
+   */
+  updatedAt: string;
 }
 
 /** GET /instructors/browse 응답 — 카드는 `_embedded.instructors`(빈 결과면 키 없음), 메타는 `page`. */
@@ -1193,6 +1202,12 @@ export interface CommunityPostCard {
   mediaCount: number;
   locationLabel?: string;
   createdAt: string;             // UTC ISO-8601. "15분 전" 은 FE 가 만든다
+  /**
+   * 마지막 수정 시각(수정이 없으면 `createdAt` 과 같다). sitemap `<lastmod>` 용(BE #323) —
+   * 예전엔 목록에 없어서 정확한 값을 얻으려면 글마다 상세를 한 번 더 불러야 했다.
+   * ⚠️ 본문·제목·분류 수정은 잡지만 **미디어·태그만 교체한 경우는 안 잡힌다**(근사값).
+   */
+  updatedAt: string;
   likeCount: number; commentCount: number; bookmarkCount: number;
   likedByMe: boolean; bookmarkedByMe: boolean;
   /** 공개 피드에선 항상 false. **오너가 자기 글을 볼 때만** true — 숨김 배지·토글 상태용. */
@@ -2118,7 +2133,16 @@ export interface CourseCardResponse {
    */
   status: CourseStatus;
   seeded: boolean; // 데모(샘플) 코스 — FE 가 "샘플용" 태그로 구분 노출. siteSettings.showSeededCourses=false 면 목록에서 빠짐
-  createdAt?: string;
+  /**
+   * 생성 시각 / 마지막으로 내용이 바뀐 시각(UTC ISO-8601).
+   *
+   * `createdAt` 은 **더 이상 옵셔널이 아니다**(2026-08-22, BE #323) — 값이 없던 옛 행을 V37 이 백필했고
+   * 신규 행은 엔티티 콜백이 보장한다. `updatedAt` 은 웹 sitemap 의 `<lastmod>` 로 나가 크롤러가
+   * **바뀐 것만** 다시 가져가게 한다(모르는 날짜를 `now` 로 채우면 매번 "전부 방금 바뀌었다" 가 되어
+   * 크롤 예산만 태운다).
+   */
+  createdAt: string;
+  updatedAt: string;
   /**
    * 저장(북마크) 수. **내려주지만 노출 여부는 FE 가 정한다** — "N명이 저장"은 판매 신호지만 초기에
    * 숫자가 낮으면 역효과라 표시를 끄는 쪽이 되돌리기 쉽다.
@@ -2197,6 +2221,9 @@ export interface CourseDetailResponse extends HalLinks {
   instructorName: string | null;
   rounds: CourseDetailRoundResponse[];
   venues: CourseDetailVenueResponse[]; // 회차 가로질러 dedupe + 합성 (진행 위치 섹션)
+  /** 생성 / 마지막 변경 시각(UTC ISO-8601). `lastmod`·구조화 데이터용. 둘 다 항상 온다. */
+  createdAt: string;
+  updatedAt: string;
   /** 저장(북마크) 수. 카드와 같다 — 내려주되 노출은 FE 가 정한다. */
   bookmarkCount: number;
   /**

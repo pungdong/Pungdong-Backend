@@ -428,4 +428,32 @@ class InstructorBrowseUseCaseTest {
         browse("?disciplineCode=FREEDIVING&sort=id,asc")
                 .andExpect(status().isBadRequest());
     }
+
+    /* ════════ T — 변경 시각(sitemap lastmod) ════════ */
+
+    @Test
+    @DisplayName("T1 카드에 updatedAt 이 온다 — 시각이 없으면 웹이 lastmod 를 아예 못 낸다")
+    void t1_card_has_updated_at() throws Exception {
+        visibleInstructor("강사", "FREEDIVING");
+
+        browse("?disciplineCode=FREEDIVING")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.instructors[0].updatedAt").isNotEmpty());
+    }
+
+    @Test
+    @DisplayName("T2 updatedAt 은 프로필과 승인 신청 중 더 나중 시각이다 — 자격·종목만 바뀌어도 반영된다")
+    void t2_updated_at_is_the_later_of_two_sources() throws Exception {
+        Account account = account("강사");
+        branding(account, true, "한 줄", "잠실");
+        InstructorApplication application =
+                application(account, "FREEDIVING", InstructorApplicationStatus.APPROVED, "AIDA");
+        // 프로필(방금 저장)보다 뒤인 게 확실한 시각으로 신청을 건드린다.
+        application.setUpdatedAt(OffsetDateTime.of(2030, 1, 2, 3, 4, 5, 0, ZoneOffset.UTC));
+        applicationRepo.save(application);
+
+        browse("?disciplineCode=FREEDIVING")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.instructors[0].updatedAt", startsWith("2030-01-02")));
+    }
 }
