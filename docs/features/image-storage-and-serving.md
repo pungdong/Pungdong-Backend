@@ -68,6 +68,16 @@ presigned는 **만료 + 쿼리 서명**이라 크롤러·SSG가 인덱싱/하드
 | **웹 (Next.js/Vercel)** | `next/image` 가 CDN URL을 소스로 리사이즈/WebP/AVIF. BE는 안정 원본 URL만 제공. `next.config` `images.remotePatterns` 에 `cdn(-staging).plop.cool` 추가 필요. |
 | **모바일 앱** | Vercel 같은 최적화 레이어 없음 → **BE/엣지가 최적화 제공 필요.** |
 
+### 클라이언트 사용 규칙 (웹·앱) — 핸드오프에서 흡수 (2026-08-22)
+
+전달 완료된 FE 핸드오프 문서(`docs/api-clients/image-handoff.md`)를 지우면서, 계약이 아니라 **사용 규칙**이라 `types.ts` 에 안 들어가는 것들만 여기로 옮겼다.
+
+- **`/r/` 는 항상 `w`·`fm` 과 함께 부른다.** 파라미터 없는 `/r/{key}` 는 원본을 base64 로 실어 보내 큰 파일에서 실패한다(위 8MB 항목과 같은 원인).
+- **앱: width = 슬롯 pt × 기기 DPR 을 사다리로 스냅** — 권장 사다리 **200 · 400 · 800 · 1200 · 1600**(올림). 연속 width 는 후보마다 캐시 엔트리가 생겨 **엣지 캐시가 파편화**된다. 포맷은 `fm=webp`. URL 은 API 가 준 원본에서 **호스트 뒤에 `/r/` 를 끼워** 조립한다.
+- **웹: `<Image src>` 는 원본 URL**(`/r/` 직접 호출 X) — width 선택은 `next/image` 가 `srcset`/`sizes` 로 한다. `next.config` `images.remotePatterns` 에 `cdn(-staging).plop.cool` 추가는 필수(없으면 렌더 거부). 로더는 Vercel 기본 옵티마이저 / 우리 `/r/` 커스텀 로더 중 트래픽 보고 FE 가 택한다.
+- **og:image · sitemap · 구조화데이터는 고정 사이즈 하나**(예 `/r/{key}?w=1200&fm=jpeg`) — 크롤러는 `next/image` 를 거치지 않는다.
+- **HEIC 는 거부된다** — iOS 피커에서 JPEG 로 변환해 올린다.
+
 ### 이미지 변환 — 온디맨드 리사이즈/포맷 (CloudFront + 리전 Lambda + sharp)
 
 `cdn.plop.cool/r/{key}?w=400&fm=webp` 식 **온디맨드** 리사이즈/포맷 변환을 CloudFront 뒤에 둔다.

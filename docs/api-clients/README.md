@@ -19,9 +19,9 @@
 - **방법**: `createClient({ projectId: 'rc448mwo', dataset: 'production', apiVersion: '2024-01-01', useCdn: true })` + GROQ 문자열을 [`sanity/queries.ts`](../../sanity/queries.ts) 에서 복사(types.ts 복사와 동일 방식).
 - **`useCdn: true` 필수** — 공개 콘텐츠는 CDN 캐시 읽기(빠름·저렴·API 한도 비차감). publish 시 Sanity 가 CDN 자동 purge 라 freshness 도 자동(수 초).
 - **private 데이터는 Sanity 아님** — 강사 커스텀 위치 등은 BE `/venues`(types.ts).
-- 강사 코스 빌더의 official+custom 통합은 후속 **BE 머지 엔드포인트**가 나오면 그쪽으로(그땐 FE 가 소스를 신경 안 씀).
+- 강사 코스 빌더의 official+custom 통합은 **BE 머지 엔드포인트 `GET /venues/builder` 로 이미 나왔다** — 코스 빌더 위치 목록은 그걸 쓴다(FE 가 소스를 신경 쓰지 않음).
 
-REST Docs HTML 도 빌드 산출물로 생성된다 (`./gradlew build` → `static/docs/api.html`, 운영 시 `https://api.pungdong.com/docs/api.html` 로 노출 예정). 사람용 reference 가 필요할 때 보면 되고, **TypeScript 타입 생성 자체는 `types.ts` 만 읽으면 된다.**
+REST Docs HTML 도 빌드 산출물로 생성된다 (`./gradlew build` → `static/docs/api.html`, 운영 시 `https://api.plop.cool/docs/api.html` 로 노출). 사람용 reference 가 필요할 때 보면 되고, **TypeScript 타입 생성 자체는 `types.ts` 만 읽으면 된다.**
 
 ## FE Claude 가 작업하는 법
 
