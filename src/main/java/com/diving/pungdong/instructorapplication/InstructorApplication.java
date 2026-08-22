@@ -13,6 +13,9 @@ import java.util.List;
  * 강사 신청 1건. <b>종목별</b> — 한 계정이 종목마다 1건씩 (프리다이빙 + 스쿠버 동시 가능).
  * {@code (account_id, discipline_code)} 유니크.
  *
+ * <p>자격증은 {@link #certificateIds} 로 <b>참조</b>한다(정본은 {@code certificate} 도메인). 상태머신은 그대로
+ * SUBMITTED/APPROVED/REJECTED 이고, 어드민 큐에서는 {@code certificate.CertificateReview}(kind=NEW) 행이 이 신청을 가리킨다.
+ *
  * <p>레거시 {@code Account.isRequestCertified}/{@code isCertified} 플래그 방식을 대체한다.
  * 상태머신({@link InstructorApplicationStatus})으로 제출/승인/반려/재제출을 표현하고,
  * 심사 이력(reviewer/reviewedAt/rejectionReason)을 보유한다. 승인된 신청 = 그 종목의 강사 자격.
@@ -46,9 +49,19 @@ public class InstructorApplication {
     @ManyToOne(fetch = FetchType.LAZY)
     private IdentityVerification identityVerification;
 
-    @OneToMany(mappedBy = "application", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    /**
+     * 첨부 자격증 — {@code certificate.StudentCertificate} 의 id 목록(제출 순서). 2026-08-22 수렴 전엔 신청이 자체
+     * {@code ApplicationCertificate}(단체+이미지)를 소유했는데, 강사가 같은 자격증을 두 번 올려야 했다. 이제 정본은
+     * 내 자격증이고 신청은 참조만 한다. 심사 결과는 그 자격증의 {@code verification} 에 붙는다.
+     *
+     * <p>FK 없음 — 자격증은 사용자가 지울 수 있다(심사 중인 건 Rule C 가 막는다). 지워진 id 는 읽을 때 걸러진다.
+     */
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "instructor_application_certificate", joinColumns = @JoinColumn(name = "application_id"))
+    @OrderColumn(name = "sort_order")
+    @Column(name = "certificate_id", nullable = false)
     @Builder.Default
-    private List<ApplicationCertificate> certificates = new ArrayList<>();
+    private List<Long> certificateIds = new ArrayList<>();
 
     /**
      * (선택) 다이빙보험 증빙 이미지의 <b>비공개 저장 참조 key</b> — 자격증과 동일한 비공개 패턴
@@ -70,13 +83,10 @@ public class InstructorApplication {
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
 
-    /** 자격증 이미지를 신청에 연결한다 (양방향 동기화). */
-    public void addCertificate(ApplicationCertificate certificate) {
-        certificate.setApplication(this);
-        this.certificates.add(certificate);
-    }
-
-    public void clearCertificates() {
-        this.certificates.clear();
+    public void replaceCertificateIds(List<Long> ids) {
+        this.certificateIds.clear();
+        if (ids != null) {
+            this.certificateIds.addAll(ids);
+        }
     }
 }

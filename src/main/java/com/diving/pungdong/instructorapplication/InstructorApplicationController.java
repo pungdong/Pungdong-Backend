@@ -22,7 +22,7 @@ import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.linkTo;
 import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
 
 /**
- * 강사 신청 (신청자 본인용). 흐름: 본인확인 → 자격증 이미지 업로드 → 제출 → (반려 시) 재제출.
+ * 강사 신청 (신청자 본인용). 흐름: 본인확인 → 내 자격증 등록({@code /certificates}) → 제출(certificateIds) → (반려 시) 재제출.
  *
  * <p>로그인한 사용자면 누구나(STUDENT) 접근 — 권한 매처는 {@code /instructor-applications/**}
  * authenticated. 어드민 심사 엔드포인트는 {@link AdminInstructorApplicationController}.
@@ -49,7 +49,8 @@ public class InstructorApplicationController {
     }
 
     /**
-     * 자격증 이미지 업로드 (2-phase 1단계) — multipart, S3 URL 반환.
+     * 보험 이미지 업로드 (2-phase 1단계) — multipart, 저장 참조 key 반환. 경로명은 역사적 이유로
+     * {@code certificate-images} 지만 2026-08-22 수렴 후 <b>보험 전용</b>이다(자격증 사진은 {@code POST /certificates/photos}).
      *
      * <p>본인확인은 이 도메인이 아니라 공유 자산: {@code POST /identity-verifications} 로 생성하고
      * {@code GET /identity-verifications/me} 로 조회 (수강/강사 공유, skip 지원).
@@ -96,22 +97,4 @@ public class InstructorApplicationController {
         return ResponseEntity.ok().body(model);
     }
 
-    /**
-     * 자격증 추가 (자격증 관리 탭) — 이미 승인된 강사가 그 종목에 자격증 1건 append. MVP 는 검수 없이
-     * 즉시 반영. (검수 중/반려는 제출·재제출 경로.)
-     */
-    @PostMapping("/certificates")
-    public ResponseEntity<?> addCertificate(@CurrentUser Account account,
-                                            @Valid @RequestBody AddCertificateRequest request,
-                                            BindingResult result) {
-        if (result.hasErrors()) {
-            throw new BadRequestException();
-        }
-        InstructorApplicationResult applicationResult = applicationService.addCertificate(account, request);
-
-        EntityModel<InstructorApplicationResult> model = EntityModel.of(applicationResult);
-        model.add(linkTo(methodOn(InstructorApplicationController.class).getMyApplications(account)).withRel("me"));
-        model.add(Link.of("/docs/api.html#resource-instructor-application-add-certificate").withRel("profile"));
-        return ResponseEntity.ok().body(model);
-    }
 }

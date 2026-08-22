@@ -3,6 +3,13 @@ package com.diving.pungdong.usecase;
 import com.diving.pungdong.account.*;
 import com.diving.pungdong.branding.AccountBrandingJpaRepo;
 import com.diving.pungdong.global.security.JwtTokenProvider;
+import com.diving.pungdong.certificate.CertificateSource;
+import com.diving.pungdong.certificate.CertificateVerification;
+import com.diving.pungdong.certificate.CertificateVerificationKind;
+import com.diving.pungdong.certificate.CertificateVerificationStatus;
+import com.diving.pungdong.certificate.StudentCertificate;
+import com.diving.pungdong.certificate.StudentCertificateJpaRepo;
+import com.diving.pungdong.course.CertLevel;
 import com.diving.pungdong.instructorapplication.*;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -52,9 +59,11 @@ class BrandingUseCaseTest {
     @Autowired ProfilePhotoJpaRepo profilePhotoRepo;
     @Autowired AccountBrandingJpaRepo brandingRepo;
     @Autowired InstructorApplicationJpaRepo applicationRepo;
+    @Autowired StudentCertificateJpaRepo certificateRepo;
 
     @AfterEach
     void cleanUp() {
+        certificateRepo.deleteAll();
         applicationRepo.deleteAll();
         brandingRepo.deleteAll();
         accountRepo.deleteAll();
@@ -81,13 +90,24 @@ class BrandingUseCaseTest {
                 .status(InstructorApplicationStatus.APPROVED)
                 .reviewedAt(OffsetDateTime.now(ZoneOffset.UTC))
                 .build();
-        application.getCertificates().add(ApplicationCertificate.builder()
-                .application(application)
-                .organizationCode(organizationCode)
-                .sortOrder(0)
-                .build());
         applicationRepo.save(application);
+        verifiedCertificate(account, disciplineCode, organizationCode);
     }
+
+    /** VERIFIED 강사레벨 자격증 1장 — 인증마크(certs·organizationCodes)의 출처(2026-08-22 수렴: 승인 신청 첨부 → VERIFIED 자격증). */
+    private StudentCertificate verifiedCertificate(Account owner, String disciplineCode, String organizationCode) {
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        return certificateRepo.save(StudentCertificate.builder()
+                .owner(owner).disciplineCode(disciplineCode).organizationCode(organizationCode)
+                .organizationName(organizationCode).level(CertLevel.INSTRUCTOR)
+                .certificateNumber("INS-1").acquiredAt(java.time.LocalDate.of(2020, 1, 1))
+                .source(CertificateSource.EXTERNAL).photoFileKey("studentCertificate/" + owner.getId() + "/x.jpg")
+                .createdAt(now)
+                .verification(new CertificateVerification(CertificateVerificationStatus.VERIFIED,
+                        CertificateVerificationKind.APPLICATION, null, now, now))
+                .build());
+    }
+
 
     /** 프로필을 만들고 발행 상태로 둔다(첫 쓰기 = 생성). */
     private void createPublishedBranding(Account owner, String tagline) throws Exception {

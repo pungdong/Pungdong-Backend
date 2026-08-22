@@ -1,7 +1,9 @@
 package com.diving.pungdong.certificate;
 
 import com.diving.pungdong.account.Account;
+import com.diving.pungdong.certificate.dto.AdminCertificateView;
 import com.diving.pungdong.certificate.dto.CertificatePhotoResult;
+import com.diving.pungdong.certificate.dto.VerifiedCertificateBadge;
 import com.diving.pungdong.certificate.dto.StudentCertificateCreateRequest;
 import com.diving.pungdong.certificate.dto.StudentCertificateResponse;
 import com.diving.pungdong.certificate.dto.StudentCertificateUpdateRequest;
@@ -35,6 +37,10 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Comparator;
 import java.util.List;
+import java.util.function.Function;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.stream.Collectors;
 
 /**
@@ -55,6 +61,9 @@ public class StudentCertificateService {
     private final DisciplineService disciplineService;
     private final EnrollmentJpaRepo enrollmentRepo;
     private final IdentityVerificationJpaRepo identityVerificationRepo;
+    private final CertificateVerificationService verificationService;
+
+    public static final String MSG_OTHER_NAME_REQUIRED = "기타 단체명을 입력해주세요.";
 
     /* ─── 사진 업로드 (2-phase 1단계) ───────────────────────── */
 
@@ -101,6 +110,7 @@ public class StudentCertificateService {
     public StudentCertificateResponse register(Account account, StudentCertificateCreateRequest request) {
         // 종목은 실제 카탈로그에 있어야 한다(단체 코드는 Sanity 소유라 대조하지 않는다).
         disciplineService.getActiveByCode(request.getDisciplineCode());
+        requireOtherOrganizationName(request.getOrganizationCode(), request.getOrganizationName());
         requireOwnedPhotoKey(account, request.getPhotoFileKey());
 
         StudentCertificate cert = StudentCertificate.builder()
@@ -122,6 +132,8 @@ public class StudentCertificateService {
         applyCourseLink(cert, account, request.getEnrollmentId(), request.getDisciplineCode());
 
         StudentCertificate saved = certificateRepo.save(cert);
+        // Rule A — 승인된 종목에 강사레벨이면 곧장 검수 큐로(ADDITIONAL). 아니면 NONE 그대로.
+        verificationService.onRegistered(saved);
         return toResponse(saved, resolveHolderName(account));
     }
 
@@ -147,7 +159,11 @@ public class StudentCertificateService {
         StudentCertificate cert = requireMine(account, id);
         // 등록과 같은 순서로 막는다 — 종목 → 사진 소유 → (아래) 강의 연결.
         disciplineService.getActiveByCode(request.getDisciplineCode());
+        requireOtherOrganizationName(request.getOrganizationCode(), request.getOrganizationName());
         requireOwnedPhotoKey(account, request.getPhotoFileKey());
+        // Rule C — 심사 중 참조 / 마지막 검증 자격증의 종목변경·하향은 값을 건드리기 전에 막는다.
+        verificationService.guardUpdate(cert, request.getDisciplineCode(), request.getLevel());
+        CertificateVerificationService.IdentitySnapshot before = CertificateVerificationService.IdentitySnapshot.of(cert);
 
         cert.updateDetails(
                 request.getDisciplineCode(),
@@ -161,8 +177,10 @@ public class StudentCertificateService {
                 request.getIssuer());
 
         requirePhotoAfterUpdate(cert, request.getPhotoFileKey());
-        replacePhotoIfChanged(cert, request.getPhotoFileKey());
+        boolean photoChanged = replacePhotoIfChanged(cert, request.getPhotoFileKey());
         applyCourseLink(cert, account, request.getEnrollmentId(), request.getDisciplineCode());
+        // Rule A — 식별필드가 바뀌었으면 검증 상태 전이(VERIFIED → RE_VERIFY 등).
+        verificationService.onUpdated(cert, before, photoChanged);
 
         // 더티 체킹으로 커밋 시 UPDATE. 위에서 던지면 롤백되고 사진 파기도 안 돈다(afterCommit).
         return toResponse(cert, resolveHolderName(account));
@@ -185,16 +203,17 @@ public class StudentCertificateService {
         }
     }
 
-    /** 새 key 가 있고 지금 것과 다를 때만 교체 + 옛 객체 파기. 빈 값이면 유지, 같으면 no-op. */
-    private void replacePhotoIfChanged(StudentCertificate cert, String newPhotoKey) {
+    /** 새 key 가 있고 지금 것과 다를 때만 교체 + 옛 객체 파기. 빈 값이면 유지, 같으면 no-op. 교체했으면 true. */
+    private boolean replacePhotoIfChanged(StudentCertificate cert, String newPhotoKey) {
         String currentKey = cert.getPhotoFileKey();
         if (!StringUtils.hasText(newPhotoKey) || newPhotoKey.equals(currentKey)) {
-            return;
+            return false;
         }
         cert.replacePhoto(newPhotoKey);
         if (StringUtils.hasText(currentKey)) {
             deletePhotoAfterCommit(cert.getId(), currentKey);
         }
+        return true;
     }
 
     /**
@@ -255,8 +274,10 @@ public class StudentCertificateService {
     @Transactional
     public void delete(Account account, Long id) {
         StudentCertificate cert = requireMine(account, id);
+        verificationService.guardDelete(cert); // Rule C
         String photoKey = cert.getPhotoFileKey();
         certificateRepo.delete(cert);
+        verificationService.onDeleted(id);
 
         if (StringUtils.hasText(photoKey)) {
             deletePhotoAfterCommit(id, photoKey);
@@ -294,7 +315,51 @@ public class StudentCertificateService {
         }
     }
 
+    /* ─── 다른 도메인이 읽는 파생 ──────────────────────────────── */
+
+    /**
+     * 공개 인증마크 — 한 계정의 VERIFIED 자격증(종목 무관). 브랜딩·강의상세·프로필의 {@code certs} 출처.
+     * 예전엔 "승인 신청의 자격증" 이었고, 2026-08-22 수렴으로 출처만 바뀌었다(형태는 v1 그대로).
+     */
+    public List<VerifiedCertificateBadge> verifiedBadgesOf(Long accountId) {
+        return certificateRepo.findVerifiedByOwner(accountId).stream()
+                .map(VerifiedCertificateBadge::of)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 어드민 검수 화면용 — 여러 id 를 <b>주어진 순서대로</b>(없는 id 는 빠짐). 사진은 presigned 로 발급.
+     * 백필 행의 사진 key 는 옛 신청 prefix({@code instructorCertificate/}) 그대로라도 같은 비공개 버킷이라 발급된다.
+     */
+    public List<AdminCertificateView> adminViewsOf(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, StudentCertificate> byId = certificateRepo.findAllById(ids).stream()
+                .collect(Collectors.toMap(StudentCertificate::getId, Function.identity()));
+        Map<Long, String> holderNames = new HashMap<>();
+        List<AdminCertificateView> views = new ArrayList<>();
+        for (Long id : ids) {
+            StudentCertificate c = byId.get(id);
+            if (c == null) {
+                continue;
+            }
+            String holder = holderNames.computeIfAbsent(c.getOwner().getId(), k -> resolveHolderName(c.getOwner()));
+            String viewUrl = StringUtils.hasText(c.getPhotoFileKey()) ? photoStorage.viewUrl(c.getPhotoFileKey()) : null;
+            views.add(AdminCertificateView.of(c, holder, viewUrl));
+        }
+        return views;
+    }
+
     /* ─── 내부 ──────────────────────────────────────────────── */
+
+    /** OTHER(기타) 단체는 표시명이 곧 단체명이라 비울 수 없다 — 옛 신청의 {@code organizationOther} 규칙을 잇는다. */
+    private void requireOtherOrganizationName(String organizationCode, String organizationName) {
+        if (VerifiedCertificateBadge.ORGANIZATION_OTHER.equalsIgnoreCase(organizationCode)
+                && !StringUtils.hasText(organizationName)) {
+            throw new BadRequestException(MSG_OTHER_NAME_REQUIRED);
+        }
+    }
 
     private StudentCertificate requireMine(Account account, Long id) {
         return certificateRepo.findByIdAndOwnerId(id, account.getId())

@@ -3,6 +3,10 @@ package com.diving.pungdong.instructorapplication;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.account.Role;
+import com.diving.pungdong.certificate.CertificateVerificationService;
+import com.diving.pungdong.certificate.StudentCertificate;
+import com.diving.pungdong.certificate.StudentCertificateJpaRepo;
+import com.diving.pungdong.certificate.StudentCertificateService;
 import com.diving.pungdong.discipline.Discipline;
 import com.diving.pungdong.discipline.DisciplineService;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
@@ -11,7 +15,13 @@ import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.identityverification.IdentityVerification;
 import com.diving.pungdong.identityverification.IdentityVerificationJpaRepo;
 import com.diving.pungdong.identityverification.IdentityVerificationStatus;
-import com.diving.pungdong.instructorapplication.dto.*;
+import com.diving.pungdong.instructorapplication.dto.CertificateImageResult;
+import com.diving.pungdong.instructorapplication.dto.InstructorApplicationCounts;
+import com.diving.pungdong.instructorapplication.dto.InstructorApplicationDetail;
+import com.diving.pungdong.instructorapplication.dto.InstructorApplicationResult;
+import com.diving.pungdong.instructorapplication.dto.InstructorApplicationSubmitRequest;
+import com.diving.pungdong.instructorapplication.dto.InstructorApplicationSummary;
+import com.diving.pungdong.instructorapplication.dto.MyInstructorApplicationResponse;
 import com.diving.pungdong.instructorapplication.storage.CertificateImageStorage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -23,29 +33,37 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 /**
- * 강사 신청 도메인 서비스 — 본인확인 → 자격증 업로드 → 제출/재제출 → 어드민 승인/반려.
+ * 강사 신청 도메인 서비스 — 본인확인 → (내 자격증 등록) → 제출/재제출 → 어드민 승인/반려.
  *
  * <p>상태머신 전이는 모두 여기서 강제한다. 컨트롤러는 입출력 매핑만 담당.
+ * 자격증의 검증 상태(PENDING/VERIFIED/REJECTED)는 {@link CertificateVerificationService} 에 위임한다 —
+ * 제출·승인·반려가 그 도메인의 Rule B 를 부른다(의존 방향: instructorapplication → certificate).
  */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class InstructorApplicationService {
 
-    static final String ORGANIZATION_OTHER = "OTHER";
+    public static final String MSG_CERTIFICATE_REQUIRED = "강사 레벨 자격증을 1개 이상 등록해주세요.";
 
     private final InstructorApplicationJpaRepo applicationRepo;
     private final IdentityVerificationJpaRepo identityVerificationRepo;
     private final AccountJpaRepo accountRepo;
     private final DisciplineService disciplineService;
     private final CertificateImageStorage certificateImageStorage;
+    private final CertificateVerificationService certificateVerificationService;
+    private final StudentCertificateService studentCertificateService;
+    private final StudentCertificateJpaRepo studentCertificateRepo;
 
-    /* ─── 자격증 이미지 업로드 (2-phase 1단계) ───────────────── */
+    /* ─── 보험 이미지 업로드 (2-phase 1단계) ───────────────── */
 
     @Transactional
     public CertificateImageResult uploadCertificateImage(Account account, MultipartFile image) {
@@ -67,7 +85,7 @@ public class InstructorApplicationService {
         Account managed = loadAccount(account);
         Discipline discipline = disciplineService.getActiveByCode(request.getDisciplineCode());
         IdentityVerification verification = resolveVerification(managed, request.getVerificationId());
-        validateCertification(managed, discipline, request);
+        requireOwnedFileKey(managed, request.getInsuranceFileKey());
 
         InstructorApplication application = applicationRepo
                 .findByAccountIdAndDisciplineCode(managed.getId(), discipline.getCode())
@@ -90,12 +108,7 @@ public class InstructorApplicationService {
             }
         }
 
-        applyFields(application, request, verification);
-        InstructorApplication saved = applicationRepo.save(application);
-        return InstructorApplicationResult.builder()
-                .applicationId(saved.getId())
-                .status(saved.getStatus())
-                .build();
+        return applyAndAttach(application, managed, discipline, request, verification);
     }
 
     /**
@@ -115,48 +128,29 @@ public class InstructorApplicationService {
         }
 
         IdentityVerification verification = resolveVerification(managed, request.getVerificationId());
-        validateCertification(managed, discipline, request);
-
-        applyFields(application, request, verification);
-        InstructorApplication saved = applicationRepo.save(application);
-        return InstructorApplicationResult.builder()
-                .applicationId(saved.getId())
-                .status(saved.getStatus())
-                .build();
+        requireOwnedFileKey(managed, request.getInsuranceFileKey());
+        return applyAndAttach(application, managed, discipline, request, verification);
     }
 
     /**
-     * 자격증 관리 — 이미 승인된(APPROVED) 강사가 그 종목에 자격증 1건을 추가한다. MVP 는 검수 없이
-     * 바로 append (상태 유지). 검수 중/반려 상태는 신청/재제출(submit/resubmit) 경로로 다룬다.
+     * 제출/재제출 공통 — 필드 반영 → 저장(id 확보) → 자격증 첨부(Rule B: 검증·자동첨부·PENDING·NEW 검수행).
+     * 자격증 필요 종목인데 첨부가 0 이면 400(전부 롤백).
      */
-    @Transactional
-    public InstructorApplicationResult addCertificate(Account account, AddCertificateRequest request) {
-        Account managed = loadAccount(account);
-        Discipline discipline = disciplineService.getActiveByCode(request.getDisciplineCode());
-        InstructorApplication application = applicationRepo
-                .findByAccountIdAndDisciplineCode(managed.getId(), discipline.getCode())
-                .orElseThrow(BadRequestException::new); // 그 종목 신청이 없음
-
-        if (application.getStatus() != InstructorApplicationStatus.APPROVED) {
-            throw new BadRequestException(); // 승인된 강사만 추가 가능 (검수중/반려는 submit/resubmit)
-        }
-        if (isBlank(request.getOrganizationCode()) || isBlank(request.getFileKey())) {
-            throw new BadRequestException();
-        }
-        requireOwnedFileKey(managed, request.getFileKey());
-        if (ORGANIZATION_OTHER.equalsIgnoreCase(request.getOrganizationCode()) && isBlank(request.getOrganizationOther())) {
-            throw new BadRequestException();
-        }
-
-        application.addCertificate(ApplicationCertificate.builder()
-                .organizationCode(request.getOrganizationCode())
-                .organizationOther(ORGANIZATION_OTHER.equalsIgnoreCase(request.getOrganizationCode())
-                        ? request.getOrganizationOther() : null)
-                .fileKey(request.getFileKey())
-                .sortOrder(application.getCertificates().size())
-                .build());
-        application.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
+    private InstructorApplicationResult applyAndAttach(InstructorApplication application, Account owner,
+                                                       Discipline discipline,
+                                                       InstructorApplicationSubmitRequest request,
+                                                       IdentityVerification verification) {
+        List<Long> previouslyAttached = new ArrayList<>(application.getCertificateIds());
+        applyFields(application, request, verification);
         InstructorApplication saved = applicationRepo.save(application);
+
+        List<Long> attached = certificateVerificationService.attachToApplication(
+                saved.getId(), owner.getId(), discipline.getCode(), request.getCertificateIds(), previouslyAttached);
+        if (discipline.isRequiresCertification() && attached.isEmpty()) {
+            throw new BadRequestException(MSG_CERTIFICATE_REQUIRED);
+        }
+        saved.replaceCertificateIds(attached);
+
         return InstructorApplicationResult.builder()
                 .applicationId(saved.getId())
                 .status(saved.getStatus())
@@ -178,7 +172,14 @@ public class InstructorApplicationService {
         Page<InstructorApplication> page = (status == null)
                 ? applicationRepo.findAll(pageable)               // "전체" 탭
                 : applicationRepo.findAllByStatus(status, pageable);
-        return page.map(this::toSummary);
+        // 단체 칩은 첨부 자격증에서 — 페이지 전체를 한 번에 읽어 행마다 쿼리가 나가지 않게.
+        Set<Long> allIds = page.getContent().stream()
+                .flatMap(a -> a.getCertificateIds().stream())
+                .collect(Collectors.toSet());
+        Map<Long, StudentCertificate> certs = allIds.isEmpty() ? Map.of()
+                : studentCertificateRepo.findAllById(allIds).stream()
+                        .collect(Collectors.toMap(StudentCertificate::getId, Function.identity()));
+        return page.map(a -> toSummary(a, certs));
     }
 
     /** 상태별 건수 (어드민 탭 뱃지). */
@@ -220,6 +221,10 @@ public class InstructorApplicationService {
         applicant.getRoles().add(Role.INSTRUCTOR);
         applicant.setIsCertified(true);
         accountRepo.save(applicant);
+
+        // Rule B — 첨부 자격증 VERIFIED(= 인증마크) + 심사 중 새로 올라온 강사레벨은 ADDITIONAL 큐로.
+        certificateVerificationService.onApplicationApproved(application.getId(), applicant.getId(),
+                application.getDisciplineCode(), new ArrayList<>(application.getCertificateIds()), reviewer.getId());
     }
 
     @Transactional
@@ -235,6 +240,9 @@ public class InstructorApplicationService {
         application.setReviewedAt(OffsetDateTime.now(ZoneOffset.UTC));
         application.setRejectionReason(reason);
         applicationRepo.save(application);
+
+        certificateVerificationService.onApplicationRejected(application.getId(),
+                new ArrayList<>(application.getCertificateIds()), reason, reviewer.getId());
     }
 
     /* ─── 내부 헬퍼 ─────────────────────────────────────────── */
@@ -259,39 +267,8 @@ public class InstructorApplicationService {
     }
 
     /**
-     * 종목의 자격증 필수 여부에 따른 조건부 검증. requiresCertification 종목은 자격증 1건 이상,
-     * 각 자격증마다 단체(+OTHER 직접입력)·이미지 필수. 그 외(수영/서핑)는 생략 가능.
-     */
-    private void validateCertification(Account owner, Discipline discipline, InstructorApplicationSubmitRequest request) {
-        // 보험 이미지도 같은 업로드 경로를 타므로 종목과 무관하게 소유를 검사한다.
-        requireOwnedFileKey(owner, request.getInsuranceFileKey());
-
-        if (!discipline.isRequiresCertification()) {
-            return; // 자격증 불필요 종목 — 자격증/단체 생략 가능
-        }
-        List<ApplicationCertificateDto> certs = request.getCertificates();
-        if (certs == null || certs.isEmpty()) {
-            throw new BadRequestException(); // 자격증 1건 이상 필수
-        }
-        for (ApplicationCertificateDto cert : certs) {
-            if (isBlank(cert.getFileKey())) {
-                throw new BadRequestException(); // 자격증 이미지 필수
-            }
-            requireOwnedFileKey(owner, cert.getFileKey());
-            if (isBlank(cert.getOrganizationCode())) {
-                throw new BadRequestException(); // 발급 단체 필수
-            }
-            if (ORGANIZATION_OTHER.equalsIgnoreCase(cert.getOrganizationCode()) && isBlank(cert.getOrganizationOther())) {
-                throw new BadRequestException(); // 기타 단체는 직접입력 필수
-            }
-        }
-    }
-
-    /**
-     * 제출 JSON 이 참조하는 저장 참조가 <b>본인이 올린 것</b>인지 검사한다 — 없으면 남의 자격증 이미지를
-     * 자기 신청에 붙여 열람할 수 있다({@link CertificateImageStorage#isOwnedBy} 의 유출 시나리오 참고).
-     *
-     * <p>빈 값은 통과 — "있으면 내 것이어야 한다"는 검사이고, 필수 여부는 호출처가 따로 본다.
+     * 보험 이미지의 저장 참조가 <b>본인이 올린 것</b>인지 — 없으면 남의 이미지를 자기 신청에 붙여 열람할 수 있다
+     * ({@link CertificateImageStorage#isOwnedBy} 의 유출 시나리오 참고). 빈 값은 통과(선택 필드).
      */
     private void requireOwnedFileKey(Account owner, String fileKey) {
         if (isBlank(fileKey)) {
@@ -312,23 +289,9 @@ public class InstructorApplicationService {
         application.setReviewedAt(null);
         application.setReviewer(null);
         application.setRejectionReason(null);
-        // 보험(선택) — 제출/재제출은 전체 스냅샷이라, 안 보내면 해제됨(자격증과 동일). FE 가 유지 시 prefill 로 재전송.
+        // 보험(선택) — 제출/재제출은 전체 스냅샷이라, 안 보내면 해제됨. FE 가 유지 시 prefill 로 재전송.
         application.setInsuranceFileKey(request.getInsuranceFileKey());
-
-        application.clearCertificates();
-        List<ApplicationCertificateDto> certs = request.getCertificates();
-        if (certs != null) {
-            IntStream.range(0, certs.size()).forEach(i -> {
-                ApplicationCertificateDto c = certs.get(i);
-                application.addCertificate(ApplicationCertificate.builder()
-                        .organizationCode(c.getOrganizationCode())
-                        .organizationOther(ORGANIZATION_OTHER.equalsIgnoreCase(c.getOrganizationCode())
-                                ? c.getOrganizationOther() : null)
-                        .fileKey(c.getFileKey())
-                        .sortOrder(i)
-                        .build());
-            });
-        }
+        application.replaceCertificateIds(List.of()); // 첨부는 attachToApplication 결과로 다시 채운다
     }
 
     private boolean isBlank(String s) {
@@ -340,27 +303,23 @@ public class InstructorApplicationService {
         return isBlank(insuranceFileKey) ? null : certificateImageStorage.viewUrl(insuranceFileKey);
     }
 
-    /**
-     * 조회 응답용 자격증 DTO — 저장 key 는 그대로 echo 하고, 표시용 {@code viewUrl} 은 이 시점에
-     * presigned(짧은 TTL)로 발급한다. 목록(toSummary)엔 이미지가 안 나가므로 발급도 안 함.
-     */
-    private List<ApplicationCertificateDto> certificateDtos(InstructorApplication application) {
-        return application.getCertificates().stream()
-                .sorted((a, b) -> Integer.compare(a.getSortOrder(), b.getSortOrder()))
-                .map(c -> ApplicationCertificateDto.builder()
-                        .organizationCode(c.getOrganizationCode())
-                        .organizationOther(c.getOrganizationOther())
-                        .fileKey(c.getFileKey())
-                        .viewUrl(certificateImageStorage.viewUrl(c.getFileKey()))
-                        .build())
-                .collect(Collectors.toList());
+    /** 첨부 id 중 아직 존재하는 것만(사용자가 지운 자격증은 빠진다) — 순서 유지. */
+    private List<Long> existingCertificateIds(InstructorApplication application) {
+        List<Long> ids = application.getCertificateIds();
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> existing = studentCertificateRepo.findAllById(ids).stream()
+                .map(StudentCertificate::getId)
+                .collect(Collectors.toSet());
+        return ids.stream().filter(existing::contains).collect(Collectors.toList());
     }
 
     private MyInstructorApplicationResponse toMyResponse(InstructorApplication application) {
         return MyInstructorApplicationResponse.builder()
                 .disciplineCode(application.getDisciplineCode())
                 .status(application.getStatus().name())
-                .certificates(certificateDtos(application))
+                .certificateIds(existingCertificateIds(application))
                 .insuranceFileKey(application.getInsuranceFileKey())
                 .insuranceViewUrl(insuranceViewUrl(application.getInsuranceFileKey()))
                 .identityVerified(application.getIdentityVerification() != null)
@@ -370,11 +329,13 @@ public class InstructorApplicationService {
                 .build();
     }
 
-    private InstructorApplicationSummary toSummary(InstructorApplication application) {
+    private InstructorApplicationSummary toSummary(InstructorApplication application,
+                                                   Map<Long, StudentCertificate> certs) {
         Account applicant = application.getAccount();
-        List<String> orgCodes = application.getCertificates().stream()
-                .map(ApplicationCertificate::getOrganizationCode)
-                .filter(c -> c != null)
+        List<String> orgCodes = application.getCertificateIds().stream()
+                .map(certs::get)
+                .filter(c -> c != null && c.getOrganizationCode() != null)
+                .map(StudentCertificate::getOrganizationCode)
                 .distinct()
                 .collect(Collectors.toList());
         return InstructorApplicationSummary.builder()
@@ -399,7 +360,7 @@ public class InstructorApplicationService {
                 .nickName(applicant.getNickName())
                 .status(application.getStatus())
                 .disciplineCode(application.getDisciplineCode())
-                .certificates(certificateDtos(application))
+                .certificates(studentCertificateService.adminViewsOf(new ArrayList<>(application.getCertificateIds())))
                 .insuranceFileKey(application.getInsuranceFileKey())
                 .insuranceViewUrl(insuranceViewUrl(application.getInsuranceFileKey()))
                 .realName(verification != null ? verification.getRealName() : null)
