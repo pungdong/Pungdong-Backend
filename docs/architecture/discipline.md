@@ -66,7 +66,7 @@ seed 기본값(출시 scope): 프리다이빙(1)·스쿠버(2)·머메이드(3) 
 ## 알려진 설계 간극 / 확장 자리
 
 - 🟡 **단체-종목 매핑은 Sanity** — 종목별 단체 목록은 BE 가 아니라 Sanity 카탈로그(disciplineCode 키). BE 는 강사 신청의 organizationCode 를 종목에 대해 검증하지 않는다(자격증=Sanity 결정의 일관된 trade-off).
-- 🟢 **레벨/등급 확장** — "level2까지 교육 가능한 강사" 같은 세분화: 자격증(`ApplicationCertificate`)에 `ratingCode` 추가 + Sanity 카탈로그에 종목→단체→레벨 + 강의 생성 시 강사 레벨 게이트(강의 도메인). 현재 문자열 code 기반 구조가 additive 수용. MVP 는 종목별 강사로만.
+- 🟢 **레벨/등급 확장** — "level2까지 교육 가능한 강사" 같은 세분화: 레벨은 이미 있다(2026-08-22 수렴 — VERIFIED `StudentCertificate.level`, [certificate.md](certificate.md)). 남은 건 강의 생성 시 강사 레벨 게이트(강의 도메인). MVP 는 종목별 강사로만.
 - 🟢 **어드민 종목 관리** — 활성/순서/이름 편집 UI 는 추후. 현재 seed-if-absent.
 
 ---

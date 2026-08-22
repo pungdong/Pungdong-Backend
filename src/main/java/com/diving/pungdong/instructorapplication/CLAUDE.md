@@ -10,11 +10,12 @@
 - **컨트롤러**: `InstructorApplicationController`(신청자 `/instructor-applications/**`), `AdminInstructorApplicationController`(어드민 `/admin/instructor-applications/**`)
 - **서비스**: `InstructorApplicationService`(상태머신 강제 — 모든 전이는 여기서)
 - **본인확인**: 이 도메인 아님 — 별도 [identity-verification](../identityverification/CLAUDE.md) 도메인. 신청은 `verificationId` 로 **참조만**(제출 시 소유+verified 검증). 진입 skip 은 FE 가 `GET /identity-verifications/me`.
-- **이미지 저장 경계** (`storage/`): `CertificateImageStorage`(interface — `store`/`viewUrl`/`deleteAllFor` + static `ownerPrefix`·`isOwnedBy`) + `S3CertificateImageStorage`(prod) / `LocalCertificateImageStorage`(dev, 로컬 디스크 + `/local-uploads/**` 정적 서빙 `LocalUploadsWebConfig`). `pungdong.storage.s3.enabled` = `false`(기본) / `true`. **저장 경로는 양쪽 다 `instructorCertificate/{ownerId}/`** — 소유 판정과 탈퇴 일괄 삭제가 이 그룹핑에 의존한다.
+- **자격증은 소유하지 않는다 (2026-08-22)** — 정본은 [certificate](../certificate/CLAUDE.md) 의 `StudentCertificate`. 신청은 `certificateIds`(`@ElementCollection`, 제출 순서)로 **참조**, 제출/승인/반려 때 `CertificateVerificationService`(Rule B)를 호출해 자격증의 `verification` 을 움직인다. "승인된 강사인가"는 저쪽 포트 `InstructorApprovalLookup` 을 `InstructorApprovalLookupAdapter` 가 구현(의존 방향 instructorapplication → certificate 유지).
+- **이미지 저장 경계** (`storage/`) — 이제 **보험 전용**(자격증 사진은 `/certificates/photos`). 경로명 `certificate-images` 는 역사적. 백필된 옛 자격증 사진 key 가 이 prefix 아래 남아 있어 탈퇴 파기 리스너는 유지. `CertificateImageStorage`(interface — `store`/`viewUrl`/`deleteAllFor` + static `ownerPrefix`·`isOwnedBy`) + `S3CertificateImageStorage`(prod) / `LocalCertificateImageStorage`(dev, 로컬 디스크 + `/local-uploads/**` 정적 서빙 `LocalUploadsWebConfig`). `pungdong.storage.s3.enabled` = `false`(기본) / `true`. **저장 경로는 양쪽 다 `instructorCertificate/{ownerId}/`** — 소유 판정과 탈퇴 일괄 삭제가 이 그룹핑에 의존한다.
 - **탈퇴 PII 파기** (`CertificateImageAnonymizationListener`): `account` 의 `AccountAnonymizedEvent` 를 받아 `deleteAllFor(accountId)`. **account 는 이 패키지를 모른다**(단방향) → 이벤트 경유. 동기 리스너라 예외는 삼킨다("고아 1개 < 익명화 실패").
 - **종목**: 이 도메인 아님 — [discipline](../discipline/CLAUDE.md). 신청은 `disciplineCode` 로 참조, 제출 시 `DisciplineService.getActiveByCode` 로 검증 + `requiresCertification` 으로 자격증 필수 여부 분기.
-- **엔티티**: `InstructorApplication`(**종목별** 1건, `(account_id, discipline_code)` UNIQUE), `ApplicationCertificate`(자격증 = **단체+이미지**, 1:N — 한 종목에 여러 단체), `InstructorApplicationStatus`(enum). `IdentityVerification` 참조(identity-verification 도메인 소유)
-- **레포**: `InstructorApplicationJpaRepo`, `ApplicationCertificateJpaRepo` (+ identity-verification 의 `IdentityVerificationJpaRepo` 로 제출 시 검증)
+- **엔티티**: `InstructorApplication`(**종목별** 1건, `(account_id, discipline_code)` UNIQUE, `certificateIds` 참조), `InstructorApplicationStatus`(enum). `IdentityVerification` 참조(identity-verification 도메인 소유). ~~`ApplicationCertificate`~~ 삭제(V38 백필 후 drop).
+- **레포**: `InstructorApplicationJpaRepo` (+ identity-verification 의 `IdentityVerificationJpaRepo` 로 제출 시 검증, certificate 의 `StudentCertificateJpaRepo` 로 첨부 읽기)
 - **dto/**: submit / 조회 / 어드민 DTO (identity DTO 는 identity-verification 도메인)
 
 보안 매처(`/admin/instructor-applications/**` → ADMIN, `/instructor-applications/**` → authenticated)는 **`global/security/SecurityConfiguration`** 에 있음 — 새 엔드포인트 추가 시 거기서 갱신.
@@ -30,17 +31,18 @@
 - **전용 엔티티 + 상태머신** — 레거시 `Account.isRequestCertified/isCertified` 두 boolean 방식을 대체. 그 방식은 반려/심사이력 표현이 불가능하고, 승인 시 `isCertified` 를 안 켜는 버그가 있었다. (사용자 결정 2026-06-08)
 - **본인확인을 계정 공유 자산으로 승격** (2026-06-09) — 처음(#34)엔 이 도메인 하위(`POST /instructor-applications/identity-verification`)였으나, 본인확인은 수강에서도 쓰는 계정 자산이라 별도 [identity-verification](../identityverification/CLAUDE.md) 도메인으로 분리. FE 가 `GET /me` 로 skip(재인증 생략) 구현. stub/disabled 경계도 그 도메인으로 이동.
 - **이미지 저장을 FcmGateway 패턴으로 게이트** (S3) — `@ConditionalOnProperty` 로 dev=local / prod=S3. prod 는 `STORAGE_S3_ENABLED=true` 로 override. (본인확인 게이트 `IDENTITY_VERIFICATION_MODE` 는 identity-verification 도메인 소관.)
-- **종목별 신청 + 단체=자격증 단위** (2026-06-10) — 신청은 종목별(`(account_id, discipline_code)` UNIQUE, 프리다이빙+스쿠버 동시 가능). 단체(organizationCode)는 신청이 아니라 **`ApplicationCertificate` 단위** — 한 종목에 여러 단체 자격(AIDA+PADI+Molchanovs) 가능. organizationCode 는 문자열(Sanity 카탈로그, 종목별; BE 검증 안 함, `OTHER` 빈값만 체크). 종목의 `requiresCertification` 으로 자격증 필수 여부 분기(수영/서핑=불필요).
-- **자격증 관리 (MVP)** — 승인된 강사는 같은 종목 재신청 차단(400), 대신 `POST /instructor-applications/certificates` 로 자격증만 **검수 없이 append**. 향후 "인증 요청하기"→검수→자격 승격/레벨(자격증에 `ratingCode` 추가)로 확장. (use-case `DS5`)
-- **2-phase 업로드** — 자격증 이미지는 `POST /certificate-images`(multipart)로 먼저 올려 URL 을 받고, 제출 JSON 이 그 URL 을 참조. 제출 컨트랙트가 깔끔한 JSON 이 됨.
-  - ⚠️ **라운드트립되는 `fileKey` 는 반드시 소유 검증**(2026-08-14) — 제출/재제출/자격증추가 세 경로 모두 `requireOwnedFileKey`. 안 하면 유출된 presigned URL 에서 뽑은 남의 key 를 자기 신청에 붙여 **TTL 3분을 무한 재발급**할 수 있다. 새 파일 참조 필드를 추가하면(보험처럼) **여기도 같이 추가**할 것.
+- **종목별 신청 + 단체=자격증 단위** (2026-06-10) — 신청은 종목별(`(account_id, discipline_code)` UNIQUE, 프리다이빙+스쿠버 동시 가능). 단체(organizationCode)는 신청이 아니라 **자격증 단위**(당시 `ApplicationCertificate`, 2026-08-22 부터 `StudentCertificate`) — 한 종목에 여러 단체 자격(AIDA+PADI+Molchanovs) 가능. organizationCode 는 문자열(Sanity 카탈로그, 종목별; BE 검증 안 함, `OTHER` 빈값만 체크). 종목의 `requiresCertification` 으로 자격증 필수 여부 분기(수영/서핑=불필요).
+- ~~**자격증 관리 (MVP)** — `POST /instructor-applications/certificates` 검수 없이 append~~ → **삭제 (2026-08-22)**. 승인된 강사의 추가 자격증은 `POST /certificates` 로 등록하면 certificate 도메인 Rule A 가 PENDING(ADDITIONAL) 큐에 넣는다. 같은 종목 재신청 차단(400)은 유지. (use-case `DS5`)
+- **자격증 수렴 (2026-08-22)** — 신청의 `certificates[{organizationCode, fileKey}]` → `certificateIds[]`. 이유: 강사가 같은 자격증을 두 번 올렸고, "신청하면 자동 등록 + 인증마크"가 분리 구조로는 불가능. 제출 시 **자동 첨부**(그 종목의 NONE 강사레벨 자격증을 빼고 보내도 BE 가 붙인다 — 어드민이 한 번에 본다) + 승인 시 **sweep**(심사 중 새로 올린 것 → ADDITIONAL 큐). 첨부 검증(소유·종목·강사레벨)은 certificate 쪽 `attachToApplication`.
+- **2-phase 업로드** — 보험 이미지는 `POST /certificate-images`(multipart)로 먼저 올려 key 를 받고, 제출 JSON 이 그 key 를 참조.
+  - ⚠️ **라운드트립되는 `fileKey` 는 반드시 소유 검증**(2026-08-14) — 제출/재제출 `requireOwnedFileKey`. 안 하면 유출된 presigned URL 에서 뽑은 남의 key 를 자기 신청에 붙여 **TTL 3분을 무한 재발급**할 수 있다. 새 파일 참조 필드를 추가하면 **여기도 같이 추가**할 것.
 - **승인 = additive role** — STUDENT 유지 + INSTRUCTOR 추가. 권한은 매 요청 DB 재계산이라 토큰 재발급 불필요 (use-case `R3`).
 - **중복/없음 응답** — 종목별 중복 신청은 400(레포에 409 인프라 없음, `EmailDuplicationException` 처럼 400 통일). 내 신청 조회 `GET /me` 는 종목별 **목록**(CollectionModel) — 미신청 종목은 항목 없음(404 아님, FE 가 선택 종목으로 필터).
 - **어드민 지정 = DB role + env allowlist** (Sanity 아님) — admin 권한은 `Account.roles` 의 `ADMIN`(authz 는 우리 신뢰경계). "누구를 admin 으로"의 목록만 env `pungdong.admin.emails` → `account.AdminAccountInitializer` 가 부팅 시 부여. 어드민 심사 목록은 counts(탭 뱃지) + status 옵셔널(전체 탭) 지원. (사용자 결정 2026-06-09)
 
 ## 안전망 테스트
 
-`src/test/.../usecase/InstructorApplicationUseCaseTest` — 실제 H2 + 시큐리티 체인, S3 만 `@MockBean`, 본인확인은 stub 그대로. 신청/승인/반려/재제출/권한을 건드리면 여기가 회귀를 잡는다. (S/V/D/R/J/A/U 시리즈)
+`src/test/.../usecase/InstructorApplicationUseCaseTest` — 실제 H2 + 시큐리티 체인, S3 만 `@MockBean`, 본인확인은 stub 그대로. 신청/승인/반려/재제출/권한 + 자격증 검증 상태(Rule B)를 건드리면 여기가 회귀를 잡는다. (S/V/D/R/J/A/U/DS/RB 시리즈)
 
 ## 아직 안 한 것 (후속 PR)
 

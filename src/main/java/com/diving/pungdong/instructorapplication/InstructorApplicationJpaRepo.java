@@ -61,6 +61,11 @@ public interface InstructorApplicationJpaRepo extends JpaRepository<InstructorAp
     List<InstructorApplication> findByAccountIdInAndStatus(Collection<Long> accountIds,
                                                            InstructorApplicationStatus status);
 
+    /** 여러 신청의 첨부 자격증 id — {@code [applicationId, certificateId]} 쌍(제출 순서). 검수 큐 목록의 단체 칩용. */
+    @Query("select a.id, c from InstructorApplication a join a.certificateIds c where a.id in :applicationIds "
+            + "order by a.id asc, index(c) asc")
+    List<Object[]> findCertificateIdsByApplicationIds(@Param("applicationIds") Collection<Long> applicationIds);
+
     /** 어드민 대기 목록 — 상태별 조회. SUBMITTED 만 넘기면 승인/반려된 건은 빠진다. */
     Page<InstructorApplication> findAllByStatus(InstructorApplicationStatus status, Pageable pageable);
 

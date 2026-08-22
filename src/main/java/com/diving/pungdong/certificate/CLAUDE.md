@@ -4,24 +4,38 @@
 
 > **package-by-feature** 신규 도메인. `Account`·`Course`/`Enrollment`·`Discipline` 을 **단방향 참조** — 그쪽은 이 패키지를 모른다.
 
-## ⚠️ 먼저 — `instructorapplication` 의 자격증과 다른 것이다
+## ⚠️ 먼저 — 이 도메인이 강사 자격 검증의 **정본**이다 (2026-08-22 수렴)
 
-이름이 비슷해 합치고 싶어지는데, **합치면 안 된다**:
+예전 이 문단은 "`instructorapplication` 의 `ApplicationCertificate` 와 **합치면 안 된다**"였다 — 목적(심사 자료 vs 보유 기록)·수명주기·열람자가 달라서. 그 전제를 **뒤집었다**: 강사가 같은 자격증을 두 번(신청에 한 번, 내 자격증에 한 번) 올려야 했고, "강사 신청하면 자격증 자동 등록 + 인증마크"가 그 구조로는 불가능했다. 이제:
 
-| | `instructorapplication` 의 `ApplicationCertificate` | **이 도메인의 `StudentCertificate`** |
-|---|---|---|
-| 목적 | 강사 전환 **심사 자료** | 본인이 **보유를 기록**하는 자산 |
-| 수명주기 | 신청에 종속(재제출 시 통째 교체) | 독립. 사용자가 개별 등록·삭제 |
-| 보는 사람 | 어드민 + 본인 | **본인만** |
-| 저장 prefix | `instructorCertificate/` | `studentCertificate/` |
+| | 지금 |
+|---|---|
+| 정본 | **`StudentCertificate` 하나.** 신청(`InstructorApplication.certificateIds`)은 id 로 **참조**만 |
+| 심사 결과 | 자격증의 **`verification`** {status, kind, reason, requestedAt, reviewedAt} |
+| 공개 인증마크 | `verification.status == VERIFIED` 인 행만 — 브랜딩·강의상세·프로필·강사 browse 가 `StudentCertificateService.verifiedBadgesOf` 한 곳에서 읽는다 |
+| 어드민 큐 | `CertificateReview` (NEW / ADDITIONAL / RE_VERIFY 한 테이블) |
+| 옛 `ApplicationCertificate` | **삭제**(V38 이 백필 후 drop). 사진 key 는 옛 prefix 그대로 |
 
-**role 게이트도 없다** — 강사도 개인 자격으로 자격증을 보유한다. `hasRole` 로 막지 말 것.
+**role 게이트는 여전히 없다** — 강사도 개인 자격으로 보유한다. 수강생 레벨(LEVEL_1~4)은 검수 대상이 아니라 항상 `NONE`.
+
+## 상태 규칙 3개 — 전이는 `CertificateVerificationService` 한 곳
+
+정책 원문은 [docs/features/instructor-onboarding.md §자격증 검증](../../../../../../../docs/features/instructor-onboarding.md). 코드는 그 규칙의 1:1 번역이다.
+
+- **Rule A (쓰기)** — `register`/`update` 직후 `onRegistered`/`onUpdated`. 강사레벨(`CertLevel.isInstructorLevel`) ∧ 그 종목 **승인된 강사**(`InstructorApprovalLookup`)면 PENDING(이전 NONE/REJECTED → ADDITIONAL, VERIFIED → RE_VERIFY + `previous` 스냅샷). 아니면 NONE. 식별필드 = 종목·단체·레벨·번호·사진. 기록필드(취득일·issuer·강의연결·표시명)는 불변. **백필 행의 번호 null → 값은 기록 보완**(VERIFIED 유지).
+- **Rule B (신청)** — `instructorapplication` 이 호출: `attachToApplication`(검증·**자동 첨부**·PENDING(APPLICATION)·NEW 행) / `onApplicationApproved`(VERIFIED + NONE 강사레벨 sweep → ADDITIONAL) / `onApplicationRejected`.
+- **Rule C (가드)** — `guardUpdate`/`guardDelete` 가 값을 건드리기 전에 400. "마지막 살아있는 검증"(승인 ∧ 자격증 필수 종목 ∧ {VERIFIED,PENDING} 강사레벨이 이 행뿐) 의 삭제·하향·종목변경, 심사 중(PENDING·APPLICATION) 자격증의 삭제·하향·종목변경. 문구는 상수(`MSG_*`) — FE 가 그대로 띄운다.
+
+**의존 방향**: `instructorapplication → certificate` 한쪽. 이 도메인이 "승인된 강사인가"를 물을 땐 여기 둔 인터페이스 `InstructorApprovalLookup` 을 쓰고 구현은 저쪽(`InstructorApprovalLookupAdapter`)에 있다. 저쪽 레포를 import 하지 말 것(순환).
 
 ## 무엇이 들어있나
 
 - **컨트롤러** `StudentCertificateController` — `/certificates/**` (목록 `mine` · 단건 · 등록 · 수정 · 삭제 · 사진업로드). 매처는 `global/security/SecurityConfiguration` 의 `/certificates/**` (메서드 무관 `authenticated` — 새 메서드를 늘려도 그대로 덮인다).
 - **서비스** `StudentCertificateService` — 검증·파생·스냅샷 전부 여기.
-- **엔티티** `StudentCertificate`, enum `CertificateSource`(PUNGDONG/EXTERNAL), 레포 `StudentCertificateJpaRepo`.
+- **엔티티** `StudentCertificate`(+ `@Embedded CertificateVerification`), enum `CertificateSource`(PUNGDONG/EXTERNAL) · `CertificateVerificationStatus/Kind`, 레포 `StudentCertificateJpaRepo`.
+- **검증** `CertificateVerificationService`(Rule A/B/C), `CertificateReview` + `CertificateReviewJpaRepo`(어드민 큐, kind NEW/ADDITIONAL/RE_VERIFY, RE_VERIFY 의 `previous*`), 포트 `InstructorApprovalLookup`(레포만 — 검증 서비스가 씀).
+- **어드민 검수 큐** `AdminCertificateReviewController`(`/admin/certificate-reviews/**`, 매처 ADMIN) + `CertificateReviewService`. NEW 행의 승인/반려는 포트 `InstructorApplicationReviewPort` 로 instructorapplication 에 위임. ⚠️ 그 어댑터는 `InstructorApplicationService` 를 끌어오므로 **검증 서비스에서 쓰면 순환** — 검수 큐 서비스만 쓴다.
+- **다른 도메인이 읽는 파생** — `StudentCertificateService.verifiedBadgesOf`(공개 인증마크) · `adminViewsOf`(어드민 상세용 풀 필드 + presigned) · 레포 `findVerifiedOrganizationCodesByAccountIds`(browse 칩).
 - **스토리지** `storage/StudentCertificatePhotoStorage` + `S3…`/`Local…` — `pungdong.storage.s3.enabled` 게이트. **비공개(PII) 등급**.
 - **탈퇴 파기** `StudentCertificateAnonymizationListener` — `account` 의 `AccountAnonymizedEvent` 수신.
 - **레벨 enum 은 여기 없다** — `course/CertLevel` 을 **import 한다**(아래).
@@ -40,6 +54,8 @@
   - 등록은 DTO `@NotBlank`("자격증 사진을 추가해주세요.").
   - **수정은 필드가 아니라 결과 상태를 검사한다** (`requirePhotoAfterUpdate`) — 여기 `@NotBlank` 를 걸면 위의 "생략 = 유지"가 죽어 매 수정마다 재업로드를 강요하게 된다. "요청도 비었고 기존도 없음"일 때만 400.
   - ⚠️ **DB `NOT NULL` 을 걸지 않았다.** 필수가 되기 전 사진 없이 등록된 행이 있고, 제약을 걸면 그 행이 읽기·삭제조차 막힌다(`hbm2ddl=validate` 부트 실패 포함). 옛 행은 **조회·삭제 그대로, 수정할 때만 사진 요구**. 새 규칙은 쓰기 경로에서만 강제한다.
+- **`certificateNumber`/`acquiredAt` 의 DB NOT NULL 을 풀었다(V38) — API 필수는 그대로.** null 은 옛 신청에서 옮겨온 백필 행뿐. 읽는 코드는 null 을 다룬다(목록 정렬은 뒤로).
+- **OTHER(기타) 단체는 `organizationName` 필수** — 옛 신청의 `organizationOther` 규칙을 이어받았다. 공개 뱃지의 `organizationOther` 가 이 값.
 - **`StudentCertificateUpdateRequest` 와 `StudentCertificateCreateRequest` 는 필드가 같아야 한다.** 한쪽에만 필드를 추가하면 등록은 받는데 수정은 **조용히 무시**한다. 검증은 `photoFileKey` 하나만 의도적으로 갈린다(등록 `@NotBlank` / 수정 제약 없음 + 서비스 검사). 클래스를 나눈 것도 그 *의미* 차이 때문 — 이름이 같다고 뜻까지 같지 않다.
 - **엔티티에 `@Setter` 를 열지 않는다.** 열면 `source`·`enrollmentId` 같은 **서버 파생값**까지 아무 데서나 바뀐다. 의도별 메서드(`updateDetails`/`replacePhoto`/`linkCourse`/`unlinkCourse`)만 두고, `linkCourse` 가 `source=PUNGDONG` 이 되는 유일한 경로다. `owner`·`createdAt` 은 어디서도 안 바뀐다.
 - **강의 연결 검증은 `applyCourseLink` 한 곳** — 등록·수정 공용. 두 벌이면 등록은 통과하고 수정은 거절하는 어긋남이 생긴다.
@@ -76,4 +92,4 @@
 
 ## 안전망 테스트
 
-`src/test/.../usecase/StudentCertificateUseCaseTest` — 실 H2 + 실 시큐리티 + **실제 로컬 스토리지**(mock 아님). S(성공)/V(검증거절)/R(권한)/A(탈퇴파기). 수강 픽스처는 예약 HTTP 플로우를 안 태우고 repo 로 직접 만든다(검증 대상이 자격증이지 예약이 아니다).
+`src/test/.../usecase/StudentCertificateUseCaseTest` — 실 H2 + 실 시큐리티 + **실제 로컬 스토리지**(mock 아님). S(성공)/V(검증거절)/**K(검증 Rule A·C)**/R(권한)/A(탈퇴파기). Rule B(신청 제출·승인·반려)는 `InstructorApplicationUseCaseTest` 의 S/J/RB 시리즈. 어드민 큐는 `CertificateReviewUseCaseTest`(Q 큐 / P 처리 / R 권한). 수강 픽스처는 예약 HTTP 플로우를 안 태우고 repo 로 직접 만든다(검증 대상이 자격증이지 예약이 아니다).

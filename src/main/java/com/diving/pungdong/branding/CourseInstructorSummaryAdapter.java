@@ -2,6 +2,7 @@ package com.diving.pungdong.branding;
 
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.ProfilePhoto;
+import com.diving.pungdong.certificate.StudentCertificateService;
 import com.diving.pungdong.course.CourseJpaRepo;
 import com.diving.pungdong.course.CourseStatus;
 import com.diving.pungdong.course.InstructorSummaryProvider;
@@ -51,6 +52,7 @@ public class CourseInstructorSummaryAdapter implements InstructorSummaryProvider
 
     private final AccountBrandingJpaRepo brandingRepo;
     private final InstructorApplicationJpaRepo applicationRepo;
+    private final StudentCertificateService studentCertificateService;
     private final CourseJpaRepo courseRepo;
     private final SiteSettingsProvider siteSettings;
 
@@ -75,19 +77,19 @@ public class CourseInstructorSummaryAdapter implements InstructorSummaryProvider
                 .instructor(isInstructor)
                 .tagline(visible == null ? null : visible.getTagline())
                 .bio(visible == null ? null : visible.getBio())
-                .certs(isInstructor ? certBadgesOf(approved) : null)
+                .certs(isInstructor ? certBadgesOf(instructor.getId()) : null)
                 .lessonCount(isInstructor ? lessonCountOf(instructor.getId()) : null)
                 .build();
     }
 
-    private List<CourseInstructorResponse.CertBadge> certBadgesOf(List<InstructorApplication> approved) {
-        return approved.stream()
-                .flatMap(application -> application.getCertificates().stream()
-                        .map(cert -> CourseInstructorResponse.CertBadge.builder()
-                                .disciplineCode(application.getDisciplineCode())
-                                .organizationCode(cert.getOrganizationCode())
-                                .organizationOther(cert.getOrganizationOther())
-                                .build()))
+    /** 인증마크 — VERIFIED 자격증에서(형태는 v1 그대로). */
+    private List<CourseInstructorResponse.CertBadge> certBadgesOf(Long accountId) {
+        return studentCertificateService.verifiedBadgesOf(accountId).stream()
+                .map(b -> CourseInstructorResponse.CertBadge.builder()
+                        .disciplineCode(b.getDisciplineCode())
+                        .organizationCode(b.getOrganizationCode())
+                        .organizationOther(b.getOrganizationOther())
+                        .build())
                 .collect(Collectors.toList());
     }
 

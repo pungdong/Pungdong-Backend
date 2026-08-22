@@ -4,7 +4,19 @@ import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.AccountAnonymizationService;
 import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.account.Role;
+import com.diving.pungdong.certificate.CertificateReview;
+import com.diving.pungdong.certificate.CertificateReviewJpaRepo;
+import com.diving.pungdong.certificate.CertificateReviewKind;
+import com.diving.pungdong.certificate.CertificateReviewStatus;
 import com.diving.pungdong.certificate.CertificateSource;
+import com.diving.pungdong.certificate.CertificateVerification;
+import com.diving.pungdong.certificate.CertificateVerificationKind;
+import com.diving.pungdong.certificate.CertificateVerificationStatus;
+import com.diving.pungdong.discipline.Discipline;
+import com.diving.pungdong.discipline.DisciplineJpaRepo;
+import com.diving.pungdong.instructorapplication.InstructorApplication;
+import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
+import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
 import com.diving.pungdong.certificate.StudentCertificate;
 import com.diving.pungdong.certificate.StudentCertificateJpaRepo;
 import com.diving.pungdong.course.*;
@@ -50,7 +62,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 학생 보유 자격증 use-case — 조회 / 등록(외부·강의연결) / 수정 / 삭제 / 사진 업로드.
  *
  * <p><b>읽는 법</b>: {@code @DisplayName} 을 위에서 아래로 = 사양.
- * S* 성공 / V* 검증거절 / R* 권한 / A* 탈퇴 파기.
+ * S* 성공 / V* 검증거절 / K* 강사 자격 검증(Rule A·C) / R* 권한 / A* 탈퇴 파기.
  *
  * <p>사진은 <b>필수</b>라(2026-08-16) {@code register} 헬퍼가 payload 에 {@code photoFileKey} 가 없으면
  * 실제 업로드를 태워 붙인다 — 사진이 주제가 아닌 시나리오의 잡음을 줄인다. 사진 유무 자체를 검증하는
@@ -74,12 +86,17 @@ class StudentCertificateUseCaseTest {
     @Autowired EnrollmentJpaRepo enrollmentRepo;
     @Autowired StudentCertificateJpaRepo certificateRepo;
     @Autowired AccountAnonymizationService anonymizationService;
+    @Autowired InstructorApplicationJpaRepo applicationRepo;
+    @Autowired CertificateReviewJpaRepo reviewRepo;
+    @Autowired DisciplineJpaRepo disciplineRepo;
 
     @Value("${pungdong.storage.local.dir:local-uploads}")
     String localDir;
 
     @AfterEach
     void cleanUp() {
+        reviewRepo.deleteAll();
+        applicationRepo.deleteAll();
         certificateRepo.deleteAll();
         enrollmentRepo.deleteAll();
         courseRepo.deleteAll();
@@ -762,6 +779,274 @@ class StudentCertificateUseCaseTest {
                 .andExpect(status().isNoContent());
 
         assertThat(certificateRepo.findAll()).isEmpty();
+    }
+
+    /* ════════════════ K — 강사 자격 검증 (Rule A · Rule C) ════════════════
+     * 정책: docs/features/instructor-onboarding.md §자격증 검증. 전이는 CertificateVerificationService 한 곳.
+     * 신청(Rule B)은 InstructorApplicationUseCaseTest 가 본다. 여기선 "내 자격증" 쓰기가 검증 상태를 어떻게
+     * 움직이는지만.
+     */
+
+    /** 그 종목의 승인된 강사로 만든다(신청 APPROVED 행만 — 자격증은 시나리오가 직접 만든다). */
+    private InstructorApplication approvedInstructor(Account account, String disciplineCode) {
+        return applicationRepo.save(InstructorApplication.builder()
+                .account(account).disciplineCode(disciplineCode).status(InstructorApplicationStatus.APPROVED)
+                .submittedAt(OffsetDateTime.now(ZoneOffset.UTC)).reviewedAt(OffsetDateTime.now(ZoneOffset.UTC))
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
+    }
+
+    /** 이미 검증된(VERIFIED) 강사레벨 자격증 — 승인 신청에서 넘어온 상태를 repo 로 재현한다. number=null 이면 백필 행. */
+    private StudentCertificate verifiedCert(Account owner, String disciplineCode, String org, String number) {
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        return certificateRepo.save(StudentCertificate.builder()
+                .owner(owner).disciplineCode(disciplineCode).organizationCode(org).organizationName(org)
+                .level(CertLevel.INSTRUCTOR).certificateNumber(number)
+                .acquiredAt(number == null ? null : LocalDate.of(2020, 1, 1))
+                .source(CertificateSource.EXTERNAL)
+                .photoFileKey("studentCertificate/" + owner.getId() + "/" + org.toLowerCase() + ".jpg")
+                .createdAt(now)
+                .verification(new CertificateVerification(CertificateVerificationStatus.VERIFIED,
+                        CertificateVerificationKind.APPLICATION, null, now, now))
+                .build());
+    }
+
+    private Map<String, Object> instructorBody(String disciplineCode, String org, String number) {
+        Map<String, Object> m = body(disciplineCode, org, "INSTRUCTOR", number, "2020-01-01");
+        m.put("certificationDisplayName", org + " Instructor");
+        return m;
+    }
+
+    private StudentCertificate reload(StudentCertificate c) {
+        return certificateRepo.findById(c.getId()).orElseThrow();
+    }
+
+    private void ensureNonCertDiscipline(String code) {
+        if (!disciplineRepo.existsByCode(code)) {
+            disciplineRepo.save(Discipline.builder()
+                    .code(code).name(code).requiresCertification(false).active(true).sortOrder(99).build());
+        }
+    }
+
+    @Test
+    @DisplayName("K1: 응답엔 verification 이 항상 있다 — 수강생 레벨 등록은 NONE(kind null), 검수 큐에 아무것도 안 생긴다")
+    void verification_alwaysPresent_studentLevelIsNone() throws Exception {
+        Account student = account("c-k1@test.com", "diverK1", Role.STUDENT);
+        approvedInstructor(student, "FREEDIVING"); // 강사라도 수강생 레벨은 검수 대상이 아니다
+
+        String res = register(student, body("FREEDIVING", "AIDA", "LEVEL_2", "AIDA-2", "2024-11-02"));
+
+        JsonNode v = objectMapper.readTree(res).get("verification");
+        assertThat(v.get("status").asText()).isEqualTo("NONE");
+        assertThat(v.get("kind").isNull()).isTrue();
+        assertThat(reviewRepo.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("K2: 승인된 종목에 강사레벨 자격증을 등록하면 곧장 PENDING(ADDITIONAL) + requestedAt + 검수 큐 ADDITIONAL 행 (Rule A)")
+    void register_instructorLevelInApprovedDiscipline_goesPending() throws Exception {
+        Account instructor = account("c-k2@test.com", "diverK2", Role.INSTRUCTOR);
+        approvedInstructor(instructor, "FREEDIVING");
+
+        String res = register(instructor, instructorBody("FREEDIVING", "PADI", "PADI-INS-1"));
+
+        JsonNode v = objectMapper.readTree(res).get("verification");
+        assertThat(v.get("status").asText()).isEqualTo("PENDING");
+        assertThat(v.get("kind").asText()).isEqualTo("ADDITIONAL");
+        assertThat(v.get("requestedAt").isNull()).isFalse();
+        CertificateReview review = reviewRepo.findAll().get(0);
+        assertThat(review.getKind()).isEqualTo(CertificateReviewKind.ADDITIONAL);
+        assertThat(review.getStatus()).isEqualTo(CertificateReviewStatus.PENDING);
+        assertThat(review.getCertificateId()).isEqualTo(certificateRepo.findAll().get(0).getId());
+    }
+
+    @Test
+    @DisplayName("K3: 승인 안 된 종목(신청 없음)에 강사레벨 자격증을 등록하면 NONE — 검수는 강사 신청을 통해서만 시작된다")
+    void register_instructorLevelWithoutApproval_staysNone() throws Exception {
+        Account student = account("c-k3@test.com", "diverK3", Role.STUDENT);
+
+        String res = register(student, instructorBody("FREEDIVING", "AIDA", "AIDA-INS-1"));
+
+        assertThat(objectMapper.readTree(res).get("verification").get("status").asText()).isEqualTo("NONE");
+        assertThat(reviewRepo.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("K4: VERIFIED 자격증의 식별필드(번호)를 고치면 PENDING(RE_VERIFY) 가 되고 검수 행에 이전 값(previous)이 남는다")
+    void update_identityFieldOfVerified_triggersReVerify() throws Exception {
+        Account instructor = account("c-k4@test.com", "diverK4", Role.INSTRUCTOR);
+        approvedInstructor(instructor, "FREEDIVING");
+        StudentCertificate verified = verifiedCert(instructor, "FREEDIVING", "AIDA", "AIDA-OLD");
+        verifiedCert(instructor, "FREEDIVING", "PADI", "PADI-1"); // 하나 더 — 마지막 한 장 가드와 무관하게
+
+        String res = update(instructor, verified.getId(), instructorBody("FREEDIVING", "AIDA", "AIDA-NEW"));
+
+        JsonNode v = objectMapper.readTree(res).get("verification");
+        assertThat(v.get("status").asText()).isEqualTo("PENDING");
+        assertThat(v.get("kind").asText()).isEqualTo("RE_VERIFY");
+        CertificateReview review = reviewRepo.findFirstByCertificateIdAndStatus(verified.getId(), CertificateReviewStatus.PENDING).orElseThrow();
+        assertThat(review.getKind()).isEqualTo(CertificateReviewKind.RE_VERIFY);
+        assertThat(review.getPreviousCertificateNumber()).isEqualTo("AIDA-OLD");
+        assertThat(review.getPreviousOrganizationCode()).isEqualTo("AIDA");
+        assertThat(review.getPreviousLevel()).isEqualTo(CertLevel.INSTRUCTOR);
+    }
+
+    @Test
+    @DisplayName("K5: VERIFIED 자격증의 기록 필드(취득일·발급기관·표시명)만 고치면 VERIFIED 그대로 — 인증마크가 안 빠진다")
+    void update_recordFieldsOfVerified_keepsVerified() throws Exception {
+        Account instructor = account("c-k5@test.com", "diverK5", Role.INSTRUCTOR);
+        approvedInstructor(instructor, "FREEDIVING");
+        StudentCertificate verified = verifiedCert(instructor, "FREEDIVING", "AIDA", "AIDA-1");
+
+        Map<String, Object> edited = instructorBody("FREEDIVING", "AIDA", "AIDA-1");
+        edited.put("acquiredAt", "2019-06-01");
+        edited.put("issuer", "AIDA Korea");
+        edited.put("organizationName", "AIDA KOREA");
+        String res = update(instructor, verified.getId(), edited);
+
+        assertThat(objectMapper.readTree(res).get("verification").get("status").asText()).isEqualTo("VERIFIED");
+        assertThat(reviewRepo.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("K6: 백필 행(번호·취득일 null)에 번호를 채우는 건 기록 보완 — VERIFIED 유지, 재검수 아님")
+    void update_fillingNullNumberOfBackfilledRow_keepsVerified() throws Exception {
+        Account instructor = account("c-k6@test.com", "diverK6", Role.INSTRUCTOR);
+        approvedInstructor(instructor, "FREEDIVING");
+        StudentCertificate backfilled = verifiedCert(instructor, "FREEDIVING", "AIDA", null);
+        assertThat(backfilled.getCertificateNumber()).isNull();
+
+        String res = update(instructor, backfilled.getId(), instructorBody("FREEDIVING", "AIDA", "AIDA-FILLED"));
+
+        assertThat(objectMapper.readTree(res).get("verification").get("status").asText()).isEqualTo("VERIFIED");
+        assertThat(reload(backfilled).getCertificateNumber()).isEqualTo("AIDA-FILLED");
+        assertThat(reviewRepo.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("K7: VERIFIED 자격증의 사진을 교체하면 RE_VERIFY — 사진이 진실이라 사진도 식별필드다")
+    void update_photoOfVerified_triggersReVerify() throws Exception {
+        Account instructor = account("c-k7@test.com", "diverK7", Role.INSTRUCTOR);
+        approvedInstructor(instructor, "FREEDIVING");
+        StudentCertificate verified = verifiedCert(instructor, "FREEDIVING", "AIDA", "AIDA-1");
+        verifiedCert(instructor, "FREEDIVING", "PADI", "PADI-1");
+
+        Map<String, Object> edited = instructorBody("FREEDIVING", "AIDA", "AIDA-1");
+        edited.put("photoFileKey", uploadPhoto(instructor, "retake.jpg"));
+        String res = update(instructor, verified.getId(), edited);
+
+        assertThat(objectMapper.readTree(res).get("verification").get("kind").asText()).isEqualTo("RE_VERIFY");
+    }
+
+    @Test
+    @DisplayName("K8: 승인 종목의 마지막 VERIFIED 자격증은 삭제하면 400 + 사용자용 msg, 다른 검증 자격증이 있으면 삭제된다 (Rule C)")
+    void delete_lastVerified_blocked() throws Exception {
+        Account instructor = account("c-k8@test.com", "diverK8", Role.INSTRUCTOR);
+        approvedInstructor(instructor, "FREEDIVING");
+        StudentCertificate only = verifiedCert(instructor, "FREEDIVING", "AIDA", "AIDA-1");
+
+        mockMvc.perform(delete("/certificates/" + only.getId()).header(HttpHeaders.AUTHORIZATION, token(instructor)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("이 종목의 마지막 검증 자격증이에요. 다른 자격증을 먼저 등록해주세요."));
+        assertThat(certificateRepo.findById(only.getId())).isPresent();
+
+        verifiedCert(instructor, "FREEDIVING", "PADI", "PADI-1"); // 하나 더 생기면 지울 수 있다
+        mockMvc.perform(delete("/certificates/" + only.getId()).header(HttpHeaders.AUTHORIZATION, token(instructor)))
+                .andExpect(status().isNoContent());
+        assertThat(certificateRepo.findById(only.getId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("K9: 심사 중인 신청이 참조하는(PENDING·APPLICATION) 자격증은 삭제·종목변경·하향이 400")
+    void underApplicationReview_cannotDeleteOrChange() throws Exception {
+        Account student = account("c-k9@test.com", "diverK9", Role.STUDENT);
+        applicationRepo.save(InstructorApplication.builder()
+                .account(student).disciplineCode("FREEDIVING").status(InstructorApplicationStatus.SUBMITTED)
+                .submittedAt(OffsetDateTime.now(ZoneOffset.UTC)).createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        StudentCertificate pending = certificateRepo.save(StudentCertificate.builder()
+                .owner(student).disciplineCode("FREEDIVING").organizationCode("AIDA").level(CertLevel.INSTRUCTOR)
+                .certificateNumber("AIDA-1").acquiredAt(LocalDate.of(2020, 1, 1)).source(CertificateSource.EXTERNAL)
+                .photoFileKey("studentCertificate/" + student.getId() + "/a.jpg").createdAt(now)
+                .verification(CertificateVerification.pending(CertificateVerificationKind.APPLICATION, now)).build());
+
+        mockMvc.perform(delete("/certificates/" + pending.getId()).header(HttpHeaders.AUTHORIZATION, token(student)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("심사 중인 자격증은 삭제할 수 없어요."));
+
+        Map<String, Object> downgraded = body("FREEDIVING", "AIDA", "LEVEL_4", "AIDA-1", "2020-01-01");
+        mockMvc.perform(put("/certificates/" + pending.getId()).header(HttpHeaders.AUTHORIZATION, token(student))
+                        .contentType(MediaType.APPLICATION_JSON).content(write(downgraded)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("심사 중인 자격증은 종목이나 자격 등급을 바꿀 수 없어요."));
+
+        // 번호 오타 정정 같은 다른 필드는 심사 중에도 고칠 수 있다(어드민이 현재 값을 본다) — 상태는 그대로
+        String res = update(student, pending.getId(), instructorBody("FREEDIVING", "AIDA", "AIDA-1-FIXED"));
+        JsonNode v = objectMapper.readTree(res).get("verification");
+        assertThat(v.get("status").asText()).isEqualTo("PENDING");
+        assertThat(v.get("kind").asText()).isEqualTo("APPLICATION");
+    }
+
+    @Test
+    @DisplayName("K10: 마지막 VERIFIED 자격증을 수강생 레벨로 내리거나 다른 종목으로 옮기면 400 — 강사 자격의 근거가 0 이 된다")
+    void update_downgradeOrMoveLastVerified_blocked() throws Exception {
+        Account instructor = account("c-k10@test.com", "diverK10", Role.INSTRUCTOR);
+        approvedInstructor(instructor, "FREEDIVING");
+        StudentCertificate only = verifiedCert(instructor, "FREEDIVING", "AIDA", "AIDA-1");
+
+        mockMvc.perform(put("/certificates/" + only.getId()).header(HttpHeaders.AUTHORIZATION, token(instructor))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(write(body("FREEDIVING", "AIDA", "LEVEL_4", "AIDA-1", "2020-01-01"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("이 종목의 마지막 검증 자격증이에요. 다른 자격증을 먼저 등록해주세요."));
+        mockMvc.perform(put("/certificates/" + only.getId()).header(HttpHeaders.AUTHORIZATION, token(instructor))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(write(instructorBody("SCUBA", "AIDA", "AIDA-1"))))
+                .andExpect(status().isBadRequest());
+
+        assertThat(reload(only).getLevel()).isEqualTo(CertLevel.INSTRUCTOR);
+        assertThat(reload(only).getDisciplineCode()).isEqualTo("FREEDIVING");
+    }
+
+    @Test
+    @DisplayName("K11: 자격증 불필요 종목(수영)은 마지막 VERIFIED 라도 삭제된다 — 그 종목 강사는 자격증으로 정의되지 않는다")
+    void delete_lastVerifiedInNonCertDiscipline_allowed() throws Exception {
+        ensureNonCertDiscipline("SWIMMING");
+        Account instructor = account("c-k11@test.com", "diverK11", Role.INSTRUCTOR);
+        approvedInstructor(instructor, "SWIMMING");
+        StudentCertificate only = verifiedCert(instructor, "SWIMMING", "OTHER", "LIFE-1");
+
+        mockMvc.perform(delete("/certificates/" + only.getId()).header(HttpHeaders.AUTHORIZATION, token(instructor)))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    @DisplayName("K12: RE_VERIFY 로 대기 중인 자격증을 또 고쳐도 검수 행은 1개이고 previous 는 최초 VERIFIED 값 그대로다")
+    void update_whilePendingReVerify_keepsSingleReviewAndOriginalPrevious() throws Exception {
+        Account instructor = account("c-k12@test.com", "diverK12", Role.INSTRUCTOR);
+        approvedInstructor(instructor, "FREEDIVING");
+        StudentCertificate verified = verifiedCert(instructor, "FREEDIVING", "AIDA", "ORIGINAL");
+        verifiedCert(instructor, "FREEDIVING", "PADI", "PADI-1");
+
+        update(instructor, verified.getId(), instructorBody("FREEDIVING", "AIDA", "SECOND"));
+        update(instructor, verified.getId(), instructorBody("FREEDIVING", "AIDA", "THIRD"));
+
+        assertThat(reviewRepo.findByCertificateId(verified.getId())).hasSize(1);
+        assertThat(reviewRepo.findByCertificateId(verified.getId()).get(0).getPreviousCertificateNumber()).isEqualTo("ORIGINAL");
+        assertThat(reload(verified).getCertificateNumber()).isEqualTo("THIRD");
+    }
+
+    @Test
+    @DisplayName("K13: OTHER(기타) 단체는 organizationName(단체명)이 비면 400 — 공개 뱃지의 organizationOther 가 이 값이다")
+    void register_otherOrganizationRequiresName() throws Exception {
+        Account student = account("c-k13@test.com", "diverK13", Role.STUDENT);
+        Map<String, Object> payload = body("FREEDIVING", "OTHER", "LEVEL_2", "X-1", "2024-11-02");
+        payload.put("organizationName", " ");
+        payload.put("photoFileKey", uploadPhoto(student, "x.jpg"));
+
+        mockMvc.perform(post("/certificates").header(HttpHeaders.AUTHORIZATION, token(student))
+                        .contentType(MediaType.APPLICATION_JSON).content(write(payload)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("기타 단체명을 입력해주세요."));
     }
 
     /* ════════════════ R — 권한 ════════════════ */

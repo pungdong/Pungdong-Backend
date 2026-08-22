@@ -4,6 +4,7 @@ import com.diving.pungdong.account.Account;
 import com.diving.pungdong.block.BlockService;
 import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.account.ProfilePhoto;
+import com.diving.pungdong.certificate.StudentCertificateService;
 import com.diving.pungdong.branding.dto.BrandingProducts;
 import com.diving.pungdong.branding.dto.BrandingProfileResponse;
 import com.diving.pungdong.branding.dto.BrandingStats;
@@ -50,6 +51,7 @@ public class BrandingService {
     private final AccountBrandingJpaRepo brandingRepo;
     private final AccountJpaRepo accountRepo;
     private final InstructorApplicationJpaRepo applicationRepo;
+    private final StudentCertificateService studentCertificateService;
     private final BrandingPostJpaRepo postRepo;
     private final EnrollmentJpaRepo enrollmentRepo;
     private final CourseJpaRepo courseRepo;
@@ -97,7 +99,7 @@ public class BrandingService {
                 .instructor(isInstructor)
                 // 강사가 아니면 null → 키 자체가 빠진다(D2).
                 .disciplineCodes(isInstructor ? disciplineCodesOf(approved) : null)
-                .certs(isInstructor ? certBadgesOf(approved) : null)
+                .certs(isInstructor ? certBadgesOf(owner.getId()) : null)
                 .records(recordDtosOf(branding))
                 .stats(statsOf(branding, owner, isInstructor))
                 .products(isInstructor ? productsOf(owner) : null)
@@ -230,7 +232,7 @@ public class BrandingService {
                 .locationLabel(branding == null ? null : branding.getLocationLabel())
                 .isInstructor(isInstructor)
                 .disciplineCodes(isInstructor ? disciplineCodesOf(approved) : null)
-                .certs(isInstructor ? certBadgesOf(approved) : null)
+                .certs(isInstructor ? certBadgesOf(owner.getId()) : null)
                 .records(recordDtosOf(branding))
                 .stats(statsOf(branding, owner, isInstructor))
                 .products(isInstructor ? productsOf(owner) : null)
@@ -302,14 +304,14 @@ public class BrandingService {
                 .collect(Collectors.toList());
     }
 
-    private List<BrandingProfileResponse.CertBadge> certBadgesOf(List<InstructorApplication> approved) {
-        return approved.stream()
-                .flatMap(application -> application.getCertificates().stream()
-                        .map(cert -> BrandingProfileResponse.CertBadge.builder()
-                                .disciplineCode(application.getDisciplineCode())
-                                .organizationCode(cert.getOrganizationCode())
-                                .organizationOther(cert.getOrganizationOther())
-                                .build()))
+    /** 인증마크 — VERIFIED 자격증에서(2026-08-22 수렴 전엔 승인 신청의 첨부). 형태는 v1 그대로. */
+    private List<BrandingProfileResponse.CertBadge> certBadgesOf(Long accountId) {
+        return studentCertificateService.verifiedBadgesOf(accountId).stream()
+                .map(b -> BrandingProfileResponse.CertBadge.builder()
+                        .disciplineCode(b.getDisciplineCode())
+                        .organizationCode(b.getOrganizationCode())
+                        .organizationOther(b.getOrganizationOther())
+                        .build())
                 .collect(Collectors.toList());
     }
 

@@ -29,4 +29,12 @@ public enum CertLevel {
     public String getDisplayName() {
         return displayName;
     }
+
+    /**
+     * 강사 레벨인가 — {@code INSTRUCTOR} 이상. 자격증 검증 트랙({@code certificate} 도메인)의 기준선:
+     * 강사 신청에 붙일 수 있고, 검수 대상이 되는 건 이 레벨의 자격증뿐이다. 수강생 레벨은 검수하지 않는다.
+     */
+    public boolean isInstructorLevel() {
+        return this == INSTRUCTOR || this == INSTRUCTOR_TRAINER;
+    }
 }

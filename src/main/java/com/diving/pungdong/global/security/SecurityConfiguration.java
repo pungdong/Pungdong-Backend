@@ -93,6 +93,7 @@ public class SecurityConfiguration {
                         // 인증은 P_AUTH_TID(우리 콜백에만 옴)가 대신하고, 승인 실패 시 fail 로 리다이렉트한다. /payments/** 보다 먼저.
                         .antMatchers(HttpMethod.POST, INICIS_CALLBACK_PATH).permitAll()
                         .antMatchers("/admin/instructor-applications/**").hasRole("ADMIN")
+                        .antMatchers("/admin/certificate-reviews/**").hasRole("ADMIN")
                         // 신고 처리 큐 — 어드민 전용. /community/** 의 authenticated 매처보다 앞에 둬야
                         // ADMIN 검사가 실제로 걸린다(먼저 매치되는 매처가 이긴다).
                         .antMatchers("/admin/reports", "/admin/reports/**").hasRole("ADMIN")

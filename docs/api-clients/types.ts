@@ -255,7 +255,7 @@ export interface AccountBasicInfo extends HalLinks {
 }
 
 /**
- * GET /account/profile (인증·본인) — 마이페이지 프로필 카드. AccountBasicInfo + 프로필 사진 + 자격 뱃지(승인된 강사 신청의 자격증).
+ * GET /account/profile (인증·본인) — 마이페이지 프로필 카드. AccountBasicInfo + 프로필 사진 + 자격 뱃지(VERIFIED 자격증).
  * 비강사는 certs=[]. ⚠️ career(경력)·rating(평점)·자격 level 은 데이터 모델 부재로 미포함 — rating 은 V2 Course 리뷰 평균으로 신설 예정.
  */
 export interface AccountProfileResponse extends HalLinks {
@@ -268,10 +268,11 @@ export interface AccountProfileResponse extends HalLinks {
   certs: CertBadge[];
 }
 
+/** 인증마크 1개. ★ 출처 = `verification.status === 'VERIFIED'` 인 StudentCertificate(2026-08-22, 전엔 승인 신청의 첨부). 형태 불변. */
 export interface CertBadge {
   disciplineCode: string;        // 종목 코드, 예 'FREEDIVING'
   organizationCode: string;      // 발급 단체 코드(Sanity 카탈로그), 예 'AIDA'·'PADI'·'OTHER'
-  organizationOther?: string | null; // organizationCode==='OTHER' 일 때 직접입력 단체명
+  organizationOther?: string | null; // organizationCode==='OTHER' 일 때 단체명(= 그 자격증의 organizationName)
 }
 
 // ── 닉네임 변경 (account) ──
@@ -617,19 +618,13 @@ export interface DisciplineResponse {
   sortOrder: number;
 }
 
-/**
- * 자격증 1건 = 발급 단체 + 이미지. 한 종목 신청에 여러 단체(AIDA+PADI+...) 가능.
- * 제출 요청과 조회 응답에 공용. (향후 레벨/등급 필드 추가 자리)
- */
-export interface ApplicationCertificate {
-  organizationCode: string; // 'AIDA' | 'PADI' | 'OTHER' ... (Sanity 카탈로그, 종목별)
-  organizationOther?: string; // 'OTHER' 일 때
-  // 저장 참조 key. 업로드 응답의 fileKey 를 제출 시 그대로 보냄(라운드트립).
-  // ★ 반드시 **본인이 업로드한** key 여야 한다 — 남의 key 를 보내면 400(2026-08-14). 정상 흐름(업로드 응답을
-  //   그대로 되돌려보냄)은 영향 없다. 임의로 조립하거나 캐시된 남의 값을 재사용하지 말 것.
-  fileKey: string;
-  viewUrl?: string; // 조회 응답에만 — 표시용 한시 presigned URL(짧은 TTL). 제출 시 미포함.
-}
+// ★ 2026-08-22 수렴 — 신청은 더 이상 자격증(단체+이미지)을 **소유하지 않는다**. 정본은 "내 자격증"(`StudentCertificate`,
+//   `/certificates`)이고 신청은 그 id 를 **참조**한다. 심사 결과는 자격증의 `verification` 에 붙고, 공개 인증마크
+//   (`CertBadge`/`BrandingCertBadge`/강의상세 `certs`/browse `organizationCodes`)는 `verification.status === 'VERIFIED'`
+//   인 자격증에서만 파생된다(형태는 v1 그대로). 옛 `ApplicationCertificate`·`AddCertificateRequest`·
+//   `POST /instructor-applications/certificates` 는 **삭제**. 정책: docs/features/instructor-onboarding.md §자격증 검증.
+//   FE 제출 흐름 = `POST /certificates/photos` → `POST /certificates`(level=INSTRUCTOR) → `POST /instructor-applications
+//   { certificateIds }`. 상태 규칙(Rule A/B/C)은 StudentCertificate.verification 주석.
 
 /** POST /instructor-applications (제출) · PUT /instructor-applications/me (재제출) 요청. */
 export interface InstructorApplicationSubmitRequest {
@@ -637,9 +632,24 @@ export interface InstructorApplicationSubmitRequest {
   disciplineCode: string;
   /** GET /identity-verifications/me 에서 재사용 (없으면 POST /identity-verifications 로 생성). */
   verificationId: number;
-  /** 자격증 목록(단체+이미지). 자격증 필요 종목은 1건 이상, 불필요 종목은 생략. */
-  certificates?: ApplicationCertificate[];
-  /** (선택) 다이빙보험 이미지 — 업로드(POST /certificate-images) 응답의 fileKey. 옵셔널. 종목 신청별. */
+  /**
+   * 첨부할 내 자격증 id (`GET /certificates/mine` 의 `id`). 제출 순서 유지.
+   * ★ BE 검증 — 전부 **본인 소유 · 신청 종목 일치 · 강사 레벨(INSTRUCTOR/INSTRUCTOR_TRAINER)** 이어야 한다. 아니면 400 +
+   *   사용자용 `msg`(아래 표). 자격증 필요 종목(`requiresCertification`)은 자동 첨부 포함 1건 이상 — 0 이면 400.
+   *   불필요 종목(수영/서핑)은 생략 가능.
+   * ★ **자동 첨부**: 그 종목의 `verification.status === 'NONE'` 인 강사레벨 자격증은 여기 빼도 BE 가 함께 붙인다
+   *   (어드민이 한 번에 다 보고 한 번에 승인). 재제출에서 빠진 자격증은 NONE 으로 돌아간다.
+   *
+   *   | msg | 원인 |
+   *   |---|---|
+   *   | "등록되지 않은 자격증이 있어요. 내 자격증을 확인해주세요." | 없는 id / 남의 자격증(존재 숨김) |
+   *   | "자격증의 종목이 신청 종목과 달라요." | disciplineCode 불일치 |
+   *   | "강사 레벨 자격증만 강사 신청에 쓸 수 있어요." | level 이 LEVEL_1~4 |
+   *   | "강사 레벨 자격증을 1개 이상 등록해주세요." | 필요 종목인데 첨부 0 |
+   */
+  certificateIds?: number[];
+  /** (선택) 다이빙보험 이미지 — 업로드(POST /instructor-applications/certificate-images) 응답의 fileKey. 옵셔널. 종목 신청별.
+   *  ★ 경로명은 역사적 이유로 certificate-images 지만 이제 **보험 전용**이다(자격증 사진은 POST /certificates/photos). */
   insuranceFileKey?: string;
 }
 
@@ -656,7 +666,8 @@ export interface InstructorApplicationResponse extends HalLinks {
 export interface MyInstructorApplicationResponse {
   disciplineCode: string;
   status: InstructorApplicationStatus;
-  certificates: ApplicationCertificate[];
+  /** 첨부 자격증 id(제출 순서, 자동 첨부 포함). 재제출 prefill 은 `GET /certificates/mine` 과 join — 사용자가 지운 건 빠진다. */
+  certificateIds: number[];
   /** (선택) 보험 저장 참조 key — 재제출 시 그대로 전송(라운드트립). 없으면 미포함. */
   insuranceFileKey?: string;
   /** (선택) 보험 이미지 표시용 한시 presigned URL(조회 시점 발급). 없으면 미포함. */
@@ -679,7 +690,7 @@ export interface InstructorApplicationSummary extends HalLinks {
   nickName: string;
   email: string;
   disciplineCode: string;
-  /** 첨부 자격증의 단체들(중복 제거). */
+  /** 첨부 자격증의 단체들(중복 제거) — 첨부 `StudentCertificate.organizationCode` 에서. */
   organizationCodes: string[];
   status: InstructorApplicationStatus;
   submittedAt: string;
@@ -701,7 +712,8 @@ export interface InstructorApplicationDetailResponse extends HalLinks {
   nickName: string;
   status: InstructorApplicationStatus;
   disciplineCode: string;
-  certificates: ApplicationCertificate[];
+  /** 첨부 자격증 풀 필드(제출 순서). 사용자가 지운 자격증은 빠진다. */
+  certificates: AdminCertificateView[];
   /** (선택) 보험 저장 참조 key. 없으면 미포함. */
   insuranceFileKey?: string;
   /** (선택) 보험 이미지 표시용 한시 presigned URL(조회 시점 발급). 없으면 미포함. */
@@ -718,15 +730,133 @@ export interface InstructorApplicationDetailResponse extends HalLinks {
 }
 
 /**
- * POST /instructor-applications/certificates — 자격증 관리 탭. 이미 승인된(APPROVED) 강사가
- * 그 종목에 자격증 1건 추가. MVP 는 검수 없이 즉시 반영(상태 APPROVED 유지). 승인 전 신청은
- * 제출/재제출(POST·PUT)로. 같은 종목 재신청(POST /instructor-applications)은 400.
+ * 어드민 검수 화면의 자격증 1장 — 신청 상세(`InstructorApplicationDetailResponse.certificates[]`)와 검수 큐 상세가 공유.
+ * ADMIN 전용(사진 presigned = PII). `certificateNumber`/`acquiredAt` 은 백필 행(옛 신청에서 옮겨온 것)만 null.
  */
-export interface AddCertificateRequest {
+export interface AdminCertificateView {
+  certificateId: number;
   disciplineCode: string;
   organizationCode: string;
-  organizationOther?: string;
-  fileKey: string; // 업로드 응답의 fileKey
+  organizationName: string | null;
+  organizationFullName: string | null;
+  level: CertLevel;
+  certificationDisplayName: string | null;
+  certificateNumber: string | null;
+  acquiredAt: string | null;        // ISO yyyy-MM-dd
+  /** 보유자 표시명 — 본인확인 실명 → 없으면 닉네임(서버 파생). */
+  holderName: string;
+  /** 표시용 한시 URL(presigned, TTL 3분). 사진 없는 옛 행이면 null. */
+  photoViewUrl: string | null;
+  verification: CertificateVerification;
+}
+
+// (삭제 2026-08-22) AddCertificateRequest · POST /instructor-applications/certificates — 승인된 강사의 추가 자격증은
+//   `POST /certificates` 로 등록하면 BE 가 Rule A 로 PENDING(ADDITIONAL) 큐에 넣는다. FE 호출자 0 확인 후 제거.
+
+// ── 어드민 검수 큐 (certificate review) — 전부 hasRole ADMIN ──
+// docs/features/instructor-onboarding.md §자격증 검증 · docs/architecture/certificate.md
+// ★ 강사 신청(NEW)·승인 종목에 추가된 자격증(ADDITIONAL)·VERIFIED 식별필드 수정 재검수(RE_VERIFY)가 **한 큐**에 섞인다.
+//   ADDITIONAL/RE_VERIFY 는 신청이 APPROVED 인 채로 생겨 `/admin/instructor-applications` 목록(SUBMITTED 단위)엔 **안 보인다**
+//   → 어드민 검수 화면은 이 큐로 옮길 것. approve/reject 는 `reviewId` 하나로 통일(NEW 는 BE 가 신청 승인/반려로 매핑 —
+//   INSTRUCTOR 부여까지 그대로). 기존 `/admin/instructor-applications/**` 는 신청 단위 보조 경로로 남는다.
+
+export type CertificateReviewKind = 'NEW' | 'ADDITIONAL' | 'RE_VERIFY';
+export type CertificateReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+/**
+ * GET /admin/certificate-reviews?status=&page=&size= — PagedModel, 배열은 `_embedded.reviews`(빈 결과면 키 없음), 메타는 `page`.
+ * `status` 생략 시 전체(이력 포함). 기본 정렬 requestedAt desc(서버 고정), size 상한 50/기본 20.
+ */
+export interface CertificateReviewSummary extends HalLinks {
+  reviewId: number;
+  kind: CertificateReviewKind;
+  /** NEW 일 때만. */
+  applicationId: number | null;
+  /** ADDITIONAL/RE_VERIFY 일 때만. */
+  certificateId: number | null;
+  accountId: number;
+  nickName: string;
+  email: string;
+  disciplineCode: string;
+  /** 대상 자격증 단체(중복 제거) — NEW 는 첨부 전부, 나머지는 그 한 장. */
+  organizationCodes: string[];
+  status: CertificateReviewStatus;
+  /** 검수 요청 시각(instant) — NEW 는 제출 시각. */
+  requestedAt: string;
+  reviewedAt: string | null;
+  /**
+   * ★ 승인 ∧ 자격증 필수 종목인데 살아있는 검증({VERIFIED, PENDING}) 강사레벨 자격증이 **0 장** — 마지막 VERIFIED 를
+   *   재검수에 올렸다가 반려된 경우(인정한 구멍). BE 는 자동 회수하지 않는다 → 목록에 경고 뱃지로 띄울 것.
+   */
+  verifiedCertificateMissing: boolean;
+}
+
+/** GET /admin/certificate-reviews/counts — 세 종류 합산. (기존 `/admin/instructor-applications/counts` 는 NEW 만 센다.) */
+export interface CertificateReviewCountsResponse extends HalLinks {
+  pending: number;
+  approved: number;
+  rejected: number;
+  total: number;
+}
+
+/** GET /admin/certificate-reviews/{reviewId} — 종류별로 블록이 다르다. 없으면 -1009. */
+export interface CertificateReviewDetailResponse extends HalLinks {
+  reviewId: number;
+  kind: CertificateReviewKind;
+  status: CertificateReviewStatus;
+  disciplineCode: string;
+  accountId: number;
+  nickName: string;
+  email: string;
+  /** REJECTED 일 때 반려 사유. */
+  reason: string | null;
+  requestedAt: string;
+  reviewedAt: string | null;
+  reviewerNickName: string | null;
+  verifiedCertificateMissing: boolean;
+  /** NEW 만 — 신청 블록(본인확인 PII·보험·첨부 id). 나머지 kind 는 키 없음/null. */
+  application?: ApplicationReviewView | null;
+  /** NEW = 첨부 전부(제출 순서, 삭제된 건 제외) · ADDITIONAL/RE_VERIFY = 그 한 장. */
+  certificates: AdminCertificateView[];
+  /** RE_VERIFY 만 — 최초 VERIFIED 시점의 식별값(대기 중 또 고쳐도 갱신 안 됨). `certificates[0]` 과 나란히 대조 UI. */
+  previous?: CertificateReviewPrevious | null;
+}
+
+export interface ApplicationReviewView {
+  applicationId: number;
+  status: InstructorApplicationStatus;
+  certificateIds: number[];
+  insuranceFileKey: string | null;
+  /** presigned(TTL 3분). */
+  insuranceViewUrl: string | null;
+  realName: string | null;
+  birth: string | null;
+  phoneNumber: string | null;
+  rejectionReason: string | null;
+  createdAt: string | null;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+  reviewerNickName: string | null;
+}
+
+export interface CertificateReviewPrevious {
+  disciplineCode: string | null;
+  organizationCode: string | null;
+  level: CertLevel | null;
+  certificateNumber: string | null;
+}
+
+/**
+ * POST /admin/certificate-reviews/{reviewId}/approve — body 없음. 성공 = 200 `{success:true}` + `_links.review`.
+ *   NEW → 강사 신청 승인(INSTRUCTOR 부여 + 첨부 VERIFIED + 심사 중 올린 강사레벨 sweep → ADDITIONAL 큐).
+ *   ADDITIONAL/RE_VERIFY → 그 자격증 VERIFIED(= 인증마크).
+ * POST /admin/certificate-reviews/{reviewId}/reject — 사유 필수.
+ *   NEW → 신청 REJECTED + 첨부 REJECTED(사유 복사). ADDITIONAL/RE_VERIFY → 그 자격증 REJECTED + 사유.
+ * ★ 이미 처리된 행(APPROVED/REJECTED)에 다시 부르면 400 "이미 처리된 검수 요청이에요."(msg 그대로 노출).
+ */
+export interface CertificateReviewRejectRequest {
+  /** 필수, 최대 1000자. 빈 값 → 400 "반려 사유를 입력해주세요." */
+  reason: string;
 }
 
 /** POST /admin/instructor-applications/{id}/reject 요청. */
@@ -837,7 +967,7 @@ export interface InstructorBrowseCardResponse {
   locationLabel: string | null;
   /** 그 강사의 **승인 종목 전부**(요청 종목만이 아니다). 최소 1개. */
   disciplineCodes: string[];
-  /** **요청 종목** 승인 신청의 자격증 단체(중복 제거·정렬). 자격증이 필요 없는 종목이면 `[]`. */
+  /** **요청 종목**의 VERIFIED 자격증 단체(중복 제거·정렬). 자격증이 필요 없는 종목이면 보통 `[]`. */
   organizationCodes: string[];
   /**
    * **요청 종목**의 공개중 강의 수. 0 가능.
@@ -882,11 +1012,11 @@ export interface BrandingRecord {
   value: string;
 }
 
-/** 승인된 강사 신청에서 파생된 자격 뱃지. 자유입력 자격은 폐기됨(추후 '자격증 관리' 피처가 대체). */
+/** 인증마크 — `verification.status === 'VERIFIED'` 인 StudentCertificate 에서 파생(2026-08-22, 전엔 승인 신청의 첨부). 형태 불변. */
 export interface BrandingCertBadge {
   disciplineCode: string;
   organizationCode: string;
-  organizationOther?: string | null;
+  organizationOther?: string | null; // 'OTHER' 일 때 그 자격증의 organizationName
 }
 
 /**
@@ -3134,9 +3264,10 @@ export interface ManualRefundResult {
 // 학생 보유 자격증 (certificate 도메인) — 프로필 탭 > 내 자격증
 // docs/architecture/certificate.md 참고
 // ============================================================
-// ★ 강사 신청의 자격증(ApplicationCertificate)과 **다른 리소스**다. 저쪽은 강사 전환 심사 자료,
-//   이쪽은 본인이 보유를 기록하는 자산. 경로도 /certificates/** 로 갈린다.
-// ★ role 게이트 없음 — 강사도 개인 자격으로 보유한다.
+// ★ 2026-08-22 수렴 — 이 리소스가 **강사 자격 검증의 정본**이기도 하다. 강사 신청은 여기 등록한 자격증의 id 를
+//   참조하고(`InstructorApplicationSubmitRequest.certificateIds`), 심사 결과는 `verification` 에 붙는다.
+//   공개 인증마크 = `verification.status === 'VERIFIED'`. 옛 ApplicationCertificate(신청 소유 단체+이미지)는 삭제됐다.
+// ★ role 게이트 없음 — 강사도 개인 자격으로 보유한다. 수강생 레벨 자격증은 검증 대상이 아니다(항상 NONE).
 //
 // 흐름: 사진 업로드 → fileKey 받기 → 등록 JSON 에 photoFileKey 로 참조. **사진은 필수**(2026-08-16).
 //
@@ -3165,7 +3296,9 @@ export interface StudentCertificateCreateRequest {
   disciplineCode: string;
   /** Sanity certOrganization.code. BE 는 카탈로그를 소유하지 않아 값 대조는 하지 않는다. */
   organizationCode: string;
-  /** (선택) Sanity `name` — 카드 모노그램용 짧은 표시명. code 와 다를 수 있다(SDI/TDI). */
+  /** (선택) Sanity `name` — 카드 모노그램용 짧은 표시명. code 와 다를 수 있다(SDI/TDI). 최대 200자.
+   *  ★ organizationCode === 'OTHER' 면 **필수**(= 자유입력 단체명, 공개 뱃지의 organizationOther 가 된다) — 비면 400
+   *    "기타 단체명을 입력해주세요." `organizationFullName` 도 최대 200자. */
   organizationName?: string;
   /** (선택) Sanity `fullName` — 상세 "자격 단체" 행. */
   organizationFullName?: string;
@@ -3217,9 +3350,10 @@ export interface StudentCertificate extends HalLinks {
   certificationDisplayName: string | null;
   /** 서버 파생(본인확인 실명 → 없으면 닉네임). 요청 필드가 아니다. */
   holderName: string;
-  certificateNumber: string;
-  /** ISO `yyyy-MM-dd` (civil date). */
-  acquiredAt: string;
+  /** ★ null 은 **백필 행**(옛 강사 신청에서 옮겨온 것)뿐 — 등록/수정 요청에선 여전히 필수. 목록 정렬에서 null 취득일은 뒤로. */
+  certificateNumber: string | null;
+  /** ISO `yyyy-MM-dd` (civil date). null 은 백필 행뿐(위와 같다). */
+  acquiredAt: string | null;
   /** 서버 파생 — enrollmentId 유무. 클라이언트가 고를 수 없다(강사 없는 풍덩 발급 방지). */
   source: CertificateSource;
   issuer: string | null;
@@ -3238,6 +3372,37 @@ export interface StudentCertificate extends HalLinks {
   photoViewUrl: string | null;
   /** instant (offset 포함). */
   createdAt: string;
+  /**
+   * 강사 자격 검증 상태 — **항상 존재**(NONE 포함). `status === 'VERIFIED'` 가 곧 공개 인증마크.
+   * 정책(Rule A/B/C): docs/features/instructor-onboarding.md §자격증 검증. 요약 —
+   *  - Rule A(쓰기): **강사 레벨**(INSTRUCTOR/INSTRUCTOR_TRAINER) 자격증을 **승인된 종목**에 등록하거나 식별필드
+   *    (disciplineCode/organizationCode/level/certificateNumber/사진)를 고치면 PENDING — 이전이 NONE/REJECTED 면
+   *    kind=ADDITIONAL, VERIFIED 면 kind=RE_VERIFY(마크가 즉시 빠진다 → 편집 전 확인 UI 권장). 승인 안 된 종목·수강생
+   *    레벨은 NONE. 기록 필드(acquiredAt/issuer/enrollmentId/표시명 스냅샷) 수정은 상태 불변. 백필 행의
+   *    certificateNumber **null → 값** 채우기도 기록 보완(VERIFIED 유지).
+   *  - Rule B(신청): 제출 → 첨부 전부 PENDING(APPLICATION), 승인 → VERIFIED, 반려 → REJECTED + reason.
+   *  - Rule C(가드, 400 + msg 그대로 노출): 승인 ∧ 자격증 필수 종목에서 {VERIFIED, PENDING} 이 0 이 되는 삭제·하향·종목변경
+   *    → "이 종목의 마지막 검증 자격증이에요. 다른 자격증을 먼저 등록해주세요." / 심사 중(PENDING·APPLICATION) 자격증의
+   *    삭제 → "심사 중인 자격증은 삭제할 수 없어요.", 종목변경·하향 → "심사 중인 자격증은 종목이나 자격 등급을 바꿀 수 없어요."
+   *  - 승인 종목 없음/REJECTED 상태에서 강사레벨을 올리면 NONE + FE CTA "강사 신청하고 인증받기"(certId prefill);
+   *    SUBMITTED 면 NONE, CTA 없음 — 승인 시 BE sweep 이 PENDING(ADDITIONAL)로 잡는다.
+   */
+  verification: CertificateVerification;
+}
+
+export type CertificateVerificationStatus = 'NONE' | 'PENDING' | 'VERIFIED' | 'REJECTED';
+/** APPLICATION = 강사 신청과 함께 심사 · ADDITIONAL = 승인 종목에 추가 · RE_VERIFY = VERIFIED 의 식별필드 수정 재검수. */
+export type CertificateVerificationKind = 'APPLICATION' | 'ADDITIONAL' | 'RE_VERIFY';
+export interface CertificateVerification {
+  status: CertificateVerificationStatus;
+  /** status === 'NONE' 이면 null. */
+  kind: CertificateVerificationKind | null;
+  /** REJECTED 일 때 반려 사유(신청 반려면 신청 사유와 같다). */
+  reason: string | null;
+  /** 마지막으로 PENDING 이 된 시각(instant). */
+  requestedAt: string | null;
+  /** 마지막 승인/반려 시각(instant). */
+  reviewedAt: string | null;
 }
 
 /**
@@ -3262,13 +3427,17 @@ export interface StudentCertificate extends HalLinks {
  *                   검증 후 재박제(남의 수강 = -1009, 미완료 = 400, 종목 불일치 = 400).
  *
  * 나머지 스칼라는 전면 교체다 — issuer 를 빼면 **비워진다**. 폼의 현재 값을 전부 실어 보낼 것.
+ *
+ * ★ 검증 상태 영향(StudentCertificate.verification 주석의 Rule A/C): VERIFIED 행의 식별필드(종목·단체·레벨·번호·사진)를
+ *   바꾸면 RE_VERIFY 로 마크가 즉시 빠진다 — 편집 전 확인 다이얼로그 권장. 마지막 검증 자격증의 하향·종목변경과
+ *   심사 중(PENDING·APPLICATION) 자격증의 하향·종목변경은 400 + msg(그대로 노출). 백필 행의 번호 null → 값 은 안전.
  */
 export interface StudentCertificateUpdateRequest {
   /** GET /disciplines 의 code. BE 가 검증한다(없는 코드 → 400). */
   disciplineCode: string;
   /** Sanity certOrganization.code. BE 는 카탈로그를 소유하지 않아 값 대조는 하지 않는다. */
   organizationCode: string;
-  /** (선택) Sanity `name` — 카드 모노그램용 짧은 표시명. */
+  /** (선택) Sanity `name` — 카드 모노그램용 짧은 표시명. 최대 200자. ★ 'OTHER' 면 필수(등록과 같다). */
   organizationName?: string;
   /** (선택) Sanity `fullName` — 상세 "자격 단체" 행. */
   organizationFullName?: string;
@@ -3291,8 +3460,10 @@ export interface StudentCertificateUpdateRequest {
   enrollmentId?: number;
 }
 
-// DELETE /certificates/{id} (인증·본인) — 하드 삭제(DB 행 + 사진 객체). 성공 = 204 No Content.
+// DELETE /certificates/{id} (인증·본인) — 하드 삭제(DB 행 + 사진 객체 + 검수 이력). 성공 = 204 No Content.
 //   자기 신고 데이터라 법정 보존 대상이 아니다. 없거나 남의 것이면 -1009.
+//   ★ Rule C: 승인 종목의 마지막 {VERIFIED, PENDING} 자격증 → 400 "이 종목의 마지막 검증 자격증이에요. …",
+//     심사 중(PENDING·APPLICATION) → 400 "심사 중인 자격증은 삭제할 수 없어요." msg 를 그대로 노출할 것.
 
 // ============================================================
 // 인증 실패 응답 코드 (참고용)

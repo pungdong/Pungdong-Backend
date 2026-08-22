@@ -7,7 +7,7 @@ import com.diving.pungdong.branding.dto.InstructorBrowseCondition;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
 import com.diving.pungdong.global.persistence.PageClamp;
 import com.diving.pungdong.global.sitesettings.SiteSettingsProvider;
-import com.diving.pungdong.instructorapplication.ApplicationCertificateJpaRepo;
+import com.diving.pungdong.certificate.StudentCertificateJpaRepo;
 import com.diving.pungdong.instructorapplication.InstructorApplication;
 import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
 import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
@@ -63,7 +63,7 @@ public class InstructorBrowseService {
     private final AccountBrandingJpaRepo brandingRepo;
     private final AccountJpaRepo accountRepo;
     private final InstructorApplicationJpaRepo applicationRepo;
-    private final ApplicationCertificateJpaRepo certificateRepo;
+    private final StudentCertificateJpaRepo certificateRepo;
     private final SiteSettingsProvider siteSettings;
 
     /**
@@ -134,7 +134,7 @@ public class InstructorBrowseService {
             }
         }
         Map<Long, Set<String>> organizations = new java.util.HashMap<>();
-        for (Object[] pair : certificateRepo.findOrganizationCodesByAccountIds(ids, discipline)) {
+        for (Object[] pair : certificateRepo.findVerifiedOrganizationCodesByAccountIds(ids, discipline)) {
             organizations.computeIfAbsent(((Number) pair[0]).longValue(), k -> new TreeSet<>())
                     .add((String) pair[1]);
         }

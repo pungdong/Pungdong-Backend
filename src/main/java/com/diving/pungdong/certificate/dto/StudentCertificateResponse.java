@@ -14,6 +14,8 @@ import java.time.OffsetDateTime;
 /**
  * 자격증 1건 응답. 목록은 {@code _embedded.certificates}(CollectionModel + {@code @Relation}).
  *
+ * <p>{@code certificateNumber}/{@code acquiredAt} 은 강사 신청에서 옮겨온 백필 행에서만 null 이다.
+ *
  * <p><b>null 은 생략하지 않고 명시한다</b> — FE 가 어차피 매퍼를 거치므로(ISO 날짜·{@code String(id)}),
  * 소비 계약이 자기설명적인 쪽을 택했다(계약 Q5).
  */
@@ -53,6 +55,9 @@ public class StudentCertificateResponse {
 
     private final OffsetDateTime createdAt;
 
+    /** 검증 상태 — 항상 존재. {@code status == VERIFIED} 가 곧 인증마크. */
+    private final CertificateVerificationResponse verification;
+
     public static StudentCertificateResponse of(StudentCertificate c, String holderName, String photoViewUrl) {
         return StudentCertificateResponse.builder()
                 .id(c.getId())
@@ -74,6 +79,7 @@ public class StudentCertificateResponse {
                 .instructorName(c.getInstructorName())
                 .photoViewUrl(photoViewUrl)
                 .createdAt(c.getCreatedAt())
+                .verification(CertificateVerificationResponse.of(c.getVerification()))
                 .build();
     }
 }

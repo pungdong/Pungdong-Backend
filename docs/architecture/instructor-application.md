@@ -2,9 +2,9 @@
 
 ## 한 줄 요약
 
-수강생(STUDENT)이 **종목 선택 → 본인확인 → 자격증(단체+이미지) 등록 → 제출**하면 그 종목의 `InstructorApplication` 1건이 SUBMITTED 로 생기고, 어드민이 **승인/반려**한다. 승인 시 `INSTRUCTOR` 역할 **추가**(STUDENT 유지) + `isCertified=true`.
+수강생(STUDENT)이 **종목 선택 → 본인확인 → 내 자격증 등록(`/certificates`) → 제출(`certificateIds`)**하면 그 종목의 `InstructorApplication` 1건이 SUBMITTED 로 생기고, 어드민이 **승인/반려**한다. 승인 시 `INSTRUCTOR` 역할 **추가**(STUDENT 유지) + `isCertified=true` + 첨부 자격증 **VERIFIED**(= 공개 인증마크).
 
-신청은 **종목별**이다 — 한 계정이 종목마다 1건(`(account_id, discipline_code)` 유니크), 프리다이빙+스쿠버 동시 가능. 자격증은 **한 종목에 여러 단체**(AIDA+PADI+...)를 담는다(단체는 자격증 단위). 종목의 `requiresCertification`(스쿠버/프리=필수, 수영/서핑=불필요)이 자격증 필수 여부를 가른다. 승인된 강사는 **자격증 관리 탭**(`POST /certificates`)에서 검수 없이 자격증을 추가한다(같은 종목 재신청은 차단).
+신청은 **종목별**이다 — 한 계정이 종목마다 1건(`(account_id, discipline_code)` 유니크), 프리다이빙+스쿠버 동시 가능. **자격증은 신청이 소유하지 않는다(2026-08-22)** — 정본은 [certificate](certificate.md) 의 `StudentCertificate` 이고 신청은 id 를 참조한다(한 종목에 여러 단체 가능). 종목의 `requiresCertification`(스쿠버/프리=필수, 수영/서핑=불필요)이 자격증 필수 여부를 가른다. 승인된 강사의 추가 자격증은 `POST /certificates` 로 등록하면 certificate 도메인 Rule A 가 검수 큐(ADDITIONAL)에 넣는다(같은 종목 재신청은 차단).
 
 레거시 `Account.isRequestCertified/isCertified` 플래그 + `/sign/instructor/*` 흐름을 대체하는 **신규 feature 패키지**(`instructorapplication/`). 상태머신으로 제출/승인/반려/재제출을 표현. 종목은 [discipline](discipline.md), 본인확인은 [identity-verification](identity-verification.md) 도메인 참조.
 
@@ -23,10 +23,16 @@ flowchart TB
         Storage["CertificateImageStorage (interface)"]
         StoreS3["S3CertificateImageStorage (prod)"]
         StoreLocal["LocalCertificateImageStorage (dev)"]
-        AppEntity["InstructorApplication"]
-        CertEntity["ApplicationCertificate"]
+        AppEntity["InstructorApplication<br/>(certificateIds 참조)"]
         AppRepo["InstructorApplicationJpaRepo"]
-        CertRepo["ApplicationCertificateJpaRepo"]
+        Adapter["InstructorApprovalLookupAdapter<br/>InstructorApplicationReviewAdapter"]
+    end
+
+    subgraph CERT["certificate 도메인 (자격증 정본 + 검증 규칙)"]
+        CertSvc["CertificateVerificationService<br/>(Rule A·B·C)"]
+        CertEntity["StudentCertificate.verification"]
+        ReviewEntity["CertificateReview (어드민 큐)"]
+        CertPort["InstructorApprovalLookup (port)"]
     end
 
     subgraph IDV["identity-verification 도메인 (별도 — 계정 공유 자산)"]
@@ -48,17 +54,20 @@ flowchart TB
     Storage --> StoreS3 --> S3up
     Storage --> StoreLocal
     Svc --> AppRepo --> AppEntity
-    Svc --> CertRepo --> CertEntity
+    Svc -->|제출·승인·반려 = Rule B| CertSvc --> CertEntity
+    CertSvc --> ReviewEntity
+    CertSvc --> CertPort
+    Adapter -.구현.-> CertPort
     Svc -->|제출 시 verificationId 검증| IdvRepo --> IdvEntity
     AppEntity -.참조.-> IdvEntity
-    AppEntity --> CertEntity
+    AppEntity -.id 참조.-> CertEntity
     Svc -->|승인 시 role 추가| Account
     Sanity -.organizationCode 선택지 제공.-> UserCtl
 ```
 
-의존 방향은 한쪽 — `instructorapplication` 이 `account` 와 `identity-verification` 을 참조하고 그 역은 없다. 본인확인은 [identity-verification](identity-verification.md) 도메인(계정 공유 자산) 소관 — 신청은 `verificationId` 로 참조만. 단체 카탈로그는 Sanity 가 source of truth라 BE 는 `organizationCode` 문자열만 저장(enum 아님).
+의존 방향은 한쪽 — `instructorapplication` 이 `account`·`identity-verification`·**`certificate`** 를 참조하고 그 역은 없다(certificate 가 "승인된 강사인가"를 물을 땐 자기 쪽 포트 `InstructorApprovalLookup` 을 쓰고 이 도메인이 구현한다). 본인확인은 [identity-verification](identity-verification.md) 도메인(계정 공유 자산) 소관 — 신청은 `verificationId` 로 참조만. 단체 카탈로그는 Sanity 가 source of truth라 BE 는 `organizationCode` 문자열만 저장(enum 아님).
 
-**이미지 저장 경계 (FcmGateway 패턴).** 자격증 이미지 저장은 인터페이스 + `@ConditionalOnProperty` 로 환경별 교체:
+**이미지 저장 경계 (FcmGateway 패턴).** 이제 **보험 전용**(자격증 사진은 `POST /certificates/photos`, 옛 백필 자격증의 key 만 이 prefix 아래 남아 있다). 보험 이미지 저장은 인터페이스 + `@ConditionalOnProperty` 로 환경별 교체:
 
 | 경계 | dev 기본 | prod | 프로퍼티 |
 |---|---|---|---|
@@ -80,7 +89,7 @@ sequenceDiagram
     participant IDV as identity-verification 도메인
     participant UC as InstructorApplicationController
     participant SVC as InstructorApplicationService
-    participant S3
+    participant CERT as certificate 도메인
     participant DB
 
     Note over FE: (단체 목록/약관문구는 Sanity 에서 직접 fetch)
@@ -90,17 +99,22 @@ sequenceDiagram
         IDV-->>FE: 201 {verificationId, verified:true}
     end
 
-    loop 자격증 1장씩
-        FE->>UC: POST /certificate-images (multipart image)
-        UC->>SVC: uploadCertificateImage
-        SVC->>S3: uploadPrivate(비공개, ACL 없음) → 객체 key
-        SVC-->>FE: {fileKey}
+    loop 자격증 1장씩 (certificate 도메인)
+        FE->>CERT: POST /certificates/photos (multipart) → {fileKey}
+        FE->>CERT: POST /certificates {level:INSTRUCTOR, photoFileKey, ...}
+        CERT-->>FE: 201 {id, verification:{status:NONE}}
+    end
+    opt 보험(선택)
+        FE->>UC: POST /certificate-images (multipart) → {fileKey}
     end
 
-    FE->>UC: POST /instructor-applications {verificationId, certificates:[{organizationCode, fileKey}], insuranceFileKey?}
+    FE->>UC: POST /instructor-applications {verificationId, certificateIds:[...], insuranceFileKey?}
     UC->>SVC: submit
-    SVC->>SVC: 검증(소유 verification · 기타 단체 직접입력 · 중복 신청)
-    SVC->>DB: insert instructor_application(SUBMITTED) + application_certificate[]
+    SVC->>SVC: 검증(소유 verification · 보험 key 소유 · 중복 신청)
+    SVC->>DB: insert instructor_application(SUBMITTED)
+    SVC->>CERT: attachToApplication (소유·종목·강사레벨 검증 + NONE 강사레벨 자동 첨부)
+    CERT->>DB: 자격증 verification=PENDING(APPLICATION) + certificate_review(NEW, PENDING)
+    SVC->>DB: instructor_application_certificate[] (첨부 순서)
     SVC-->>FE: 201 {applicationId, status:SUBMITTED}
 ```
 
@@ -123,12 +137,14 @@ sequenceDiagram
         AC->>SVC: approve(id, reviewer)
         SVC->>DB: application.status=APPROVED, reviewer/reviewedAt
         SVC->>DB: account.roles += INSTRUCTOR, isCertified=true
+        SVC->>DB: (certificate) 첨부 자격증 VERIFIED · NEW 검수행 APPROVED · 심사 중 올린 NONE 강사레벨 → PENDING(ADDITIONAL) sweep
         Note over SVC: 권한은 매 요청 DB 에서 재계산 → 토큰 재발급 불필요
     else 반려
         Admin->>AC: POST /{id}/reject {reason}
         AC->>SVC: reject(id, reviewer, reason)
         SVC->>DB: application.status=REJECTED, rejectionReason
-        Note over Admin: 신청자는 PUT /me 로 수정·재제출 (REJECTED→SUBMITTED)
+        SVC->>DB: (certificate) 첨부 자격증 REJECTED(+사유) · NEW 검수행 REJECTED
+        Note over Admin: 신청자는 PUT /me 로 수정·재제출 (REJECTED→SUBMITTED, 빠진 자격증은 NONE)
     end
 ```
 
@@ -141,7 +157,8 @@ erDiagram
     Account ||--o{ InstructorApplication : "종목별 신청"
     Account ||--o{ IdentityVerification : "본인확인 이력"
     InstructorApplication }o--|| IdentityVerification : "참조한 본인확인"
-    InstructorApplication ||--o{ ApplicationCertificate : "자격증 (단체+이미지) N건"
+    InstructorApplication ||--o{ InstructorApplicationCertificate : "certificateIds (제출 순서)"
+    InstructorApplicationCertificate }o--|| StudentCertificate : "참조 (FK 없음 — certificate 도메인)"
     Account ||--o| InstructorApplication : "reviewer (어드민)"
 
     InstructorApplication {
@@ -156,13 +173,14 @@ erDiagram
         LocalDateTime submittedAt
         LocalDateTime reviewedAt
     }
-    ApplicationCertificate {
+    InstructorApplicationCertificate {
+        Long application_id PK_FK
+        int sort_order PK
+        Long certificate_id "student_certificate.id"
+    }
+    StudentCertificate {
         Long id PK
-        Long application_id FK
-        String organizationCode "Sanity code (자격증 단위), enum 아님"
-        String organizationOther "OTHER 일 때만"
-        String fileKey "저장참조: S3 객체 key(비공개) / 로컬 URL. 컬럼 file_url"
-        int sortOrder
+        String verification_status "NONE|PENDING|VERIFIED|REJECTED — certificate.md"
     }
     IdentityVerification {
         Long id PK
@@ -180,7 +198,7 @@ erDiagram
 
 설계 의도:
 - **종목별 신청** — `(account_id, discipline_code)` 유니크. 한 사람이 프리다이빙+스쿠버 강사일 수 있어 종목마다 1건. 승인된 신청 = 그 종목의 강사 자격.
-- **단체는 자격증 단위** (`ApplicationCertificate.organizationCode`) — 한 종목에 여러 단체 자격(AIDA+PADI+Molchanovs)을 담는다. 신청 레벨에 단체 1개를 두던 초기안은 틀렸다. 문자열 code(Sanity 카탈로그, 종목별)라 BE enum 아님. (향후 레벨 `ratingCode` 추가 자리)
+- **단체는 자격증 단위** — 한 종목에 여러 단체 자격(AIDA+PADI+Molchanovs). 2026-08-22 부터 그 자격증이 `StudentCertificate`(레벨·번호·취득일·표시명 스냅샷 보유)라 "향후 `ratingCode`" 자리는 `level`(`CertLevel`)로 이미 채워졌다. 신청은 `certificateIds` 만 든다 — 옛 `application_certificate` 는 V38 이 백필 후 drop.
 - **본인확인은 [identity-verification](identity-verification.md) 도메인 참조** — 수강/강사 공유, verificationId 재사용(skip).
 
 ---
@@ -190,18 +208,18 @@ erDiagram
 | 엔드포인트 | 메서드 | 권한 | 비고 |
 |---|---|---|---|
 | `/instructor-applications/me` | GET | 인증 | 내 신청 **목록**(종목별). 미신청 종목은 항목 없음 |
-| `/instructor-applications/certificate-images` | POST | 인증 | multipart (`image`) → `{fileKey}` 저장참조 (2-phase 1단계, 비공개 업로드). 자격증·**보험** 공용 |
-| `/instructor-applications` | POST | 인증 | 제출. body 에 `disciplineCode`+자격증 목록 + (선택)`insuranceFileKey`. 종목별 중복/이미강사 → 400 |
-| `/instructor-applications/me` | PUT | 인증 | 수정·재제출 (해당 종목, APPROVED 는 거부) |
-| `/instructor-applications/certificates` | POST | 인증 | **자격증 관리** — 승인된 강사가 자격증 추가 (검수 없이) |
+| `/instructor-applications/certificate-images` | POST | 인증 | multipart (`image`) → `{fileKey}` 저장참조 (2-phase 1단계, 비공개 업로드). **보험 전용**(자격증 사진은 `POST /certificates/photos`) |
+| `/instructor-applications` | POST | 인증 | 제출. body 에 `disciplineCode`+`certificateIds[]` + (선택)`insuranceFileKey`. 첨부 검증 실패(남의 것·종목 불일치·수강생 레벨·필요 종목인데 0장)는 400 + 사용자용 msg. 종목별 중복/이미강사 → 400 |
+| `/instructor-applications/me` | PUT | 인증 | 수정·재제출 (해당 종목, APPROVED 는 거부). 빠진 자격증은 NONE 으로 |
+| ~~`/instructor-applications/certificates`~~ | ~~POST~~ | — | **삭제(2026-08-22)** — 추가 자격증은 `POST /certificates`(Rule A → ADDITIONAL 큐) |
 | `/admin/instructor-applications` | GET | **ADMIN** | `?status=` 생략 시 전체, 지정 시 탭별. 기본 정렬 submittedAt desc |
 | `/admin/instructor-applications/counts` | GET | **ADMIN** | 탭 뱃지용 `{submitted, approved, rejected, total}` |
-| `/admin/instructor-applications/{id}` | GET | **ADMIN** | PII 포함 상세 (+ reviewerNickName / createdAt) |
-| `/admin/instructor-applications/{id}/approve` | POST | **ADMIN** | INSTRUCTOR 부여 + isCertified |
+| `/admin/instructor-applications/{id}` | GET | **ADMIN** | PII 포함 상세 (+ reviewerNickName / createdAt) + 첨부 자격증 풀 필드(`AdminCertificateView[]` — 사진 presigned·검증 상태) |
+| `/admin/instructor-applications/{id}/approve` | POST | **ADMIN** | INSTRUCTOR 부여 + isCertified + 첨부 자격증 VERIFIED + sweep. 검수 큐 `POST /admin/certificate-reviews/{reviewId}/approve`(NEW) 가 이 서비스 메서드로 위임된다 — 어느 쪽으로 눌러도 같은 전이 |
 | `/admin/instructor-applications/{id}/reject` | POST | **ADMIN** | 사유 필수 |
 | `/instructors/public` | GET | **공개** | 공개 강사 디렉토리(PagedModel `_embedded.instructors`). 승인 신청 보유 계정만(탈퇴 제외), 공개필드(nickName·avatarUrl·disciplineCodes)만. **size 상한 50/기본 20**(`PageClamp`), 정렬은 서버 고정(가입 최신순 = id desc)이라 클라이언트 `?sort=` 는 버려진다. `PublicInstructorController`+`PublicInstructorService`. 🔴 **호출자 0(2026-08-22)** — 홈 "공식 강사" 카드는 `GET /instructors/suggested` 다. 제거는 구버전 앱 확인 후. ⚠️ 그때까지도 **브랜딩 발행 여부를 안 본다** — "검수 통과 인원 수" 외의 용도로 쓰지 말 것. 필터·검색·정렬되는 목록은 **`GET /instructors/browse`**([branding.md](branding.md) — 모수에 `isPublished` 가 들어가 순환 회피 차원에서 branding 패키지 소유) |
 | `/instructors/suggested` | GET | **공개** | 무작위 추천 강사 + 총 수. ⚠️ **모집단이 위와 다르다** — 승인 + **브랜딩 발행**까지 된 강사만(카드를 누르면 열려야 하므로). 코드는 [branding 패키지](branding.md)에 있다(`branding → instructorapplication` 이 기존 의존 방향이라 반대로 붙이면 순환이 된다) |
-| `/account/profile` | GET | 인증(본인) | 마이페이지 프로필 — AccountBasicInfo + profilePhotoUrl + 승인 자격 뱃지(`certs`). 합성은 `profile/ProfileService`(account⊕instructorapplication, 단방향 유지용 별도 패키지) |
+| `/account/profile` | GET | 인증(본인) | 마이페이지 프로필 — AccountBasicInfo + profilePhotoUrl + 인증마크(`certs` = VERIFIED 자격증). 합성은 `profile/ProfileService`(account⊕certificate) |
 
 매처는 `SecurityConfiguration`: `/admin/instructor-applications/**` → `hasRole(ADMIN)`, `/instructor-applications/**` → `authenticated`. 승인 후 역할 변경은 매 요청 DB 재계산이라 **재로그인 불필요** (use-case `R3` 가 검증).
 
@@ -218,7 +236,8 @@ admin 권한은 **DB role 이 source of truth** (`Account.roles` 에 `ADMIN`) �
 - 🟡 **공개-의도 이미지 서빙 미완** — 코스/커뮤니티 이미지는 SEO·SSG 영구 공개 URL 이 필요하나, 현재 단일 버킷이 비공개라 직접 열람 불가. 업로드 자체는 이 PR 의 공유 `S3Uploader` 수정으로 성공하지만(객체는 비공개), 공개 서빙은 **별도 public 버킷(+CloudFront)** 후속 PR 로 분리. (강사가 없어 staging 에선 코스 생성이 아직 도달 불가라 실사용 영향 없음.)
 - 🟢 **레거시 신청/전환 흐름 제거 완료** — `/sign/instructor/*` 4종 + `/account/instructor`·`/account/instructor-application` + `Account.organization/income/isRequestCertified` + `findAllRequestInstructor` 제거됨. 잔존: `InstructorCertificate`(엔티티/서비스/`/account/instructor/certificate/list` 읽기) + `Account.selfIntroduction`(강의 상세에서 읽힘) — 강사 프로필(instructor-profile) 기능 때 정리.
 - 🟡 **REST Docs 스니펫 부재** — 이번 엔드포인트들은 use-case 테스트로만 검증되고 `document(...)` 컨트롤러 테스트가 없다. `api.adoc` 에 include 를 추가하지 않으므로 빌드는 깨지지 않지만, 공개 문서엔 아직 안 나온다. 후속 PR 에서 보강.
-- 🟡 **organizationCode 미검증** — BE 는 Sanity 카탈로그와 대조하지 않고 문자열을 그대로 신뢰한다(`OTHER` 직접입력만 빈값 체크). 잘못된 code 가 들어와도 막지 않음 — Sanity 가 출처라는 결정의 trade-off.
+- 🟡 **organizationCode 미검증** — BE 는 Sanity 카탈로그와 대조하지 않고 문자열을 그대로 신뢰한다(`OTHER` 는 `organizationName` 빈값만 체크 — certificate 도메인). 잘못된 code 가 들어와도 막지 않음 — Sanity 가 출처라는 결정의 trade-off.
+- 🟢 **검수 큐 단위 어드민 API** — `/admin/certificate-reviews/**`([certificate.md](certificate.md)). 이 도메인의 `/admin/instructor-applications/**` 는 NEW 만 보는 보조 경로로 남는다 — 어드민 FE 는 큐 쪽으로 옮길 것.
 - 🟢 **상태 단순화** — `UNDER_REVIEW` 없이 SUBMITTED 가 "검토 중"을 겸한다. 심사 담당자 분리/SLA 가 필요해지면 중간 상태 추가.
 
 ---

@@ -1,11 +1,10 @@
 package com.diving.pungdong.profile;
 
+import com.diving.pungdong.certificate.StudentCertificateService;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.account.AccountJpaRepo;
 import com.diving.pungdong.account.ProfilePhoto;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
-import com.diving.pungdong.instructorapplication.InstructorApplicationJpaRepo;
-import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
 import com.diving.pungdong.profile.dto.AccountProfileResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -24,20 +23,19 @@ import java.util.stream.Collectors;
 public class ProfileService {
 
     private final AccountJpaRepo accountRepo;
-    private final InstructorApplicationJpaRepo applicationRepo;
+    private final StudentCertificateService studentCertificateService;
 
     public AccountProfileResponse myProfile(Account currentUser) {
         // @CurrentUser 는 detach 상태일 수 있어 LAZY(profilePhoto) 접근 위해 트랜잭션 안에서 재로드.
         Account account = accountRepo.findById(currentUser.getId()).orElseThrow(ResourceNotFoundException::new);
 
-        List<AccountProfileResponse.CertBadge> certs = applicationRepo
-                .findByAccountIdAndStatus(account.getId(), InstructorApplicationStatus.APPROVED).stream()
-                .flatMap(app -> app.getCertificates().stream()
-                        .map(cert -> AccountProfileResponse.CertBadge.builder()
-                                .disciplineCode(app.getDisciplineCode())
-                                .organizationCode(cert.getOrganizationCode())
-                                .organizationOther(cert.getOrganizationOther())
-                                .build()))
+        // 인증마크 — VERIFIED 자격증에서(2026-08-22 수렴 전엔 승인 신청의 첨부). 형태는 v1 그대로.
+        List<AccountProfileResponse.CertBadge> certs = studentCertificateService.verifiedBadgesOf(account.getId()).stream()
+                .map(b -> AccountProfileResponse.CertBadge.builder()
+                        .disciplineCode(b.getDisciplineCode())
+                        .organizationCode(b.getOrganizationCode())
+                        .organizationOther(b.getOrganizationOther())
+                        .build())
                 .collect(Collectors.toList());
 
         return AccountProfileResponse.builder()

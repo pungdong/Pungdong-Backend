@@ -1,5 +1,7 @@
 package com.diving.pungdong.instructorapplication.dto;
 
+import com.diving.pungdong.certificate.dto.AdminCertificateView;
+
 import com.diving.pungdong.instructorapplication.InstructorApplicationStatus;
 import lombok.*;
 
@@ -20,8 +22,8 @@ public class InstructorApplicationDetail {
     private InstructorApplicationStatus status;
 
     private String disciplineCode;
-    /** 자격증 목록 (단체+이미지). 여러 단체 가능. */
-    private List<ApplicationCertificateDto> certificates;
+    /** 첨부 자격증 — 풀 필드 + 사진 presigned + 검증 상태. 여러 단체 가능. */
+    private List<AdminCertificateView> certificates;
     /** (선택) 다이빙보험 저장 참조 key. 없으면 null. */
     private String insuranceFileKey;
     /** (선택) 보험 이미지 표시용 한시 presigned URL (조회 시점 발급). 없으면 null. */
