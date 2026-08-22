@@ -11,7 +11,7 @@ import java.util.Set;
  * roles)에 프로필 사진 + 자격 뱃지를 더한다. account 기본정보 ⊕ instructorapplication 의 승인 자격을 합성한 응답.
  *
  * <p>career(경력)·rating(평점)은 데이터 모델 부재로 <b>이번 범위 제외</b> — rating 은 V2 Course 리뷰 평균으로 신설
- * 예정, career 는 보류. 자격 {@code level/ratingCode} 도 아직 미저장이라 뺀다(추후 ApplicationCertificate 확장).
+ * 예정, career 는 보류. 자격 {@code level} 은 2026-08-22 수렴으로 저장되지만 뱃지 노출은 v1.5(형태 v1 불변).
  */
 @Getter
 @Builder

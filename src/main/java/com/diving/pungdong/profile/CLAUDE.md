@@ -18,7 +18,7 @@
 
 - **career(경력)** — 저장 필드·온보딩 입력 없음. 보류(추후 'N년차' UI 필요성 재검토).
 - **rating(평점)** — 강사 단위 집계 없음. 리뷰 기능 자체가 **현재 없다**: v1 Review 는 레거시 청산(2026-08-15)으로 삭제됐고 Course 리뷰는 아직 미구현. **Course 리뷰 평균으로 신설 예정(백로그).**
-- **자격 level/ratingCode** — `ApplicationCertificate` 에 아직 없음(주석에 "향후" 명시). 추가되면 `CertBadge` 에 노출.
+- **자격 level** — 2026-08-22 수렴으로 `certificate.StudentCertificate.level` 에 있다(`certs` 출처 = VERIFIED 자격증, `StudentCertificateService.verifiedBadgesOf`). `CertBadge` 노출은 v1.5(형태 v1 불변).
 
 ## 작업 전
 

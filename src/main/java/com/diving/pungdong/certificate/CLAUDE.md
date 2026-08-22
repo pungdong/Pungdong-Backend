@@ -33,7 +33,8 @@
 - **컨트롤러** `StudentCertificateController` — `/certificates/**` (목록 `mine` · 단건 · 등록 · 수정 · 삭제 · 사진업로드). 매처는 `global/security/SecurityConfiguration` 의 `/certificates/**` (메서드 무관 `authenticated` — 새 메서드를 늘려도 그대로 덮인다).
 - **서비스** `StudentCertificateService` — 검증·파생·스냅샷 전부 여기.
 - **엔티티** `StudentCertificate`(+ `@Embedded CertificateVerification`), enum `CertificateSource`(PUNGDONG/EXTERNAL) · `CertificateVerificationStatus/Kind`, 레포 `StudentCertificateJpaRepo`.
-- **검증** `CertificateVerificationService`(Rule A/B/C), `CertificateReview` + `CertificateReviewJpaRepo`(어드민 큐, kind NEW/ADDITIONAL/RE_VERIFY, RE_VERIFY 의 `previous*`), 포트 `InstructorApprovalLookup`.
+- **검증** `CertificateVerificationService`(Rule A/B/C), `CertificateReview` + `CertificateReviewJpaRepo`(어드민 큐, kind NEW/ADDITIONAL/RE_VERIFY, RE_VERIFY 의 `previous*`), 포트 `InstructorApprovalLookup`(레포만 — 검증 서비스가 씀).
+- **어드민 검수 큐** `AdminCertificateReviewController`(`/admin/certificate-reviews/**`, 매처 ADMIN) + `CertificateReviewService`. NEW 행의 승인/반려는 포트 `InstructorApplicationReviewPort` 로 instructorapplication 에 위임. ⚠️ 그 어댑터는 `InstructorApplicationService` 를 끌어오므로 **검증 서비스에서 쓰면 순환** — 검수 큐 서비스만 쓴다.
 - **다른 도메인이 읽는 파생** — `StudentCertificateService.verifiedBadgesOf`(공개 인증마크) · `adminViewsOf`(어드민 상세용 풀 필드 + presigned) · 레포 `findVerifiedOrganizationCodesByAccountIds`(browse 칩).
 - **스토리지** `storage/StudentCertificatePhotoStorage` + `S3…`/`Local…` — `pungdong.storage.s3.enabled` 게이트. **비공개(PII) 등급**.
 - **탈퇴 파기** `StudentCertificateAnonymizationListener` — `account` 의 `AccountAnonymizedEvent` 수신.
@@ -91,4 +92,4 @@
 
 ## 안전망 테스트
 
-`src/test/.../usecase/StudentCertificateUseCaseTest` — 실 H2 + 실 시큐리티 + **실제 로컬 스토리지**(mock 아님). S(성공)/V(검증거절)/**K(검증 Rule A·C)**/R(권한)/A(탈퇴파기). Rule B(신청 제출·승인·반려)는 `InstructorApplicationUseCaseTest` 의 S/J/RB 시리즈. 수강 픽스처는 예약 HTTP 플로우를 안 태우고 repo 로 직접 만든다(검증 대상이 자격증이지 예약이 아니다).
+`src/test/.../usecase/StudentCertificateUseCaseTest` — 실 H2 + 실 시큐리티 + **실제 로컬 스토리지**(mock 아님). S(성공)/V(검증거절)/**K(검증 Rule A·C)**/R(권한)/A(탈퇴파기). Rule B(신청 제출·승인·반려)는 `InstructorApplicationUseCaseTest` 의 S/J/RB 시리즈. 어드민 큐는 `CertificateReviewUseCaseTest`(Q 큐 / P 처리 / R 권한). 수강 픽스처는 예약 HTTP 플로우를 안 태우고 repo 로 직접 만든다(검증 대상이 자격증이지 예약이 아니다).

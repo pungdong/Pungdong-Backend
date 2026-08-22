@@ -753,6 +753,112 @@ export interface AdminCertificateView {
 // (삭제 2026-08-22) AddCertificateRequest · POST /instructor-applications/certificates — 승인된 강사의 추가 자격증은
 //   `POST /certificates` 로 등록하면 BE 가 Rule A 로 PENDING(ADDITIONAL) 큐에 넣는다. FE 호출자 0 확인 후 제거.
 
+// ── 어드민 검수 큐 (certificate review) — 전부 hasRole ADMIN ──
+// docs/features/instructor-onboarding.md §자격증 검증 · docs/architecture/certificate.md
+// ★ 강사 신청(NEW)·승인 종목에 추가된 자격증(ADDITIONAL)·VERIFIED 식별필드 수정 재검수(RE_VERIFY)가 **한 큐**에 섞인다.
+//   ADDITIONAL/RE_VERIFY 는 신청이 APPROVED 인 채로 생겨 `/admin/instructor-applications` 목록(SUBMITTED 단위)엔 **안 보인다**
+//   → 어드민 검수 화면은 이 큐로 옮길 것. approve/reject 는 `reviewId` 하나로 통일(NEW 는 BE 가 신청 승인/반려로 매핑 —
+//   INSTRUCTOR 부여까지 그대로). 기존 `/admin/instructor-applications/**` 는 신청 단위 보조 경로로 남는다.
+
+export type CertificateReviewKind = 'NEW' | 'ADDITIONAL' | 'RE_VERIFY';
+export type CertificateReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+/**
+ * GET /admin/certificate-reviews?status=&page=&size= — PagedModel, 배열은 `_embedded.reviews`(빈 결과면 키 없음), 메타는 `page`.
+ * `status` 생략 시 전체(이력 포함). 기본 정렬 requestedAt desc(서버 고정), size 상한 50/기본 20.
+ */
+export interface CertificateReviewSummary extends HalLinks {
+  reviewId: number;
+  kind: CertificateReviewKind;
+  /** NEW 일 때만. */
+  applicationId: number | null;
+  /** ADDITIONAL/RE_VERIFY 일 때만. */
+  certificateId: number | null;
+  accountId: number;
+  nickName: string;
+  email: string;
+  disciplineCode: string;
+  /** 대상 자격증 단체(중복 제거) — NEW 는 첨부 전부, 나머지는 그 한 장. */
+  organizationCodes: string[];
+  status: CertificateReviewStatus;
+  /** 검수 요청 시각(instant) — NEW 는 제출 시각. */
+  requestedAt: string;
+  reviewedAt: string | null;
+  /**
+   * ★ 승인 ∧ 자격증 필수 종목인데 살아있는 검증({VERIFIED, PENDING}) 강사레벨 자격증이 **0 장** — 마지막 VERIFIED 를
+   *   재검수에 올렸다가 반려된 경우(인정한 구멍). BE 는 자동 회수하지 않는다 → 목록에 경고 뱃지로 띄울 것.
+   */
+  verifiedCertificateMissing: boolean;
+}
+
+/** GET /admin/certificate-reviews/counts — 세 종류 합산. (기존 `/admin/instructor-applications/counts` 는 NEW 만 센다.) */
+export interface CertificateReviewCountsResponse extends HalLinks {
+  pending: number;
+  approved: number;
+  rejected: number;
+  total: number;
+}
+
+/** GET /admin/certificate-reviews/{reviewId} — 종류별로 블록이 다르다. 없으면 -1009. */
+export interface CertificateReviewDetailResponse extends HalLinks {
+  reviewId: number;
+  kind: CertificateReviewKind;
+  status: CertificateReviewStatus;
+  disciplineCode: string;
+  accountId: number;
+  nickName: string;
+  email: string;
+  /** REJECTED 일 때 반려 사유. */
+  reason: string | null;
+  requestedAt: string;
+  reviewedAt: string | null;
+  reviewerNickName: string | null;
+  verifiedCertificateMissing: boolean;
+  /** NEW 만 — 신청 블록(본인확인 PII·보험·첨부 id). 나머지 kind 는 키 없음/null. */
+  application?: ApplicationReviewView | null;
+  /** NEW = 첨부 전부(제출 순서, 삭제된 건 제외) · ADDITIONAL/RE_VERIFY = 그 한 장. */
+  certificates: AdminCertificateView[];
+  /** RE_VERIFY 만 — 최초 VERIFIED 시점의 식별값(대기 중 또 고쳐도 갱신 안 됨). `certificates[0]` 과 나란히 대조 UI. */
+  previous?: CertificateReviewPrevious | null;
+}
+
+export interface ApplicationReviewView {
+  applicationId: number;
+  status: InstructorApplicationStatus;
+  certificateIds: number[];
+  insuranceFileKey: string | null;
+  /** presigned(TTL 3분). */
+  insuranceViewUrl: string | null;
+  realName: string | null;
+  birth: string | null;
+  phoneNumber: string | null;
+  rejectionReason: string | null;
+  createdAt: string | null;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+  reviewerNickName: string | null;
+}
+
+export interface CertificateReviewPrevious {
+  disciplineCode: string | null;
+  organizationCode: string | null;
+  level: CertLevel | null;
+  certificateNumber: string | null;
+}
+
+/**
+ * POST /admin/certificate-reviews/{reviewId}/approve — body 없음. 성공 = 200 `{success:true}` + `_links.review`.
+ *   NEW → 강사 신청 승인(INSTRUCTOR 부여 + 첨부 VERIFIED + 심사 중 올린 강사레벨 sweep → ADDITIONAL 큐).
+ *   ADDITIONAL/RE_VERIFY → 그 자격증 VERIFIED(= 인증마크).
+ * POST /admin/certificate-reviews/{reviewId}/reject — 사유 필수.
+ *   NEW → 신청 REJECTED + 첨부 REJECTED(사유 복사). ADDITIONAL/RE_VERIFY → 그 자격증 REJECTED + 사유.
+ * ★ 이미 처리된 행(APPROVED/REJECTED)에 다시 부르면 400 "이미 처리된 검수 요청이에요."(msg 그대로 노출).
+ */
+export interface CertificateReviewRejectRequest {
+  /** 필수, 최대 1000자. 빈 값 → 400 "반려 사유를 입력해주세요." */
+  reason: string;
+}
+
 /** POST /admin/instructor-applications/{id}/reject 요청. */
 export interface RejectInstructorApplicationRequest {
   reason: string;
