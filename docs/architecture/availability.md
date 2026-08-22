@@ -74,9 +74,10 @@ sequenceDiagram
   participant CR as CoverageRepo
   participant SR as SessionRepo
 
-  Note over I,CR: 열기 — recurrence 전개(ONCE/WEEKLY/FOUR_WEEKS), 각 날 union+머지
-  I->>S: POST /coverage {mode,date,dayOfWeeks?,start,end}
-  S->>S: expandDates(req)
+  Note over I,CR: 열기 — recurrence 전개(ONCE/WEEKLY/FOUR_WEEKS/MONTH) × 시간구간들, 각 날 union+머지
+  I->>S: POST /coverage {mode,date,dayOfWeeks?,timeRanges?,start,end}
+  S->>S: resolveOpenSpans(req) — timeRanges 우선, 없으면 start/end 한 벌
+  S->>S: expandDates(req) — 시작점 = max(오늘, 기간 시작). 0일이면 200 + []
   loop 각 날짜
     S->>M: union(기존, [start,end])
     S->>CR: replaceCoverage(date, 머지결과)
