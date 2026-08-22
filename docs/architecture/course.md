@@ -133,7 +133,7 @@ erDiagram
 |---|---|---|
 | `GET /courses/browse` | **불필요(공개)** | OPEN + **그 종목 승인 강사**의 코스만 노출. 필터(종목·지역·종류·레벨·단체·가격·**강사 닉네임 정확일치**)+검색(제목·강사명 부분일치)+정렬+페이지. **size 상한 50/기본 20**(`PageClamp`). 빈 결과=200. 토큰이 있으면 카드에 `bookmarkedByMe` 가 채워진다(없으면 조용히 false) |
 | `GET /courses/browse?bookmarkedByMe=true` | 선택(토큰 없으면 **빈 페이지**) | 내가 저장한 강의만. **이때만 `disciplineCode` 가 선택** — 저장 목록은 종목 홈이 아니라 마이페이지에서 들어온다 |
-| `GET /courses/{id}/detail` | **불필요(공개)** | **OPEN + "발행 이력이 있는" CLOSED** ∧ 승인 강사 — 그 외 400(존재 숨김). 마감 강의를 읽기 전용으로 여는 이유는 §6 · [features/seo-indexing.md](../features/seo-indexing.md). venue 합성(위치명·입장료·장비). `status`·`bookmarkedByMe`·`bookmarkCount` 인라인 |
+| `GET /courses/{id}/detail` | **불필요(공개)** | **OPEN + "발행 이력이 있는" CLOSED** ∧ 승인 강사 — 그 외 400(존재 숨김). 마감 강의를 읽기 전용으로 여는 이유는 §6 · [features/seo-and-geo.md](../features/seo-and-geo.md). venue 합성(위치명·입장료·장비). `status`·`bookmarkedByMe`·`bookmarkCount` 인라인 |
 | `POST /courses/{courseId}/bookmark` | 필요 | 대상은 **공개 노출되는 강의만**(`CourseService.requirePubliclyVisible` — **행동 축**, OPEN 만) — 비OPEN·차단·미승인 강사는 400(존재 숨김). 상세가 열리는 마감 강의도 **저장은 400**이다. **멱등** |
 | `DELETE /courses/{courseId}/bookmark` | 필요 | 내 저장만 지운다(남의 저장은 조회 자체가 계정으로 좁혀져 닿지 않는다). **멱등** |
 | `POST /courses` | 필요 | instructor=현재 계정. venueRefId 는 내 custom / 캐시된 official 만 |
@@ -161,7 +161,7 @@ erDiagram
   **왜 여는가**: 웹에서 강의 URL 은 판매 화면이기 전에 **색인 자산**이다. 마감과 함께 404 가 되면
   그 페이지가 쌓은 검색 신뢰도가 사라지고 공유 링크가 죽고, 404 가 반복되면 크롤러가 `/courses/*`
   재방문 빈도를 낮춰 **살아있는 다른 강의의 색인까지** 늦어진다 — 즉 "잘 팔릴수록 검색 자산이 줄어드는"
-  구조였다. 정책은 [features/seo-indexing.md](../features/seo-indexing.md).
+  구조였다. 정책은 [features/seo-and-geo.md](../features/seo-and-geo.md).
   ⚠️ **판정은 `CourseStatus` 가 아니라 `published_at` 이다.** 전이가 자유라 **DRAFT→CLOSED 직행**이
   가능하고 그건 한 번도 발행된 적 없는 초안이다(지킬 색인 자산이 없고, 열면 강사가 공개를 선택한 적
   없는 내용이 노출된다). `CLOSED` 를 그대로 게이트로 쓰지 말 것.
@@ -173,7 +173,7 @@ erDiagram
   옛 행은 V37 이 백필했다. 그래서 `CourseCardResponse.createdAt` 이 `types.ts` 에서 **옵셔널을 벗었다**.
   ⚠️ **콜백만으로는 부족해 `update()` 의 명시 호출을 남겨 뒀다** — Hibernate 는 이 행의 스칼라가 더러워질
   때만 `@PreUpdate` 를 부르므로 **회차·미디어(자식 컬렉션)만 바뀐 수정은 콜백이 안 뛴다.** 지우지 말 것.
-  용도는 웹 sitemap 의 `lastmod`(정책은 [features/seo-indexing.md](../features/seo-indexing.md)) — 크롤러가
+  용도는 웹 sitemap 의 `lastmod`(정책은 [features/seo-and-geo.md](../features/seo-and-geo.md)) — 크롤러가
   **바뀐 것만** 다시 가져가게 하는 신호라 근사값이면 충분하다.
 - 🟡 **조치된 강의를 강사에게 알리지 않는다.** 강사는 "왜 아무도 안 들어오지" 를 알 수 없다 — 알림 1종 +
   내 강의 목록 표기가 후속.
