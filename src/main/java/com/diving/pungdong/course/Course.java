@@ -16,8 +16,10 @@ import java.util.Set;
  * (선택)추가세션. 위치는 {@code RoundVenue.venueRefId} 로 참조하고, 위치별 대여 장비는 강사×위치 가격표
  * ({@code venue.equipment})에서 읽기 시점에 합성 — 코스가 장비를 복제하지 않는다.
  *
- * <p>자식 컬렉션은 전량 교체 스냅샷(cascade ALL + orphanRemoval + {@code clearChildren()}/{@code addX()}),
- * Account 단방향 참조(venue/instructor-application 스타일).
+ * <p>자식 컬렉션은 cascade ALL + orphanRemoval 이고 Account 는 단방향 참조(venue/instructor-application
+ * 스타일). 단 <b>수정 시 미디어와 회차가 다르게 움직인다</b> — 미디어는 전량 교체({@link #clearMedia()}),
+ * <b>회차는 행을 재사용</b>한다({@code CourseService.reconcileRounds}). {@code enrollment_round} 가 회차를
+ * FK 로 참조해서, 지웠다 다시 만들면 수강생 있는 강의가 참조 무결성 위반으로 터지기 때문이다(#318).
  */
 @Entity
 @Table(name = "course")
