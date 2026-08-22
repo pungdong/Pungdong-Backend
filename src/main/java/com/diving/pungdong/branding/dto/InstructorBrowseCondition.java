@@ -12,8 +12,8 @@ import java.util.List;
  * 예 "잠실 · 송파")라 {@code venue.Region} 으로 파생할 수 없다. 코스는 위치 주소가 있어 파생되지만
  * 강사에겐 그 신호가 없다. 억지로 파싱하면 둘러보기와 필터의 "지역" 이 갈린다.
  *
- * <p><b>왜 자격 레벨이 없나</b>: 강사 쪽에 등급 필드 자체가 없다({@code CertLevel} 은 코스 전용이고,
- * {@code ApplicationCertificate} 는 단체 코드만 갖는다 — 등급 {@code ratingCode} 는 후속 자리).
+ * <p><b>왜 자격 레벨 필터가 없나</b>: 처음엔 강사 쪽에 등급 필드 자체가 없었다. 2026-08-22 수렴으로 VERIFIED
+ * {@code StudentCertificate.level} 이 생겼지만 필터 축 추가는 v1.5(단체 칩만 낸다).
  */
 @Getter @Setter
 @Builder

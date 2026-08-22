@@ -40,7 +40,7 @@
 | 세션 단체 채팅 (chat) | [chat.md](chat.md) | ✅ (일정 1개 = 방 1개 · **방 PK=일정 id, FK 없음**(일정이 물리 삭제돼도 방 생존) · 상태 파생 · 커서 페이지네이션 + 전송 멱등 · 폴링+FCM) |
 | 수강신청 (enrollment) | [enrollment.md](enrollment.md) | ✅ (booking — availability ∩ venue 교집합 · exact-match join · **선결제**: 신청 → 즉시 결제 → 강사 수락(거절·무응답 시 자동환불)) |
 | 결제 (payment) | [payment.md](payment.md) | ✅ (**PG 중립** — 현재 라이브는 이니시스, 토스/stub 교체 가능 · PG 는 주문에 박제 · 선결제(신청 직후) · 서버 권위 금액 · 승인/환불/콜백 원장 + 대사 스윕) |
-| 학생 보유 자격증 (certificate) | [certificate.md](certificate.md) | ✅ (프로필 "내 자격증" · 사진=비공개 PII presigned · source/holderName/강사 서버 파생 · 표시명 스냅샷 · 수정=PUT 전면교체(사진만 "생략=유지") · 강사신청 자격증과 별개) |
+| 학생 보유 자격증 (certificate) | [certificate.md](certificate.md) | ✅ (프로필 "내 자격증" · 사진=비공개 PII presigned · source/holderName/강사 서버 파생 · 표시명 스냅샷 · 수정=PUT 전면교체(사진만 "생략=유지") · **강사 자격 검증의 정본**(2026-08-22 수렴: `verification` 상태 + Rule A/B/C + 어드민 검수 큐 `/admin/certificate-reviews`, 신청은 id 참조, 공개 인증마크 = VERIFIED)) |
 | **Redis (인프라)** | [redis.md](redis.md) | ✅ (도메인 아님 — JWT 블랙리스트·이메일 코드·venue 캐시 · ⚠️ 테스트 16379 격리 원칙) |
 | **배포 전략 (인프라/프로세스)** | [deployment.md](deployment.md) | ✅ (도메인 아님 — 트렁크 브랜치·build-once/promote·env 격리·피처플래그·prod 수동게이트) |
 | **관측 스택 (인프라/프로세스)** | [observability.md](observability.md) | ✅ (도메인 아님 — CloudWatch+Sentry+Amplitude 결정·왜 ES 아닌가) |
