@@ -241,7 +241,7 @@ public class CourseService {
         return CourseResponse.from(course, equipmentMap(me, course));
     }
 
-    /* ─── 적용(스칼라 + 자식 전량 교체) ─────────────────────── */
+    /* ─── 적용(스칼라·미디어는 교체 / 회차는 재사용) ─────────────────────── */
 
     private void apply(Account me, Course course, CourseCreateRequest req) {
         applyScalars(course, req);
