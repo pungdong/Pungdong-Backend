@@ -45,7 +45,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 공개 조회. 실 H2 + 시큐리티, 위치는 주소를 박은 CUSTOM 으로 seed 해 지역 파생을 검증한다.
  * {@code @DisplayName} 을 위→아래로 읽으면 둘러보기 규칙이 된다.
  *
- * <p>그룹: S* 기본 둘러보기/종목, R* 지역 필터, F* 종류·레벨·단체·가격 필터, Q* 검색, O* 정렬,
+ * <p>그룹: S* 기본 둘러보기/종목, R* 지역 필터, F* 종류·레벨·단체·가격 필터, Q* 검색, N* 강사 축(닉네임),
+ * O* 정렬,
  * P* 페이지 크기 상한·정렬 주입 방어, V* 비노출·빈 결과. 공개라 Authorization 헤더 없이 호출
  * (생성/공개만 강사 토큰).
  */
@@ -359,6 +360,94 @@ class CourseBrowseUseCaseTest {
                 .andExpect(jsonPath("$._embedded.courses", hasSize(2)))
                 .andExpect(jsonPath("$._embedded.courses[*].title",
                         containsInAnyOrder("김민지 강사님 추천 체험", "딥다이빙 트레이닝")));
+    }
+
+    /* ════════════════ N — 강사 축(닉네임 정확 일치) ════════════════ */
+
+    @Test
+    @DisplayName("N1 강사 닉네임을 주면 그 강사의 강의만 남는다")
+    void n1_instructor_nickname_filters() throws Exception {
+        Account minji = account("n1a@pungdong.com", "김민지");
+        Account other = account("n1b@pungdong.com", "박지원");
+        openCourse(minji, trial("입문 체험"), "FREEDIVING", 90000,
+                customRefAt(minji, "잠실 잠수풀", "서울특별시 송파구 올림픽로 25"), null);
+        openCourse(minji, trial("주말 체험"), "FREEDIVING", 95000,
+                customRefAt(minji, "문정 수영장", "서울특별시 송파구 법원로 128"), null);
+        openCourse(other, trial("남의 체험"), "FREEDIVING", 99000,
+                customRefAt(other, "올림픽수영장", "서울특별시 송파구 올림픽로 424"), null);
+
+        browse("?disciplineCode=FREEDIVING&instructorNickName=김민지")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.courses", hasSize(2)))
+                .andExpect(jsonPath("$._embedded.courses[*].title",
+                        containsInAnyOrder("입문 체험", "주말 체험")))
+                .andExpect(jsonPath("$.page.totalElements").value(2));
+    }
+
+    @Test
+    @DisplayName("N2 강사 축은 정확 일치다 — 닉네임이 앞부분만 같은 다른 강사는 안 섞인다")
+    void n2_instructor_nickname_is_exact() throws Exception {
+        Account minji = account("n2a@pungdong.com", "김민지");
+        Account lookalike = account("n2b@pungdong.com", "김민지2");
+        openCourse(minji, trial("본인 체험"), "FREEDIVING", 90000,
+                customRefAt(minji, "잠실 잠수풀", "서울특별시 송파구 올림픽로 25"), null);
+        openCourse(lookalike, trial("남의 체험"), "FREEDIVING", 95000,
+                customRefAt(lookalike, "올림픽수영장", "서울특별시 송파구 올림픽로 424"), null);
+
+        // 검색어(keyword)로 같은 말을 치면 부분일치라 둘 다 잡힌다 — 두 축이 다르다는 게 요점.
+        browse("?disciplineCode=FREEDIVING&keyword=김민지")
+                .andExpect(jsonPath("$._embedded.courses", hasSize(2)));
+
+        browse("?disciplineCode=FREEDIVING&instructorNickName=김민지")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.courses", hasSize(1)))
+                .andExpect(jsonPath("$._embedded.courses[0].title").value("본인 체험"));
+    }
+
+    @Test
+    @DisplayName("N3 강사 축은 검색어와 AND 다 — 그 강사의 강의 중 제목이 맞는 것만 남는다")
+    void n3_instructor_and_keyword_are_anded() throws Exception {
+        Account minji = account("n3a@pungdong.com", "김민지");
+        Account other = account("n3b@pungdong.com", "박지원");
+        openCourse(minji, trial("딥다이빙 트레이닝"), "FREEDIVING", 80000,
+                customRefAt(minji, "잠실 잠수풀", "서울특별시 송파구 올림픽로 25"), null);
+        openCourse(minji, trial("입문 체험"), "FREEDIVING", 90000,
+                customRefAt(minji, "문정 수영장", "서울특별시 송파구 법원로 128"), null);
+        openCourse(other, trial("딥다이빙 특강"), "FREEDIVING", 99000,
+                customRefAt(other, "올림픽수영장", "서울특별시 송파구 올림픽로 424"), null);
+
+        browse("?disciplineCode=FREEDIVING&instructorNickName=김민지&keyword=딥다이빙")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.courses", hasSize(1)))
+                .andExpect(jsonPath("$._embedded.courses[0].title").value("딥다이빙 트레이닝"));
+    }
+
+    @Test
+    @DisplayName("N4 없는 닉네임은 400 이 아니라 빈 페이지다 (종목 코드와 같은 규칙)")
+    void n4_unknown_nickname_is_empty_page() throws Exception {
+        Account me = account("n4@pungdong.com", "김민지");
+        openCourse(me, trial("입문 체험"), "FREEDIVING", 90000,
+                customRefAt(me, "잠실 잠수풀", "서울특별시 송파구 올림픽로 25"), null);
+
+        browse("?disciplineCode=FREEDIVING&instructorNickName=없는강사")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded").doesNotExist())
+                .andExpect(jsonPath("$.page.totalElements").value(0));
+    }
+
+    @Test
+    @DisplayName("N5 강사 축은 다른 필터를 무력화하지 않는다 — 그 강사 강의라도 지역이 다르면 빠진다")
+    void n5_instructor_composes_with_other_filters() throws Exception {
+        Account minji = account("n5@pungdong.com", "김민지");
+        openCourse(minji, trial("서울 체험"), "FREEDIVING", 90000,
+                customRefAt(minji, "잠실 잠수풀", "서울특별시 송파구 올림픽로 25"), null);
+        openCourse(minji, trial("제주 체험"), "FREEDIVING", 95000,
+                customRefAt(minji, "제주 딥풀", "제주특별자치도 서귀포시 중문관광로 72"), null);
+
+        browse("?disciplineCode=FREEDIVING&instructorNickName=김민지&region=JEJU")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.courses", hasSize(1)))
+                .andExpect(jsonPath("$._embedded.courses[0].title").value("제주 체험"));
     }
 
     /* ════════════════ O — 정렬 ════════════════ */

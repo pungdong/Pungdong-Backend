@@ -28,6 +28,18 @@ public class CourseBrowseCondition {
     /** 제목 검색어(선택). */
     private String keyword;
 
+    /**
+     * 강사 닉네임(선택) — <b>정확 일치</b>. "이 강사의 강의만" 으로 좁힌다(강사 카드 "강의 보기").
+     *
+     * <p>{@code keyword} 의 강사명 부분일치와 <b>다른 축</b>이다. 검색어는 사람이 친 말이라 넓게
+     * 잡지만, 이 값은 클라이언트가 카드에서 집어온 <b>한 명</b>이라 넓히면 동명이 섞인다
+     * ({@code "김민지"} 가 {@code "김민지2"} 를 끌어온다). 둘은 AND 로 결합된다.
+     *
+     * <p>없는 닉네임은 400 이 아니라 <b>빈 페이지</b>다(레포 규약 + 닉네임 존재 여부를 상태코드로
+     * 흘리지 않기 위해).
+     */
+    private String instructorNickName;
+
     /** 지역 묶음(선택, 생략=전체). */
     private Region region;
 

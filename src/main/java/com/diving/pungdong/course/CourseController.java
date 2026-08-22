@@ -81,12 +81,17 @@ public class CourseController {
      * <b>단 {@code bookmarkedByMe=true} 일 때는 선택</b>이다 — 그 화면은 종목 홈이 아니라 마이페이지에서
      * 들어오고, 종목으로 좁히면 다른 종목에서 저장한 게 사라져 보인다({@link CourseBrowseCondition} 참고).
      *
+     * <p>{@code instructorNickName} 은 <b>정확 일치</b>로 한 강사의 강의만 남긴다(강사 둘러보기 카드의
+     * "강의 보기" 가 들어오는 경로). {@code keyword} 의 강사명 <i>부분</i>일치와 다른 축이고 AND 로
+     * 묶인다 — 없는 닉네임은 400 이 아니라 빈 페이지다({@link CourseBrowseCondition} 참고).
+     *
      * <p>{@code bookmarkedByMe=true} 는 "저장한 강의" 목록이라 인증이 필요하다 — 비로그인이면 400 이
      * 아니라 <b>빈 페이지</b>다(로그인 안 했으면 저장한 강의가 없는 게 맞는 답이다).
      */
     @GetMapping("/browse")
     public ResponseEntity<?> browse(@RequestParam(required = false) String disciplineCode,
                                     @RequestParam(required = false) String keyword,
+                                    @RequestParam(required = false) String instructorNickName,
                                     @RequestParam(required = false) Region region,
                                     @RequestParam(required = false) List<CourseKind> kinds,
                                     @RequestParam(required = false) List<CertLevel> levels,
@@ -104,6 +109,7 @@ public class CourseController {
         CourseBrowseCondition condition = CourseBrowseCondition.builder()
                 .disciplineCode(disciplineCode)
                 .keyword(keyword)
+                .instructorNickName(instructorNickName)
                 .region(region)
                 .kinds(kinds)
                 .levels(levels)
