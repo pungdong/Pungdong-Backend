@@ -92,6 +92,16 @@ public class ExceptionAdvice {
     }
 
     /**
+     * 수강생 물린 회차 제거 시도(-1024) — 코스 수정이 회차를 줄이는데 그 회차에 신청 기록이 있다. 예전엔
+     * 같은 상황이 참조 무결성 위반으로 500 이 났다(봉투도 아니어서 FE 가 못 잡았다).
+     */
+    @ExceptionHandler(CourseRoundInUseException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public CommonResult courseRoundInUse(CourseRoundInUseException e) {
+        return responseService.getFailResult(Integer.parseInt(getMessage("courseRoundInUse.code")), getMessage("courseRoundInUse.msg"));
+    }
+
+    /**
      * 일정 시간 겹침(-1015) — body 에 <b>겹친 기존 일정 목록</b>({@code conflicts[]})을 더해 FE 가
      * "○○ 14:00–16:00 일정과 겹칩니다" 를 그리고, 강사 캘린더에선 그 일정으로 이동할 수 있게 한다.
      */

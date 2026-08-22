@@ -1902,7 +1902,19 @@ export type CourseStatus = 'DRAFT' | 'OPEN' | 'CLOSED';
 export type MediaKind = 'PHOTO' | 'VIDEO';
 export type RoundKind = 'REGULAR' | 'EXTRA';
 
-/** POST/PUT 요청. 회차 개수는 totalRounds 와 일치해야. CERTIFICATION 은 organizationCode+levels 필수. */
+/**
+ * POST/PUT 요청. 회차 개수는 totalRounds 와 일치해야. CERTIFICATION 은 organizationCode+levels 필수.
+ *
+ * ★ **PUT 은 부분 수정이 아니라 전량 교체다.** 보내지 않은 필드는 지워진다 — 제목 하나만 바꾸더라도
+ *   rounds·media·extraSession 을 전부 다시 실어야 한다. 안전한 방법은 `GET /courses/{id}` 로 받은 값을
+ *   그대로 들고 있다가 바뀐 필드만 덮어써서 통째로 보내는 것.
+ * ★ **편집 prefill 은 `GET /courses/{id}`(강사용) 로 받을 것.** 공개 상세 `GET /courses/{id}/detail` 은
+ *   venue 를 합성해 내려주므로 `venueRefId`·`ticketRef` 원본이 없다 — 그 값으로 폼을 채워 저장하면
+ *   위치·이용권이 깨진다. (자격증 이미지의 `viewUrl` ↔ `fileKey` 와 같은 함정.)
+ * ★ **수강생이 있는 강의도 수정할 수 있다.** 유일한 제약은 *신청 기록이 있는 회차를 없애는 것*
+ *   (회차 수 축소·추가세션 제거) → 400 `COURSE_ROUND_IN_USE`(-1024). 그 외 수정은 전부 통과한다.
+ *   회차를 늘리는 건 언제나 가능하다.
+ */
 export interface CourseCreateRequest {
   title: string;
   kind: CourseKind;
@@ -1950,6 +1962,10 @@ export interface CourseResponse extends HalLinks {
   createdAt?: string;
   updatedAt?: string;
 }
+/**
+ * 회차. `id` 는 **수정해도 보존된다** — (종류, roundIndex) 로 기존 행을 찾아 내용만 갱신하기 때문.
+ * 회차를 늘리면 기존 id 는 그대로고 새 회차만 추가된다. (`media[].id` 는 전량 교체라 매번 바뀐다.)
+ */
 export interface CourseRoundResponse {
   id: number;
   roundKind: RoundKind;
@@ -3299,6 +3315,14 @@ export const ErrorCode = {
    * 나오는 곳: POST /chat/rooms/{roomId}/messages.
    */
   TOO_MANY_REQUESTS: -1023,
+  /**
+   * 수강생이 이미 신청한 회차를 없애려 함 — 강의 수정이 회차 수를 줄이거나 추가세션을 뺐는데,
+   * 사라지는 회차에 신청 기록이 있다 (HTTP 400).
+   * ★ **취소·거절된 수강도 걸린다** — 기록이 남아 있으면 그 회차는 못 지운다. 상태로 판단하지 말 것.
+   * ★ 회차를 줄이는 것 말고 다른 수정(제목·설명·가격·이미지·위치·회차 추가)은 **수강생이 있어도 된다**.
+   * 나오는 곳: PUT /courses/{id}.
+   */
+  COURSE_ROUND_IN_USE: -1024,
 } as const;
 
 /**

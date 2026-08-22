@@ -3,6 +3,7 @@ package com.diving.pungdong.course;
 import com.diving.pungdong.account.Account;
 import com.diving.pungdong.discipline.DisciplineService;
 import com.diving.pungdong.global.advice.exception.BadRequestException;
+import com.diving.pungdong.global.advice.exception.CourseRoundInUseException;
 import com.diving.pungdong.global.advice.exception.ResourceNotFoundException;
 import com.diving.pungdong.global.persistence.PageClamp;
 import com.diving.pungdong.course.dto.CourseBrowseCondition;
@@ -30,8 +31,10 @@ import org.springframework.util.StringUtils;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -59,6 +62,8 @@ public class CourseService {
     private final InstructorSummaryProvider instructorSummaryProvider;
     /** 공개·판매는 그 종목 승인 강사만. 준비(생성·수정·일정)는 게이트하지 않는다. */
     private final InstructorApprovalPolicy instructorApprovalPolicy;
+    /** 회차를 지워도 되는지 수강 쪽에 묻는 seam. 구현은 {@code enrollment} 에 있다 — {@link CourseRoundUsageProbe} 참고. */
+    private final CourseRoundUsageProbe roundUsageProbe;
 
     @Transactional
     public CourseResponse create(Account me, CourseCreateRequest req) {
@@ -69,11 +74,24 @@ public class CourseService {
         return CourseResponse.from(saved, equipmentMap(me, saved));
     }
 
+    /**
+     * 코스 수정 — 스칼라·미디어는 전량 교체, <b>회차는 재사용</b>한다.
+     *
+     * <p><b>왜 회차만 다른가.</b> {@code enrollment_round} 가 {@code course_round} 를 FK 로 참조한다. 예전
+     * 구현은 수정할 때마다 회차를 통째로 지우고 다시 만들었는데, 수강생이 하나라도 있으면 그 삭제가 참조
+     * 무결성 위반으로 <b>500</b> 을 냈다(제목만 바꿔도 터졌다). 이제 (종류, 회차번호)로 기존 행을 찾아
+     * <b>내용만 갱신</b>하므로 회차 id 가 보존되고, 수강 기록이 그대로 살아 있다.
+     *
+     * <p>진짜로 사라지는 회차(회차 수 축소·추가세션 제거)만 삭제하고, 그중 수강 기록이 물린 게 있으면
+     * {@link CourseRoundInUseException}(-1024) 으로 <b>거절</b>한다 — 남의 예약·결제를 BE 가 임의로 정리하지 않는다.
+     */
     @Transactional
     public CourseResponse update(Account me, Long id, CourseCreateRequest req) {
         Course course = requireOwned(me, id);
-        course.clearChildren();
-        apply(me, course, req);
+        applyScalars(course, req);
+        applyMedia(course, req);
+        reconcileRounds(me, course, req);
+        applyFacets(course);
         course.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         return CourseResponse.from(course, equipmentMap(me, course));
     }
@@ -226,6 +244,14 @@ public class CourseService {
     /* ─── 적용(스칼라 + 자식 전량 교체) ─────────────────────── */
 
     private void apply(Account me, Course course, CourseCreateRequest req) {
+        applyScalars(course, req);
+        applyMedia(course, req);
+        reconcileRounds(me, course, req);
+        applyFacets(course);
+    }
+
+    /** 기본정보 — 생성·수정 공통. */
+    private void applyScalars(Course course, CourseCreateRequest req) {
         if (!StringUtils.hasText(req.getTitle())) {
             throw new BadRequestException();
         }
@@ -238,46 +264,94 @@ public class CourseService {
         course.setTotalRounds(req.getTotalRounds());
         course.setDescription(req.getDescription());
         applyKind(course, req);
+    }
 
-        // 미디어
+    /** 미디어 — 전량 교체. 참조자가 없어 지웠다 다시 만들어도 안전하다(회차와 다른 점). */
+    private void applyMedia(Course course, CourseCreateRequest req) {
+        course.clearMedia();
         List<CourseCreateRequest.Media> media = req.getMedia() == null ? List.of() : req.getMedia();
         for (int i = 0; i < media.size(); i++) {
             CourseCreateRequest.Media m = media.get(i);
             course.addMedia(CourseMedia.builder().kind(m.getKind()).url(m.getUrl()).sortOrder(i).build());
         }
+    }
 
-        // 정규 회차 — 개수가 totalRounds 와 일치해야
-        List<CourseCreateRequest.Round> rounds = req.getRounds() == null ? List.of() : req.getRounds();
-        if (rounds.size() != req.getTotalRounds()) {
+    /**
+     * 회차 맞추기 — <b>(종류, 회차번호)로 기존 행을 찾아 재사용</b>하고, 없으면 만들고, 요청에서 사라진 것만 지운다.
+     *
+     * <p>생성 경로에선 기존 회차가 없으니 전부 "만들고" 지날 뿐이라 결과가 예전과 같다. 수정 경로에선 이
+     * 재사용이 핵심이다 — 회차 id 가 보존돼야 {@code enrollment_round} 의 FK 가 살아남는다.
+     *
+     * <p>회차 <b>내부</b>의 위치·이용권({@code RoundVenue})은 그대로 전량 교체한다. 그걸 FK 로 참조하는
+     * 테이블은 없다(수강은 위치를 {@code venueRefId} 문자열로 <b>스냅샷</b>해 둔다) — 그래서 강사가 위치를
+     * 바꿔도 <b>이미 확정된 학생의 예약은 움직이지 않고</b>, 앞으로 잡을 회차의 후보만 바뀐다.
+     */
+    private void reconcileRounds(Account me, Course course, CourseCreateRequest req) {
+        List<CourseCreateRequest.Round> reqRounds = req.getRounds() == null ? List.of() : req.getRounds();
+        if (reqRounds.size() != req.getTotalRounds()) {
             throw new BadRequestException();
         }
-        for (int i = 0; i < rounds.size(); i++) {
-            CourseCreateRequest.Round r = rounds.get(i);
-            CourseRound round = CourseRound.builder()
-                    .roundKind(RoundKind.REGULAR)
-                    .roundIndex(i + 1)
-                    .platformConfirmed(i == 0) // 1회차(첫 만남) = 플랫폼 확정
-                    .description(r.getDescription())
-                    .build();
-            addVenues(me, round, r.getVenues());
-            course.addRound(round);
+
+        List<CourseRound> before = new ArrayList<>(course.getRounds());
+        Map<Integer, CourseRound> regularByIndex = before.stream()
+                .filter(r -> r.getRoundKind() == RoundKind.REGULAR && r.getRoundIndex() != null)
+                .collect(Collectors.toMap(CourseRound::getRoundIndex, r -> r, (a, b) -> a));
+        CourseRound existingExtra = before.stream()
+                .filter(r -> r.getRoundKind() == RoundKind.EXTRA).findFirst().orElse(null);
+
+        // 살아남는 회차는 동일성으로 모은다 — 새 회차는 id 가 전부 null 이라 equals 로 묶으면 서로 겹친다.
+        Set<CourseRound> survivors = Collections.newSetFromMap(new IdentityHashMap<>());
+
+        for (int i = 0; i < reqRounds.size(); i++) {
+            CourseCreateRequest.Round r = reqRounds.get(i);
+            int index = i + 1;
+            CourseRound round = regularByIndex.get(index);
+            if (round == null) {
+                round = CourseRound.builder().roundKind(RoundKind.REGULAR).roundIndex(index).build();
+                course.addRound(round);
+            }
+            round.setPlatformConfirmed(index == 1); // 1회차(첫 만남) = 플랫폼 확정
+            round.setDescription(r.getDescription());
+            replaceVenues(me, round, r.getVenues());
+            survivors.add(round);
         }
 
         // 추가세션(선택) = EXTRA 회차 + 비용 정책
         if (req.getExtraSession() != null) {
             CourseCreateRequest.ExtraSession ex = req.getExtraSession();
-            CourseRound extra = CourseRound.builder()
-                    .roundKind(RoundKind.EXTRA)
-                    .platformConfirmed(false)
-                    .description(ex.getDescription())
-                    .freeCount(ex.getFreeCount())
-                    .perSessionPrice(ex.getPerSessionPrice())
-                    .build();
-            addVenues(me, extra, ex.getVenues());
-            course.addRound(extra);
+            CourseRound extra = existingExtra;
+            if (extra == null) {
+                extra = CourseRound.builder().roundKind(RoundKind.EXTRA).build();
+                course.addRound(extra);
+            }
+            extra.setPlatformConfirmed(false);
+            extra.setDescription(ex.getDescription());
+            extra.setFreeCount(ex.getFreeCount());
+            extra.setPerSessionPrice(ex.getPerSessionPrice());
+            replaceVenues(me, extra, ex.getVenues());
+            survivors.add(extra);
         }
 
-        applyFacets(course);
+        List<CourseRound> gone = before.stream()
+                .filter(r -> !survivors.contains(r))
+                .collect(Collectors.toList());
+        if (!gone.isEmpty()) {
+            requireNotEnrolled(gone);
+            course.removeRounds(gone);
+        }
+        course.sortRounds();
+    }
+
+    /**
+     * 사라지는 회차에 수강 기록이 물려 있으면 거절 — 그냥 두면 DB 가 참조 무결성 위반(500)으로 막는다.
+     * <b>상태를 가리지 않는다</b>: 취소·거절된 수강도 행은 남아 있어 FK 는 그대로 걸린다.
+     */
+    private void requireNotEnrolled(List<CourseRound> gone) {
+        List<Long> ids = gone.stream()
+                .map(CourseRound::getId).filter(java.util.Objects::nonNull).collect(Collectors.toList());
+        if (!roundUsageProbe.inUse(ids).isEmpty()) {
+            throw new CourseRoundInUseException();
+        }
     }
 
     /**
@@ -321,7 +395,12 @@ public class CourseService {
         }
     }
 
-    private void addVenues(Account me, CourseRound round, List<CourseCreateRequest.Venue> venues) {
+    /**
+     * 회차의 위치·이용권을 전량 교체. 재사용된 회차라도 이 자식들은 지웠다 다시 만든다 — 참조자가 없어
+     * 안전하다(수강은 위치를 문자열로 스냅샷해 둔다).
+     */
+    private void replaceVenues(Account me, CourseRound round, List<CourseCreateRequest.Venue> venues) {
+        round.getVenues().clear();
         List<CourseCreateRequest.Venue> list = venues == null ? List.of() : venues;
         for (int i = 0; i < list.size(); i++) {
             CourseCreateRequest.Venue v = list.get(i);

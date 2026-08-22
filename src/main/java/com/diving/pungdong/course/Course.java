@@ -140,9 +140,39 @@ public class Course {
         this.rounds.add(r);
     }
 
-    /** 수정(전량 교체 스냅샷) 전 자식 비우기 — orphanRemoval 로 DB 에서도 제거. */
-    public void clearChildren() {
+    /**
+     * 수정 전 미디어 비우기 — orphanRemoval 로 DB 에서도 제거.
+     *
+     * <p><b>회차와 달리 전량 교체해도 안전하다</b> — {@code course_media} 를 FK 로 참조하는 테이블이 없다.
+     * 회차({@code course_round})는 {@code enrollment_round} 가 참조하므로 지우면 안 되고, 그래서
+     * {@code CourseService.reconcileRounds} 가 행을 <b>재사용</b>한다.
+     */
+    public void clearMedia() {
         this.media.clear();
-        this.rounds.clear();
+    }
+
+    /**
+     * 사라진 회차만 제거 — orphanRemoval 로 DB 에서도 삭제된다. <b>수강 기록이 참조하지 않는 회차만</b>
+     * 넘겨야 한다(호출부가 {@code CourseRoundUsageProbe} 로 먼저 확인한다).
+     *
+     * <p>id 로 비교하지 않고 <b>동일성(identity)</b>으로 지운다 — {@code @EqualsAndHashCode(of = "id")} 라서
+     * 아직 저장 안 된 회차끼리는 id 가 모두 null 이라 서로 "같다"고 판정된다(equals 기반으로 지우면 엉뚱한
+     * 회차가 딸려 나간다).
+     */
+    public void removeRounds(java.util.Collection<CourseRound> gone) {
+        this.rounds.removeIf(existing -> gone.stream().anyMatch(g -> g == existing));
+    }
+
+    /**
+     * 회차 정렬을 DB 적재 순서({@code @OrderBy})와 <b>같게</b> 맞춘다 — 재사용·추가로 리스트 끝에 붙은
+     * 회차 때문에 응답 순서가 뒤바뀌면, 방금 받은 응답과 다시 조회한 결과가 달라진다.
+     */
+    public void sortRounds() {
+        this.rounds.sort(java.util.Comparator
+                .comparing((CourseRound r) -> r.getRoundKind() == null ? "" : r.getRoundKind().name())
+                .thenComparing(CourseRound::getRoundIndex,
+                        java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
+                .thenComparing(CourseRound::getId,
+                        java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())));
     }
 }
