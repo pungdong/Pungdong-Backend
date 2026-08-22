@@ -211,7 +211,7 @@ erDiagram
 
 `CommunityPostCardResponse.updatedAt` — 웹 sitemap 의 `<lastmod>` 용. 예전엔 상세에만 있어서 정확한 값을 얻으려면 **글마다 상세를 한 번 더** 불러야 했고, 그래서 웹이 `createdAt` 으로 때우고 있었다(수정이 반영 안 됨).
 
-⚠️ **본문·제목·분류 수정은 잡지만 미디어·태그만 교체한 경우는 못 잡는다** — 자식 테이블만 바뀌면 `branding_post` 행이 안 더러워져 `@PreUpdate` 가 안 뛴다. 근사면 충분하다는 전제 위에 서 있다(정책은 [features/seo-indexing.md](../features/seo-indexing.md)). 정확도가 필요해지면 `AccountBranding.replaceRecords` 처럼 교체 지점에서 부모를 손으로 찍는 게 정공법이다.
+⚠️ **본문·제목·분류 수정은 잡지만 미디어·태그만 교체한 경우는 못 잡는다** — 자식 테이블만 바뀌면 `branding_post` 행이 안 더러워져 `@PreUpdate` 가 안 뛴다. 근사면 충분하다는 전제 위에 서 있다(정책은 [features/seo-and-geo.md](../features/seo-and-geo.md)). 정확도가 필요해지면 `AccountBranding.replaceRecords` 처럼 교체 지점에서 부모를 손으로 찍는 게 정공법이다.
 
 ### 정렬은 서버가 고정한다
 
