@@ -254,6 +254,7 @@ erDiagram
 - **이용시간 표기 = 이용권 name 의 "(N시간)"** (어드민 입력). 시간블록 자동 파생(`durationHours`)은 **제거** — 6h 블록·5h 이용 같은 운영 사례(딥스테이션 하프권)로 타임 계산이 name 과 어긋나 혼선. 권종은 티켓 카드 추가.
 - **종목 = 코드 문자열 soft-ref**(`discipline.code`). CUSTOM 은 `lockedDisciplineCode` 1개로 강제.
 - **수정 = 전량 교체 스냅샷**(`clearChildren()` + 재구성, orphanRemoval) — instructor-application 재제출과 동일. ⚠️ 단, 이용권은 **`ticketRef`(UUID) 보존**이 필수: 전량교체는 행을 삭제·재삽입해 PK 가 매번 바뀌므로, 코스(`RoundVenueTicket.ticketRef`)·수강신청(`Enrollment.ticketRef`)이 soft-ref 로 가리키던 이용권이 끊긴다. → `VenueTicket.ref`(PK 와 별개 UUID, `@PrePersist` 발급)를 두고, 수정 요청이 기존 `ticketRef` 를 다시 보내면 `VenueService` 가 그 값을 재삽입 행에 그대로 채운다(요청에 없거나 이 위치 소유가 아닌 ref 는 신규로 간주해 새 UUID — ref 주입 불가). unique 제약은 안 둠(UUID 충돌 무시 가능 + delete-before-insert 플러시 순서 회피).
+  ⚠️ **전량 교체를 새 엔티티에 그대로 적용하기 전에 "이 행을 가리키는 게 있나" 부터 볼 것.** 여기 이용권은 **soft-ref**(문자열)라 UUID 보존으로 풀렸지만, **하드 FK** 로 참조되는 자식은 그 방법이 안 통한다 — 삭제 자체가 참조 무결성 위반이다. `course` 의 회차(`course_round` ← `enrollment_round`)가 그래서 **전량 교체를 버리고 행 재사용으로 갔다**([course.md](course.md) §4). 관례를 따르다 수강생 있는 강의가 500 을 내던 사고가 실제로 있었다(2026-08-22, #318).
 - OFFICIAL(Sanity) 도 동형 모델(이용 옵션·daypart·휴무) — 스키마는 `sanity/schemas/venue.ts`.
 
 ## 5. 보안 / 권한 매트릭스
