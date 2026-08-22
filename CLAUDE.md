@@ -27,6 +27,17 @@ JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew test --tests com.diving.pung
 JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew test --tests com.diving.pungdong.account.AccountControllerTest.<methodName>
 ```
 
+⚠️ **`./gradlew test` 는 전부가 아니다 — 스위트가 둘이다.** 기본 `test` 는 hermetic(H2)만 돌리고
+`@Tag("mysql")` 을 **제외**한다. 실 MySQL(Testcontainers) 동시성 검증은 별도 태스크다:
+```
+JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew mysqlTest    # Docker 필요(없으면 skip)
+```
+왜 갈라놨는지는 `build.gradle` 주석(H2 컨텍스트 캐시와 섞이면 공유 mem DB 스키마가 깨진다).
+**여러 도메인이 공유하는 게이트·엔티티 조건을 건드렸으면 `mysqlTest` 도 같이 돌릴 것** —
+안 그러면 로컬 "전부 green" 인데 CI 에서 깨진다(2026-08-22 강사 승인 게이트가 실제로 그랬다:
+좌석 overbooking 동시성 테스트가 승인 안 된 강사로 신청하고 있었는데 기본 스위트는 그걸 안 돌린다).
+**Docker 가 없어도 실패가 아니라 skip 이라, "돌렸다" 와 "검증됐다" 가 다르다.**
+
 Run locally (one-time setup of Docker dependencies + yml files — see Runtime configuration):
 ```
 docker compose up -d
@@ -180,7 +191,7 @@ REST Docs source: `src/docs/asciidoc/api.adoc` (Korean). The `bootJar` task copi
 
 ## CI / Deployment
 
-**CI (tests only)**: `.github/workflows/ci.yml` runs `./gradlew test` on every PR and on push to `master`. Uses JDK 17 / Temurin + gradle dependency caching. Test reports are uploaded as artifacts on failure. The workflow is **light** — no build / asciidoctor / bootJar, just tests (since asciidoctor is fixed but slower).
+**CI (tests only)**: `.github/workflows/ci.yml` runs `./gradlew test` **and then `./gradlew mysqlTest`**(실 MySQL Testcontainers 동시성 — 러너엔 Docker 가 있어 실제로 실행된다) on every PR and on push to `master`. Uses JDK 17 / Temurin + gradle dependency caching. Test reports are uploaded as artifacts on failure. The workflow is **light** — no build / asciidoctor / bootJar, just tests (since asciidoctor is fixed but slower).
 
 **Deploy = manual-button workflow on ECS Fargate.** `.github/workflows/deploy.yml` is a `workflow_dispatch` with three actions — `staging-up` / `staging-down` (Terraform apply/destroy of `infra/envs/staging`, staging is torn down to $0 when idle) and `production-deploy` (ECS task-definition image swap on `plop-prod-svc`, rolling, then an `/actuator/health` check). `.github/workflows/build.yml` builds and pushes the image to ECR. `master` pushes trigger CI tests + build, never a deploy — production is always a deliberate button press with a pinned image tag. The `/deploy` skill (`.claude/skills/deploy/`) drives all of this; read it before deploying. Strategy and rationale: [docs/architecture/deployment.md](docs/architecture/deployment.md).
 
